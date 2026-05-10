@@ -13,7 +13,7 @@ description: "PID 제어기를 순수 함수로 구현하면 이전 상태를 �
 - 제어기 상태를 전역 변수 대신 불변 값으로 전달하면 무엇이 달라지는지 봅니다.
 - 하드웨어 없이 PID 튜닝 로직을 단위 테스트하는 방법을 압니다.
 
-이전 글 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/)와 [불변 데이터와 구조적 공유](/posts/programming/functional/functional-immutable-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)와 [불변 데이터와 구조적 공유](/docs/programming/functional/basics/functional-immutable-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -402,4 +402,4 @@ PID 제어기는 단순해 보이지만 전역 상태를 암묵적으로 들고 
 
 ---
 
-*관련 글: [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [불변 데이터와 구조적 공유](/posts/programming/functional/functional-immutable-data/), [자율주행 센서 파이프라인](/posts/programming/functional/autonomous-sensor-pipeline/), [자율주행 모드 전이를 타입으로 만들기](/posts/programming/functional/autonomous-state-machine/), [ROS2 콜백을 함수형으로](/posts/programming/functional/autonomous-ros2-functional/), [시뮬레이션 회귀 테스트 설계](/posts/programming/functional/autonomous-simulation-regression/)*
+*관련 글: [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [불변 데이터와 구조적 공유](/docs/programming/functional/basics/functional-immutable-data/), [자율주행 센서 파이프라인](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/), [자율주행 모드 전이를 타입으로 만들기](/docs/programming/functional/autonomous/autonomous-state-machine/), [ROS2 콜백을 함수형으로](/docs/programming/functional/autonomous/autonomous-ros2-functional/), [시뮬레이션 회귀 테스트 설계](/docs/programming/functional/autonomous/autonomous-simulation-regression/)*

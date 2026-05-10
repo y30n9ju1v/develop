@@ -14,7 +14,7 @@ description: "로봇의 위치 추정(EKF, UKF)을 액션/계산/데이터로 �
 - `State` 불변 값 전달이 PID 제어기와 어떻게 같은 패턴인지 확인합니다.
 - 하드웨어 없이 위치 추정 로직 전체를 단위 테스트하는 방법을 압니다.
 
-이전 글 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [함수형 PID 제어기](/posts/programming/functional/autonomous-pid-controller/), [함수형 센서 퓨전](/posts/programming/functional/autonomous-sensor-fusion/)을 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [함수형 PID 제어기](/docs/programming/functional/autonomous/autonomous-pid-controller/), [함수형 센서 퓨전](/docs/programming/functional/autonomous/autonomous-sensor-fusion/)을 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -511,7 +511,7 @@ fn replay(
 
 ## PID 제어기와 같은 패턴
 
-[함수형 PID 제어기](/posts/programming/functional/autonomous-pid-controller/) 글에서 `PidState`를 값으로 전달한 것과 완전히 같은 구조입니다.
+[함수형 PID 제어기](/docs/programming/functional/autonomous/autonomous-pid-controller/) 글에서 `PidState`를 값으로 전달한 것과 완전히 같은 구조입니다.
 
 | | PID 제어기 | EKF Localizer |
 |---|---|---|
@@ -537,4 +537,4 @@ fn replay(
 
 ---
 
-*관련 글: [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [함수형 PID 제어기](/posts/programming/functional/autonomous-pid-controller/), [함수형 센서 퓨전](/posts/programming/functional/autonomous-sensor-fusion/), [불변 데이터와 구조적 공유](/posts/programming/functional/functional-immutable-data/), [자율주행 센서 파이프라인](/posts/programming/functional/autonomous-sensor-pipeline/), [시뮬레이션 회귀 테스트 설계](/posts/programming/functional/autonomous-simulation-regression/)*
+*관련 글: [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [함수형 PID 제어기](/docs/programming/functional/autonomous/autonomous-pid-controller/), [함수형 센서 퓨전](/docs/programming/functional/autonomous/autonomous-sensor-fusion/), [불변 데이터와 구조적 공유](/docs/programming/functional/basics/functional-immutable-data/), [자율주행 센서 파이프라인](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/), [시뮬레이션 회귀 테스트 설계](/docs/programming/functional/autonomous/autonomous-simulation-regression/)*

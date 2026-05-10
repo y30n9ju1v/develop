@@ -13,7 +13,7 @@ description: "자율주행 차량의 운행 모드 전이를 enum과 타입스�
 - 컴파일러가 불가능한 상태 전환을 막는 타입스테이트 패턴을 봅니다.
 - 긴급정지 같은 안전 임계 전이를 설계 수준에서 보장하는 방법을 압니다.
 
-이전 글 [함수형으로 상태 기계 만들기](/posts/programming/functional/functional-state-machine/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [함수형으로 상태 기계 만들기](/docs/programming/functional/basics/functional-state-machine/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -323,4 +323,4 @@ fn replay(events: &[ModeEvent]) -> Result<DrivingMode, String> {
 
 ---
 
-*관련 글: [함수형으로 상태 기계 만들기](/posts/programming/functional/functional-state-machine/), [자율주행 센서 파이프라인](/posts/programming/functional/autonomous-sensor-pipeline/), [함수형 센서 퓨전](/posts/programming/functional/autonomous-sensor-fusion/), [함수형 PID 제어기](/posts/programming/functional/autonomous-pid-controller/), [시뮬레이션 회귀 테스트 설계](/posts/programming/functional/autonomous-simulation-regression/)*
+*관련 글: [함수형으로 상태 기계 만들기](/docs/programming/functional/basics/functional-state-machine/), [자율주행 센서 파이프라인](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/), [함수형 센서 퓨전](/docs/programming/functional/autonomous/autonomous-sensor-fusion/), [함수형 PID 제어기](/docs/programming/functional/autonomous/autonomous-pid-controller/), [시뮬레이션 회귀 테스트 설계](/docs/programming/functional/autonomous/autonomous-simulation-regression/)*

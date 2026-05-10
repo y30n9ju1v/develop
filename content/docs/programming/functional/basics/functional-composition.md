@@ -13,7 +13,7 @@ description: "액션/계산/데이터 구분 위에서 작은 함수들을 조�
 - 작은 계산들을 조합해서 복잡한 로직을 만드는 방법을 압니다.
 - 액션/계산/데이터 구분이 컴포지션과 어떻게 연결되는지 봅니다.
 
-이전 글 [코드를 세 가지로 나누면 복잡성이 사라진다](/posts/programming/functional/functional-actions-calculations-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [코드를 세 가지로 나누면 복잡성이 사라진다](/docs/programming/functional/basics/functional-actions-calculations-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -456,11 +456,11 @@ Result<f64> → Result<f64>    모나딕 컴포지션  (실패 전파)
 
 컴포지션을 더 깊이 파고들면 이런 주제들로 이어집니다.
 
-- **계층형 설계**: 어떤 함수가 어떤 함수 위에 쌓여야 하는가 → [계층형 설계](/posts/programming/functional/functional-stratified-design/)
-- **`bind`와 모나드 법칙**: 모나딕 컴포지션의 수학적 배경 → [모나드로 배우는 함수형 에러 처리](/posts/programming/functional/functional-monad-error-handling/)
+- **계층형 설계**: 어떤 함수가 어떤 함수 위에 쌓여야 하는가 → [계층형 설계](/docs/programming/functional/basics/functional-stratified-design/)
+- **`bind`와 모나드 법칙**: 모나딕 컴포지션의 수학적 배경 → [모나드로 배우는 함수형 에러 처리](/docs/programming/functional/basics/functional-monad-error-handling/)
 
 ---
 
-*관련 글: [일급 함수와 클로저](/posts/programming/functional/functional-first-class-functions/), [계층형 설계](/posts/programming/functional/functional-stratified-design/), [모나드로 배우는 함수형 에러 처리](/posts/programming/functional/functional-monad-error-handling/), [Iterator 트레잇 직접 구현하기](/posts/programming/functional/rust-iterator-trait/), [파서 컴비네이터](/posts/programming/functional/functional-parser-combinator/)*
+*관련 글: [일급 함수와 클로저](/docs/programming/functional/basics/functional-first-class-functions/), [계층형 설계](/docs/programming/functional/basics/functional-stratified-design/), [모나드로 배우는 함수형 에러 처리](/docs/programming/functional/basics/functional-monad-error-handling/), [Iterator 트레잇 직접 구현하기](/docs/programming/functional/basics/rust-iterator-trait/), [파서 컴비네이터](/docs/programming/functional/basics/functional-parser-combinator/)*
 
 *참고: Eric Normand, [Grokking Simplicity](https://www.manning.com/books/grokking-simplicity), Manning Publications, 2021*

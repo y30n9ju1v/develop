@@ -78,7 +78,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 
 ### 입문
 
-#### [모나드로 배우는 함수형 에러 처리](/posts/programming/functional/functional-monad-error-handling/)
+#### [모나드로 배우는 함수형 에러 처리](/docs/programming/functional/basics/functional-monad-error-handling/)
 
 > `try-catch` 없이 에러를 다루는 함수형 방식을 처음부터 설명합니다.
 
@@ -92,7 +92,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 
 ### 핵심 시리즈 — Grokking Simplicity
 
-#### 1. [코드를 세 가지로 나누면 복잡성이 사라진다: 액션, 계산, 데이터](/posts/programming/functional/functional-actions-calculations-data/)
+#### 1. [코드를 세 가지로 나누면 복잡성이 사라진다: 액션, 계산, 데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)
 
 > 모든 코드는 액션, 계산, 데이터 중 하나입니다. 이 구분이 시리즈 전체의 출발점입니다.
 
@@ -100,7 +100,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 내가 짜는 코드가 세 가지 중 어디에 속하는지 분류할 수 있습니다
 - **선행 글**: 없음 — 핵심 시리즈의 시작점
 
-#### 2. [일급 함수와 클로저: 함수를 값처럼 다루기](/posts/programming/functional/functional-first-class-functions/)
+#### 2. [일급 함수와 클로저: 함수를 값처럼 다루기](/docs/programming/functional/basics/functional-first-class-functions/)
 
 > 함수를 변수에 저장하고, 인자로 넘기고, 반환할 수 있으면 코드가 어떻게 달라지는지 설명합니다.
 
@@ -108,7 +108,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 컴포지션·DI가 왜 가능한지 메커니즘 수준에서 이해합니다
 - **선행 글**: 1번 (액션/계산/데이터)
 
-#### 3. [함수형 프로그래밍의 심장: 함수 컴포지션](/posts/programming/functional/functional-composition/)
+#### 3. [함수형 프로그래밍의 심장: 함수 컴포지션](/docs/programming/functional/basics/functional-composition/)
 
 > 작은 계산들을 파이프라인으로 연결합니다. 실패할 수 있는 계산들은 모나드로 연결합니다.
 
@@ -116,7 +116,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 계산을 조합해 복잡한 로직을 만들 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 2번 (일급 함수와 클로저)
 
-#### 4. [계층형 설계: 어떤 함수가 어떤 함수 위에 쌓여야 하는가](/posts/programming/functional/functional-stratified-design/)
+#### 4. [계층형 설계: 어떤 함수가 어떤 함수 위에 쌓여야 하는가](/docs/programming/functional/basics/functional-stratified-design/)
 
 > 함수들을 변경 빈도에 따라 계층으로 나눕니다. 의존은 아래 방향으로만 흐릅니다.
 
@@ -124,7 +124,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 어떤 함수를 고쳐도 영향 범위를 예측할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 3번 (함수 컴포지션)
 
-#### 5. [타임라인 다이어그램: 액션의 실행 순서를 추론하는 법](/posts/programming/functional/functional-timeline-diagram/)
+#### 5. [타임라인 다이어그램: 액션의 실행 순서를 추론하는 법](/docs/programming/functional/basics/functional-timeline-diagram/)
 
 > 액션들이 언제, 어떤 순서로 실행되는지 그립니다. 동시성 버그를 코드 전에 발견합니다.
 
@@ -138,7 +138,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 
 선행 글이 적은 순서로 나열했습니다.
 
-#### 1. [불변 데이터와 구조적 공유: 데이터를 안전하게 바꾸는 법](/posts/programming/functional/functional-immutable-data/)
+#### 1. [불변 데이터와 구조적 공유: 데이터를 안전하게 바꾸는 법](/docs/programming/functional/basics/functional-immutable-data/)
 
 > 데이터를 직접 바꾸지 않고 새 값을 만드는 방식이 왜 안전한지, `Arc`와 구조체 업데이트 문법으로 어떻게 표현하는지 설명합니다.
 
@@ -146,7 +146,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 공유 가변 상태를 피하고, 불변 데이터로 계산을 안전하게 구성할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터)
 
-#### 2. [함수형 DI: 모킹 없이 테스트 가능한 코드 만들기](/posts/programming/functional/functional-dependency-injection/)
+#### 2. [함수형 DI: 모킹 없이 테스트 가능한 코드 만들기](/docs/programming/functional/basics/functional-dependency-injection/)
 
 > 액션을 함수 인자로 넘기면 트레잇도, 모킹 프레임워크도 없이 테스트할 수 있습니다.
 
@@ -154,7 +154,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 외부 의존 없이 단위 테스트를 짤 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 2번 (일급 함수와 클로저)
 
-#### 3. [Iterator 트레잇 직접 구현하기: 지연 평가와 컴포지션의 원리](/posts/programming/functional/rust-iterator-trait/)
+#### 3. [Iterator 트레잇 직접 구현하기: 지연 평가와 컴포지션의 원리](/docs/programming/functional/basics/rust-iterator-trait/)
 
 > `map`, `filter`가 왜 느리지 않은지, `Iterator` 트레잇을 직접 구현하며 지연 평가와 zero-cost abstraction의 원리를 이해합니다.
 
@@ -162,7 +162,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 이터레이터 체인이 내부에서 어떻게 작동하는지 이해하고, 나만의 어댑터를 만들 수 있습니다
 - **선행 글**: 3번 (함수 컴포지션)
 
-#### 4. [함수형으로 상태 기계 만들기: enum과 패턴 매칭](/posts/programming/functional/functional-state-machine/)
+#### 4. [함수형으로 상태 기계 만들기: enum과 패턴 매칭](/docs/programming/functional/basics/functional-state-machine/)
 
 > `enum`으로 상태를, 순수 함수로 전이를 표현하면 컴파일러가 빠뜨린 상태를 잡아줍니다.
 
@@ -170,7 +170,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 잘못된 상태 전이를 컴파일 타임에 막는 설계를 할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 4번 (계층형 설계)
 
-#### 5. [async/await와 타임라인: 비동기 액션의 순서 문제](/posts/programming/functional/rust-async-timeline/)
+#### 5. [async/await와 타임라인: 비동기 액션의 순서 문제](/docs/programming/functional/basics/rust-async-timeline/)
 
 > `await` 지점마다 다른 태스크가 끼어들 수 있습니다. 동기 타임라인 원칙이 비동기에서 어떻게 달라지는지 설명합니다.
 
@@ -178,7 +178,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 비동기 코드에서 타임라인을 그리고 경쟁 조건을 사전에 파악할 수 있습니다
 - **선행 글**: 5번 (타임라인 다이어그램), Rust async 기초 권장
 
-#### 6. [온어니언 아키텍처: 액션을 바깥으로, 계산을 안으로](/posts/programming/functional/functional-onion-architecture/)
+#### 6. [온어니언 아키텍처: 액션을 바깥으로, 계산을 안으로](/docs/programming/functional/basics/functional-onion-architecture/)
 
 > 시스템 전체를 동심원으로 배치합니다. 계산이 중심에, 액션이 가장자리에. 액션/계산/데이터·계층형 설계·함수형 DI가 하나의 아키텍처로 합쳐집니다.
 
@@ -186,7 +186,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 시스템 수준에서 액션과 계산을 분리하고, 외부 서비스 교체에 강한 구조를 설계할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 4번 (계층형 설계), 함수형 DI
 
-#### 7. [파서 컴비네이터: 컴포지션 철학의 극적인 응용](/posts/programming/functional/functional-parser-combinator/)
+#### 7. [파서 컴비네이터: 컴포지션 철학의 극적인 응용](/docs/programming/functional/basics/functional-parser-combinator/)
 
 > 작은 파서들을 조합해 복잡한 문법을 처리합니다. 함수 컴포지션, 계층형 설계, 모나드가 한꺼번에 드러나는 패턴입니다.
 
@@ -194,7 +194,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 컴포지션 철학이 실제 문제에 어떻게 적용되는지 체감할 수 있습니다
 - **선행 글**: 3번 (함수 컴포지션), 입문 (모나드)
 
-#### 8. [중복 제거와 추상화의 기준: 언제 함수로 묶고, 언제 그냥 두는가](/posts/programming/functional/functional-abstraction-barrier/)
+#### 8. [중복 제거와 추상화의 기준: 언제 함수로 묶고, 언제 그냥 두는가](/docs/programming/functional/basics/functional-abstraction-barrier/)
 
 > 모든 중복을 제거하면 오히려 코드가 나빠집니다. 우연한 중복과 실질적 중복을 구분하고, 추상화 장벽을 어디에 그어야 하는지 판단하는 기준을 설명합니다.
 
@@ -212,7 +212,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 
 선행 글이 적은 순서로 나열했습니다. 순서대로 읽기를 권장합니다.
 
-#### 1. [자율주행 센서 파이프라인: 액션/계산/데이터로 설계하기](/posts/programming/functional/autonomous-sensor-pipeline/)
+#### 1. [자율주행 센서 파이프라인: 액션/계산/데이터로 설계하기](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/)
 
 > LiDAR 포인트 클라우드를 필터링·클러스터링해 제어 명령으로 변환하는 파이프라인을 액션/계산/데이터로 나눕니다.
 
@@ -220,7 +220,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 하드웨어 없이 센서 처리 로직을 단위 테스트할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터)
 
-#### 2. [함수형 PID 제어기: 상태를 값으로 전달하기](/posts/programming/functional/autonomous-pid-controller/)
+#### 2. [함수형 PID 제어기: 상태를 값으로 전달하기](/docs/programming/functional/autonomous/autonomous-pid-controller/)
 
 > 전역 변수로 관리하던 PID 상태를 불변 구조체로 바꾸면, 같은 입력에 항상 같은 출력이 나오고 로그만으로 임의 시점의 제어 출력을 재현할 수 있습니다.
 
@@ -228,7 +228,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: PID 게인 튜닝 로직을 하드웨어 없이 단위 테스트하고, 주행 로그로 제어 결과를 재현할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 불변 데이터와 구조적 공유, 자율주행 센서 파이프라인
 
-#### 3. [함수형 역기구학: 순수 계산으로 로봇 팔 제어하기](/posts/programming/functional/functional-inverse-kinematics/)
+#### 3. [함수형 역기구학: 순수 계산으로 로봇 팔 제어하기](/docs/programming/functional/autonomous/functional-inverse-kinematics/)
 
 > 로봇 팔의 역기구학(IK)을 액션/계산/데이터로 분리합니다. IK 알고리즘 전체가 순수 함수가 되어 시뮬레이터와 실기기가 코드를 공유하고, 하드웨어 없이 테스트할 수 있습니다.
 
@@ -236,7 +236,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 하드웨어 없이 IK 로직을 완전히 테스트하고, 시뮬레이터에서 검증한 코드를 실기기에 그대로 올릴 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 자율주행 센서 파이프라인
 
-#### 4. [로봇 경로 계획과 불변 데이터: A*를 함수형으로 구현하기](/posts/programming/functional/autonomous-path-planning/)
+#### 4. [로봇 경로 계획과 불변 데이터: A*를 함수형으로 구현하기](/docs/programming/functional/autonomous/autonomous-path-planning/)
 
 > A* 탐색 트리를 `Rc`로 연결된 불변 노드로 구현합니다. 여러 경로 후보가 공통 조상을 복사 없이 공유합니다.
 
@@ -244,7 +244,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 경로 탐색을 재현 가능하게 만들고, 장애물 변화에 안전하게 대응할 수 있습니다
 - **선행 글**: 불변 데이터와 구조적 공유, 자율주행 센서 파이프라인
 
-#### 5. [ROS2 콜백을 함수형으로: 메시지를 데이터로, 핸들러를 계산으로](/posts/programming/functional/autonomous-ros2-functional/)
+#### 5. [ROS2 콜백을 함수형으로: 메시지를 데이터로, 핸들러를 계산으로](/docs/programming/functional/autonomous/autonomous-ros2-functional/)
 
 > ROS2 콜백 안에 로직을 직접 쓰는 대신, 메시지를 도메인 구조체로 변환하고 처리 로직을 순수 함수로 분리합니다.
 
@@ -252,7 +252,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: ROS2 런타임 없이 `cargo test`만으로 노드 로직 전체를 검증할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 함수형 DI, 자율주행 센서 파이프라인
 
-#### 6. [함수형 포인트 클라우드 처리: LiDAR 파이프라인을 순수 계산으로](/posts/programming/functional/functional-point-cloud/)
+#### 6. [함수형 포인트 클라우드 처리: LiDAR 파이프라인을 순수 계산으로](/docs/programming/functional/autonomous/functional-point-cloud/)
 
 > LiDAR 원시 데이터를 다운샘플링·노이즈 제거·클러스터링으로 처리하는 파이프라인을 액션/계산/데이터로 나눕니다. 각 단계가 순수 함수이므로 LiDAR 장비 없이 단계별로 독립 테스트할 수 있습니다.
 
@@ -260,7 +260,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 실차 없이 포인트 클라우드 처리 로직을 단계별로 검증하고, 버그를 로그 파일만으로 재현할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 자율주행 센서 파이프라인
 
-#### 7. [함수형 센서 퓨전: 컴포지션과 추상화 장벽으로 GPS·IMU·카메라 합치기](/posts/programming/functional/autonomous-sensor-fusion/)
+#### 7. [함수형 센서 퓨전: 컴포지션과 추상화 장벽으로 GPS·IMU·카메라 합치기](/docs/programming/functional/autonomous/autonomous-sensor-fusion/)
 
 > 세 종류의 센서 추정치를 신뢰도 가중 평균으로 퓨전하는 파이프라인을 추상화 장벽 3계층으로 설계합니다.
 
@@ -268,7 +268,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 센서가 추가·교체되어도 다른 레이어에 영향이 없는 구조를 만들 수 있습니다
 - **선행 글**: 3번 (함수 컴포지션), 중복 제거와 추상화의 기준, 자율주행 센서 파이프라인
 
-#### 8. [함수형 칼만 필터: predict와 update를 순수 함수로](/posts/programming/functional/autonomous-kalman-filter/)
+#### 8. [함수형 칼만 필터: predict와 update를 순수 함수로](/docs/programming/functional/autonomous/autonomous-kalman-filter/)
 
 > 칼만 필터의 predict/update를 불변 값 전달로 구현합니다. 다중 물체 추적(MOT)까지 센서 없이 테스트하고 로그만으로 임의 프레임을 재현합니다.
 
@@ -276,7 +276,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 추적 알고리즘을 하드웨어 없이 단위 테스트하고, 검출 로그만으로 임의 프레임을 재현할 수 있습니다
 - **선행 글**: 불변 데이터와 구조적 공유, 함수형 센서 퓨전, 자율주행 센서 파이프라인
 
-#### 9. [함수형 오도메트리와 SLAM: 위치 추정을 순수 계산으로](/posts/programming/functional/autonomous-odometry-slam/)
+#### 9. [함수형 오도메트리와 SLAM: 위치 추정을 순수 계산으로](/docs/programming/functional/autonomous/autonomous-odometry-slam/)
 
 > 로봇의 위치 추정(EKF Localization)을 액션/계산/데이터로 분리합니다. PID 제어기와 동일한 패턴으로, `EkfState`를 불변 값으로 전달하면 파티클 필터까지 자연스럽게 확장됩니다.
 
@@ -284,7 +284,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 하드웨어 없이 EKF 로직을 완전히 테스트하고, 이벤트 로그만으로 임의 시점을 재현할 수 있습니다
 - **선행 글**: 함수형 PID 제어기, 함수형 칼만 필터, 함수형 센서 퓨전
 
-#### 10. [자율주행 모드 전이를 타입으로 만들기: 상태 기계 패턴](/posts/programming/functional/autonomous-state-machine/)
+#### 10. [자율주행 모드 전이를 타입으로 만들기: 상태 기계 패턴](/docs/programming/functional/autonomous/autonomous-state-machine/)
 
 > `Manual → Supervised → Autonomous → EmergencyStop` 모드 전이를 `enum`과 타입스테이트 패턴으로 표현합니다.
 
@@ -292,7 +292,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 잘못된 모드 전환을 컴파일러가 원천 차단하는 설계를 할 수 있습니다
 - **선행 글**: 함수형으로 상태 기계 만들기, 함수형 DI, 자율주행 센서 파이프라인
 
-#### 11. [시뮬레이션 회귀 테스트 설계: 시나리오를 데이터로, 파이프라인을 계산으로](/posts/programming/functional/autonomous-simulation-regression/)
+#### 11. [시뮬레이션 회귀 테스트 설계: 시나리오를 데이터로, 파이프라인을 계산으로](/docs/programming/functional/autonomous/autonomous-simulation-regression/)
 
 > 주행 시나리오를 TOML 파일로, 판단 파이프라인을 순수 함수로 만들면 파일 하나 추가만으로 테스트가 늘어납니다. 시뮬레이터 없이 CI에서 수백 가지 엣지 케이스를 검증합니다.
 
@@ -304,7 +304,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 
 자율주행·로봇 시리즈와 독립적입니다. 핵심 시리즈를 마쳤다면 언제든 읽을 수 있습니다.
 
-#### 1. [함수형 셰이더 파이프라인: GPU가 이미 순수 함수로 동작한다](/posts/programming/functional/functional-shader-pipeline/)
+#### 1. [함수형 셰이더 파이프라인: GPU가 이미 순수 함수로 동작한다](/docs/programming/functional/gpu/functional-shader-pipeline/)
 
 > GPU 셰이더는 구조적으로 순수 함수입니다. CPU 쪽 행렬 계산과 파이프라인 설정도 같은 방식으로 나누면, 행렬 버그를 GPU 없이 잡고 CI에서 렌더링 로직을 검증할 수 있습니다.
 
@@ -312,7 +312,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: GPU 렌더링 파이프라인 전체를 액션/계산/데이터로 구조화하고, 렌더링 버그를 하드웨어 없이 재현할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 3번 (함수 컴포지션)
 
-#### 2. [함수형 렌더 그래프: GPU 패스 스케줄링을 순수 계산으로](/posts/programming/functional/functional-render-graph/)
+#### 2. [함수형 렌더 그래프: GPU 패스 스케줄링을 순수 계산으로](/docs/programming/functional/gpu/functional-render-graph/)
 
 > 어떤 렌더 패스를 어떤 순서로 실행할지 결정하는 렌더 그래프를 액션/계산/데이터로 나눕니다. 패스 선언(데이터)과 의존 관계 분석·위상 정렬(계산)이 분리되어, GPU 없이 순환 의존과 실행 순서를 검증할 수 있습니다.
 
@@ -320,7 +320,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 패스를 추가·제거해도 기존 코드를 건드리지 않고, 그래프 로직 전체를 GPU 없이 테스트할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 함수형 셰이더 파이프라인
 
-#### 3. [GPU Compute 셰이더를 함수형으로: GPGPU 파이프라인 설계](/posts/programming/functional/functional-gpu-compute/)
+#### 3. [GPU Compute 셰이더를 함수형으로: GPGPU 파이프라인 설계](/docs/programming/functional/gpu/functional-gpu-compute/)
 
 > 렌더링이 아닌 연산 셰이더(GPGPU)를 액션/계산/데이터로 분리합니다. 포인트 클라우드 처리·이미지 필터·행렬 연산 커널을 CPU 레퍼런스로 먼저 테스트하고 GPU로 옮기면, GPU 없이 로직 버그를 잡고 CI에서 검증할 수 있습니다.
 
@@ -328,7 +328,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: GPU 커널 로직을 하드웨어 없이 단위 테스트하고, 자율주행 포인트 클라우드 처리를 GPU로 가속할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 함수형 셰이더 파이프라인, 함수형 렌더 그래프
 
-#### 4. [함수형 추론 그래프: DNN 추론 파이프라인을 액션/계산/데이터로](/posts/programming/functional/functional-inference-graph/)
+#### 4. [함수형 추론 그래프: DNN 추론 파이프라인을 액션/계산/데이터로](/docs/programming/functional/gpu/functional-inference-graph/)
 
 > ONNX/TensorRT 추론 파이프라인을 렌더 그래프와 동일한 구조로 분리합니다. `LayerDesc`를 선언적 데이터로, 레이어 실행 순서 결정과 전처리·후처리(NMS 포함)를 순수 계산으로, GPU 추론만 액션으로 격리합니다.
 
@@ -336,7 +336,7 @@ description: "액션/계산/데이터 구분부터 온어니언 아키텍처, �
 - **읽고 나면**: 모델 파일·GPU 없이 전처리·후처리·그래프 구성을 테스트하고, 멀티헤드 모델에서 필요한 헤드만 선택 실행할 수 있습니다
 - **선행 글**: 1번 (액션/계산/데이터), 함수형 렌더 그래프, GPU Compute 셰이더를 함수형으로
 
-#### 5. [함수형 병렬 파이프라인: Rayon과 GPU Compute의 역할 분담](/posts/programming/functional/functional-parallel-pipeline/)
+#### 5. [함수형 병렬 파이프라인: Rayon과 GPU Compute의 역할 분담](/docs/programming/functional/gpu/functional-parallel-pipeline/)
 
 > `par_iter()`는 순수 함수에만 안전하게 적용됩니다. 언제 CPU 병렬(Rayon)을 쓰고 언제 GPU Compute를 써야 하는지 기준을 세우고, 자율주행 인식 파이프라인에서 둘을 혼합하는 구조를 봅니다.
 

@@ -13,7 +13,7 @@ description: "함수를 값처럼 저장하고, 넘기고, 반환할 수 있으�
 - 클로저가 일반 함수와 어떻게 다른지 압니다.
 - 함수를 값처럼 다루는 것이 컴포지션, DI와 어떻게 연결되는지 봅니다.
 
-이 글은 [함수 컴포지션](/posts/programming/functional/functional-composition/)과 [함수형 DI](/posts/programming/functional/functional-dependency-injection/)의 개념적 토대입니다. 두 글을 먼저 읽었다면 "왜 그게 가능한가"에 대한 답이 이 글에 있습니다.
+이 글은 [함수 컴포지션](/docs/programming/functional/basics/functional-composition/)과 [함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/)의 개념적 토대입니다. 두 글을 먼저 읽었다면 "왜 그게 가능한가"에 대한 답이 이 글에 있습니다.
 
 ---
 
@@ -136,7 +136,7 @@ fn main() {
 
 ## 컴포지션과의 연결
 
-[함수 컴포지션](/posts/programming/functional/functional-composition/) 글에서 이터레이터 체인을 자유롭게 썼습니다.
+[함수 컴포지션](/docs/programming/functional/basics/functional-composition/) 글에서 이터레이터 체인을 자유롭게 썼습니다.
 
 ```rust
 orders.iter()
@@ -164,7 +164,7 @@ for order in &orders {
 
 ## DI와의 연결
 
-[함수형 DI](/posts/programming/functional/functional-dependency-injection/) 글에서 액션을 함수 인자로 넘겼습니다.
+[함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/) 글에서 액션을 함수 인자로 넘겼습니다.
 
 ```rust
 fn confirm_order(
@@ -267,4 +267,4 @@ fn main() {
 
 ---
 
-*관련 글: [함수 컴포지션](/posts/programming/functional/functional-composition/), [함수형 DI](/posts/programming/functional/functional-dependency-injection/), [Iterator 트레잇 직접 구현하기](/posts/programming/functional/rust-iterator-trait/)*
+*관련 글: [함수 컴포지션](/docs/programming/functional/basics/functional-composition/), [함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/), [Iterator 트레잇 직접 구현하기](/docs/programming/functional/basics/rust-iterator-trait/)*

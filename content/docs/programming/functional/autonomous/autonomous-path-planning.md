@@ -13,7 +13,7 @@ description: "A* 경로 탐색을 불변 데이터 구조로 구현하면, 탐�
 - 경로 트리를 구조적 공유로 표현하는 방법을 봅니다.
 - 여러 목표 지점을 탐색할 때 공통 부분 트리를 재활용하는 설계를 이해합니다.
 
-이전 글 [불변 데이터와 구조적 공유](/posts/programming/functional/functional-immutable-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [불변 데이터와 구조적 공유](/docs/programming/functional/basics/functional-immutable-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -345,4 +345,4 @@ mod tests {
 
 ---
 
-*관련 글: [불변 데이터와 구조적 공유](/posts/programming/functional/functional-immutable-data/), [함수 컴포지션](/posts/programming/functional/functional-composition/), [자율주행 센서 퓨전](/posts/programming/functional/autonomous-sensor-fusion/), [자율주행 센서 파이프라인](/posts/programming/functional/autonomous-sensor-pipeline/), [함수형 PID 제어기](/posts/programming/functional/autonomous-pid-controller/), [시뮬레이션 회귀 테스트 설계](/posts/programming/functional/autonomous-simulation-regression/)*
+*관련 글: [불변 데이터와 구조적 공유](/docs/programming/functional/basics/functional-immutable-data/), [함수 컴포지션](/docs/programming/functional/basics/functional-composition/), [자율주행 센서 퓨전](/docs/programming/functional/autonomous/autonomous-sensor-fusion/), [자율주행 센서 파이프라인](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/), [함수형 PID 제어기](/docs/programming/functional/autonomous/autonomous-pid-controller/), [시뮬레이션 회귀 테스트 설계](/docs/programming/functional/autonomous/autonomous-simulation-regression/)*

@@ -13,7 +13,7 @@ description: "ROS2 콜백 안에 로직을 직접 쓰면 테스트하기 어려�
 - ROS2 없이 노드 로직을 단위 테스트하는 패턴을 이해합니다.
 - 여러 토픽을 구독하는 노드를 함수형으로 설계하는 방법을 봅니다.
 
-이전 글 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/)와 [함수형 DI](/posts/programming/functional/functional-dependency-injection/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)와 [함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -396,4 +396,4 @@ ROS2 노드를 함수형으로 설계하는 핵심 원칙:
 
 ---
 
-*관련 글: [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [함수형 DI](/posts/programming/functional/functional-dependency-injection/), [자율주행 센서 파이프라인](/posts/programming/functional/autonomous-sensor-pipeline/), [함수형 센서 퓨전](/posts/programming/functional/autonomous-sensor-fusion/), [함수형 PID 제어기](/posts/programming/functional/autonomous-pid-controller/), [시뮬레이션 회귀 테스트 설계](/posts/programming/functional/autonomous-simulation-regression/)*
+*관련 글: [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/), [자율주행 센서 파이프라인](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/), [함수형 센서 퓨전](/docs/programming/functional/autonomous/autonomous-sensor-fusion/), [함수형 PID 제어기](/docs/programming/functional/autonomous/autonomous-pid-controller/), [시뮬레이션 회귀 테스트 설계](/docs/programming/functional/autonomous/autonomous-simulation-regression/)*

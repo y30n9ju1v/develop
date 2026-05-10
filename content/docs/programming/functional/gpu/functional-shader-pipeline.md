@@ -13,7 +13,7 @@ description: "GPU 셰이더 파이프라인은 이미 액션/계산/데이터 �
 - CPU 쪽 파이프라인 설정 코드를 액션/계산/데이터로 나누는 방법을 봅니다.
 - 셰이더 파라미터 계산을 GPU 없이 테스트하는 방법을 이해합니다.
 
-이전 글 [액션, 계산, 데이터](/posts/programming/functional/functional-actions-calculations-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션, 계산, 데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -396,4 +396,4 @@ GPU 셰이더가 이미 순수 함수인 것처럼, CPU 쪽 설정 코드도 같
 
 ---
 
-*관련 글: [액션, 계산, 데이터](/posts/programming/functional/functional-actions-calculations-data/), [함수 컴포지션](/posts/programming/functional/functional-composition/), [함수형 역기구학](/posts/programming/functional/functional-inverse-kinematics/)*
+*관련 글: [액션, 계산, 데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [함수 컴포지션](/docs/programming/functional/basics/functional-composition/), [함수형 역기구학](/docs/programming/functional/autonomous/functional-inverse-kinematics/)*

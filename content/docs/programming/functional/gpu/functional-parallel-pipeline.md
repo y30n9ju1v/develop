@@ -14,7 +14,7 @@ description: "Rayon의 par_iter()는 함수형 패턴과 자연스럽게 맞습�
 - 둘을 혼합한 파이프라인에서도 액션/계산/데이터 분리가 유지되는 구조를 봅니다.
 - 자율주행 인식 파이프라인을 예제로 구체적인 분기점을 확인합니다.
 
-이전 글 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [GPU Compute 셰이더를 함수형으로](/posts/programming/functional/functional-gpu-compute/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [GPU Compute 셰이더를 함수형으로](/docs/programming/functional/gpu/functional-gpu-compute/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -33,7 +33,7 @@ let results: Vec<_> = points.par_iter().map(|p| process(p)).collect();
 
 `par_iter()`가 안전하게 병렬 실행되는 조건은 딱 하나입니다. **`process`가 순수 함수여야 합니다.** 공유 가변 상태가 없어야 하고, 입력만 보고 출력을 결정해야 합니다.
 
-이것이 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/)와 직결되는 이유입니다. 계산(순수 함수)은 병렬 실행해도 안전합니다. 액션(부수효과)은 순서가 중요해서 병렬 실행 시 버그가 생깁니다.
+이것이 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)와 직결되는 이유입니다. 계산(순수 함수)은 병렬 실행해도 안전합니다. 액션(부수효과)은 순서가 중요해서 병렬 실행 시 버그가 생깁니다.
 
 ```rust
 // 계산 → par_iter() 안전
@@ -635,4 +635,4 @@ Rayon은 함수형 패턴의 자연스러운 연장입니다. 순수 함수를 �
 
 ---
 
-*관련 글: [액션, 계산, 데이터](/posts/programming/functional/functional-actions-calculations-data/), [GPU Compute 셰이더를 함수형으로](/posts/programming/functional/functional-gpu-compute/), [함수형 포인트 클라우드 처리](/posts/programming/functional/functional-point-cloud/), [함수형 DI](/posts/programming/functional/functional-dependency-injection/)*
+*관련 글: [액션, 계산, 데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [GPU Compute 셰이더를 함수형으로](/docs/programming/functional/gpu/functional-gpu-compute/), [함수형 포인트 클라우드 처리](/docs/programming/functional/autonomous/functional-point-cloud/), [함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/)*

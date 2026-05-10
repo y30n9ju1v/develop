@@ -13,7 +13,7 @@ description: "enum과 패턴 매칭으로 상태 전이를 표현하면, 컴파�
 - 잘못된 상태 전이를 런타임이 아니라 컴파일 타임에 막는 방법을 압니다.
 - 함수형 설계 원칙(계산/액션 분리)이 상태 기계에 어떻게 적용되는지 봅니다.
 
-이전 글 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/)와 [계층형 설계](/posts/programming/functional/functional-stratified-design/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)와 [계층형 설계](/docs/programming/functional/basics/functional-stratified-design/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -312,4 +312,4 @@ fn main() {
 
 ---
 
-*관련 글: [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [계층형 설계](/posts/programming/functional/functional-stratified-design/), [함수형 DI](/posts/programming/functional/functional-dependency-injection/), [자율주행 모드 전이를 타입으로 만들기](/posts/programming/functional/autonomous-state-machine/)*
+*관련 글: [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [계층형 설계](/docs/programming/functional/basics/functional-stratified-design/), [함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/), [자율주행 모드 전이를 타입으로 만들기](/docs/programming/functional/autonomous/autonomous-state-machine/)*

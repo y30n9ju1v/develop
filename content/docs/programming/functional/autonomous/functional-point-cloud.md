@@ -13,7 +13,7 @@ description: "LiDAR 원시 데이터를 다운샘플링·노이즈 제거·클�
 - 각 처리 단계(다운샘플링, 노이즈 제거, 클러스터링)가 왜 순수 계산인지 봅니다.
 - 하드웨어 없이 파이프라인 전체를 테스트하는 방법을 이해합니다.
 
-이전 글 [액션, 계산, 데이터](/posts/programming/functional/functional-actions-calculations-data/)와 [자율주행 센서 파이프라인](/posts/programming/functional/autonomous-sensor-pipeline/)을 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션, 계산, 데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)와 [자율주행 센서 파이프라인](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/)을 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -448,4 +448,4 @@ fn run_pipeline_with_logging(
 
 ---
 
-*관련 글: [액션, 계산, 데이터](/posts/programming/functional/functional-actions-calculations-data/), [자율주행 센서 파이프라인](/posts/programming/functional/autonomous-sensor-pipeline/), [함수형 센서 퓨전](/posts/programming/functional/autonomous-sensor-fusion/), [함수형 렌더 그래프](/posts/programming/functional/functional-render-graph/)*
+*관련 글: [액션, 계산, 데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [자율주행 센서 파이프라인](/docs/programming/functional/autonomous/autonomous-sensor-pipeline/), [함수형 센서 퓨전](/docs/programming/functional/autonomous/autonomous-sensor-fusion/), [함수형 렌더 그래프](/docs/programming/functional/gpu/functional-render-graph/)*

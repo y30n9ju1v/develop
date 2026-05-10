@@ -13,7 +13,7 @@ description: "map, filter, take가 왜 느리지 않은지, 이터레이터를 �
 - 왜 이터레이터 체인이 중간 컬렉션을 만들지 않는지 압니다.
 - 컴포지션이 왜 Rust에서 "공짜"인지 이해합니다.
 
-이전 글 [함수 컴포지션](/posts/programming/functional/functional-composition/)에서 이터레이터 체인을 자유롭게 썼습니다. 이 글은 그 안에서 무슨 일이 일어나는지 들여다봅니다.
+이전 글 [함수 컴포지션](/docs/programming/functional/basics/functional-composition/)에서 이터레이터 체인을 자유롭게 썼습니다. 이 글은 그 안에서 무슨 일이 일어나는지 들여다봅니다.
 
 ---
 
@@ -307,4 +307,4 @@ for n in 1..=1000 {
 
 ---
 
-*관련 글: [함수 컴포지션](/posts/programming/functional/functional-composition/), [일급 함수와 클로저](/posts/programming/functional/functional-first-class-functions/), [함수형 DI](/posts/programming/functional/functional-dependency-injection/)*
+*관련 글: [함수 컴포지션](/docs/programming/functional/basics/functional-composition/), [일급 함수와 클로저](/docs/programming/functional/basics/functional-first-class-functions/), [함수형 DI](/docs/programming/functional/basics/functional-dependency-injection/)*

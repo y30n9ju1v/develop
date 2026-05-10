@@ -13,7 +13,7 @@ description: "동기 코드에서 다룬 타임라인 문제가 async/await에�
 - `async/await`가 액션의 실행 순서를 어떻게 바꾸는지 압니다.
 - 비동기 코드에서 계산/액션 구분을 어떻게 유지하는지 봅니다.
 
-이전 글 [타임라인 다이어그램](/posts/programming/functional/functional-timeline-diagram/)을 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [타임라인 다이어그램](/docs/programming/functional/basics/functional-timeline-diagram/)을 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -293,4 +293,4 @@ fn calculate_total(price: f64, stock: u32, discount: f64) -> f64 {
 
 ---
 
-*관련 글: [타임라인 다이어그램](/posts/programming/functional/functional-timeline-diagram/), [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [온어니언 아키텍처](/posts/programming/functional/functional-onion-architecture/), [불변 데이터와 구조적 공유](/posts/programming/functional/functional-immutable-data/)*
+*관련 글: [타임라인 다이어그램](/docs/programming/functional/basics/functional-timeline-diagram/), [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [온어니언 아키텍처](/docs/programming/functional/basics/functional-onion-architecture/), [불변 데이터와 구조적 공유](/docs/programming/functional/basics/functional-immutable-data/)*

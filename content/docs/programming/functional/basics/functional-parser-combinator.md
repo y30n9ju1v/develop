@@ -13,7 +13,7 @@ description: "작은 파서들을 조합해 복잡한 문법을 처리합니다.
 - 작은 파서들을 직접 만들고 조합해서 실용적인 파서를 완성합니다.
 - 파서도 계산임을 이해하고, 테스트가 왜 쉬운지 봅니다.
 
-이전 글 [함수 컴포지션](/posts/programming/functional/functional-composition/)과 [모나드로 배우는 함수형 에러 처리](/posts/programming/functional/functional-monad-error-handling/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [함수 컴포지션](/docs/programming/functional/basics/functional-composition/)과 [모나드로 배우는 함수형 에러 처리](/docs/programming/functional/basics/functional-monad-error-handling/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -273,4 +273,4 @@ DB도, 파일도, 외부 서비스도 없습니다. 입력 문자열만 있으�
 
 ---
 
-*관련 글: [함수 컴포지션](/posts/programming/functional/functional-composition/), [모나드로 배우는 함수형 에러 처리](/posts/programming/functional/functional-monad-error-handling/), [계층형 설계](/posts/programming/functional/functional-stratified-design/)*
+*관련 글: [함수 컴포지션](/docs/programming/functional/basics/functional-composition/), [모나드로 배우는 함수형 에러 처리](/docs/programming/functional/basics/functional-monad-error-handling/), [계층형 설계](/docs/programming/functional/basics/functional-stratified-design/)*

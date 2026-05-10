@@ -13,7 +13,7 @@ description: "LiDAR와 카메라 데이터를 처리하는 자율주행 파이�
 - 하드웨어 없이도 파이프라인 로직을 단위 테스트하는 방법을 이해합니다.
 - 시뮬레이터와 실차를 같은 계산 코드로 구동하는 설계를 볼 수 있습니다.
 
-이전 글 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
+이전 글 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)를 먼저 읽으면 더 자연스럽게 이어집니다.
 
 ---
 
@@ -305,4 +305,4 @@ fn run_pipeline_generic(source: &dyn LidarSource, desired_velocity: f32) -> Cont
 
 ---
 
-*관련 글: [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [함수 컴포지션](/posts/programming/functional/functional-composition/), [자율주행 모드 전이를 타입으로 만들기](/posts/programming/functional/autonomous-state-machine/), [함수형 센서 퓨전](/posts/programming/functional/autonomous-sensor-fusion/), [로봇 경로 계획과 불변 데이터](/posts/programming/functional/autonomous-path-planning/), [ROS2 콜백을 함수형으로](/posts/programming/functional/autonomous-ros2-functional/), [시뮬레이션 회귀 테스트 설계](/posts/programming/functional/autonomous-simulation-regression/)*
+*관련 글: [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [함수 컴포지션](/docs/programming/functional/basics/functional-composition/), [자율주행 모드 전이를 타입으로 만들기](/docs/programming/functional/autonomous/autonomous-state-machine/), [함수형 센서 퓨전](/docs/programming/functional/autonomous/autonomous-sensor-fusion/), [로봇 경로 계획과 불변 데이터](/docs/programming/functional/autonomous/autonomous-path-planning/), [ROS2 콜백을 함수형으로](/docs/programming/functional/autonomous/autonomous-ros2-functional/), [시뮬레이션 회귀 테스트 설계](/docs/programming/functional/autonomous/autonomous-simulation-regression/)*

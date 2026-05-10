@@ -13,7 +13,7 @@ description: "데이터를 직접 바꾸지 않고 새 값을 만드는 방식�
 - 불변 데이터와 구조적 공유가 무엇인지, 어떻게 동작하는지 압니다.
 - Rust에서 불변 데이터를 표현하는 패턴을 익힙니다.
 
-이전 글 [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/)에서 데이터는 "언제 만들어도, 얼마나 복사해도 문제없다"고 했습니다. 이 글은 그 말이 어떻게 성립하는지 들여다봅니다.
+이전 글 [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/)에서 데이터는 "언제 만들어도, 얼마나 복사해도 문제없다"고 했습니다. 이 글은 그 말이 어떻게 성립하는지 들여다봅니다.
 
 ---
 
@@ -265,4 +265,4 @@ fn total_after_discount(prices: &[f64], rate: f64) -> f64 {
 
 ---
 
-*관련 글: [액션/계산/데이터](/posts/programming/functional/functional-actions-calculations-data/), [타임라인 다이어그램](/posts/programming/functional/functional-timeline-diagram/), [함수 컴포지션](/posts/programming/functional/functional-composition/), [온어니언 아키텍처](/posts/programming/functional/functional-onion-architecture/), [로봇 경로 계획과 불변 데이터](/posts/programming/functional/autonomous-path-planning/), [함수형 PID 제어기](/posts/programming/functional/autonomous-pid-controller/)*
+*관련 글: [액션/계산/데이터](/docs/programming/functional/basics/functional-actions-calculations-data/), [타임라인 다이어그램](/docs/programming/functional/basics/functional-timeline-diagram/), [함수 컴포지션](/docs/programming/functional/basics/functional-composition/), [온어니언 아키텍처](/docs/programming/functional/basics/functional-onion-architecture/), [로봇 경로 계획과 불변 데이터](/docs/programming/functional/autonomous/autonomous-path-planning/), [함수형 PID 제어기](/docs/programming/functional/autonomous/autonomous-pid-controller/)*
