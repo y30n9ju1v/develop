@@ -10,3 +10,4 @@ title: "자율주행"
 2. **[OpenDRIVE 입문](opendrive-for-beginners/)** — 시뮬레이터용 도로 포맷 OpenDRIVE의 구조(Road, Lane, planView, Junction)를 이해합니다.
 3. **[OpenDRIVE vs Lanelet2 비교](opendrive-vs-lanelet2/)** — 두 포맷의 설계 철학, 강점, 사용처를 나란히 비교하고 선택 기준을 정리합니다.
 4. **[OpenSCENARIO 입문](openscenario-for-beginners/)** — 자율주행 테스트 시나리오를 표준 XML로 기술하는 OpenSCENARIO의 구조와 사용법을 익힙니다.
+5. **[카메라 모델 입문](camera-models-for-beginners/)** — 핀홀·피쉬아이 카메라 모델의 원리, 렌즈 왜곡, 왜곡 보정을 다룹니다.
