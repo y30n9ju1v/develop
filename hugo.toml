@@ -7,3 +7,14 @@ theme = "hextra"
   home = ["HTML"]
   page = ["HTML"]
   section = ["HTML", "RSS"]
+
+[params.math]
+  enable = true
+  engine = "katex"
+
+[markup.goldmark.extensions.passthrough]
+  enable = true
+
+[markup.goldmark.extensions.passthrough.delimiters]
+  block = [["$$", "$$"]]
+  inline = [["$", "$"]]
