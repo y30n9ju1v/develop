@@ -19,22 +19,6 @@ CARLA, SUMO, IPG CarMaker, Vires VTD 등 대부분의 주요 시뮬레이터가 
 
 ---
 
-## Lanelet2와 무엇이 다른가요?
-
-둘 다 HD 맵이지만 설계 철학이 다릅니다.
-
-| | OpenDRIVE | Lanelet2 |
-|---|---|---|
-| 중심 개념 | 도로(Road)와 차선(Lane) | 차선 구간(Lanelet) |
-| 도로 형상 표현 | 수학 곡선 (클로소이드 등) | GPS 좌표 점들의 나열 |
-| 강점 | 정밀한 기하 표현, 시뮬레이터 호환성 | ROS 생태계 연동, 경로 계획 |
-| 주요 사용처 | CARLA, SUMO, 상용 시뮬레이터 | Autoware, Apollo |
-| 표준 관리 | ASAM | 오픈소스 (FZI) |
-
-간단히 말하면 OpenDRIVE는 **"도로를 어떻게 그리는가"**에 강하고, Lanelet2는 **"도로에서 어떻게 주행하는가"**에 강합니다.
-
----
-
 ## 핵심 개념: Road와 Lane
 
 ### Road (도로)
