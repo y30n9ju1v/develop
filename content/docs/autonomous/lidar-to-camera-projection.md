@@ -34,14 +34,14 @@ Lanelet2 투영 글과 파이프라인이 동일합니다. 차이는 투영할 �
 
 좌표계 글에서 배운 흐름입니다. LiDAR 포인트는 **LiDAR 좌표계**에서 시작합니다.
 
-$$\underbrace{P_{\text{lidar}}}_{\text{LiDAR 좌표계}} \xrightarrow{T_{\text{lidar→cam}}} \underbrace{P_{\text{cam}}}_{\text{Camera 좌표계}} \xrightarrow{K} \underbrace{(u, v)}_{\text{픽셀 좌표}}$$
+$$\underbrace{P_{\text{lidar}}}_{\text{LiDAR 좌표계}} \xrightarrow{T_{\text{lidar}\to\text{cam}}} \underbrace{P_{\text{cam}}}_{\text{Camera 좌표계}} \xrightarrow{K} \underbrace{(u, v)}_{\text{픽셀 좌표}}$$
 
-$T_{\text{lidar→cam}}$은 두 단계의 합성입니다:
+$T_{\text{lidar}\to\text{cam}}$은 두 단계의 합성입니다:
 
-$$T_{\text{lidar→cam}} = T_{\text{ego→cam}} \cdot T_{\text{lidar→ego}}$$
+$$T_{\text{lidar}\to\text{cam}} = T_{\text{ego}\to\text{cam}} \cdot T_{\text{lidar}\to\text{ego}}$$
 
-- $T_{\text{lidar→ego}}$: LiDAR 장착 위치/방향 (Extrinsic Calibration)
-- $T_{\text{ego→cam}}$: 카메라 장착 위치/방향 (Extrinsic Calibration)
+- $T_{\text{lidar}\to\text{ego}}$: LiDAR 장착 위치/방향 (Extrinsic Calibration)
+- $T_{\text{ego}\to\text{cam}}$: 카메라 장착 위치/방향 (Extrinsic Calibration)
 
 > **Lanelet2 투영과의 차이**: Lanelet2 글에서는 World → Ego → Camera 경로를 썼습니다. 이번에는 LiDAR가 이미 차량(Ego)에 붙어 있으므로 LiDAR → Ego → Camera 경로를 씁니다. 구조는 동일하고 출발 좌표계만 다릅니다.
 
@@ -344,7 +344,7 @@ rospy.spin()
 
 | 단계 | 핵심 |
 |---|---|
-| **LiDAR → Camera 변환** | $T_{\text{lidar→cam}} = T_{\text{ego→cam}} \cdot T_{\text{lidar→ego}}$ |
+| **LiDAR → Camera 변환** | $T_{\text{lidar}\to\text{cam}} = T_{\text{ego}\to\text{cam}} \cdot T_{\text{lidar}\to\text{ego}}$ |
 | **깊이 필터링** | Camera Z ≤ 0인 점은 반드시 제거 |
 | **Intrinsic 투영** | $u = f_x(X/Z) + c_x$, $v = f_y(Y/Z) + c_y$ |
 | **Depth 컬러링** | depth → HSV Hue 매핑. 가까울수록 따뜻한 색(빨강), 멀수록 차가운 색(파랑) |

@@ -397,9 +397,9 @@ pts_2d, _ = cv2.projectPoints(
 
 | 단계 | 수식 | 코드 |
 |---|---|---|
-| World → Ego | $T_{\text{w→e}}$ (차량 위치/방향의 역변환) | `T_world_to_ego` |
-| Ego → Camera | $T_{\text{e→c}}$ (카메라 장착 위치 + 축 변환) | `T_ego_to_cam` |
-| 합성 변환 | $T_{\text{w→c}} = T_{\text{e→c}} \cdot T_{\text{w→e}}$ | `T_ego_to_cam @ T_world_to_ego` |
+| World → Ego | $T_{\text{w}\to\text{e}}$ (차량 위치/방향의 역변환) | `T_world_to_ego` |
+| Ego → Camera | $T_{\text{e}\to\text{c}}$ (카메라 장착 위치 + 축 변환) | `T_ego_to_cam` |
+| 합성 변환 | $T_{\text{w}\to\text{c}} = T_{\text{e}\to\text{c}} \cdot T_{\text{w}\to\text{e}}$ | `T_ego_to_cam @ T_world_to_ego` |
 | Camera → 픽셀 | $u = f_x(X/Z)+c_x,\ v = f_y(Y/Z)+c_y$ | `K[0,0]*(X/Z)+K[0,2]` |
 
 이론 글에서 분리되어 있던 개념들이 단 하나의 파이프라인으로 합쳐집니다. 각 행렬이 어떤 역할을 하는지 이해하면, 카메라를 교체하거나 차량이 바뀌어도 해당 파라미터만 업데이트하면 됩니다.
