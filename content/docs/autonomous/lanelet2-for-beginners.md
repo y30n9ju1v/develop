@@ -101,7 +101,13 @@ Lanelet이 선형 구간을 표현한다면, Area는 **면적으로 된 공간**
 
 ---
 
-## 전체 구조 한눈에 보기
+## 전체 구조 한눈에 보기 (3계층 아키텍처)
+
+Lanelet2 맵은 데이터를 논리적으로 분리하기 위해 **3계층(Layer) 구조**를 가집니다.
+
+1. **Physical Layer**: `Point`, `LineString`처럼 도로의 실제 물리적 형상을 표현
+2. **Relational Layer**: `Lanelet`, `Area`, `RegulatoryElement`처럼 차선과 교통 규칙의 관계를 표현
+3. **Topological Layer**: 차량이 실제로 이동할 수 있는 경로를 연결한 **Routing Graph**(경로 그래프)
 
 ```
 Map

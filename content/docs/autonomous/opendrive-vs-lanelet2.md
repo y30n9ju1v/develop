@@ -341,6 +341,9 @@ opendrive2lanelet --opendrive input.xodr --lanelet2 output.osm
 
 > **주의**: `opendrive2lanelet` 패키지는 현재 활발히 유지보수되지 않습니다. 2025년 기준 가장 현실적인 변환 방법은 MathWorks RoadRunner에서 두 포맷을 모두 내보내거나, CARLA 맵을 기준으로 각각 내보내는 방식입니다.
 
+> **미래 동향: ASAM OpenHDMap**
+> 최근 ASAM에서는 이 두 포맷의 복잡한 변환 문제를 해결하고 장점만을 통합하기 위해 **ASAM OpenHDMap**이라는 새로운 표준 규격을 제정하는 프로젝트를 진행 중입니다.
+
 ---
 
 ## 무엇을 선택해야 할까요?
