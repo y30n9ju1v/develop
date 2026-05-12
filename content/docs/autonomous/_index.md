@@ -11,3 +11,4 @@ title: "자율주행"
 3. **[OpenDRIVE vs Lanelet2 비교](opendrive-vs-lanelet2/)** — 두 포맷의 설계 철학, 강점, 사용처를 나란히 비교하고 선택 기준을 정리합니다.
 4. **[OpenSCENARIO 입문](openscenario-for-beginners/)** — 자율주행 테스트 시나리오를 표준 XML로 기술하는 OpenSCENARIO의 구조와 사용법을 익힙니다.
 5. **[카메라 모델 입문](camera-models-for-beginners/)** — 핀홀·피쉬아이 카메라 모델의 원리, 렌즈 왜곡, 왜곡 보정을 다룹니다.
+6. **[좌표계 입문](ego-coordinate-system-for-beginners/)** — Ego, World, Sensor 좌표계의 개념과 변환 행렬 사용법을 다룹니다.
