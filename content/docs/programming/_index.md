@@ -7,3 +7,4 @@ title: "프로그래밍"
 ## 시리즈 목록
 
 - **[함수형 프로그래밍](functional/)** — 액션/계산/데이터, 컴포지션, 계층형 설계, 자율주행·GPU 적용
+- **[nanoGPT from Scratch](nanogpt-from-scratch/)** — Karpathy 강의를 따라 PyTorch로 GPT 직접 구현
