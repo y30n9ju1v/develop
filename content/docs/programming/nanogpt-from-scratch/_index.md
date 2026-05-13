@@ -8,3 +8,4 @@ Andrej Karpathy의 ["Let's build GPT: from scratch"](https://www.youtube.com/wat
 ## 시리즈 목록
 
 - **[강의 요약 및 타임라인](01-lecture-guide/)** — 강의 전체 흐름, 핵심 개념, 코드 스니펫 정리
+- **[강의 타임라인 × nanoGPT 코드 매핑](02-nanogpt-code-map/)** — 각 타임라인이 nanoGPT 레포의 어떤 파일/라인에 해당하는지 매핑
