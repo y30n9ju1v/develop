@@ -120,12 +120,12 @@ os.makedirs(target, exist_ok=True)
 
 > **왜 이미지는 14장인데 LiDAR는 1개일까?**
 >
-> ETH3D는 카메라와 LiDAR가 동기화되어 함께 움직이는 자율주행 구조가 아닙니다. 카메라는 여러 위치에서 14장을 촬영했고, LiDAR는 지상 레이저 스캐너로 장면 전체를 한 번 스캔한 결과가 `scan_clean.ply` 1개입니다. 즉, LiDAR 포인트클라우드는 장면의 GT(Ground Truth) 역할을 합니다.
+> ETH3D는 카메라와 LiDAR가 동기화되어 함께 움직이는 자율주행 구조가 아닙니다. 카메라는 여러 위치에서 14장을 촬영했고, LiDAR는 지상 레이저 스캐너로 장면 전체를 한 번 스캔한 결과가 `scan1.ply` 1개입니다. 즉, LiDAR 포인트클라우드는 장면의 GT(Ground Truth) 역할을 합니다.
 >
-> 이 시리즈에서는 `scan_clean.ply`를 각 카메라 pose로 투영해 **카메라별 depth map을 합성**해서 사용합니다.
+> 이 시리즈에서는 `scan1.ply`를 각 카메라 pose로 투영해 **카메라별 depth map을 합성**해서 사용합니다.
 >
 > ```
-> scan_clean.ply (전체 포인트클라우드)
+> scan1.ply (전체 포인트클라우드)
 >     → 카메라 1 pose로 투영 → depth map 1
 >     → 카메라 2 pose로 투영 → depth map 2
 >     → ...
