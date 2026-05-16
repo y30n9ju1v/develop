@@ -1,13 +1,13 @@
 ---
 title: "2편: Feature 추출 및 매칭"
-date: 2026-05-15T00:00:00+09:00
+date: 2026-05-15T01:00:00+09:00
 draft: false
 tags: ["SfM", "OpenCV", "SIFT", "Feature Matching", "RANSAC"]
 categories: ["Programming"]
 description: "SIFT로 feature를 추출하고 BFMatcher + RANSAC으로 세 프레임 간 대응점을 찾습니다."
 ---
 
-> 이전 편에서 로딩한 세 장의 이미지에서 대응점(correspondences)을 찾습니다. 이 대응점이 이후 모든 기하학적 계산의 입력이 됩니다.
+> 이전 편에서 로딩한 세 장의 이미지에서 SIFT로 feature를 추출하고, BFMatcher + RANSAC으로 프레임 간 대응점(correspondences)을 찾습니다. 이 대응점이 이후 모든 기하학적 계산의 입력이 됩니다.
 
 ## Feature란
 
@@ -42,6 +42,18 @@ def extract_features(images: dict) -> dict:
 ## Feature 매칭
 
 두 이미지 간 descriptor를 비교해 가장 비슷한 쌍을 찾습니다. Lowe's ratio test로 애매한 매칭을 걸러냅니다.
+
+> **BFMatcher란?**
+>
+> BFMatcher(Brute-Force Matcher)는 한 이미지의 descriptor 1개를 다른 이미지의 모든 descriptor와 비교해 가장 가까운 것을 찾는 방식입니다.
+>
+> ```
+> A의 descriptor #1 → B의 모든 descriptor와 거리 계산 → 최소값 선택
+> A의 descriptor #2 → B의 모든 descriptor와 거리 계산 → 최소값 선택
+> ...
+> ```
+>
+> 근사 탐색을 쓰는 FLANNMatcher보다 느리지만 정확합니다. SfM은 실시간이 아니고 정확도가 중요하므로 BFMatcher를 사용합니다. `cv2.NORM_L2`는 SIFT descriptor 간 거리를 유클리드 거리로 측정한다는 의미입니다.
 
 $$\frac{d_1}{d_2} < 0.75 \implies \text{좋은 매칭}$$
 
@@ -95,9 +107,7 @@ def filter_matches_ransac(feat_a, feat_b, matches, threshold=3.0):
 
 ```python
 # 1편에서 로딩한 데이터 사용
-img_names = sorted(poses.keys())[:3]
 name0, name1, name2 = img_names
-
 features = extract_features(images)
 
 # 쌍별 매칭
@@ -112,17 +122,52 @@ pts0_2, pts2_0, F02 = filter_matches_ransac(features[name0], features[name2], ra
 
 ## 매칭 시각화
 
+> **DMatch란?**
+>
+> `cv2.DMatch`는 두 descriptor 간의 매칭 정보를 담는 OpenCV 객체입니다.
+>
+> ```python
+> cv2.DMatch(queryIdx, trainIdx, distance)
+> # queryIdx  — 첫 번째 이미지 descriptor 인덱스
+> # trainIdx  — 두 번째 이미지에서 매칭된 descriptor 인덱스
+> # distance  — 두 descriptor 간의 거리 (작을수록 유사)
+> ```
+>
+> 여기서 직접 만드는 이유는, `drawMatches`가 `DMatch` 리스트를 요구하는데 RANSAC 후에는 원래 `DMatch` 객체 없이 픽셀 좌표(`pts_a`, `pts_b`)만 남아있기 때문입니다. `i`번째 `pts_a`와 `i`번째 `pts_b`가 매칭이라고 인위적으로 선언하며, `distance=0`은 시각화에 영향 없습니다.
+
 ```python
 def visualize_matches(img_a, img_b, pts_a, pts_b, max_show=100):
-    # 시각화용 DMatch 객체 생성
     kps_a = [cv2.KeyPoint(p[0], p[1], 1) for p in pts_a[:max_show]]
     kps_b = [cv2.KeyPoint(p[0], p[1], 1) for p in pts_b[:max_show]]
     dmatches = [cv2.DMatch(i, i, 0) for i in range(len(kps_a))]
 
     vis = cv2.drawMatches(img_a, kps_a, img_b, kps_b, dmatches, None,
                           flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-    cv2.imwrite("matches_01.jpg", vis)
+    return vis
 ```
+
+```python
+from google.colab.patches import cv2_imshow
+import cv2
+
+vis = visualize_matches(images[name0], images[name1], pts0_1, pts1_0)
+
+# Get original dimensions
+h, w = vis.shape[:2]
+
+# Define a maximum display width for better viewing in Colab
+max_display_width = 1200
+if w > max_display_width:
+    scale = max_display_width / w
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    vis_resized = cv2.resize(vis, (new_w, new_h))
+    cv2_imshow(vis_resized)
+else:
+    cv2_imshow(vis)
+```
+
+![DSC_0634 ↔ DSC_0635 간 SIFT 매칭 결과 (RANSAC inlier 100개)](/images/programming/sfm-with-lidar/02-feature-matching.png)
 
 ---
 

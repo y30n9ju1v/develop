@@ -247,7 +247,7 @@ import cv2
 def load_images(base_dir, names):
     images = {}
     for name in names:
-        path = f"{base_dir}/{name}"
+        path = f"{base_dir}/images/{name}"
         img = cv2.imread(path)
         images[name] = img
 
