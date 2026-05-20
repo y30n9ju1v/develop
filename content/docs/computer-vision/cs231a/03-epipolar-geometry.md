@@ -1,5 +1,5 @@
 ---
-title: "에피폴라 기하학"
+title: "Ch.3: 에피폴라 기하학"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "epipolar-geometry", "essential-matrix", "fundamental-matrix", "image-rectification", "cs231a"]

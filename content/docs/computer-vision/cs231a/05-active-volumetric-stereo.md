@@ -1,5 +1,5 @@
 ---
-title: "능동 스테레오와 체적 스테레오"
+title: "Ch.5: 능동 스테레오와 체적 스테레오"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "stereo", "active-stereo", "volumetric-stereo", "space-carving", "voxel-coloring", "cs231a"]

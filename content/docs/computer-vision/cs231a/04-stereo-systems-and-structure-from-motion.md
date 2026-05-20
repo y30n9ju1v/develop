@@ -1,5 +1,5 @@
 ---
-title: "스테레오 시스템과 구조로부터의 운동 (SfM)"
+title: "Ch.4: 스테레오 시스템과 구조로부터의 운동 (SfM)"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "stereo", "structure-from-motion", "triangulation", "bundle-adjustment", "cs231a"]

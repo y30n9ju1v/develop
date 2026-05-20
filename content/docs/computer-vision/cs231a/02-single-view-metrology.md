@@ -1,5 +1,5 @@
 ---
-title: "단일 뷰 계측"
+title: "Ch.2: 단일 뷰 계측"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "single-view-metrology", "vanishing-point", "homography", "cs231a"]

@@ -1,5 +1,5 @@
 ---
-title: "피팅과 매칭"
+title: "Ch.6: 피팅과 매칭"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "fitting", "least-squares", "ransac", "hough-transform", "cs231a"]

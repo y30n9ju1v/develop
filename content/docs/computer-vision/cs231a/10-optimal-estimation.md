@@ -1,5 +1,5 @@
 ---
-title: "최적 추정: 베이즈 필터와 칼만 필터"
+title: "Ch.10: 최적 추정: 베이즈 필터와 칼만 필터"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "kalman-filter", "bayes-filter", "state-estimation", "cs231a"]

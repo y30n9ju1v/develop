@@ -1,5 +1,5 @@
 ---
-title: "광학 흐름과 장면 흐름"
+title: "Ch.9: 광학 흐름과 장면 흐름"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "optical-flow", "lucas-kanade", "cs231a"]

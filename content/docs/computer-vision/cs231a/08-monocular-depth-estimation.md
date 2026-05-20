@@ -1,5 +1,5 @@
 ---
-title: "단안 깊이 추정과 특징 추적"
+title: "Ch.8: 단안 깊이 추정과 특징 추적"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "depth-estimation", "feature-tracking", "self-supervised", "contrastive-loss", "stereo", "cs231a"]

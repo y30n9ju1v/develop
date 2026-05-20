@@ -1,5 +1,5 @@
 ---
-title: "카메라 모델"
+title: "Ch.1: 카메라 모델"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "camera-model", "pinhole-camera", "camera-calibration", "cs231a"]

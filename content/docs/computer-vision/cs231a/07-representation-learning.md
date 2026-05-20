@@ -1,5 +1,5 @@
 ---
-title: "표현과 표현 학습"
+title: "Ch.7: 표현과 표현 학습"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "representation-learning", "markov", "autoencoder", "self-supervised", "cnn", "cs231a"]
