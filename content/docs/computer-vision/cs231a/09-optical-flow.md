@@ -3,7 +3,7 @@ title: "광학 흐름과 장면 흐름"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "optical-flow", "lucas-kanade", "cs231a"]
-categories: ["programming"]
+categories: ["computer-vision"]
 description: "광학 흐름의 정의와 모션 필드의 차이, 밝기 항상성 가정과 소운동 가정에서 유도되는 광학 흐름 제약 방정식, 개구부 문제, Lucas-Kanade 최소제곱법을 다룹니다."
 ---
 

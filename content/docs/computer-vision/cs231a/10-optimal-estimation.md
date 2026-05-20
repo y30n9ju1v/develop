@@ -3,7 +3,7 @@ title: "최적 추정: 베이즈 필터와 칼만 필터"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "kalman-filter", "bayes-filter", "state-estimation", "cs231a"]
-categories: ["programming"]
+categories: ["computer-vision"]
 description: "POMDP 상태 추정, 베이즈 필터의 예측·갱신 단계 유도, 이산 베이즈 필터, 선형-가우스 시스템을 위한 칼만 필터, 비선형 시스템을 위한 확장 칼만 필터(EKF)를 다룹니다."
 ---
 

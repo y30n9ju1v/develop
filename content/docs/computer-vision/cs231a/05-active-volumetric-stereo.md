@@ -3,7 +3,7 @@ title: "능동 스테레오와 체적 스테레오"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "stereo", "active-stereo", "volumetric-stereo", "space-carving", "voxel-coloring", "cs231a"]
-categories: ["CS231A"]
+categories: ["computer-vision"]
 description: "대응점 문제를 우회하는 두 가지 접근법 — 패턴 투영으로 대응을 직접 만드는 능동 스테레오와, 복셀 일관성 검사로 3D 형상을 복원하는 체적 스테레오(공간 조각, 그림자 조각, 복셀 채색)를 정리합니다."
 ---
 

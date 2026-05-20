@@ -3,7 +3,7 @@ title: "스테레오 시스템과 구조로부터의 운동 (SfM)"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "stereo", "structure-from-motion", "triangulation", "bundle-adjustment", "cs231a"]
-categories: ["CS231A"]
+categories: ["computer-vision"]
 description: "삼각측량, 어파인/투영 SfM, Tomasi-Kanade 인수분해, 본질 행렬 분해, 번들 조정까지 — 다중 뷰에서 3D 구조를 복원하는 방법을 정리합니다."
 ---
 

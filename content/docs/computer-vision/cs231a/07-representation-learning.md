@@ -3,7 +3,7 @@ title: "표현과 표현 학습"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "representation-learning", "markov", "autoencoder", "self-supervised", "cnn", "cs231a"]
-categories: ["CS231A"]
+categories: ["computer-vision"]
 description: "동적 시스템의 상태와 마르코프 성질, 생성/판별 모델, 전통적 수공 특징 vs. CNN 학습 표현, 오토인코더와 자기지도 학습까지 — 컴퓨터 비전에서 '표현'이 무엇인지 체계적으로 정리합니다."
 ---
 

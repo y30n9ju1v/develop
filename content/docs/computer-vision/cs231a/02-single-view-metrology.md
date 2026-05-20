@@ -1,9 +1,9 @@
 ---
-title: "2편: 단일 뷰 계측 (Single View Metrology)"
+title: "단일 뷰 계측"
 date: 2026-05-20T00:00:00+09:00
 draft: false
-tags: ["CS231A", "Computer Vision", "Single View Metrology", "Vanishing Point", "Homography"]
-categories: ["Programming"]
+tags: ["computer-vision", "single-view-metrology", "vanishing-point", "homography", "cs231a"]
+categories: ["computer-vision"]
 description: "2D 변환의 계층 구조, 무한점과 무한선, 소실점과 지평선을 이용해 단 한 장의 이미지에서 3D 세계 구조를 복원하는 방법을 정리합니다."
 ---
 

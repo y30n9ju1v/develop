@@ -3,7 +3,7 @@ title: "단안 깊이 추정과 특징 추적"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "depth-estimation", "feature-tracking", "self-supervised", "contrastive-loss", "stereo", "cs231a"]
-categories: ["CS231A"]
+categories: ["computer-vision"]
 description: "시차와 깊이의 관계부터 시작해 지도/비지도/자기지도 단안 깊이 추정(SSIM·평활화·좌우 일관성 손실), 그리고 픽셀-대조 손실로 학습하는 밀집 서술자 기반 특징 추적까지 정리합니다."
 ---
 

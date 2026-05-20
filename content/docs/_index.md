@@ -10,3 +10,4 @@ title: "Develops"
 - **[Programming](programming/)** — 함수형 프로그래밍 등 소프트웨어 개발 이론
 - **[Testing](testing/)** — ISTQB 자격증 준비 및 소프트웨어 테스팅 이론
 - **[Graphics](graphics/)** — 3D 표현, 렌더링, 장면 복원
+- **[Computer Vision](computer-vision/)** — 카메라 모델, 3D 재구성, 광학 흐름, 최적 추정

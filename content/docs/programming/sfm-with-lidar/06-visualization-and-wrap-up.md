@@ -23,10 +23,13 @@ pip install rerun-sdk
 import rerun as rr
 import numpy as np
 
-rr.init("sfm_pipes", spawn=True)
+rr.init("sfm_pipes", spawn=False)
+rr.notebook_show()
 ```
 
-`spawn=True`는 Rerun viewer를 자동으로 실행합니다. 이미 실행 중이라면 `rr.connect_grpc()`를 사용하세요.
+`rr.notebook_show()`는 Colab 셀 안에 Rerun viewer를 인라인으로 임베드합니다. 이후 `rr.log()`로 데이터를 로깅하면 viewer가 실시간으로 업데이트됩니다.
+
+> **참고**: 로컬 환경에서는 `spawn=True`로 바꾸면 별도 Rerun viewer 앱이 자동으로 실행됩니다.
 
 ## 포인트클라우드 로깅
 

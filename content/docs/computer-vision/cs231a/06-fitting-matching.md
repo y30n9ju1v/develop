@@ -3,7 +3,7 @@ title: "피팅과 매칭"
 date: 2026-05-20T00:00:00+09:00
 draft: false
 tags: ["computer-vision", "fitting", "least-squares", "ransac", "hough-transform", "cs231a"]
-categories: ["CS231A"]
+categories: ["computer-vision"]
 description: "최소제곱법(일반/전체), 이상값에 강건한 RANSAC, 투표 기반 Hough 변환까지 — 관측 데이터에서 파라메트릭 모델을 찾는 세 가지 피팅 기법을 정리합니다."
 ---
 

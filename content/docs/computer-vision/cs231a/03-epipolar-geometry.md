@@ -1,9 +1,9 @@
 ---
-title: "3편: 에피폴라 기하학 (Epipolar Geometry)"
+title: "에피폴라 기하학"
 date: 2026-05-20T00:00:00+09:00
 draft: false
-tags: ["CS231A", "Computer Vision", "Epipolar Geometry", "Essential Matrix", "Fundamental Matrix", "Image Rectification"]
-categories: ["Programming"]
+tags: ["computer-vision", "epipolar-geometry", "essential-matrix", "fundamental-matrix", "image-rectification", "cs231a"]
+categories: ["computer-vision"]
 description: "두 카메라 사이의 기하학적 관계를 정의하는 에피폴라 기하학, 본질 행렬과 기본 행렬, 8점 알고리즘, 이미지 정류(Rectification)를 정리합니다."
 ---
 

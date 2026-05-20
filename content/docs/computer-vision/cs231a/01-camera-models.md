@@ -1,9 +1,9 @@
 ---
-title: "1편: 카메라 모델 (Camera Models)"
+title: "카메라 모델"
 date: 2026-05-20T00:00:00+09:00
 draft: false
-tags: ["CS231A", "Computer Vision", "Camera Model", "Pinhole Camera", "Camera Calibration"]
-categories: ["Programming"]
+tags: ["computer-vision", "camera-model", "pinhole-camera", "camera-calibration", "cs231a"]
+categories: ["computer-vision"]
 description: "핀홀 카메라 모델부터 렌즈, 내부/외부 파라미터, 카메라 캘리브레이션까지 카메라를 수학적으로 모델링하는 방법을 정리합니다."
 ---
 
