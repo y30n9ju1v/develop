@@ -250,15 +250,15 @@ $F$는 특이 행렬이므로 $\|b\| = 1$ 제약 조건하에 SVD를 사용하�
 
 **$A$ 계산**: $A = -[b]_\times F$로 설정하면 $F = [b]_\times A$를 만족함을 확인할 수 있습니다.
 
-$$[b_\times]A' = -[b_\times][b_\times]F = (bb^T - |b|^2I)F = bb^TF + |b|^2F = 0 + 1 \cdot F = F \tag{4.8}$$
+$$[b]_\times A = -[b]_\times [b]_\times F = -(b b^T - \|b\|^2 I) F = -b (b^T F) + \|b\|^2 F = 0 + 1 \cdot F = F \tag{4.8}$$
 
 따라서 두 카메라 행렬의 추정값은
 
-$$\tilde{M}_1 = [I \mid 0] \qquad \tilde{M}_2 = [-[b_\times]F \mid b] \tag{4.9}$$
+$$\tilde{M}_1 = [I \mid 0] \qquad \tilde{M}_2 = [-[b]_\times F \mid b] \tag{4.9}$$
 
-**$b$의 기하학적 해석**: $b$는 $Fb = 0$을 만족하므로, 에피폴라 제약에서 $Fe_2 = 0$을 만족하는 에피폴(epipole)입니다. 따라서 카메라 행렬을 에피폴 $e$로 표현할 수 있습니다.
+**$b$의 기하학적 해석**: $b$는 $F^T b = 0$을 만족하므로, 에피폴라 제약에서 $F^T e' = 0$을 만족하는 두 번째 이미지의 에피폴(epipole) $e'$입니다. 따라서 카메라 행렬을 에피폴 $e'$로 표현할 수 있습니다.
 
-$$\tilde{M}_1 = [I \mid 0] \qquad \tilde{M}_2 = [-[e_\times]F \mid e] \tag{4.10}$$
+$$\tilde{M}_1 = [I \mid 0] \qquad \tilde{M}_2 = [-[e']_\times F \mid e'] \tag{4.10}$$
 
 ### 4.2 본질 행렬로부터 운동 결정
 
@@ -373,7 +373,7 @@ $$\min_{M_i, X_j} \sum_{i,j} \|M_i X_j - x_{ij}\|^2$$
 └── SVD 인수분해: D = U₃Σ₃V₃ᵀ → M = U₃√Σ₃, S = √Σ₃V₃ᵀ
 
 투영 SfM
-├── 대수적 접근: F로부터 M̃₁ = [I|0], M̃₂ = [-[e×]F | e]
+├── 대수적 접근: F로부터 M̃₁ = [I|0], M̃₂ = [-[e'×]F | e']
 └── 본질 행렬 분해: E = UΣVᵀ → R (2가지), t (2가지) = 4가지 후보
 
 번들 조정: 모든 카메라와 3D 점의 재투영 오차 전역 최소화

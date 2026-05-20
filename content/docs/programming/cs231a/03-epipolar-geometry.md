@@ -117,7 +117,7 @@ $$p_c^T [T_\times] R p'_c = 0 \tag{8}$$
 
 $$p^T K^{-T} [T_\times] R K'^{-1} p' = 0 \tag{9}$$
 
-행렬 $F = K'^{-T}[T_\times]RK^{-1}$을 **기본 행렬(Fundamental Matrix)**이라 합니다.
+행렬 $F = K^{-T}[T_\times]RK'^{-1}$을 **기본 행렬(Fundamental Matrix)**이라 합니다.
 
 ### 4.2 기본 행렬의 의미와 성질
 
@@ -251,21 +251,21 @@ $H_1$은 다음 형태로 표현됩니다.
 
 $$H_1 = H_A H_2 M \tag{25}$$
 
-여기서 $F = [e]_\times M$이고,
+여기서 $F = [e']_\times M$이고,
 
 $$H_A = \begin{bmatrix} a_1 & a_2 & a_3 \\ 0 & 1 & 0 \\ 0 & 0 & 1 \end{bmatrix} \tag{26}$$
 
-**$M$ 구하기**: 임의의 $3 \times 3$ 반대칭(skew-symmetric) 행렬 $A$에 대해 $A = A^3$ (스케일까지)이 성립합니다. $[e]_\times$는 반대칭이고 $F$를 스케일까지만 알 수 있으므로,
+**$M$ 구하기**: 임의의 $3 \times 3$ 반대칭(skew-symmetric) 행렬 $A$에 대해 $A = A^3$ (스케일까지)이 성립합니다. $[e']_\times$는 반대칭이고 $F$를 스케일까지만 알 수 있으므로,
 
-$$F = [e]_\times M = [e]_\times [e]_\times [e]_\times M = [e]_\times [e]_\times F \tag{27}$$
+$$F = [e']_\times M = [e']_\times [e']_\times [e']_\times M = [e']_\times [e']_\times F \tag{27}$$
 
 따라서,
 
-$$M = [e]_\times F \tag{28}$$
+$$M = [e']_\times F \tag{28}$$
 
-$M$의 열에 $e$의 임의 스칼라 배를 더해도 $F = [e]_\times M$이 스케일까지 성립합니다. 따라서 더 일반적으로,
+$M$의 열에 $e'$의 임의 스칼라 배를 더해도 $F = [e']_\times M$이 스케일까지 성립합니다. 따라서 더 일반적으로,
 
-$$M = [e]_\times F + ev^T \tag{29}$$
+$$M = [e']_\times F + e'v^T \tag{29}$$
 
 실제로는 $v^T = \begin{bmatrix} 1 & 1 & 1 \end{bmatrix}$으로 설정하면 잘 작동합니다.
 
@@ -307,7 +307,7 @@ $\mathbf{a}$를 구하면 $H_A$, 최종적으로 $H_1$을 계산할 수 있습�
 >    - H₂ = T⁻¹GRT
 >
 > 4. H₁ 계산
->    - M = [e]× F + evᵀ
+>    - M = [e']× F + e'vᵀ
 >    - H₁ = HA H₂ M (HA는 최소 제곱으로 결정)
 >
 > 출력: 정류된 이미지 쌍 (에피폴라 선이 수평, 대응점이 같은 행 공유)

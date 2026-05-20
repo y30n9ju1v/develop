@@ -81,13 +81,13 @@ $$p(x_t|z_{1:t-1}, u_{1:t}) = \int_{x_{t-1}} p(x_t|x_{t-1}, u_t)\,p(x_{t-1}|z_{1
 
 **예측 단계 (Prediction step)**
 
-$$\widehat{\text{bel}}(t-1) = \int_{x_{t-1}} p(x_t|x_{t-1}, u_t)\,p(x_{t-1}|z_{1:t-1}, u_{1:t-1})\,dx_{t-1}$$
+$$\overline{\text{bel}}(t) = \int_{x_{t-1}} p(x_t|x_{t-1}, u_t)\,p(x_{t-1}|z_{1:t-1}, u_{1:t-1})\,dx_{t-1}$$
 
 전이 모델과 이전 사후 분포를 이용해 새 데이터 없이 $x_t$의 분포를 예측한다. $t=1$일 때는 사전 분포 $p(x_0)$를 사용한다.
 
 **갱신 단계 (Update step)**
 
-$$\text{bel}(t) = \frac{p(z_t|x_t)\,\widehat{\text{bel}}(t-1)}{p(z_t|z_{1:t-1}, u_{1:t})}$$
+$$\text{bel}(t) = \frac{p(z_t|x_t)\,\overline{\text{bel}}(t)}{p(z_t|z_{1:t-1}, u_{1:t})}$$
 
 측정 가능도 $p(z_t|x_t)$를 이용해 예측 믿음을 새 관측값으로 정제한다. 분모는 분포의 합이 1이 되도록 하는 정규화 상수다.
 
@@ -101,13 +101,13 @@ $$\text{bel}(t) = \begin{pmatrix} p(X_t=1|z_{1:t},u_{1:t}) \\ \vdots \\ p(X_t=N|
 
 **예측 단계** (행렬 곱으로 구현):
 
-$$\widehat{\text{bel}}(t-1) = T(u_t)\,\text{bel}(t-1) \tag{6}$$
+$$\overline{\text{bel}}(t) = T(u_t)\,\text{bel}(t-1) \tag{6}$$
 
 여기서 전이 행렬 $T(u_t) \in \mathbb{R}^{N \times N}$의 $(i,j)$ 원소는 $p(X_t = i | X_{t-1} = j, u_t)$다.
 
 **갱신 단계** (정규화된 행렬 곱):
 
-$$\text{bel}(t) = \frac{M(z_t)\,\widehat{\text{bel}}(t-1)}{\mathbf{1}^T(M(z_t)\,\widehat{\text{bel}}(t-1))} \tag{9}$$
+$$\text{bel}(t) = \frac{M(z_t)\,\overline{\text{bel}}(t)}{\mathbf{1}^T(M(z_t)\,\overline{\text{bel}}(t))} \tag{9}$$
 
 여기서 측정 모델 행렬 $M(z_t)$의 $(i,j)$ 원소는 $p(Z_t = i | X_t = j)$다.
 
@@ -151,7 +151,7 @@ $$z_t = C_t x_t + v_t, \quad v_t \sim \mathcal{N}(0, R_t) \tag{15}$$
 **예측 단계**
 
 $$\mu_{t|t-1} = A_t \mu_{t-1|t-1} + B_t u_t \tag{16}$$
-$$\Sigma_{t|t-1} = A_{t-1}\Sigma_{t-1|t-1}A_{t-1}^T + Q_{t-1} \tag{17}$$
+$$\Sigma_{t|t-1} = A_t\Sigma_{t-1|t-1}A_t^T + Q_t \tag{17}$$
 
 - 식 (16): 이전 평균을 동역학 모델에 대입. 잡음은 평균이 0이므로 영향 없음.
 - 식 (17): $\text{Cov}(Ax) = A\Sigma A^T$ 성질 적용 후 과정 잡음의 공분산 $Q$ 추가. 예측만으로는 불확실성이 증가한다.
@@ -182,36 +182,36 @@ $$K_t = C_t^{-1}\frac{C_t\Sigma_{t|t-1}C_t^T}{C_t\Sigma_{t|t-1}C_t^T + R_t} \tag
 
 선형 사상(mapping)을 가우스 분포에 적용하면 결과도 가우스 분포지만, **비선형 사상**을 적용하면 결과가 비가우스 분포가 되어 표준 칼만 필터 방정식을 적용할 수 없다.
 
-**확장 칼만 필터(EKF)**는 비선형 동역학 함수 $f$와 측정 함수 $g$를 각 시간 $t$마다 현재 추정값 주변에서 **1차 테일러 전개**로 선형화한다.
+**확장 칼만 필터(EKF)**는 비선형 동역학 함수 $f$와 측정 함수 $h$를 각 시간 $t$마다 현재 추정값 주변에서 **1차 테일러 전개**로 선형화한다.
 
 ### 4.1 EKF 방정식
 
 **예측 단계**
 
 $$\mu_{t|t-1} = f(\mu_{t-1|t-1}, u_t) \tag{22}$$
-$$\Sigma_{t|t-1} = A_{t-1}\Sigma_{t-1|t-1}A_{t-1}^T + Q_{t-1} \tag{23}$$
+$$\Sigma_{t|t-1} = A_t\Sigma_{t-1|t-1}A_t^T + Q_t \tag{23}$$
 
 **갱신 단계**
 
-$$\mu_{t|t} = \mu_{t|t-1} + K_t(z_t - g(\mu_{t|t-1})) \tag{24}$$
+$$\mu_{t|t} = \mu_{t|t-1} + K_t(z_t - h(\mu_{t|t-1})) \tag{24}$$
 $$\Sigma_{t|t} = \Sigma_{t|t-1} - K_t C_t \Sigma_{t|t-1} \tag{25}$$
 $$K_t = \Sigma_{t|t-1}C_t^T(C_t\Sigma_{t|t-1}C_t^T + R_t)^{-1} \tag{26}$$
 
 여기서 $A_t$와 $C_t$는 비선형 함수의 **야코비안(Jacobian)**이다.
 
-$$A_t(\mu_{t-1|t-1}, u_t) = \frac{\partial f(x_t, u_t)}{\partial x_t}\bigg|_{x_t = \mu_{t-1|t-1}} \tag{27}$$
+$$A_t(\mu_{t-1|t-1}, u_t) = \frac{\partial f(x, u_t)}{\partial x}\bigg|_{x = \mu_{t-1|t-1}} \tag{27}$$
 
-$$C_t(\mu_{t|t-1}, u_t) = \frac{\partial g(x_t, u_t)}{\partial x_t}\bigg|_{x_t = \mu_{t|t-1}} \tag{28}$$
+$$C_t(\mu_{t|t-1}) = \frac{\partial h(x)}{\partial x}\bigg|_{x = \mu_{t|t-1}} \tag{28}$$
 
 EKF와 KF의 구조적 차이는 다음과 같다.
 
 | | 칼만 필터 (KF) | 확장 칼만 필터 (EKF) |
 |-|----------------|----------------------|
 | **동역학** | $x_t = A_t x_{t-1} + B_t u_t$ | $x_t = f(x_{t-1}, u_t)$ (비선형) |
-| **측정** | $z_t = C_t x_t$ | $z_t = g(x_t)$ (비선형) |
+| **측정** | $z_t = C_t x_t$ | $z_t = h(x_t)$ (비선형) |
 | **선형화** | 불필요 | 야코비안으로 매 단계 선형화 |
 | **예측 평균** | $A_t \mu_{t-1|t-1} + B_t u_t$ | $f(\mu_{t-1|t-1}, u_t)$ |
-| **갱신 혁신** | $z_t - C_t\mu_{t|t-1}$ | $z_t - g(\mu_{t|t-1})$ |
+| **갱신 혁신** | $z_t - C_t\mu_{t|t-1}$ | $z_t - h(\mu_{t|t-1})$ |
 
 ---
 

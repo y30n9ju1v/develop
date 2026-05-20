@@ -25,11 +25,17 @@ description: "광학 흐름의 정의와 모션 필드의 차이, 밝기 항상�
 
 광학 흐름은 **모션 필드(motion field)**와 혼동하지 말아야 한다. 모션 필드는 장면의 3D 운동 벡터를 이미지 평면에 투영한 2D 벡터 필드다.
 
-3D 장면으로 일반화하면, 픽셀 $(x, y)$에서의 모션 필드는 다음과 같다.
+3D 공간의 점을 대문자 $\mathbf{X} = (X, Y, Z)^T$, 이미지 평면 상의 투영점을 소문자 $\mathbf{x} = (x, y)^T$라 할 때, 핀홀 카메라 투영 식은 다음과 같다 (초점거리 $f$).
 
-$$\begin{pmatrix} u \\ v \end{pmatrix} = \begin{pmatrix} \frac{dx}{dt} \\ \frac{dy}{dt} \end{pmatrix} = \mathbf{M}\mathbf{x}' \tag{1}$$
+$$x = f\frac{X}{Z}, \quad y = f\frac{Y}{Z}$$
 
-여기서 $\mathbf{x}' = \left[\frac{dx}{dt}, \frac{dy}{dt}, \frac{dz}{dt}\right]^T$는 3D 점의 운동을 나타내고, $\mathbf{M} \in \mathbb{R}^{2 \times 3}$은 3D 점 위치에 대한 픽셀 변위의 편미분을 포함한다.
+양변을 시간 $t$에 대해 미분하여 픽셀 $(x, y)$에서의 모션 필드 $\mathbf{u} = (u, v)^T$를 유도하면 다음과 같다.
+
+$$\mathbf{u} = \begin{pmatrix} u \\ v \end{pmatrix} = \begin{pmatrix} \frac{dx}{dt} \\ \frac{dy}{dt} \end{pmatrix} = \mathbf{M}\mathbf{V} \tag{1}$$
+
+여기서 $\mathbf{V} = \left[\frac{dX}{dt}, \frac{dY}{dt}, \frac{dZ}{dt}\right]^T$는 3D 점의 물리적 속도를 나타내며, 투영 편미분 행렬 $\mathbf{M} \in \mathbb{R}^{2 \times 3}$은 다음과 같이 정의된다.
+
+$$\mathbf{M} = \begin{pmatrix} \frac{f}{Z} & 0 & -\frac{x}{Z} \\ 0 & \frac{f}{Z} & -\frac{y}{Z} \end{pmatrix}$$
 
 모션 필드는 이미지 평면에 투영된 3D 운동의 이상적인 2D 표현으로, 직접 관측할 수 없는 "정답"이다. 잡음이 있는 영상 관측으로부터 추정할 수 있는 것은 광학 흐름(겉보기 운동)뿐이다.
 
