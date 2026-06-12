@@ -23,3 +23,12 @@ title: "자율주행"
 
 8. **[Lanelet2 맵을 카메라 이미지에 투영하기](lanelet2-projection-to-image/)** — World → Ego → Camera 변환을 총동원해 HD 맵 차선을 카메라 이미지에 그립니다.
 9. **[센서 퓨전 기초: LiDAR 포인트를 카메라 이미지에 투영하기](lidar-to-camera-projection/)** — LiDAR 포인트 클라우드를 카메라 이미지 위에 겹치고 거리에 따라 색상을 칠하는 실습입니다.
+
+### 프레임워크
+
+10. **[DORA 입문](dora-rs-for-beginners/)** — ROS2보다 10~17배 빠른 Rust 기반 로보틱스 프레임워크 DORA의 구조와 특징을 소개합니다.
+11. **[DORA 아키텍처](dora-rs-architecture/)** — Coordinator·Daemon·Runtime·Node 4계층 구조와 컴포넌트 간 통신 흐름을 정리합니다.
+12. **[DORA 데이터플로우 YAML 작성법](dora-rs-dataflow-yaml/)** — 파이프라인 YAML 문법, 타이머·로그·오퍼레이터·분산 배포·ROS2 브리지까지 예제 중심으로 정리합니다.
+13. **[DORA 타입 시스템](dora-rs-types/)** — 타입 URN 체계, 내장 타입 카탈로그, 호환성 규칙, 정적/런타임 검증 방법을 정리합니다.
+14. **[DORA 모듈](dora-rs-modules/)** — 노드 서브그래프를 재사용 가능한 단위로 묶는 모듈의 정의, 파라미터, 중첩 방법을 정리합니다.
+15. **[DORA 통신 패턴](dora-rs-patterns/)** — Topic, Service, Action, Streaming 네 가지 패턴의 동작 방식과 메타데이터 규약을 정리합니다.
