@@ -1,380 +1,190 @@
 ---
-title: "DORA 데이터플로우 YAML 작성법"
+title: "DORA 파이프라인 설계: 데이터플로우와 통신 패턴"
 date: 2026-06-13T00:00:00+09:00
 draft: false
-tags: ["robotics", "dora", "dataflow", "yaml"]
+tags: ["robotics", "dora", "dataflow", "yaml", "patterns", "pub-sub", "service", "action", "streaming"]
 categories: ["autonomous"]
-description: "DORA 파이프라인을 정의하는 데이터플로우 YAML의 문법과 옵션을 예제 중심으로 정리합니다."
+description: "DORA 파이프라인을 정의하는 데이터플로우 YAML의 핵심 개념과 네 가지 통신 패턴(Topic, Service, Action, Streaming)을 정리합니다."
 ---
 
-> 이 글은 [DORA 데이터플로우 YAML 문서](https://dora-rs.ai/dora/concepts/dataflow-yaml.html)를 참고해 작성했습니다.
 > DORA가 처음이라면 먼저 [DORA 입문](dora-rs-for-beginners/)을 읽어보세요.
 
 ---
 
-## 1. 기본 구조
+## 1. 데이터플로우 선언이란
 
-DORA 파이프라인은 YAML 파일 하나로 정의합니다. 노드들의 방향 그래프(directed graph)를 선언하는 방식입니다.
+DORA 파이프라인은 YAML 파일 하나로 정의됩니다. 이 파일은 **노드들의 방향 그래프를 선언**합니다. 어떤 노드가 있고, 각 노드가 무엇을 내보내고, 누구에게서 받는지를 선언하면 DORA가 그 선언대로 라우팅과 스케줄링을 처리합니다.
 
-```yaml
-nodes:
-  - id: sender        # 고유 ID (슬래시 불가)
-    path: sender.py
-    outputs:
-      - message       # 이 노드가 발행하는 출력
+핵심은 **선언형(declarative)**이라는 점입니다. "카메라 노드가 이미지를 내보낸다"고 선언하면, 그 이미지가 어떤 경로로 감지 노드에 도달하는지는 DORA가 결정합니다. 개발자는 데이터 경로를 직접 프로그래밍하지 않습니다.
 
-  - id: receiver
-    path: receiver.py
-    inputs:
-      message: sender/message   # <노드ID>/<출력ID> 형식으로 구독
-```
-
-실행:
-
-```bash
-# 로컬 실행
-dora run dataflow.yml
-
-# 분산 실행
-dora up
-dora start dataflow.yml
-```
-
-VS Code에서 자동완성을 쓰려면 파일 맨 위에 이 줄을 추가하세요.
-
-```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/dora-rs/dora/main/dora-schema.json
-```
+이 선언형 구조의 실질적인 이점은 **파이프라인 변경이 코드가 아닌 설정으로 표현된다**는 것입니다. 감지 모델을 교체하거나 새 센서를 추가할 때 노드 코드를 건드리지 않고 YAML 한 줄로 처리할 수 있습니다.
 
 ---
 
-## 2. 루트 설정 옵션
+## 2. 내장 타이머
 
-```yaml
-health_check_interval: 10.0   # 헬스체크 주기 (초, 기본값 5.0)
-strict_types: false           # true면 타입 경고를 에러로 처리
+DORA는 별도 노드 없이 **주기적 틱(tick)**을 노드에 공급할 수 있습니다. 예약된 이름으로 입력을 선언하면, DORA가 지정한 주기마다 틱을 발생시킵니다. 밀리초 단위와 Hz 단위 모두 지원합니다.
 
-nodes:
-  - ...
-```
+이 설계의 의도는 **노드가 자기 루프를 직접 관리하지 않도록** 하는 것입니다. 노드 내부에서 `while True: sleep(0.1)` 같은 루프를 돌리면, 그 노드의 타이밍이 DORA 스케줄러와 분리됩니다. 타이머를 외부에서 주입하면 DORA가 전체 파이프라인의 타이밍을 일관되게 제어할 수 있습니다.
+
+타이머가 외부에 있다는 것은 **테스트와 프로덕션에서 같은 노드 코드를 쓸 수 있다**는 의미이기도 합니다. 프로덕션에서 100ms 타이머를 쓰는 노드를, 테스트에서는 1ms 타이머로 바꿔 최대 속도로 돌릴 수 있습니다. 노드 코드는 변경 없이 YAML의 타이머 주기만 바꾸면 됩니다.
 
 ---
 
-## 3. 입력(inputs) 설정
+## 3. 큐 정책과 역압(Backpressure)
 
-입력은 **짧은 형식**과 **긴 형식** 두 가지로 쓸 수 있습니다.
+노드가 처리할 수 있는 속도보다 입력이 빠르게 들어오면, DORA는 노드마다 입력 큐 정책을 설정할 수 있습니다.
 
-```yaml
-# 짧은 형식
-inputs:
-  image: camera/frames
+**drop_oldest** 정책은 새 메시지가 들어올 때 오래된 메시지를 버립니다. 실시간성이 중요한 센서 스트림에 적합합니다. 10ms 전 카메라 프레임보다 지금 프레임이 중요합니다.
 
-# 긴 형식 (큐 동작 제어)
-inputs:
-  sensor_data:
-    source: sensor/frames
-    queue_size: 10                 # 버퍼 크기 (기본값 10)
-    queue_policy: drop_oldest      # drop_oldest | backpressure
-    input_timeout: 5.0             # 이 시간 동안 입력 없으면 서킷 브레이커 발동
-```
+**backpressure** 정책은 큐가 가득 차면 발신 노드를 기다리게 합니다. 데이터를 하나도 잃으면 안 되는 로깅이나 저장 파이프라인에 적합합니다.
+
+큐 정책은 **파이프라인 설계 실수를 드러내는 도구**이기도 합니다. drop_oldest 노드가 메시지를 너무 자주 버린다면 처리 속도가 업스트림보다 지속적으로 느리다는 신호입니다. backpressure가 자주 발동된다면 업스트림이 다운스트림보다 지나치게 빠른 것입니다. 큐 정책을 관찰하면 파이프라인의 병목을 찾는 단서가 됩니다.
 
 ---
 
-## 4. 내장 타이머
+## 4. 장애 복구 정책
 
-별도 노드 없이 주기적 틱(tick)을 받을 수 있습니다.
+DORA는 노드별로 **재시작 정책**을 설정할 수 있습니다.
 
-```yaml
-inputs:
-  tick:      dora/timer/millis/100   # 100ms마다
-  slow_tick: dora/timer/millis/1000  # 1초마다
-  hz_tick:   dora/timer/hz/30        # 30Hz
-```
+**never**는 노드가 종료되면 그대로 둡니다. 기본값입니다. 테스트 파이프라인처럼 한 번 실행하고 끝내야 하는 경우에 씁니다.
 
----
+**on-failure**는 비정상 종료(exit code != 0)에만 재시작합니다. 크래시는 복구하지만, 정상 종료는 의도적인 것으로 간주합니다.
 
-## 5. 로그 집계
+**always**는 사용자가 명시적으로 중지하지 않는 한 모든 종료 후 재시작합니다. 24시간 유지되어야 하는 센서 드라이버 노드에 적합합니다.
 
-다른 노드의 로그를 입력으로 구독할 수 있습니다. 메시지는 JSON 문자열로 옵니다.
+재시작 시에는 즉시 다시 시작하지 않고 **지수 백오프**로 대기 시간을 늘려가며 재시도합니다. 노드가 연속으로 빠르게 크래시하는 상황(crash loop)에서 시스템 자원이 소진되는 것을 막기 위해서입니다.
 
-```yaml
-inputs:
-  all_logs:    dora/logs              # 모든 노드의 로그
-  errors_only: dora/logs/error        # 에러 레벨 이상
-  sensor_info: dora/logs/info/sensor  # sensor 노드의 info 이상
-```
+재시작 정책을 잘못 설정하면 의도치 않은 동작이 생깁니다. 회귀 테스트 파이프라인 노드에 `on-failure`를 설정하면, 시나리오가 끝나고 노드가 정상 종료해도 DORA가 다시 시작시킵니다. 테스트가 영원히 끝나지 않게 됩니다.
 
 ---
 
-## 6. 노드 소스 종류
+## 5. 오퍼레이터와 모듈
 
-로컬 파일 외에도 Git 레포지토리나 모듈을 소스로 쓸 수 있습니다.
+### 오퍼레이터: 인프로세스 실행
 
-```yaml
-# 로컬 파일
-- id: my-node
-  path: ./my_node.py
+독립 프로세스로 실행되는 일반 노드와 달리, **오퍼레이터**는 Runtime 안에서 인프로세스로 실행됩니다. Python 스크립트나 컴파일된 공유 라이브러리를 Runtime이 직접 로드하는 방식입니다.
 
-# Git 레포지토리 (dora build로 빌드 후 실행)
-- id: rust-node
-  git: https://github.com/dora-rs/dora.git
-  branch: main
-  build: cargo build -p example-node --release
-  path: target/release/example-node
+오퍼레이터를 쓰면 노드 간 통신이 프로세스 간 IPC 대신 메모리 내 함수 호출에 가까워져 지연시간이 낮아집니다. 반면 한 오퍼레이터가 크래시하면 같은 Runtime의 다른 오퍼레이터도 영향을 받습니다.
 
-# 모듈 참조
-- id: fast-pipeline
-  module: modules/transform.module.yml
-  params:
-    speed: "2.0"
-    mode: turbo
-```
+### 모듈: 재사용 가능한 서브그래프
+
+**모듈(module)**은 노드 서브그래프를 재사용 가능한 단위로 묶는 컴파일 타임 추상화입니다. "LiDAR 전처리 → 필터링 → 좌표 변환" 같은 세 노드 조합을 여러 파이프라인에서 반복하는 대신, 하나의 모듈로 정의하고 이름으로 참조합니다.
+
+중요한 점은 **모듈이 런타임에 존재하지 않는다**는 것입니다. `dora run` 시점에 인라인으로 전개되어 런타임은 일반 노드들만 봅니다. 추상화 비용이 없습니다.
+
+모듈은 알고리즘 교체 실험에도 유용합니다. 같은 입출력 인터페이스를 가진 두 모듈(클래식 알고리즘 기반 경로 계획 vs ML 기반 경로 계획)을 만들어두면, YAML 한 줄로 교체 비교를 할 수 있습니다.
 
 ---
 
-## 7. 환경 변수
+## 6. 동적 토폴로지 변경
 
-```yaml
-- id: sensor
-  path: ./sensor
-  env:
-    DEBUG: true
-    PORT: 8080
-    RATE: 1.5
-    HOST:
-      __dora_env: HOST_VAR   # 호스트 환경 변수에서 읽어옴
-```
+DORA는 파이프라인을 완전히 재시작하지 않고 **실행 중에 구조를 바꿀 수 있습니다**. 노드를 추가하거나 제거하거나, 특정 노드의 새 버전으로 교체하는 것이 모두 가능합니다.
 
-`$VAR` 형태의 변수 확장도 지원하며, 빌드와 실행 양쪽에 모두 적용됩니다.
+로봇 운영에서 이 기능이 중요한 이유는 **다운타임이 없어야 하는 환경**이 많기 때문입니다. 24시간 운행하는 배송 로봇에서 감지 모델을 업데이트하려면, 전체 파이프라인을 내렸다가 다시 올리는 동안 로봇이 멈춰야 합니다. 동적 토폴로지 변경을 쓰면 감지 노드만 새 버전으로 교체하면서 나머지 파이프라인이 계속 동작할 수 있습니다.
+
+회귀 테스트에서도 활용할 수 있습니다. 여러 모델 버전을 순서대로 테스트할 때, 매 버전마다 전체 파이프라인을 내렸다가 올리는 대신 perception 노드만 교체하면 됩니다.
 
 ---
 
-## 8. 로깅 설정
+## 7. 분산 배포와 ROS2 브리지
 
-```yaml
-- id: sensor
-  path: ./sensor
-  min_log_level: info          # 이 레벨 미만 로그 억제
-  send_stdout_as: raw_output   # stdout/stderr를 출력으로 라우팅
-  send_logs_as: log_entries    # 구조화 로그를 출력으로 라우팅
-  max_log_size: "100MB"        # 파일 로테이션 크기
-  max_rotated_files: 3         # 보관할 로그 파일 수
-  outputs:
-    - data
-    - raw_output
-    - log_entries
-```
+YAML 파일에서 노드마다 실행할 머신을 지정할 수 있습니다. 카메라 드라이버는 로봇 온보드 컴퓨터에서, ML 추론은 GPU 서버에서 실행하는 구성을 같은 YAML 파일 안에서 선언합니다. DORA는 노드 위치를 보고 자동으로 로컬 공유 메모리와 네트워크 전송을 선택합니다.
+
+기존 ROS2 인프라가 있다면 ROS2 브리지를 통해 DORA 파이프라인과 연결할 수 있습니다. ROS2로 작성된 레거시 모듈은 그대로 두고, 새로 개발하는 고성능 부분만 DORA 노드로 작성해 브리지로 연결합니다. 전면 전환 없이 점진적으로 마이그레이션할 수 있는 경로입니다.
 
 ---
 
-## 9. 장애 복구 설정
+## 8. 통신 패턴 개요
 
-```yaml
-- id: sensor
-  path: ./sensor
-  restart_policy: on-failure   # never | on-failure | always
-  max_restarts: 5
-  restart_delay: 1.0           # 첫 재시작 대기 시간 (초)
-  max_restart_delay: 30.0      # 지수 백오프 상한
-  restart_window: 300.0        # 이 시간 내 max_restarts 초과 시 포기
-  health_check_timeout: 30.0   # 이 시간 동안 통신 없으면 강제 종료
-```
+DORA는 모든 통신을 데이터플로우(pub/sub) 위에 구현합니다. 네 가지 패턴은 별도 인프라가 아니라 **메시지 메타데이터 규약**으로 구분됩니다. 같은 Arrow 메시지 안에 메타데이터만 다르게 담으면, DORA가 패턴에 맞는 동작을 처리합니다.
 
-| 정책 | 동작 |
-|------|------|
-| `never` | 자동 재시작 안 함 (기본값) |
-| `on-failure` | 비정상 종료(exit code != 0) 시 재시작 |
-| `always` | 사용자 중지 외 모든 종료 시 재시작 |
+| 패턴 | 응답 필요 | 장시간 | 취소 가능 | 실시간 스트림 |
+|------|-----------|--------|-----------|---------------|
+| **Topic** | 아니오 | — | — | 아니오 |
+| **Service** | 예 | 아니오 | 아니오 | 아니오 |
+| **Action** | 예 | 예 | 선택 | 아니오 |
+| **Streaming** | 아니오 | 예 | flush로 | 예 |
 
 ---
 
-## 10. 타입 어노테이션
+## 9. Topic (Pub/Sub)
 
-포트에 타입을 달면 `dora validate`로 파이프라인 연결을 정적 검증할 수 있습니다.
+가장 기본적인 패턴입니다. 발행자는 데이터를 내보내고, 구독자는 받습니다. 누가 받는지, 받은 데이터로 무엇을 했는지 발행자는 신경 쓰지 않습니다.
 
-```yaml
-- id: camera
-  outputs:
-    - image
-  output_types:
-    image: std/media/v1/Image      # URN 형식: std/<카테고리>/v<버전>/<타입>
+단방향 데이터 흐름은 의존성이 없습니다. 카메라가 이미지를 내보낼 때 감지 노드가 응답을 기다릴 필요가 없습니다. 카메라는 이미지를 계속 발행하고, 감지 노드가 처리할 수 있을 때 가져갑니다. 발행자와 구독자가 서로 다른 속도로 동작해도 됩니다.
 
-- id: detector
-  inputs:
-    image: camera/image
-  input_types:
-    image: std/media/v1/Image
-  outputs:
-    - bbox
-  output_types:
-    bbox: std/vision/v1/BoundingBox
-```
+센서 데이터 스트리밍, 주기적 상태 발행, 단방향 이벤트는 모두 Topic이 자연스럽습니다.
 
-```bash
-dora validate dataflow.yml
-```
+**잘못 쓰는 경우**: 응답이 필요한 상호작용에 Topic만 쓰면, 여러 노드가 동시에 요청을 보냈을 때 어느 응답이 어느 요청에 대한 것인지 알 수 없습니다. 응답이 필요하면 Service를 써야 합니다.
 
 ---
 
-## 11. 오퍼레이터 노드
+## 10. Service (Request/Reply)
 
-독립 프로세스 대신 **Runtime 안에서 인프로세스**로 실행되는 노드입니다. Python 스크립트나 공유 라이브러리를 사용할 때 유용합니다.
+클라이언트가 요청을 보내고 **정확히 하나의 응답**을 기대하는 패턴입니다.
 
-```yaml
-# 단일 오퍼레이터
-- id: detector
-  operator:
-    python: detect.py
-    build: pip install ultralytics
-    inputs:
-      image: camera/frames
-    outputs:
-      - bbox
+Service 패턴은 요청마다 고유한 `request_id`를 생성해 응답과 매칭합니다. 서버는 응답을 보낼 때 반드시 요청에서 받은 `request_id`를 그대로 포함해야 합니다. 이것을 빠뜨리면 클라이언트가 응답을 매칭하지 못합니다. DORA가 자동으로 처리하지 않고 개발자가 명시적으로 포함해야 한다는 점이 중요합니다.
 
-# 복수 오퍼레이터 (하나의 Runtime 안에서 실행)
-- id: runtime-node
-  operators:
-    - id: preprocessor
-      shared-library: ../../target/debug/libpreprocess
-      inputs:
-        raw: sensor/data
-      outputs:
-        - processed
-    - id: analyzer
-      shared-library: ../../target/debug/libanalyze
-      inputs:
-        data: runtime-node/preprocessor/processed   # 같은 Runtime 내부 연결
-      outputs:
-        - result
-```
+설정 조회, 단발성 명령, 계산 요청처럼 한 번 묻고 한 번 답하는 상호작용에 적합합니다.
+
+**잘못 쓰는 경우**: 오래 걸리는 작업에 Service를 쓰면 클라이언트가 응답을 기다리는 동안 블록됩니다. 경로 탐색처럼 수 초가 걸리는 작업에는 Action을 써야 합니다.
 
 ---
 
-## 12. 분산 배포
+## 11. Action (Goal/Feedback/Result)
 
-노드마다 실행할 머신을 지정할 수 있습니다. (`dora up` 이후 사용)
+**장시간 동작**하면서 중간 피드백을 보내고 최종 결과를 반환하는 패턴입니다.
 
-```yaml
-- id: camera-driver
-  _unstable_deploy:
-    machine: robot-arm     # Daemon ID
-  path: ./camera
-  outputs:
-    - frames
+클라이언트가 목표(goal)를 전송하면 서버가 작업을 시작합니다. 작업이 진행되는 동안 서버는 주기적으로 피드백을 보냅니다. 완료되면 최종 결과와 함께 `goal_status`를 보냅니다. 취소는 `goal_id`를 담은 취소 메시지로 트리거하고, 서버가 이를 감지해 `canceled` 상태로 응답합니다.
 
-- id: ml-inference
-  _unstable_deploy:
-    machine: gpu-server
-    distribute: scp        # local | scp | http
-  inputs:
-    frames: camera-driver/frames
-```
+`goal_status` 값은 `succeeded`, `aborted`, `canceled` 세 가지입니다. 대소문자가 정확해야 합니다.
+
+자율주행에서의 활용: 사용자가 목적지를 지정하면 내비게이션 노드가 Action을 시작합니다. 주행 중 경로 진행률을 피드백으로 받고, 긴급 상황에서는 취소 메시지로 즉시 중단시킬 수 있습니다.
 
 ---
 
-## 13. ROS2 브리지
+## 12. Streaming (세션/세그먼트/청크)
 
-기존 ROS2 토픽/서비스를 DORA 파이프라인과 연결할 수 있습니다.
+오디오, 비디오, 센서 데이터처럼 **실시간으로 흘러가는 스트림**을 처리하는 패턴입니다. 스트림 중간에 새 스트림이 시작되면 이전 스트림의 큐를 즉시 비울 수 있습니다.
 
-```yaml
-# 토픽 구독
-- id: camera_bridge
-  ros2:
-    topic: /camera/image_raw
-    message_type: sensor_msgs/Image
-    direction: subscribe
-  outputs:
-    - image
+Streaming 패턴의 메타데이터는 세 계층입니다. 전체 세션을 식별하는 `session_id`, 세션 내 논리 단위를 식별하는 `segment_id`, 세그먼트 내 순서를 나타내는 `seq`. `fin`이 `true`인 메시지가 세그먼트의 마지막 청크입니다.
 
-# 토픽 발행 + 구독 혼합
-- id: robot_bridge
-  ros2:
-    topics:
-      - topic: /camera/image_raw
-        message_type: sensor_msgs/Image
-        direction: subscribe
-        output: image
-      - topic: /cmd_vel
-        message_type: geometry_msgs/Twist
-        direction: publish
-        input: velocity
-    qos:
-      reliable: true
-  inputs:
-    velocity: planner/cmd_vel
-  outputs:
-    - image
+### flush 메커니즘
 
-# 서비스 서버
-- id: add_service
-  ros2:
-    service: /add_two_ints
-    service_type: example_interfaces/AddTwoInts
-    role: server
-  inputs:
-    request: client_node/request
-  outputs:
-    - response
-```
+`flush: true`가 담긴 메시지가 도착하면, 수신자의 큐에서 그보다 오래된 메시지가 먼저 제거됩니다. LiDAR 처리를 예로 들면, 100ms마다 새 스캔이 들어오는데 처리에 150ms가 걸린다면 큐에 오래된 스캔이 쌓입니다. flush 없이 Topic을 쓰면 노드가 0.5초 전의 스캔부터 처리합니다. Streaming의 flush를 쓰면 새 스캔이 들어올 때 큐의 오래된 스캔이 제거되어 항상 최신 스캔에 집중할 수 있습니다. 지연이 150ms 이상 누적되지 않습니다.
+
+STT(Speech-to-Text) 파이프라인에서도 똑같이 작동합니다. 사용자가 말을 멈추고 새로 시작하면, 이전 발화의 오디오 청크가 큐에 남아있어도 새 발화의 flush로 즉시 처리가 중단됩니다.
 
 ---
 
-## 14. 완성 예제
+## 13. 패턴 선택 가이드
 
-카메라 → 객체 감지 → 시각화 + 로그 저장 파이프라인입니다.
-
-```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/dora-rs/dora/main/dora-schema.json
-
-health_check_interval: 10.0
-
-_unstable_debug:
-  enable_debug_inspection: true   # dora topic echo 등 디버그 명령 활성화
-
-nodes:
-  - id: webcam
-    operator:
-      python: webcam.py
-      inputs:
-        tick: dora/timer/millis/100   # 100ms마다 프레임 캡처
-      outputs:
-        - image
-
-  - id: detector
-    operator:
-      python: detect.py
-      build: pip install ultralytics
-      inputs:
-        image: webcam/image
-      outputs:
-        - bbox
-
-  - id: plotter
-    operator:
-      python: plot.py
-      inputs:
-        image: webcam/image
-        bbox: detector/bbox           # 두 노드의 출력을 동시에 구독
-
-  - id: logger
-    path: ./logger
-    inputs:
-      bbox: detector/bbox
-    send_stdout_as: logs
-    min_log_level: info
-    restart_policy: on-failure        # 크래시 시 자동 재시작
-    max_restarts: 3
-    outputs:
-      - logs
+```
+응답이 필요한가?
+├── 아니오 → 실시간 스트림인가?
+│            ├── 아니오 → Topic
+│            └── 예    → Streaming
+└── 예    → 장시간 동작인가?
+             ├── 아니오 → Service
+             └── 예    → Action
 ```
 
-실행 및 디버그:
+자율주행 스택에 적용하면: LiDAR 포인트 클라우드 전송은 Streaming, 감지 결과 발행은 Topic, 경로 재계획 요청은 Service, 목적지까지 내비게이션은 Action입니다.
 
-```bash
-dora run dataflow.yml
+| 패턴 | 핵심 메타데이터 | 언제 | 잘못 쓰면 |
+|------|----------------|------|-----------|
+| Topic | 없음 | 단방향 데이터 흐름 | 응답 매칭 불가 |
+| Service | `request_id` | 단발 요청/응답 | 장시간 작업 시 블록 |
+| Action | `goal_id`, `goal_status` | 장시간 동작 + 피드백 | — |
+| Streaming | `session_id`, `segment_id`, `seq`, `fin`, `flush` | 실시간 스트림 + 인터럽트 | flush 없으면 지연 누적 |
 
-# 다른 터미널에서 실시간 확인
-dora topic echo detector/bbox
-dora topic hz webcam/image
-dora topic info
-```
+---
+
+## 14. 정리
+
+DORA 데이터플로우 YAML은 파이프라인의 **무엇(what)**을 선언하는 파일입니다. 어떤 노드가 있고, 어떤 데이터를 주고받고, 어떤 머신에서 실행되는지를 선언합니다. **어떻게(how)** 라우팅하고 스케줄링하는지는 DORA가 결정합니다.
+
+네 가지 통신 패턴은 모두 같은 데이터플로우 위에서 메타데이터 규약으로 구현됩니다. 별도 인프라 없이, YAML 연결과 메시지 메타데이터만으로 단방향 스트림부터 장시간 동작·취소까지 표현할 수 있습니다.
+
+다음 글에서는 이 파이프라인을 자율주행 E2E 회귀 테스트에 적용하는 [DORA로 자율주행 E2E 회귀 테스트 구성하기](dora-rs-av-regression-testing/)를 살펴봅니다.

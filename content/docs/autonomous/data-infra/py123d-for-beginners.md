@@ -158,6 +158,8 @@ nearby_map = scene.get_map_api().get_map_objects_in_radius(
 )
 ```
 
+반경 쿼리가 빠른 이유는 py123d가 HD Map을 Arrow IPC로 저장할 때 **STRtree(Sort-Tile-Recursive 공간 인덱스)**를 함께 빌드해두기 때문입니다. 점·선·다각형 벡터 데이터를 공간적으로 정렬하고 타일로 분할해두면, "반경 50m" 쿼리가 전체 맵을 순회하지 않고 인덱스만으로 후보를 좁힙니다. Zero-Copy Arrow 메모리 맵 위에서 이 인덱스가 동작하므로, 수백 MB 규모의 도시 맵도 수 밀리초 안에 쿼리할 수 있습니다.
+
 nuScenes를 쓸 때와 Argoverse 2를 쓸 때 코드가 **완전히 동일**합니다.
 
 ---

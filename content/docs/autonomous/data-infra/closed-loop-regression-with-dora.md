@@ -1,10 +1,10 @@
 ---
-title: "Arrow로 관통하는 자율주행 클로즈 루프 회귀 테스트 파이프라인"
+title: "Arrow로 관통하는 자율주행 E2E 회귀 테스트 파이프라인"
 date: 2026-07-08T00:00:00+09:00
 draft: false
-tags: ["autonomous", "dora", "apache-arrow", "closed-loop", "regression-test", "rerun", "py123d"]
+tags: ["autonomous", "dora", "apache-arrow", "open-loop", "e2e", "regression-test", "rerun", "py123d"]
 categories: ["autonomous"]
-description: "py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache Arrow 기반 클로즈 루프 회귀 테스트 파이프라인을 소개합니다."
+description: "py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache Arrow 기반 E2E 회귀 테스트 구조를 소개합니다."
 ---
 
 이 시리즈는 Apache Arrow의 원리에서 시작해, py123d로 데이터셋을 표준화하고, [커스텀 파서](../py123d-dataset-conversion/)로 사내 데이터를 합류시키고, [NuRec로 신경 재구성](../py123d-to-nurec/)까지 연결하는 파이프라인을 쌓아왔습니다.
@@ -70,7 +70,7 @@ description: "py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache A
 - 특정 엣지 케이스 조건(야간, 역광, 보행자 밀집)
 - 모델 신뢰도가 낮았던 프레임이 포함된 클립
 
-선별된 시나리오는 DORA가 읽을 수 있는 Arrow 포맷 재생 목록으로 내보냅니다.
+선별된 시나리오는 DORA `scenario-player`가 읽을 수 있는 재생 목록으로 내보냅니다. FiftyOne의 export API는 각 선별 샘플의 py123d Arrow 파일 경로와 씬 ID를 JSON 목록으로 출력합니다. `scenario-player` 노드가 이 목록을 읽어 파일을 순서대로 로드하고, 프레임 단위로 DORA 토픽에 발행합니다. FiftyOne GUI에서 엣지 케이스를 클릭해 선별하는 큐레이션 작업과 DORA 파이프라인 실행이 이 목록 파일 하나로 연결됩니다.
 
 ### 3단계: 자율주행 스택 실행 (`DORA`)
 
@@ -79,13 +79,12 @@ description: "py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache A
 이 파이프라인에서 DORA의 데이터플로우는 다음 네 노드로 구성됩니다.
 
 ```
-scenario-player → lidar, camera, gt_boxes
-                      ↓              ↓
-              perception         evaluator
-                      ↓              ↓
-               pred_boxes         metrics
-                      ↓
-               visualizer (Rerun)
+scenario-player
+      │
+      ├─ lidar, camera ──→  perception  ──→  pred_boxes ──┐
+      └─ gt_boxes ───────────────────────────────────────→  evaluator  ──→  metrics
+                                                                                ↓
+                                                                         visualizer (Rerun)
 ```
 
 **scenario-player 노드**는 py123d로 표준화된 시나리오를 프레임 단위로 재생합니다. LiDAR 포인트 클라우드, 카메라 이미지, Ground Truth 바운딩 박스를 Arrow 메시지로 내보냅니다. 타이머 입력(`dora/timer/millis/100`)을 받아 100ms 단위로 다음 프레임을 내보내도록 설계됩니다.
@@ -102,7 +101,7 @@ scenario-player → lidar, camera, gt_boxes
 
 DORA의 Daemon-Coordinator 구조는 각 노드를 완전히 독립된 프로세스로 분리합니다. Coordinator가 데이터플로우 그래프 전체를 관리하고, 각 머신의 Daemon이 자기 프로세스에서 노드를 실행합니다. 노드 간 통신은 Arrow 공유 메모리로 이루어지기 때문에 언어 경계에서 직렬화 비용이 없습니다. C++ 노드에서 생성한 Arrow 버퍼를 Python 노드가 복사 없이 그대로 읽습니다.
 
-클로즈 루프 구조에서는 evaluator가 내보내는 제어 명령을 scenario-player가 다시 받아 다음 센서 데이터를 생성할 수 있습니다. 알고리즘의 결정이 다음 장면에 반영되는 진짜 피드백 루프입니다.
+이 파이프라인은 녹화된 Arrow 데이터를 재생하는 **오픈 루프** 구조입니다. scenario-player가 발행하는 센서 데이터는 알고리즘의 결정과 무관하게 고정되어 있습니다. 빠르고 재현 가능해 CI에 적합합니다. 제어 명령이 시뮬레이터에 피드백되는 진짜 클로즈 루프 테스트는 CARLA 같은 시뮬레이터와의 연동이 필요하며, [CARLA 시뮬레이터와 DORA 연동하기](../../dora/dora-rs-simulator-integration/)에서 별도로 다룹니다.
 
 ### 4단계: 결과 시각화 및 비교 (`Rerun`)
 
@@ -111,6 +110,8 @@ DORA의 Daemon-Coordinator 구조는 각 노드를 완전히 독립된 프로세
 Rerun 뷰어에서는 타임라인에 Ground Truth 박스와 예측 박스가 함께 그려집니다. 슬라이더를 움직이면 LiDAR 포인트 클라우드, 두 종류의 박스, 카메라 이미지가 동시에 같은 타임스탬프로 이동합니다. 숫자 지표만 보는 것보다 훨씬 직관적으로 오차가 어느 시각에, 어떤 물체에서 발생했는지 확인할 수 있습니다.
 
 회귀 테스트 리뷰 과정은 이렇게 됩니다. 새 모델 버전을 배포하기 전에 평가 지표가 이전보다 떨어진 시나리오 목록을 추립니다. 그 시나리오들을 Rerun에서 재생하면서 두 박스가 언제 어디서 벌어지는지 확인합니다. 숫자로는 "mAP가 2% 하락"이라고 나왔더라도, 실제 장면을 보면 "야간 교차로에서 역광 보행자 탐지 실패"라는 구체적인 원인이 보입니다. 이 피드백이 다시 FiftyOne의 큐레이션 기준이 됩니다.
+
+**원격 모니터링 시 대역폭 고려**: DORA와 Rerun이 같은 머신에서 실행되면 OS 공유 메모리로 포인트 클라우드와 카메라 이미지가 Zero-Copy로 전달되어 렌더링 오버헤드가 거의 없습니다. 하지만 DORA는 GPU 서버에서, Rerun Viewer는 로컬 PC에서 실행하는 경우 네트워크 대역폭이 병목이 됩니다. 30Hz 멀티카메라 Raw 스트림은 기가비트 네트워크도 쉽게 포화시킵니다. visualizer 노드에서 카메라 이미지를 JPEG로 압축하거나 포인트 클라우드를 Voxel Grid Filter로 다운샘플링한 뒤 Rerun으로 보내면 대역폭을 10배 이상 줄일 수 있습니다. 원격 모니터링에서는 원본 Arrow 버퍼를 그대로 넘기지 않고 시각화에 충분한 해상도로 압축 후 전달하는 것이 실용적입니다.
 
 ### 회귀 테스트 자동화
 

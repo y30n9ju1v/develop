@@ -98,7 +98,7 @@ Arrow는 처음부터 데이터를 **OS 레벨의 공유 메모리(Shared Memory
 
 다른 언어/프로세스에 데이터를 넘길 때는 실제 데이터를 복사하는 게 아니라, "공유 메모리 몇 번지에 데이터가 있으니 읽어라"하고 **포인터(주소)만** 전달합니다.
 
-모든 언어(Rust, Python, C++, Java, Go 등)가 동일한 Arrow 메모리 포맷 표준을 구현하고 있으므로, 변환도 복사도 없는 진정한 **Zero-Copy**가 실현됩니다. [DORA 아키텍처](../dora/dora-rs-architecture/)에서 4KiB 이상 메시지에 공유 메모리를 쓰는 것도 같은 원리입니다. Rust로 만든 Daemon이 공유 메모리에 Arrow 포맷으로 데이터를 쓰면, Python 노드가 복사 없이 같은 메모리를 그대로 읽습니다.
+모든 언어(Rust, Python, C++, Java, Go 등)가 동일한 Arrow 메모리 포맷 표준을 구현하고 있으므로, 변환도 복사도 없는 진정한 **Zero-Copy**가 실현됩니다. [DORA 아키텍처](../dora/dora-rs-for-beginners/)에서 4KiB 이상 메시지에 공유 메모리를 쓰는 것도 같은 원리입니다. Rust로 만든 Daemon이 공유 메모리에 Arrow 포맷으로 데이터를 쓰면, Python 노드가 복사 없이 같은 메모리를 그대로 읽습니다.
 
 ---
 
