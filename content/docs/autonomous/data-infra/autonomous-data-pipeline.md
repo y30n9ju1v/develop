@@ -7,7 +7,7 @@ categories: ["autonomous"]
 description: "nuScenes, Waymo, 사내 데이터까지 파편화된 자율주행 데이터셋을 py123d로 통일하고, FiftyOne으로 큐레이션하고, Rerun으로 시각화하는 모던 데이터 파이프라인을 소개합니다."
 ---
 
-지난 글에서는 **[Apache Arrow가 왜 압도적으로 빠른지](../../programming/apache-arrow-internals/)** — 컬럼 기반 레이아웃, SIMD, Null 비트맵, Zero-Copy — 그 원리를 살펴봤습니다.
+지난 글에서는 **[Apache Arrow가 왜 압도적으로 빠른지](../apache-arrow-internals/)** — 컬럼 기반 레이아웃, SIMD, Null 비트맵, Zero-Copy — 그 원리를 살펴봤습니다.
 
 오늘은 이 Apache Arrow를 기반으로, 자율주행 진영의 고질적인 문제인 **데이터셋 파편화**를 해결하고 모던한 데이터 파이프라인을 구축하는 방법을 소개합니다. 그 중심에 있는 툴이 바로 `py123d`입니다.
 
@@ -42,7 +42,7 @@ camera_frame = scene.get_camera_frame("CAM_FRONT", timestamp=1234567890)
 
 **Apache Arrow 기반 Zero-Copy 로딩**
 
-내부적으로 Arrow 포맷을 활용해 데이터셋을 매핑합니다. 테라바이트 단위의 원본 라이다/이미지 파일을 직접 복사하지 않고, 메타데이터 주소만 연결하는 Zero-Copy 방식을 취합니다. 디스크 용량 낭비가 없고, [지난 글에서 살펴본 Arrow의 고속 처리](../../programming/apache-arrow-internals/)가 그대로 적용됩니다.
+내부적으로 Arrow 포맷을 활용해 데이터셋을 매핑합니다. 테라바이트 단위의 원본 라이다/이미지 파일을 직접 복사하지 않고, 메타데이터 주소만 연결하는 Zero-Copy 방식을 취합니다. 디스크 용량 낭비가 없고, [지난 글에서 살펴본 Arrow의 고속 처리](../apache-arrow-internals/)가 그대로 적용됩니다.
 
 **타임스탬프 기반 스트림 구조**
 
