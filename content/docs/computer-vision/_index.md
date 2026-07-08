@@ -7,3 +7,4 @@ title: "컴퓨터 비전"
 ## 시리즈 목록
 
 - **[CS231A: Computer Vision](cs231a/)** — Stanford CS231A 강의 노트 정리: 카메라 모델, 3D 재구성, 광학 흐름, 최적 추정
+- **[3D Gaussian Splatting 파일 포맷 입문](3dgs-file-format-for-beginners/)** — .ply 파일 구조, 구면 조화 함수, Python으로 직접 파싱하기

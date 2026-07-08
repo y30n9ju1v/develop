@@ -385,4 +385,4 @@ opendrive2lanelet --opendrive input.xodr --lanelet2 output.osm
 
 ---
 
-*관련 글: [OpenDRIVE 입문](/docs/autonomous/opendrive-for-beginners/), [Lanelet2 입문](/docs/autonomous/lanelet2-for-beginners/), [OpenSCENARIO 입문](/docs/autonomous/openscenario-for-beginners/)*
+*관련 글: [OpenDRIVE 입문](/docs/autonomous/hd-map/opendrive-for-beginners/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/), [OpenSCENARIO 입문](/docs/autonomous/hd-map/openscenario-for-beginners/)*

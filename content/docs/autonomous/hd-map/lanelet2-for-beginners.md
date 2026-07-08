@@ -246,4 +246,4 @@ Lanelet2는 처음에는 생소하게 느껴지지만, 핵심은 단순합니다
 
 ---
 
-*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [OpenDRIVE 입문](/docs/autonomous/opendrive-for-beginners/), [OpenDRIVE vs Lanelet2 비교](/docs/autonomous/opendrive-vs-lanelet2/), [OpenSCENARIO 입문](/docs/autonomous/openscenario-for-beginners/)*
+*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [OpenDRIVE 입문](/docs/autonomous/hd-map/opendrive-for-beginners/), [OpenDRIVE vs Lanelet2 비교](/docs/autonomous/hd-map/opendrive-vs-lanelet2/), [OpenSCENARIO 입문](/docs/autonomous/hd-map/openscenario-for-beginners/)*

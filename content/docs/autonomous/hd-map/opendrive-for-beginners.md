@@ -301,4 +301,4 @@ OpenDRIVE는 처음에는 XML 구조가 복잡하게 느껴지지만, 핵심은 
 
 ---
 
-*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [Lanelet2 입문](/docs/autonomous/lanelet2-for-beginners/), [OpenSCENARIO 입문](/docs/autonomous/openscenario-for-beginners/)*
+*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/), [OpenSCENARIO 입문](/docs/autonomous/hd-map/openscenario-for-beginners/)*

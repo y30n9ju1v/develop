@@ -7,9 +7,9 @@ categories: ["autonomous"]
 description: "py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache Arrow 기반 클로즈 루프 회귀 테스트 파이프라인을 소개합니다."
 ---
 
-앞선 두 글에서 Apache Arrow가 왜 빠른지, 그리고 **[py123d + FiftyOne + Rerun](autonomous-data-pipeline/)** 조합이 자율주행 데이터 파이프라인을 어떻게 통일하는지 살펴봤습니다.
+이 시리즈는 Apache Arrow의 원리에서 시작해, py123d로 데이터셋을 표준화하고, [커스텀 파서](../py123d-dataset-conversion/)로 사내 데이터를 합류시키고, [NuRec로 신경 재구성](../py123d-to-nurec/)까지 연결하는 파이프라인을 쌓아왔습니다.
 
-오늘은 여기서 한 발 더 나아갑니다. **[DORA](../../dora/dora-rs-for-beginners/)** 역시 내부적으로 Apache Arrow를 노드 간 메시지 포맷으로 사용합니다. 덕분에 데이터 큐레이션부터 자율주행 스택 실행, 결과 시각화까지 **Arrow 하나가 파이프라인 전체를 끊김 없이 관통**하는 구조를 만들 수 있습니다.
+마지막 조각은 **[DORA](../../dora/dora-rs-for-beginners/)**입니다. DORA 역시 내부적으로 Apache Arrow를 노드 간 메시지 포맷으로 사용합니다. 덕분에 데이터 큐레이션부터 자율주행 스택 실행, 결과 시각화까지 **Arrow 하나가 파이프라인 전체를 끊김 없이 관통**하는 구조를 완성할 수 있습니다.
 
 ---
 

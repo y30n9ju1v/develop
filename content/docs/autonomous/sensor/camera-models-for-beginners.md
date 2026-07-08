@@ -289,4 +289,4 @@ print("왜곡 계수 [k1,k2,k3,k4]:", D.ravel())
 
 ---
 
-*관련 글: [Lanelet2 입문](/docs/autonomous/lanelet2-for-beginners/), [OpenDRIVE 입문](/docs/autonomous/opendrive-for-beginners/)*
+*관련 글: [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/), [OpenDRIVE 입문](/docs/autonomous/hd-map/opendrive-for-beginners/)*

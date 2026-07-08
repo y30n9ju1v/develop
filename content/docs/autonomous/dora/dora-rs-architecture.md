@@ -8,7 +8,7 @@ description: "DORA의 4계층 아키텍처(Coordinator, Daemon, Runtime, Node)�
 ---
 
 > 이 글은 [DORA 아키텍처 문서](https://dora-rs.ai/dora/concepts/architecture.html)를 참고해 작성했습니다.
-> DORA가 처음이라면 먼저 [DORA 입문](../dora-rs-for-beginners/)을 읽어보세요.
+> DORA가 처음이라면 먼저 [DORA 입문](dora-rs-for-beginners/)을 읽어보세요.
 
 ---
 

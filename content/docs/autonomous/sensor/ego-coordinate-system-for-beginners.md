@@ -173,7 +173,7 @@ World 좌표계의 포인트 클라우드
 
 측정 방법은 보통 두 가지입니다. 첫째, 체커보드나 타깃 마커를 차량 앞에 놓고 카메라와 LiDAR가 동시에 관측한 결과를 비교해 $R$, $\mathbf{t}$를 추정합니다. 둘째, 차량의 CAD 설계 도면에서 센서 장착 위치를 직접 읽어 사용합니다. 전자가 더 정밀하고, 후자는 빠른 초기값으로 활용합니다.
 
-> **참고**: LiDAR의 3D 포인트 클라우드를 Camera의 2D 이미지 위에 겹쳐서 그리기(Projection) 위해서는, 여기서 구한 **Extrinsic 행렬($T$)**로 포인트를 카메라 좌표계로 옮긴 뒤, 렌즈의 특성을 나타내는 **Intrinsic 행렬($K$)**을 한 번 더 곱해주어야 합니다. (관련 내용: [카메라 모델 입문](/docs/autonomous/camera-models-for-beginners/))
+> **참고**: LiDAR의 3D 포인트 클라우드를 Camera의 2D 이미지 위에 겹쳐서 그리기(Projection) 위해서는, 여기서 구한 **Extrinsic 행렬($T$)**로 포인트를 카메라 좌표계로 옮긴 뒤, 렌즈의 특성을 나타내는 **Intrinsic 행렬($K$)**을 한 번 더 곱해주어야 합니다. (관련 내용: [카메라 모델 입문](/docs/autonomous/sensor/camera-models-for-beginners/))
 
 ---
 
@@ -238,4 +238,4 @@ print("Ego 좌표계:", ego_points)
 
 ---
 
-*관련 글: [카메라 모델 입문](/docs/autonomous/camera-models-for-beginners/), [Lanelet2 입문](/docs/autonomous/lanelet2-for-beginners/)*
+*관련 글: [카메라 모델 입문](/docs/autonomous/sensor/camera-models-for-beginners/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/)*

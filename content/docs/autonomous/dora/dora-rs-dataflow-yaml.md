@@ -8,7 +8,7 @@ description: "DORA 파이프라인을 정의하는 데이터플로우 YAML의 �
 ---
 
 > 이 글은 [DORA 데이터플로우 YAML 문서](https://dora-rs.ai/dora/concepts/dataflow-yaml.html)를 참고해 작성했습니다.
-> DORA가 처음이라면 먼저 [DORA 입문](../dora-rs-for-beginners/)을 읽어보세요.
+> DORA가 처음이라면 먼저 [DORA 입문](dora-rs-for-beginners/)을 읽어보세요.
 
 ---
 

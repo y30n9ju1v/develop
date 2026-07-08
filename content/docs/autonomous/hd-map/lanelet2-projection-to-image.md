@@ -406,4 +406,4 @@ pts_2d, _ = cv2.projectPoints(
 
 ---
 
-*관련 글: [카메라 모델 입문](/docs/autonomous/camera-models-for-beginners/), [좌표계 입문](/docs/autonomous/ego-coordinate-system-for-beginners/), [Lanelet2 입문](/docs/autonomous/lanelet2-for-beginners/)*
+*관련 글: [카메라 모델 입문](/docs/autonomous/sensor/camera-models-for-beginners/), [좌표계 입문](/docs/autonomous/sensor/ego-coordinate-system-for-beginners/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/)*

@@ -341,4 +341,4 @@ OpenSCENARIO의 핵심은 단순합니다. **"언제(Trigger), 누가(Entity), �
 
 ---
 
-*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [OpenDRIVE 입문](/docs/autonomous/opendrive-for-beginners/), [Lanelet2 입문](/docs/autonomous/lanelet2-for-beginners/), [OpenDRIVE vs Lanelet2 비교](/docs/autonomous/opendrive-vs-lanelet2/)*
+*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [OpenDRIVE 입문](/docs/autonomous/hd-map/opendrive-for-beginners/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/), [OpenDRIVE vs Lanelet2 비교](/docs/autonomous/hd-map/opendrive-vs-lanelet2/)*

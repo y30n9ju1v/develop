@@ -7,9 +7,9 @@ categories: ["autonomous"]
 description: "nuScenes, Waymo, 사내 데이터까지 파편화된 자율주행 데이터셋을 py123d로 통일하고, FiftyOne으로 큐레이션하고, Rerun으로 시각화하는 모던 데이터 파이프라인을 소개합니다."
 ---
 
-지난 글에서는 **[Apache Arrow가 왜 압도적으로 빠른지](../apache-arrow-internals/)** — 컬럼 기반 레이아웃, SIMD, Null 비트맵, Zero-Copy — 그 원리를 살펴봤습니다.
+지난 두 글에서는 **[Apache Arrow가 왜 압도적으로 빠른지](../apache-arrow-internals/)** — 컬럼 기반 레이아웃, SIMD, Null 비트맵, Zero-Copy — 그 원리를, 그리고 **[py123d가 무엇인지](../py123d-for-beginners/)** — 9개 데이터셋을 Arrow 기반 공통 스키마로 통일하는 방법을 살펴봤습니다.
 
-오늘은 이 Apache Arrow를 기반으로, 자율주행 진영의 고질적인 문제인 **데이터셋 파편화**를 해결하고 모던한 데이터 파이프라인을 구축하는 방법을 소개합니다. 그 중심에 있는 툴이 바로 `py123d`입니다.
+오늘은 이 두 가지를 바탕으로, **py123d를 FiftyOne, Rerun과 연결해 실제 데이터 파이프라인을 구축하는 방법**을 소개합니다.
 
 ---
 
