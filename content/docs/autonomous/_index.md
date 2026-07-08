@@ -32,3 +32,7 @@ title: "자율주행"
 13. **[DORA 타입 시스템](dora-rs-types/)** — 타입 URN 체계, 내장 타입 카탈로그, 호환성 규칙, 정적/런타임 검증 방법을 정리합니다.
 14. **[DORA 모듈](dora-rs-modules/)** — 노드 서브그래프를 재사용 가능한 단위로 묶는 모듈의 정의, 파라미터, 중첩 방법을 정리합니다.
 15. **[DORA 통신 패턴](dora-rs-patterns/)** — Topic, Service, Action, Streaming 네 가지 패턴의 동작 방식과 메타데이터 규약을 정리합니다.
+
+### 데이터 인프라
+
+16. **[파편화된 자율주행 데이터를 하나로: py123d + FiftyOne + Rerun](autonomous-data-pipeline/)** — 파편화된 자율주행 데이터셋을 py123d로 표준화하고, FiftyOne으로 큐레이션하고, Rerun으로 시각화하는 모던 파이프라인을 소개합니다.
