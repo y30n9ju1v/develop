@@ -10,3 +10,4 @@ title: "프로그래밍"
 - **[nanoGPT from Scratch](nanogpt-from-scratch/)** — Karpathy 강의를 따라 PyTorch로 GPT 직접 구현
 - **[3-View SfM with LiDAR](sfm-with-lidar/)** — 3DGS 이해를 위한 선행으로, Python과 OpenCV로 카메라 + LiDAR 데이터를 이용한 SfM 직접 구현
 - **[Functional Programming in Lean](functional-programming-in-lean/)** — Lean 4 공식 교재 챕터별 정리 (함수형 프로그래밍 + 정리 증명)
+- **[Metaprogramming in Lean 4](metaprogramming-in-lean4/)** — Lean 4 메타프로그래밍 공식 교재 챕터별 정리
