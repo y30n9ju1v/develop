@@ -496,7 +496,7 @@ However, there are a few things involved with the machinery of doing this in
 a pretty and correct (the machinery is mostly about the correct part) way
 which will be explained in the macro chapter.
 
-이 방식으로 `Syntax`를 생성하는 것이 전혀 마음에 들지 않는다면 당신만 그런 것이 아닙니다. 그러나 이것을 예쁘고 올바르게(주로 올바른 부분에 관한 것입니다) 수행하는 기계적 장치와 관련된 몇 가지 사항이 있으며, 이는 macro 챕터에서 설명할 것입니다.
+이 방식으로 `Syntax`를 생성하는 것이 전혀 마음에 들지 않더라도 그럴 만합니다. 그러나 이것을 예쁘고 올바르게(주로 올바른 부분에 관한 것입니다) 수행하는 기계적 장치와 관련된 몇 가지 사항이 있으며, 이는 macro 챕터에서 설명할 것입니다.
 
 
 Just like constructing `Syntax` is an important topic, especially

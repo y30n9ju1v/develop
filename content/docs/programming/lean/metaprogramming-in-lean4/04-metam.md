@@ -1057,7 +1057,7 @@ Having to specify the implicit arguments and universe levels is annoying and
 error-prone. So `MetaM` provides a helper function which allows us to omit
 implicit information: `Lean.Meta.mkAppM` of type
 
-암시적 인수와 우주 레벨을 지정해야 하는 것�� 번거롭고 오류가 발생하기 쉽습니다. 그래서 `MetaM`은 암시적 정보를 생략할 수 있게 해주는 도우미 함수를 제공합니다: 다음 타입의 `Lean.Meta.mkAppM`입니다:
+암시적 인수와 우주 레벨을 지정해야 하는 것이 번거롭고 오류가 발생하기 쉽습니다. 그래서 `MetaM`은 암시적 정보를 생략할 수 있게 해주는 도우미 함수를 제공합니다: 다음 타입의 `Lean.Meta.mkAppM`입니다:
 
 ```
 mkAppM : Name → Array Expr → MetaM Expr
@@ -1122,7 +1122,7 @@ takes an `Expr` instead of a `Name` as the first argument. The file which
 contains `mkAppM` also contains various other helper functions, e.g. for making
 list literals or `sorry`s.
 
-`mkAppM`과 마찬가지로, `mkAppOptM`에는 첫 번째 인���로 `Name` 대신 `Expr`을 받는 프라임 변형 `Lean.Meta.mkAppOptM'`이 있습니다. `mkAppM`을 포함하는 파일에는 리스트 리터럴이나 `sorry`를 만드는 등의 다른 도우미 함수들도 있습니다.
+`mkAppM`과 마찬가지로, `mkAppOptM`에는 첫 번째 인수로 `Name` 대신 `Expr`을 받는 프라임 변형 `Lean.Meta.mkAppOptM'`이 있습니다. `mkAppM`을 포함하는 파일에는 리스트 리터럴이나 `sorry`를 만드는 등의 다른 도우미 함수들도 있습니다.
 
 
 Another common task is to construct expressions involving `λ` or `∀` binders.
