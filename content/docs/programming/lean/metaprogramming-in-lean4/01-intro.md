@@ -118,7 +118,7 @@ mere illustrations - do not worry if you don't understand the details for now.
 
 Ruby, Python, Javascript와 같은 언어에서 메타프로그래밍을 해본 적 있다면, 아마도 미리 정의된 메타프로그래밍 메서드를 활용해 실행 중에 무언가를 동적으로 정의하는 형태였을 것입니다. 예를 들어 Ruby에서는 `Class.new`와 `define_method`를 사용하여 프로그램이 실행되는 동안 새로운 클래스와 그 메서드를(새로운 코드와 함께!) 동적으로 정의할 수 있습니다.
 
-Lean에서는 새로운 커맨드나 tactic을 "동적으로" 정의할 필요가 거의 없지만, 정신적으로 유사한 작업이 Lean 메타프로그래밍으로 동등하게 간단하게 가능합니다. 예를 들어 `elab "#help" : command => do ...일반 Lean 코드...`와 같은 한 줄짜리 코드로 새로운 Lean 커맨드를 정의할 수 있습니다.
+Lean에서는 새로운 커맨드나 tactic을 "동적으로" 정의할 필요가 거의 없지만, 비슷한 취지의 작업을 Lean 메타프로그래밍으로도 똑같이 간단하게 할 수 있습니다. 예를 들어 `elab "#help" : command => do ...일반 Lean 코드...`와 같은 한 줄짜리 코드로 새로운 Lean 커맨드를 정의할 수 있습니다.
 
 그러나 Lean에서는, 특히 tactic을 작성할 때, "일반 Lean 코드" 대신 Lean의 CST(Concrete Syntax Tree, Lean의 `Syntax` 타입)와 Lean의 AST(Abstract Syntax Tree, Lean의 `Expr` 타입)를 직접 조작해야 하는 경우가 많습니다. 따라서 Lean 메타프로그래밍은 숙달하기가 더 어려우며, 이 책의 상당 부분이 이러한 타입들과 이를 조작하는 방법을 공부하는 데 할애되어 있습니다.
 
