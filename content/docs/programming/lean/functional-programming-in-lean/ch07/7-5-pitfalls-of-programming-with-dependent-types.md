@@ -312,9 +312,11 @@ This is because `plusR` has the following definition:
 
 이것은 `plusR`이 다음 정의를 가지기 때문입니다:
 
-`def Nat.plusR : Nat → Nat → Nat
-| n, 0 => n
-| n, k + 1 => plusR n k + 1`
+```lean
+def Nat.plusR : Nat → Nat → Nat
+  | n, 0 => n
+  | n, k + 1 => plusR n k + 1
+```
 
 Its pattern matching occurs on the *second* argument, not the first argument, which means that the presence of the variable `k` in that position prevents it from reducing.
 `Nat.add` in Lean's standard library is equivalent to `plusR`, not `plusL`, so attempting to use it in this definition results in precisely the same difficulties:
@@ -409,8 +411,6 @@ It can now be filled in with `ys`:
 
 이제 `ys`로 채울 수 있습니다:
 
-`def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
-| 0, k, .nil, ys => plusR_zero_left k ▸ ys
 ```lean
 def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
   | 0, k, .nil, ys => plusR_zero_left k ▸ ys
@@ -474,9 +474,11 @@ However, Lean's type checker has enough information to fill them in automaticall
 
 `appendR`의 길이 인자들을 다시 암묵적으로 만들 때, 그들은 더 이상 증명에서 호소되기 위해 명시적으로 명명되지 않습니다. 하지만 Lean의 타입 체커는 뒤에서 자동으로 그들을 채우기에 충분한 정보를 가지고 있습니다. 왜냐하면 다른 값들은 타입들이 일치하도록 하지 않을 것이기 때문입니다:
 
-`def appendR : Vect α n → Vect α k → Vect α (n.plusR k)
-| .nil, ys => plusR_zero_left _ ▸ ys
-| .cons x xs, ys => plusR_succ_left _ _ ▸ .cons x (appendR xs ys)`
+```lean
+def appendR : Vect α n → Vect α k → Vect α (n.plusR k)
+  | .nil, ys => plusR_zero_left _ ▸ ys
+  | .cons x xs, ys => plusR_succ_left _ _ ▸ .cons x (appendR xs ys)
+```
 
 ## 7.5.4. Pros and Cons
 
