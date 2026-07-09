@@ -22,7 +22,6 @@ Tactic은 커스텀 상태를 조작하는 Lean 프로그램입니다. 모든 ta
 
 `TacticM` 사용법을 시연하기 전에, 먼저 매크로 기반 tactic을 살펴보겠습니다.
 
-
 Just like many other parts of the Lean 4 infrastructure, tactics too can be
 declared by lightweight macro expansion.
 
@@ -42,7 +41,6 @@ macro "custom_sorry_macro" : tactic => `(tactic| sorry)
 example : 1 = 42 := by
   custom_sorry_macro
 ```
-
 
 As more complex examples, we can write a tactic such as `custom_tactic`, which
 is initially completely unimplemented, and can be extended with more tactics.
@@ -122,7 +120,6 @@ also *recursively* call `custom_tactic` in the two subcases.
 
 요약하면, `custom_tactic`이라는 확장 가능한 tactic을 선언했습니다. 처음에는 정교화가 전혀 없었습니다. `custom_tactic`의 정교화로 `rfl`을 추가해 `42 = 42` 목표를 해결할 수 있었습니다. 그 다음 `custom_tactic`이 해결할 수 없는 더 어려운 정리 `43 = 43 ∧ 42 = 42`를 시도했습니다. 이후 `And.intro`로 "and"를 분리하고 두 부분 목표에서 `custom_tactic`을 *재귀적으로* 호출하도록 `custom_tactic`을 풍부하게 만들 수 있었습니다.
 
-
 Recall that in the previous section, we said that `a <;> b` meant "run `a`, and
 then run `b` for all goals". In fact, `<;>` itself is a tactic macro. In this
 section, we will implement the syntax `a and_then b` which will stand for
@@ -148,7 +145,6 @@ theorem test_and_then: 1 = 1 ∧ 2 = 2 := by
 -- theorem test_and_then : 1 = 1 ∧ 2 = 2 :=
 -- { left := Eq.refl 1, right := Eq.refl 2 }
 ```
-
 
 In this section, we wish to write a tactic that fills the proof with sorry:
 
@@ -231,7 +227,6 @@ theorem test_custom_sorry : 1 = 2 := by
 And we no longer have the error `unsolved goals: ⊢ 1 = 2`.
 
 이제 `unsolved goals: ⊢ 1 = 2` 오류가 더 이상 발생하지 않습니다.
-
 
 In this section, we will learn how to access the hypotheses to prove a goal. In
 particular, we shall attempt to implement a tactic `custom_assump`, which looks
@@ -452,7 +447,6 @@ example (H1 : 1 = 1) (H2 : 2 = 2) : 2 = 2 := by
 -- ⊢ 2 = 2
 ```
 
-
 Until now, we've only performed read-like operations with the context. But what
 if we want to change it? In this section we will see how to change the order of
 goals and how to add content to it (new hypotheses).
@@ -502,7 +496,6 @@ theorem test_faq_have : True := by
   trivial
 ```
 
-
 To illustrate these, let's build a tactic that can reverse the list of goals.
 We can use `Lean.Elab.Tactic.getGoals` and `Lean.Elab.Tactic.setGoals`:
 
@@ -532,7 +525,6 @@ theorem test_reverse_goals : (1 = 2 ∧ 3 = 4) ∧ 5 = 6 := by
 -- ⊢ 1 = 2
   all_goals sorry
 ```
-
 
 In this section, we collect common patterns that are used during writing tactics,
 to make it easy to find common patterns.
@@ -683,7 +675,6 @@ tactic infrastructure and the parsing front-end.
 
 **A:** `Lean.Meta.Tactic.*`는 재작성(rewriting)과 같은 기본 기능을 구현하기 위해 `Meta` 모나드를 사용하는 저수준 코드를 포함합니다. `Lean.Elab.Tactic.*`는 `Lean.Meta`의 저수준 개발을 tactic 인프라와 파싱 프론트엔드에 연결하는 고수준 코드를 포함합니다.
 
-
 1. Consider the theorem `p ∧ q ↔ q ∧ p`. We could either write its proof as a proof term, or construct it using the tactics.
    When we are writing the proof of this theorem *as a proof term*, we're gradually filling up `_`s with certain expressions, step by step. Each such step corresponds to a tactic.
 
@@ -767,6 +758,7 @@ tactic infrastructure and the parsing front-end.
      step_3
      step_4
    ```
+
 2. In the first exercise, we used lower-level `modify` api to update our goals.
    `liftMetaTactic`, `setGoals`, `appendGoals`, `replaceMainGoal`, `closeMainGoal`, etc. are all syntax sugars on top of `modify fun s : State => { s with goals := myMvarIds }`.
    Please rewrite the `forker` tactic with:
@@ -809,6 +801,7 @@ tactic infrastructure and the parsing front-end.
      assumption
      assumption
    ```
+
 3. In the first exercise, you created your own `intro` in `step_2` (with a hardcoded hypothesis name, but the basics are the same). When writing tactics, we usually want to use functions such as `intro`, `intro1`, `intro1P`, `introN` or `introNP`.
 
    For each of the points below, create a tactic `introductor` (one per each point), that turns the goal `(ab: a = b) → (bc: b = c) → (a = c)`:

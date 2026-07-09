@@ -193,7 +193,6 @@ and a curse
 이는 축복이기도 하고(소스 코드에서 명확하지 않은 많은 정보를 얻을 수 있기 때문에)
 저주이기도 합니다(`Expr`를 직접 구성할 때 암묵적 인수나 인스턴스 인수를 직접 제공해야 하기 때문에).
 
-
 Consider the lambda expression `(λ x : ℕ => λ y : ℕ => x + y) y`.
 When we evaluate it naively, by replacing `x` with `y` in the body of the outer lambda, we obtain `λ y : ℕ => y + y`.
 But this is incorrect: the lambda is a function with two arguments that adds one argument to the other, yet the evaluated version adds its argument to itself.
@@ -215,26 +214,6 @@ to find the binder that binds this variable.
 So our above example would become
 (replacing inessential parts of the expression with `_` for brevity):
 
-```
-app (lam `x _ (lam `y _ (app (app `plus #1) #0) _) _) (fvar _)
-```
-
-The `fvar` represents `y` and the lambdas' variables are now represented by `#0` and `#1`.
-When we evaluate this application, we replace the bound variable belonging to `` lam `x `` (here `#1`) with the argument `fvar _`, obtaining
-
-```
-(lam `y _ (app (app `plus (fvar _)) #0) _)
-```
-
-This is pretty-printed as
-
-```
-λ y_1 => y + y_1
-```
-
-Note that Lean has automatically chosen a name `y_1` for the remaining bound variable that does not clash with the name of the `fvar` `y`.
-The chosen name is based on the name suggestion `y` contained in the `lam`.
-
 이 문제를 해결하기 위해 Lean은 실제로 묶인 변수를 이름으로 참조하지 않습니다.
 대신 **de Bruijn 인덱스**를 사용합니다.
 de Bruijn 인덱싱에서는
@@ -247,6 +226,13 @@ de Bruijn 인덱싱에서는
 app (lam `x _ (lam `y _ (app (app `plus #1) #0) _) _) (fvar _)
 ```
 
+```
+app (lam `x _ (lam `y _ (app (app `plus #1) #0) _) _) (fvar _)
+```
+
+The `fvar` represents `y` and the lambdas' variables are now represented by `#0` and `#1`.
+When we evaluate this application, we replace the bound variable belonging to `` lam `x `` (here `#1`) with the argument `fvar _`, obtaining
+
 `fvar`는 `y`를 나타내고 람다의 변수들은 이제 `#0`과 `#1`로 표현됩니다.
 이 적용을 평가할 때, `` lam `x ``에 속하는 묶인 변수(여기서 `#1`)를 인수 `fvar _`로 대체하면 다음을 얻습니다:
 
@@ -254,11 +240,24 @@ app (lam `x _ (lam `y _ (app (app `plus #1) #0) _) _) (fvar _)
 (lam `y _ (app (app `plus (fvar _)) #0) _)
 ```
 
+```
+(lam `y _ (app (app `plus (fvar _)) #0) _)
+```
+
+This is pretty-printed as
+
 이는 다음과 같이 출력됩니다:
 
 ```
 λ y_1 => y + y_1
 ```
+
+```
+λ y_1 => y + y_1
+```
+
+Note that Lean has automatically chosen a name `y_1` for the remaining bound variable that does not clash with the name of the `fvar` `y`.
+The chosen name is based on the name suggestion `y` contained in the `lam`.
 
 Lean이 `fvar` `y`의 이름과 충돌하지 않도록 나머지 묶인 변수에 자동으로 이름 `y_1`을 선택했음을 주목하세요.
 선택된 이름은 `lam`에 포함된 이름 제안 `y`를 기반으로 합니다.
@@ -313,7 +312,6 @@ Lean의 용어가 혼란스러울 수 있으니 다음과 같이 대응됩니다
 Lean의 "bvars"는 보통 그냥 "변수(variables)"라고 불리며,
 Lean의 "loose"는 보통 "자유(free)"라고 불리고,
 Lean의 "fvars"는 "지역 가설(local hypotheses)"이라고 불릴 수 있습니다.
-
 
 Some expressions involve universe levels, represented by the `Lean.Level` type.
 A universe level is a natural number,
@@ -373,20 +371,19 @@ we must be careful to apply each universe-polymorphic constant to the right univ
 하지만 `Expr`를 직접 구성할 때는
 각 유니버스 다형 상수에 올바른 유니버스 인수를 적용하는 데 주의해야 합니다.
 
-
 The simplest expressions we can construct are constants.
 We use the `const` constructor and give it a name and a list of universe levels.
 Most of our examples only involve non-universe-polymorphic constants,
 in which case the list is empty.
 
-We also show a second form where we write the name with double backticks.
-This checks that the name in fact refers to a defined constant,
-which is useful to avoid typos.
-
 우리가 구성할 수 있는 가장 단순한 표현식은 상수입니다.
 `const` 생성자를 사용하여 이름과 유니버스 레벨 리스트를 제공합니다.
 대부분의 예제는 유니버스 비다형 상수만 포함하므로,
 이 경우 리스트는 비어 있습니다.
+
+We also show a second form where we write the name with double backticks.
+This checks that the name in fact refers to a defined constant,
+which is useful to avoid typos.
 
 또한 이름을 이중 백틱으로 작성하는 두 번째 형식도 보여줍니다.
 이것은 이름이 실제로 정의된 상수를 참조하는지 확인하여
@@ -428,20 +425,19 @@ def z₂ := Expr.const ``zero []
 #eval z₂ -- Lean.Expr.const `Nat.zero []
 ```
 
-
 The next class of expressions we consider are function applications.
 These can be built using the `app` constructor,
 with the first argument being an expression for the function
 and the second being an expression for the argument.
 
-Here are two examples.
-The first is simply a constant applied to another.
-The second is a recursive definition giving an expression as a function of a natural number.
-
 다음으로 살펴볼 표현식 유형은 함수 적용입니다.
 이는 `app` 생성자를 사용하여 구성할 수 있으며,
 첫 번째 인수는 함수에 대한 표현식이고
 두 번째는 인수에 대한 표현식입니다.
+
+Here are two examples.
+The first is simply a constant applied to another.
+The second is a recursive definition giving an expression as a function of a natural number.
 
 두 가지 예제를 보여줍니다.
 첫 번째는 단순히 하나의 상수에 다른 상수를 적용한 것입니다.
@@ -473,7 +469,6 @@ that it's hard to make sense of them.
 마지막 두 함수에 대해 `#eval` 출력을 보여주지 않았다는 것을 알아챘을 것입니다.
 결과 표현식이 너무 커서
 이해하기 어렵기 때문입니다.
-
 
 We next use the constructor `lam`
 to construct a simple function which takes any natural number `x` and returns `Nat.zero`.
@@ -542,7 +537,6 @@ allows us to more conveniently construct and destruct larger expressions.
 
 다음 장에서는 `MetaM` 모나드를 살펴볼 것입니다.
 이는 여러 기능 중에서도 더 큰 표현식을 편리하게 구성하고 분해할 수 있게 해줍니다.
-
 
 1. Create expression `1 + 2` with `Expr.app`.
 2. Create expression `1 + 2` with `Lean.mkAppN`.

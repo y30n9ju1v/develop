@@ -11,14 +11,14 @@ Macros in Lean are `Syntax → MacroM Syntax` functions. `MacroM` is the macro
 monad which allows macros to have some static guarantees we will discuss in the
 next section, you can mostly ignore it for now.
 
+Lean에서 매크로는 `Syntax → MacroM Syntax` 함수입니다. `MacroM`은 매크로 모나드로, 다음 섹션에서 다룰 일부 정적 보장을 매크로에 제공합니다. 지금은 무시해도 됩니다.
+
 Macros are registered as handlers for a specific syntax declaration using the
 `macro` attribute. The compiler will take care of applying these function
 to the syntax for us before performing actual analysis of the input. This
 means that the only thing we have to do is declare our syntax with a specific
 name and bind a function of type `Lean.Macro` to it. Let's try to reproduce
 the `LXOR` notation from the `Syntax` chapter:
-
-Lean에서 매크로는 `Syntax → MacroM Syntax` 함수입니다. `MacroM`은 매크로 모나드로, 다음 섹션에서 다룰 일부 정적 보장을 매크로에 제공합니다. 지금은 무시해도 됩니다.
 
 매크로는 `macro` 속성을 사용하여 특정 syntax 선언의 핸들러로 등록됩니다. 컴파일러는 실제 입력 분석을 수행하기 전에 이 함수들을 syntax에 적용하는 일을 처리합니다. 따라서 우리가 해야 할 일은 특정 이름으로 syntax를 선언하고 `Lean.Macro` 타입의 함수를 바인딩하는 것뿐입니다. `Syntax` 챕터의 `LXOR` 표기법을 재현해 봅시다:
 
@@ -43,13 +43,13 @@ That was quite easy! The `Macro.throwUnsupported` function can be used by a macr
 to indicate that "it doesn't feel responsible for this syntax". In this case
 it's merely used to fill a wildcard pattern that should never be reached anyways.
 
+꽤 쉬웠죠! `Macro.throwUnsupported` 함수는 매크로가 "이 syntax에 대한 책임이 없다"고 나타낼 때 사용할 수 있습니다. 이 경우에는 어차피 도달하지 않아야 할 와일드카드 패턴을 채우기 위해 사용되었을 뿐입니다.
+
 However we can in fact register multiple macros for the same syntax this way
 if we desire, they will be tried one after another (the later registered ones have
 higher priority) -- is "higher" correct?
 until one throws either a real error using `Macro.throwError` or succeeds, that
 is it does not `Macro.throwUnsupported`. Let's see this in action:
-
-꽤 쉬웠죠! `Macro.throwUnsupported` 함수는 매크로가 "이 syntax에 대한 책임이 없다"고 나타낼 때 사용할 수 있습니다. 이 경우에는 어차피 도달하지 않아야 할 와일드카드 패턴을 채우기 위해 사용되었을 뿐입니다.
 
 그러나 원한다면 같은 syntax에 여러 매크로를 등록할 수 있습니다. 이 경우 나중에 등록된 것이 더 높은 우선순위를 가지며, 하나가 `Macro.throwError`로 실제 오류를 던지거나 성공할 때까지(즉, `Macro.throwUnsupported`를 던지지 않을 때까지) 하나씩 시도됩니다. 이를 실제로 확인해 봅시다:
 
@@ -89,15 +89,14 @@ easily write out themselves as well but is too lazy to.
 
 이 매크로가 정확히 어떻게 구현되었는지 모른다면, 이를 기반으로 문제를 디버깅하는 사람에게 이 동작은 매우 혼란스러울 것입니다. 매크로를 사용할지 elaboration 같은 다른 메커니즘을 사용할지에 대한 경험칙은, 위의 두 번째 매크로처럼 실제 로직을 구축하기 시작하면 매크로보다는 elaborator(elaboration 챕터에서 설명)를 사용해야 한다는 것입니다. 이상적으로 매크로는 사람이 직접 작성할 수 있지만 귀찮아서 하지 않는 간단한 syntax-to-syntax 변환에 사용해야 합니다.
 
-
 Now that we know the basics of what a macro is and how to register it
 we can take a look at slightly more automated ways to do this (in fact
 all of the ways about to be presented are implemented as macros themselves).
 
+이제 매크로가 무엇인지, 어떻게 등록하는지 기본을 알았으니 이를 더 자동화된 방법으로 할 수 있는 방법을 살펴보겠습니다(사실 앞으로 소개할 모든 방법은 자체적으로 매크로로 구현되어 있습니다).
+
 First things first there is `macro_rules` which basically desugars to
 functions like the ones we wrote above, for example:
-
-이제 매크로가 무엇인지, 어떻게 등록하는지 기본을 알았으니 이를 더 자동화된 방법으로 할 수 있는 방법을 살펴보겠습니다(사실 앞으로 소개할 모든 방법은 자체적으로 매크로로 구현되어 있습니다).
 
 먼저 `macro_rules`가 있는데, 이는 기본적으로 위에서 작성한 것과 같은 함수로 desugar됩니다. 예를 들면:
 
@@ -110,24 +109,24 @@ macro_rules
 
 As you can see, it figures out lot's of things on its own for us:
 
+보시다시피, 많은 것들을 자동으로 처리해 줍니다:
+
 * the name of the syntax declaration
 * the `macro` attribute registration
 * the `throwUnsupported` wildcard
-
-apart from this it just works like a function that is using pattern
-matching syntax, we can in theory encode arbitrarily complex macro
-functions on the right hand side.
-
-If this is still not short enough for you, there is a next step using the
-`macro` macro:
-
-보시다시피, 많은 것들을 자동으로 처리해 줍니다:
 
 * syntax 선언의 이름
 * `macro` 속성 등록
 * `throwUnsupported` 와일드카드
 
+apart from this it just works like a function that is using pattern
+matching syntax, we can in theory encode arbitrarily complex macro
+functions on the right hand side.
+
 이 외에는 패턴 매칭 syntax를 사용하는 함수처럼 작동하며, 이론적으로 오른쪽에 임의로 복잡한 매크로 함수를 인코딩할 수 있습니다.
+
+If this is still not short enough for you, there is a next step using the
+`macro` macro:
 
 아직도 충분히 짧지 않다면, `macro` 매크로를 사용하는 다음 단계가 있습니다:
 
@@ -142,28 +141,29 @@ macro l:term:10 " ⊕ " r:term:11 : term => `((!$l && $r) || ($l && !$r))
 
 As you can see, `macro` is quite close to `notation` already:
 
+보시다시피, `macro`는 이미 `notation`에 꽤 가깝습니다:
+
 * it performed syntax declaration for us
 * it automatically wrote a `macro_rules` style function to match on it
-
-The are of course differences as well:
-
-* `notation` is limited to the `term` syntax category
-* `notation` cannot have arbitrary macro code on the right hand side
-
-보시다시피, `macro`는 이미 `notation`에 꽤 가깝습니다:
 
 * syntax 선언을 자동으로 처리해 줍니다
 * 매칭을 위한 `macro_rules` 스타일 함수를 자동으로 작성합니다
 
+The are of course differences as well:
+
 물론 차이점도 있습니다:
+
+* `notation` is limited to the `term` syntax category
+* `notation` cannot have arbitrary macro code on the right hand side
 
 * `notation`은 `term` syntax 카테고리로 제한됩니다
 * `notation`은 오른쪽에 임의의 매크로 코드를 가질 수 없습니다
 
-
 So far we've handwaved the `` `(foo $bar) `` syntax to both create and
 match on `Syntax` objects but it's time for a full explanation since
 it will be essential to all non trivial things that are syntax related.
+
+지금까지 `` `(foo $bar) `` syntax를 `Syntax` 객체를 생성하고 매칭하는 데 모두 사용한다고 대략적으로 설명했지만, 이제 syntax와 관련된 모든 비자명한 것들에 필수적이므로 완전한 설명을 할 때가 되었습니다.
 
 First things first we call the `` `() `` syntax a `Syntax` quotation.
 When we plug variables into a syntax quotation like this: `` `($x) ``
@@ -172,8 +172,6 @@ it is required that `x` is of type `TSyntax y` where `y` is some `Name`
 of a syntax category. The Lean compiler is actually smart enough to figure
 the syntax categories that are allowed in this place out. Hence you might
 sometimes see errors of the form:
-
-지금까지 `` `(foo $bar) `` syntax를 `Syntax` 객체를 생성하고 매칭하는 데 모두 사용한다고 대략적으로 설명했지만, 이제 syntax와 관련된 모든 비자명한 것들에 필수적이므로 완전한 설명을 할 때가 되었습니다.
 
 먼저 `` `() `` syntax를 `Syntax` 인용(quotation)이라고 부릅니다. `` `($x) ``처럼 syntax 인용에 변수를 삽입할 때, `$x` 부분을 역인용(anti-quotation)이라고 부릅니다. 이런 식으로 `x`를 삽입할 때, `x`는 `TSyntax y` 타입이어야 하며, 여기서 `y`는 어떤 syntax 카테고리의 `Name`입니다. Lean 컴파일러는 이 위치에서 허용되는 syntax 카테고리를 자동으로 파악할 만큼 충분히 똑똑합니다. 따라서 때때로 다음과 같은 형식의 오류를 볼 수 있습니다:
 
@@ -215,32 +213,33 @@ Which is guaranteed to not panic because we know that the `Syntax` that
 the function is receiving is a numeric literal and can thus naturally
 be converted to a `Nat`.
 
+함수가 받는 `Syntax`가 숫자 리터럴임을 알기 때문에 패닉이 발생하지 않으며, 자연스럽게 `Nat`으로 변환될 수 있습니다.
+
 If we use the antiquotation syntax in pattern matching it will, as discussed
 in the syntax chapter, give us a variable `x` of type `TSyntax y` where
 `y` is the `Name` of the syntax category that fits in the spot where we pattern matched.
 If we wish to insert a literal `$x` into the `Syntax` for some reason,
 for example macro creating macros, we can escape the anti quotation using: `` `($$x) ``.
 
+패턴 매칭에서 역인용 syntax를 사용하면, syntax 챕터에서 논의한 것처럼, 패턴 매칭한 위치에 맞는 syntax 카테고리의 `Name`인 `y`를 가진 `TSyntax y` 타입의 변수 `x`를 제공합니다. 어떤 이유로 `Syntax`에 리터럴 `$x`를 삽입하고 싶다면(예: 매크로를 생성하는 매크로), `` `($$x) ``를 사용하여 역인용을 이스케이프할 수 있습니다.
+
 If we want to specify the syntax kind we wish `x` to be interpreted as
 we can make this explicit using: `` `($x:term) `` where `term` can be
 replaced with any other valid syntax category (e.g. `command`) or parser
 (e.g. `ident`).
 
+`x`를 해석할 syntax 종류를 명시하려면 `` `($x:term) ``을 사용하여 이를 명시적으로 지정할 수 있으며, 여기서 `term`은 다른 유효한 syntax 카테고리(예: `command`)나 파서(예: `ident`)로 대체될 수 있습니다.
+
 So far this is only a more formal explanation of the intuitive things
 we've already seen in the syntax chapter and up to now in this chapter,
 next we'll discuss some more advanced anti-quotations.
 
-함수가 받는 `Syntax`가 숫자 리터럴임을 알기 때문에 패닉이 발생하지 않으며, 자연스럽게 `Nat`으로 변환될 수 있습니다.
-
-패턴 매칭에서 역인용 syntax를 사용하면, syntax 챕터에서 논의한 것처럼, 패턴 매칭한 위치에 맞는 syntax 카테고리의 `Name`인 `y`를 가진 `TSyntax y` 타입의 변수 `x`를 제공합니다. 어떤 이유로 `Syntax`에 리터럴 `$x`를 삽입하고 싶다면(예: 매크로를 생성하는 매크로), `` `($$x) ``를 사용하여 역인용을 이스케이프할 수 있습니다.
-
-`x`를 해석할 syntax 종류를 명시하려면 `` `($x:term) ``을 사용하여 이를 명시적으로 지정할 수 있으며, 여기서 `term`은 다른 유효한 syntax 카테고리(예: `command`)나 파서(예: `ident`)로 대체될 수 있습니다.
-
 지금까지는 syntax 챕터와 이 챕터에서 이미 본 직관적인 내용들에 대한 더 공식적인 설명이었고, 다음에는 더 고급 역인용을 다룰 것입니다.
-
 
 For convenience we can also use anti-quotations in a way similar to
 format strings: `` `($(mkIdent `c)) `` is the same as: `` let x := mkIdent `c; `($x) ``.
+
+편의를 위해 역인용을 형식 문자열처럼 사용할 수도 있습니다: `` `($(mkIdent `c)) ``는 `` let x := mkIdent `c; `($x) ``와 동일합니다.
 
 Furthermore there are sometimes situations in which we are not working
 with basic `Syntax` but `Syntax` wrapped in more complex datastructures,
@@ -251,18 +250,16 @@ For example if we match using: `$xs,*`, `xs` will have type `TSepArray c ","`,.
 With the special case of matching on no specific separator (i.e. whitespace):
 `$xs*` in which we will receive an `Array (TSyntax c)`.
 
+또한 기본 `Syntax`가 아닌 더 복잡한 데이터 구조로 감싸진 `Syntax`, 특히 `Array (TSyntax c)` 또는 `TSepArray c s`를 다루는 경우가 있습니다. `TSepArray c s`는 `Syntax` 전용 타입으로, 카테고리 `c`의 것들을 구분자 `s`로 구분하는 `Syntax`를 패턴 매칭할 때 얻는 값입니다. 예를 들어 `$xs,*`으로 매칭하면 `xs`는 `TSepArray c ","` 타입을 가집니다. 특정 구분자 없이 매칭하는 특수한 경우(즉, 공백): `$xs*`에서는 `Array (TSyntax c)`를 받게 됩니다.
+
 If we are dealing with `xs : Array (TSyntax c)` and want to insert it into
 a quotation we have two main ways to achieve this:
+
+`xs : Array (TSyntax c)`를 다루면서 이를 인용에 삽입하려면 두 가지 주요 방법이 있습니다:
 
 1. Insert it using a separator, most commonly `,`: `` `($xs,*) ``.
    This is also the way to insert a `TSepArray c ",""`
 2. Insert it point blank without a separator (TODO): `` `() ``
-
-편의를 위해 역인용을 형식 문자열처럼 사용할 수도 있습니다: `` `($(mkIdent `c)) ``는 `` let x := mkIdent `c; `($x) ``와 동일합니다.
-
-또한 기본 `Syntax`가 아닌 더 복잡한 데이터 구조로 감싸진 `Syntax`, 특히 `Array (TSyntax c)` 또는 `TSepArray c s`를 다루는 경우가 있습니다. `TSepArray c s`는 `Syntax` 전용 타입으로, 카테고리 `c`의 것들을 구분자 `s`로 구분하는 `Syntax`를 패턴 매칭할 때 얻는 값입니다. 예를 들어 `$xs,*`으로 매칭하면 `xs`는 `TSepArray c ","` 타입을 가집니다. 특정 구분자 없이 매칭하는 특수한 경우(즉, 공백): `$xs*`에서는 `Array (TSyntax c)`를 받게 됩니다.
-
-`xs : Array (TSyntax c)`를 다루면서 이를 인용에 삽입하려면 두 가지 주요 방법이 있습니다:
 
 1. 구분자를 사용하여 삽입, 가장 일반적으로 `,`: `` `($xs,*) ``. 이는 `TSepArray c ",""`를 삽입하는 방법이기도 합니다.
 2. 구분자 없이 그대로 삽입(TODO): `` `() ``
@@ -301,7 +298,6 @@ the optional argument so what we can do using a splice here is to essentially
 define both cases at once:
 
 이 섹션의 마지막 내용은 소위 "역인용 스플라이스(anti-quotation splices)"입니다. 역인용 스플라이스에는 두 가지 종류가 있는데, 첫 번째는 소위 선택적(optional) 스플라이스입니다. 예를 들어 선택적 인수가 있는 syntax를 선언할 수 있습니다. 우리만의 `let`을 예로 들겠습니다(실제 프로젝트에서는 이론을 작성하는 어떤 함수형 언어의 `let`이 될 가능성이 높습니다):
-
 
 사용자가 왼쪽 항의 타입을 정의할 수 있게 하는 선택적 `(" : " term)?` 인수가 포함되어 있습니다. 지금까지 아는 방법으로는 두 개의 `macro_rules`를 작성해야 합니다: 선택적 인수가 있는 경우와 없는 경우 각각. 그러나 나머지 구문 변환은 선택적 인수의 유무와 관계없이 완전히 동일하게 작동하므로, 여기서 스플라이스를 사용하면 두 경우를 한 번에 정의할 수 있습니다:
 
@@ -347,7 +343,6 @@ pattern we specified matched, with the specific values from the match
 per iteration.
 
 이 경우 `$[...],*` 부분이 스플라이스입니다. 매칭 측에서는 지정한 구분자를 기준으로 내부에 정의한 패턴을 반복적으로 매칭하려고 시도합니다. 그러나 일반적인 구분자 매칭과 달리 `Array`나 `SepArray`를 제공하지 않고, 대신 오른쪽에 또 다른 스플라이스를 작성할 수 있게 하여 지정한 패턴이 매칭될 때마다, 각 반복에서 매칭된 특정 값들로 평가됩니다.
-
 
 If you are familiar with macro systems in other languages like C you
 probably know about so called macro hygiene issues already.
@@ -435,7 +430,6 @@ be subject to hygiene and accessible to the user.
 이것은 많은 기술적 세부 사항이었습니다. 매크로를 사용하기 위해 이것들을 이해할 필요는 없습니다. 원한다면 Lean이 `const` 예제에서와 같은 이름 충돌을 허용하지 않는다는 것만 기억하면 됩니다.
 
 이것은 syntax 인용을 사용하여 도입된 *모든* 이름에 적용됩니다. 즉, `` `(def foo := 1) ``을 생성하는 매크로를 작성하면, 이름이 위생(hygiene)의 적용을 받기 때문에 사용자가 `foo`에 접근할 수 없게 됩니다. 다행히 이를 우회하는 방법이 있습니다. `mkIdent`를 사용하여 원시 식별자를 생성할 수 있습니다. 예를 들어: `` `(def $(mkIdent `foo) := 1) ``. 이 경우에는 위생의 적용을 받지 않으며 사용자가 접근할 수 있습니다.
-
 
 Based on this description of the hygiene mechanism one interesting
 question pops up, how do we know what the current list of macro scopes
@@ -550,7 +544,6 @@ for a good user experience.
 
 분명히 이런 방식으로 오류 위치를 제어하는 것은 좋은 사용자 경험을 위해 매우 중요합니다.
 
-
 As a final mini project for this section we will re-build the arithmetic
 DSL from the syntax chapter in a slightly more advanced way, using a macro
 this time so we can actually fully integrate it into the Lean syntax.
@@ -584,7 +577,6 @@ assignment. You could also try to embed arbitrary `term`s into your
 arith language using some special syntax or whatever else comes to your mind.
 
 다시 한번 자유롭게 실험해 보세요. 변수가 있는 식처럼 더 복잡한 것을 만들고 싶다면 대신 매크로를 사용하여 귀납 타입을 구축하는 것을 고려해 보세요. 귀납 타입으로 산술 식 항을 만들면, 어떤 형식의 변수 할당을 받아 해당 할당에 대해 주어진 식을 평가하는 함수를 작성할 수 있습니다. 또한 특별한 syntax를 사용하여 임의의 `term`을 arith 언어에 임베딩하거나 그 외에 떠오르는 것들을 시도해 볼 수도 있습니다.
-
 
 As promised in the syntax chapter here is Binders 2.0. We'll start by
 reintroducing our theory of sets:
@@ -664,7 +656,6 @@ example : ∀ x, ¬(x ∈ { y ∈ oneSet | y ≠ 1 }) := by
   -- : x ≠ 1
   contradiction
 ```
-
 
 If you want to know more about macros you can read:
 

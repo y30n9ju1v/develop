@@ -16,17 +16,15 @@ elaborator is quite a large piece of code, it lives
 
 Elaborator는 사용자가 작성한 `Syntax`를 컴파일러의 나머지 부분이 처리할 수 있는 형태로 변환하는 컴포넌트입니다. 대부분의 경우 이는 `Syntax`를 `Expr`로 변환하는 것을 의미하지만, `#check`나 `#eval`과 같은 다른 용도도 존재합니다. 따라서 Elaborator는 꽤 방대한 코드로 이루어져 있으며, [여기](https://github.com/leanprover/lean4/blob/master/src/Lean/Elab)에 위치합니다.
 
-
 A command is the highest level of `Syntax`, a Lean file is made
 up of a list of commands. The most commonly used commands are declarations,
 for example:
 
+커맨드는 `Syntax`의 가장 높은 수준으로, Lean 파일은 커맨드의 목록으로 구성됩니다. 가장 일반적으로 사용되는 커맨드는 선언(declaration)으로, 예를 들어 위와 같은 것들이 있습니다. 그 외에도 `#check`, `#eval` 등의 커맨드가 있습니다. 모든 커맨드는 `command` 구문 카테고리에 속하므로, 커스텀 커맨드를 선언하려면 해당 구문을 이 카테고리에 등록해야 합니다.
+
 but there are also other ones, most notably `#check`, `#eval` and friends.
 All commands live in the `command` syntax category so in order to declare
 custom commands, their syntax has to be registered in that category.
-
-커맨드는 `Syntax`의 가장 높은 수준으로, Lean 파일은 커맨드의 목록으로 구성됩니다. 가장 일반적으로 사용되는 커맨드는 선언(declaration)으로, 예를 들어 위와 같은 것들이 있습니다. 그 외에도 `#check`, `#eval` 등의 커맨드가 있습니다. 모든 커맨드는 `command` 구문 카테고리에 속하므로, 커스텀 커맨드를 선언하려면 해당 구문을 이 카테고리에 등록해야 합니다.
-
 
 The next step is giving some semantics to the syntax. With commands, this
 is done by registering a so called command elaborator.
@@ -37,6 +35,8 @@ represents whatever the user wants to call the command and produce some
 sort of side effect on the `CommandElabM` monad, after all the return
 value is always `Unit`. The `CommandElabM` monad has 4 main kinds of
 side effects:
+
+다음 단계는 구문에 의미론(semantics)을 부여하는 것입니다. 커맨드의 경우 이는 커맨드 Elaborator를 등록함으로써 이루어집니다.
 
 1. Logging messages to the user via the `Monad` extensions
    `MonadLog` and `AddMessageContext`, like `#check`. This is done via
@@ -54,8 +54,15 @@ side effects:
 4. Throwing errors, since it can run any kind of `IO`, it is only natural
    that it can throw errors via `throwError`.
 
+커맨드 Elaborator의 타입은 `CommandElab`이며, 이는 `Syntax → CommandElabM Unit`의 별칭입니다. 커맨드 Elaborator는 사용자가 호출하려는 커맨드를 나타내는 `Syntax`를 받아 `CommandElabM` 모나드에 어떤 형태의 부수 효과(side effect)를 발생시킵니다. 반환값은 항상 `Unit`입니다. `CommandElabM` 모나드에는 4가지 주요 부수 효과가 있습니다:
+
 Furthermore there are a bunch of other `Monad` extensions that are supported
 by `CommandElabM`:
+
+1. `MonadLog`와 `AddMessageContext` 모나드 확장을 통해 사용자에게 메시지를 로깅합니다 (`#check`처럼). 이는 `Lean.Elab.Log`에 있는 함수들로 수행되며, 대표적으로 `logInfo`, `logWarning`, `logError`가 있습니다.
+2. `MonadEnv` 모나드 확장을 통해 `Environment`와 상호작용합니다. 여기에는 컴파일러가 필요로 하는 모든 관련 정보, 즉 알려진 모든 선언, 그 타입, doc-string, 값 등이 저장됩니다. 현재 환경은 `getEnv`로 얻고, 수정 후 `setEnv`로 설정합니다. `Environment`에 정보를 추가할 때는 `setEnv`의 래퍼인 `addDecl` 등을 사용하는 것이 올바른 방법인 경우가 많습니다.
+3. `IO` 수행: `CommandElabM`은 어떤 `IO` 연산도 실행할 수 있습니다. 예를 들어 파일을 읽고 그 내용에 따라 선언을 수행할 수 있습니다.
+4. 에러 발생: 어떤 `IO`도 실행할 수 있으므로, `throwError`를 통해 에러를 발생시키는 것도 자연스럽게 가능합니다.
 
 * `MonadRef` and `MonadQuotation` for `Syntax` quotations like in macros
 * `MonadOptions` to interact with the options framework
@@ -63,22 +70,12 @@ by `CommandElabM`:
 * TODO: There are a few others though I'm not sure whether they are relevant,
   see the instance in `Lean.Elab.Command`
 
-다음 단계는 구문에 의미론(semantics)을 부여하는 것입니다. 커맨드의 경우 이는 커맨드 Elaborator를 등록함으로써 이루어집니다.
-
-커맨드 Elaborator의 타입은 `CommandElab`이며, 이는 `Syntax → CommandElabM Unit`의 별칭입니다. 커맨드 Elaborator는 사용자가 호출하려는 커맨드를 나타내는 `Syntax`를 받아 `CommandElabM` 모나드에 어떤 형태의 부수 효과(side effect)를 발생시킵니다. 반환값은 항상 `Unit`입니다. `CommandElabM` 모나드에는 4가지 주요 부수 효과가 있습니다:
-
-1. `MonadLog`와 `AddMessageContext` 모나드 확장을 통해 사용자에게 메시지를 로깅합니다 (`#check`처럼). 이는 `Lean.Elab.Log`에 있는 함수들로 수행되며, 대표적으로 `logInfo`, `logWarning`, `logError`가 있습니다.
-2. `MonadEnv` 모나드 확장을 통해 `Environment`와 상호작용합니다. 여기에는 컴파일러가 필요로 하는 모든 관련 정보, 즉 알려진 모든 선언, 그 타입, doc-string, 값 등이 저장됩니다. 현재 환경은 `getEnv`로 얻고, 수정 후 `setEnv`로 설정합니다. `Environment`에 정보를 추가할 때는 `setEnv`의 래퍼인 `addDecl` 등을 사용하는 것이 올바른 방법인 경우가 많습니다.
-3. `IO` 수행: `CommandElabM`은 어떤 `IO` 연산도 실행할 수 있습니다. 예를 들어 파일을 읽고 그 내용에 따라 선언을 수행할 수 있습니다.
-4. 에러 발생: 어떤 `IO`도 실행할 수 있으므로, `throwError`를 통해 에러를 발생시키는 것도 자연스럽게 가능합니다.
-
 또한 `CommandElabM`이 지원하는 여러 다른 `Monad` 확장들도 있습니다:
 
 * 매크로에서처럼 `Syntax` 인용(quotation)을 위한 `MonadRef`와 `MonadQuotation`
 * 옵션 프레임워크와 상호작용하는 `MonadOptions`
 * 디버그 트레이스 정보를 위한 `MonadTrace`
 * TODO: 몇 가지 다른 것들도 있지만 관련성이 있는지 확실하지 않습니다. `Lean.Elab.Command`의 인스턴스를 참조하세요.
-
 
 Now that we understand the type of command elaborators let's take a brief
 look at how the elaboration process actually works:
@@ -106,7 +103,6 @@ As you can see the general idea behind the procedure is quite similar to ordinar
 3. 이 `CommandElab`들을 순서대로 시도하여, `unsupportedSyntaxException`을 던지지 않는 것을 찾습니다. `unsupportedSyntaxException`은 Elaborator가 해당 `Syntax` 구조에 대해 "책임감을 느끼지 않는다"는 것을 나타내는 Lean의 방식입니다. 단, 일반적인 에러를 던져 사용자에게 문제가 있음을 알릴 수는 있습니다. 책임지는 Elaborator를 찾지 못하면, 커맨드 Elaboration은 `unexpected syntax` 에러 메시지와 함께 중단됩니다.
 
 보시다시피 이 절차의 기본 아이디어는 일반적인 매크로 확장과 상당히 유사합니다.
-
 
 Now that we know both what a `CommandElab` is and how they are used, we can
 start looking into writing our own. The steps for this, as we learned above, are:
@@ -199,7 +195,6 @@ This is actually extending the original `#check`
 #check Nat.add -- Nat.add : Nat → Nat → Nat
 ```
 
-
 As a final mini project for this section let's build a command elaborator
 that is actually useful. It will take a command and use the same mechanisms
 as `elabCommand` (the entry point for command elaboration) to tell us
@@ -240,7 +235,6 @@ the "conjecture" might be expected to be true.
 TODO: `#` 스타일이 아닌 커맨드, 즉 선언(declaration)을 보여주는 미니 프로젝트도 추가하면 좋을 것 같지만, 지금 당장은 떠오르는 것이 없습니다.
 TODO: `lemma/theorem`과 유사하지만 자동으로 sorry 처리되는 `conjecture` 선언을 정의하세요. "추측(conjecture)"이 참으로 예상된다는 것을 반영하기 위해 sorry를 커스텀할 수도 있습니다.
 
-
 A term is a `Syntax` object that represents some sort of `Expr`.
 Term elaborators are the ones that do the work for most of the code we write.
 Most notably they elaborate all the values of things like definitions,
@@ -253,7 +247,6 @@ syntax needs to be registered in that category.
 Term은 어떤 형태의 `Expr`을 나타내는 `Syntax` 객체입니다. Term Elaborator는 우리가 작성하는 대부분의 코드에서 실제 작업을 수행하는 것들입니다. 특히 정의(definition)나 타입(이것들도 단지 `Expr`입니다)의 값들을 Elaborate합니다.
 
 모든 term은 `term` 구문 카테고리에 속합니다(매크로 챕터에서 이미 확인했습니다). 따라서 커스텀 term을 선언하려면 해당 구문을 이 카테고리에 등록해야 합니다.
-
 
 As with command elaboration, the next step is giving some semantics to the syntax.
 With terms, this is done by registering a so called term elaborator.
@@ -286,7 +279,6 @@ Term Elaborator의 타입은 `TermElab`이며, 이는 `Syntax → Option Expr �
 * 커맨드 Elaboration과 달리, Term Elaboration은 부수 효과만을 위해 실행되는 것이 아닙니다 — `TermElabM Expr` 반환값은 실제로 흥미로운 내용을 담고 있는데, 바로 `Syntax` 객체를 나타내는 `Expr`입니다.
 
 `TermElabM`은 모든 면에서 `CommandElabM`의 업그레이드 버전입니다: 위에서 언급한 모든 기능을 지원하며, 두 가지가 추가됩니다. 첫 번째는 간단합니다: `IO` 코드 실행에 더해 `MetaM` 코드도 실행할 수 있어, `Expr`을 편리하게 구성할 수 있습니다. 두 번째는 Term Elaboration 루프에 특화된 것입니다.
-
 
 The basic idea of term elaboration is the same as command elaboration:
 expand macros and recurse or run term elaborators that have been registered
@@ -368,7 +360,6 @@ but didn't have enough information to finish elaboration and thus failed.
 
 이 경우 `.add`는 먼저 실행을 지연시켰다가, 다시 호출되었지만 Elaboration을 완료하기 위한 충분한 정보가 없어 실패했습니다.
 
-
 Adding new term elaborators works basically the same way as adding new
 command elaborators so we'll only take a very brief look:
 
@@ -391,7 +382,6 @@ elab "myterm_2" : term => do
 
 #eval myterm_2 -- 2
 ```
-
 
 As a final mini project for this chapter we will recreate one of the most
 commonly used Lean syntax sugars, the `⟨a,b,c⟩` notation as a short hand
@@ -447,7 +437,6 @@ elab "⟨⟨" args:term,* "⟩⟩" : term <= t => do
   sorry
 ```
 
-
 1. Consider the following code. Rewrite `syntax` + `@[term_elab hi]... : TermElab` combination using just `elab`.
 
 1. 다음 코드를 살펴보세요. `syntax` + `@[term_elab hi]... : TermElab` 조합을 `elab`만 사용하여 재작성하세요.
@@ -470,6 +459,7 @@ elab "⟨⟨" args:term,* "⟩⟩" : term <= t => do
        | _ =>
          throwUnsupportedSyntax
    ```
+
 2. Here is some syntax taken from a real mathlib command `alias`.
 
    ```

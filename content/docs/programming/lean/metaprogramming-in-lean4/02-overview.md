@@ -9,12 +9,11 @@ description: "Lean 4 컴파일 과정 개요: 파싱, 정교화, 평가 단계�
 
 In this chapter, we will provide an overview of the primary steps involved in the Lean compilation process, including parsing, elaboration, and evaluation. As alluded to in the introduction, metaprogramming in Lean involves plunging into the heart of this process. We will explore the fundamental objects involved, `Expr` and `Syntax`, learn what they signify, and discover how one can be turned into another (and back!).
 
-In the next chapters, you will learn the particulars. As you read on, you might want to return to this chapter occasionally to remind yourself of how it all fits together.
-
 이 장에서는 파싱, 정교화(elaboration), 평가(evaluation)를 포함하여 Lean 컴파일 과정에서 수행되는 주요 단계들에 대한 개요를 제공합니다. 서론에서 언급했듯이, Lean에서의 메타프로그래밍은 이 과정의 핵심으로 깊이 파고드는 것을 의미합니다. 우리는 `Expr`과 `Syntax`라는 핵심 객체들을 살펴보고, 이들이 무엇을 의미하는지 알아보며, 어떻게 하나를 다른 하나로 변환할 수 있는지(그리고 역으로도!) 탐구할 것입니다.
 
-다음 장들에서는 세부 사항들을 배우게 됩니다. 읽어나가면서, 전체적인 그림을 상기하기 위해 때때로 이 장으로 돌아오고 싶을 수도 있습니다.
+In the next chapters, you will learn the particulars. As you read on, you might want to return to this chapter occasionally to remind yourself of how it all fits together.
 
+다음 장들에서는 세부 사항들을 배우게 됩니다. 읽어나가면서, 전체적인 그림을 상기하기 위해 때때로 이 장으로 돌아오고 싶을 수도 있습니다.
 
 Metaprogramming in Lean is deeply connected to the compilation steps - parsing, syntactic analysis, transformation, and code generation.
 
@@ -34,29 +33,29 @@ Lean 컴파일 과정은 다음 다이어그램으로 요약할 수 있습니다
 
 ![](https://github.com/arthurpaulino/lean4-metaprogramming-book/assets/7578559/78867009-2624-46a3-a1f4-f488fd25d494)
 
-First, we will start with Lean code as a string. Then we'll see it become a `Syntax` object, and then an `Expr` object. Then finally we can execute it.
-
 먼저 문자열 형태의 Lean 코드로 시작합니다. 그런 다음 `Syntax` 객체가 되고, 이후 `Expr` 객체가 됩니다. 최종적으로 이를 실행할 수 있게 됩니다.
+
+First, we will start with Lean code as a string. Then we'll see it become a `Syntax` object, and then an `Expr` object. Then finally we can execute it.
 
 So, the compiler sees a string of Lean code, say `"let a := 2"`, and the following process unfolds:
 
 1. **apply a relevant syntax rule** (`"let a := 2"` ➤ `Syntax`)
 
+예를 들어, 컴파일러가 `"let a := 2"`라는 Lean 코드 문자열을 보면 다음 과정이 진행됩니다:
+
    During the parsing step, Lean tries to match a string of Lean code to one of the declared **syntax rules** in order to turn that string into a `Syntax` object. **Syntax rules** are basically glorified regular expressions - when you write a Lean string that matches a certain **syntax rule**'s regex, that rule will be used to handle subsequent steps.
 2. **apply all macros in a loop** (`Syntax` ➤ `Syntax`)
+
+1. **관련 syntax rule 적용** (`"let a := 2"` ➤ `Syntax`)
 
    During the elaboration step, each **macro** simply turns the existing `Syntax` object into some new `Syntax` object. Then, the new `Syntax` is processed similarly (repeating steps 1 and 2), until there are no more **macros** to apply.
 3. **apply a single elab** (`Syntax` ➤ `Expr`)
 
-   Finally, it's time to infuse your syntax with meaning - Lean finds an **elab** that's matched to the appropriate **syntax rule** by the `name` argument (**syntax rules**, **macros** and **elabs** all have this argument, and they must match). The newfound **elab** returns a particular `Expr` object.
-   This completes the elaboration step.
-
-예를 들어, 컴파일러가 `"let a := 2"`라는 Lean 코드 문자열을 보면 다음 과정이 진행됩니다:
-
-1. **관련 syntax rule 적용** (`"let a := 2"` ➤ `Syntax`)
-
    파싱 단계에서 Lean은 Lean 코드 문자열을 선언된 **syntax rule**들 중 하나와 매칭하여 해당 문자열을 `Syntax` 객체로 변환하려 합니다. **Syntax rule**은 기본적으로 정규 표현식을 발전시킨 것으로, 특정 **syntax rule**의 정규식과 일치하는 Lean 문자열을 작성하면, 해당 규칙이 이후 단계들을 처리하는 데 사용됩니다.
 2. **루프 안에서 모든 macro 적용** (`Syntax` ➤ `Syntax`)
+
+   Finally, it's time to infuse your syntax with meaning - Lean finds an **elab** that's matched to the appropriate **syntax rule** by the `name` argument (**syntax rules**, **macros** and **elabs** all have this argument, and they must match). The newfound **elab** returns a particular `Expr` object.
+   This completes the elaboration step.
 
    정교화 단계에서 각 **macro**는 단순히 기존 `Syntax` 객체를 새로운 `Syntax` 객체로 변환합니다. 그러면 새로운 `Syntax`가 유사하게 처리되며(1단계와 2단계를 반복), 더 이상 적용할 **macro**가 없을 때까지 계속됩니다.
 3. **단일 elab 적용** (`Syntax` ➤ `Expr`)
@@ -66,7 +65,6 @@ So, the compiler sees a string of Lean code, say `"let a := 2"`, and the followi
 The expression (`Expr`) is then converted into executable code during the evaluation step - we don't have to specify that in any way, the Lean compiler will handle doing so for us.
 
 표현식(`Expr`)은 평가 단계에서 실행 가능한 코드로 변환됩니다. 우리가 이를 별도로 지정할 필요는 없으며, Lean 컴파일러가 이를 처리해 줍니다.
-
 
 Elaboration is an overloaded term in Lean. For example, you might encounter the following usage of the word "elaboration", wherein the intention is *"taking a partially-specified expression and inferring what is left implicit"*:
 
@@ -103,7 +101,6 @@ Lean에는 정교화와 반대되는 과정도 존재합니다. 적절하게도 
 Throughout this book you will see references to the elaborator; and in the "Extra: Pretty Printing" chapter you can read about delaborators.
 
 이 책 전반에 걸쳐 elaborator에 대한 참조를 볼 수 있으며, "Extra: Pretty Printing" 장에서 delaborator에 대해 읽을 수 있습니다.
-
 
 Now, when you're reading Lean source code, you will see 11(+?) commands specifying the **parsing**/**elaboration**/**evaluation** process:
 
@@ -156,7 +153,6 @@ elab 함수도 다양한 타입을 가질 수 있습니다. `#help`를 구현하
 This corresponds to our intuitive understanding of terms, commands and tactics in Lean - terms return a particular value upon execution, commands modify the environment or print something out, and tactics modify the proof state.
 
 이는 Lean에서 항(term), 명령(command), 전술(tactic)에 대한 우리의 직관적인 이해와 일치합니다. 항은 실행 시 특정 값을 반환하고, 명령은 환경을 수정하거나 무언가를 출력하며, 전술은 증명 상태를 수정합니다.
-
 
 We have hinted at the flow of execution of these three essential commands here and there, however let's lay it out explicitly. The order of execution follows the following pseudocodey template: `syntax (macro; syntax)* elab`.
 
@@ -212,7 +208,6 @@ The behaviour of syntax sugars (`elab`, `macro`, etc.) can be understood from th
 
 문법 설탕(`elab`, `macro` 등)의 동작은 이러한 기본 원칙으로부터 이해할 수 있습니다.
 
-
 Lean will execute the aforementioned **parsing**/**elaboration**/**evaluation** steps for you automatically if you use `syntax`, `macro` and `elab` commands, however, when you're writing your tactics, you will also frequently need to perform these transitions manually. You can use the following functions for that:
 
 `syntax`, `macro`, `elab` 명령을 사용하면 Lean이 앞서 언급한 **파싱**/**정교화**/**평가** 단계를 자동으로 실행해 줍니다. 하지만 전술을 작성할 때는 이러한 변환을 수동으로 수행해야 하는 경우도 많습니다. 이를 위해 다음 함수들을 사용할 수 있습니다:
@@ -222,7 +217,6 @@ Lean will execute the aforementioned **parsing**/**elaboration**/**evaluation** 
 Note how all functions that let us turn `Syntax` into `Expr` start with "elab", short for "elaboration"; and all functions that let us turn `Expr` (or `Syntax`) into `actual code` start with "eval", short for "evaluation".
 
 `Syntax`를 `Expr`로 변환하는 모든 함수는 "elaboration"의 약자인 "elab"으로 시작하고, `Expr`(또는 `Syntax`)를 `실제 코드`로 변환하는 모든 함수는 "evaluation"의 약자인 "eval"로 시작한다는 점에 주목하세요.
-
 
 In principle, you can do with a `macro` (almost?) anything you can do with the `elab` function. Just write what you would have in the body of your `elab` as a syntax within `macro`. However, the rule of thumb here is to only use `macro`s when the conversion is simple and truly feels elementary to the point of aliasing. As Henrik Böving puts it: "as soon as types or control flow is involved a macro is probably not reasonable anymore" ([Zulip thread](https://leanprover.zulipchat.com/#narrow/stream/270676-lean4/topic/The.20line.20between.20term.20elaboration.20and.20macro/near/280951290)).
 
@@ -235,7 +229,6 @@ So - use `macro`s for creating syntax sugars, notations, and shortcuts, and pref
 Finally - some notes that should clarify a few things as you read the coming chapters.
 
 마지막으로, 다음 장들을 읽을 때 몇 가지를 명확히 해줄 노트들이 있습니다.
-
 
 In the `#assertType` example, we used `logInfo` to make our command print
 something. If, instead, we just want to perform a quick debug, we can use
@@ -259,7 +252,6 @@ example : True := by -- `example` is underlined in blue, outputting:
          -- logInfo: [[0, 1, 2], [0, 1, 2]]
   trivial
 ```
-
 
 Since the objects defined in the meta-level are not the ones we're most
 interested in proving theorems about, it can sometimes be overly tedious to

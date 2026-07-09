@@ -10,6 +10,8 @@ description: "MetaM 모나드: Lean 4 메타프로그래밍의 핵심 모나드�
 The Lean 4 metaprogramming API is organised around a small zoo of monads. The
 four main ones are:
 
+Lean 4 메타프로그래밍 API는 소규모 monad 집합을 중심으로 구성되어 있습니다. 주요 네 가지는 다음과 같습니다:
+
 * `CoreM` gives access to the *environment*, i.e. the set of things that
   have been declared or imported at the current point in the program.
 * `MetaM` gives access to the *metavariable context*, i.e. the set of
@@ -18,25 +20,23 @@ four main ones are:
 * `TermElabM` gives access to various information used during elaboration.
 * `TacticM` gives access to the list of current goals.
 
+* `CoreM`은 *환경(environment)*, 즉 프로그램의 현재 지점에서 선언되거나 import된 것들의 집합에 접근합니다.
+* `MetaM`은 *메타변수 컨텍스트(metavariable context)*, 즉 현재 선언된 메타변수들과 그에 할당된 값(있는 경우)의 집합에 접근합니다.
+* `TermElabM`은 정교화(elaboration) 과정에서 사용되는 다양한 정보에 접근합니다.
+* `TacticM`은 현재 목표(goal) 목록에 접근합니다.
+
 These monads extend each other, so a `MetaM` operation also has access to the
 environment and a `TermElabM` computation can use metavariables. There are also
 other monads which do not neatly fit into this hierarchy, e.g. `CommandElabM`
 extends `MetaM` but neither extends nor is extended by `TermElabM`.
+
+이 monad들은 서로를 확장하므로, `MetaM` 연산은 환경에도 접근할 수 있고 `TermElabM` 계산은 메타변수를 사용할 수 있습니다. 이 계층 구조에 깔끔하게 맞지 않는 다른 monad들도 있는데, 예를 들어 `CommandElabM`은 `MetaM`을 확장하지만 `TermElabM`을 확장하지도 않고 `TermElabM`에 의해 확장되지도 않습니다.
 
 This chapter demonstrates a number of useful operations in the `MetaM` monad.
 `MetaM` is of particular importance because it allows us to give meaning to
 every expression: the environment (from `CoreM`) gives meaning to constants like
 `Nat.zero` or `List.map` and the metavariable context gives meaning to both
 metavariables and local hypotheses.
-
-Lean 4 메타프로그래밍 API는 소규모 monad 집합을 중심으로 구성되어 있습니다. 주요 네 가지는 다음과 같습니다:
-
-* `CoreM`은 *환경(environment)*, 즉 프로그램의 현재 지점에서 선언되거나 import된 것들의 집합에 접근합니다.
-* `MetaM`은 *메타변수 컨텍스트(metavariable context)*, 즉 현재 선언된 메타변수들과 그에 할당된 값(있는 경우)의 집합에 접근합니다.
-* `TermElabM`은 정교화(elaboration) 과정에서 사용되는 다양한 정보에 접근합니다.
-* `TacticM`은 현재 목표(goal) 목록에 접근합니다.
-
-이 monad들은 서로를 확장하므로, `MetaM` 연산은 환경에도 접근할 수 있고 `TermElabM` 계산은 메타변수를 사용할 수 있습니다. 이 계층 구조에 깔끔하게 맞지 않는 다른 monad들도 있는데, 예를 들어 `CommandElabM`은 `MetaM`을 확장하지만 `TermElabM`을 확장하지도 않고 `TermElabM`에 의해 확장되지도 않습니다.
 
 이 장에서는 `MetaM` monad의 유용한 여러 연산들을 소개합니다. `MetaM`은 특히 중요한데, 그 이유는 모든 표현식에 의미를 부여할 수 있기 때문입니다: 환경(`CoreM`에서)은 `Nat.zero`나 `List.map` 같은 상수에 의미를 부여하고, 메타변수 컨텍스트는 메타변수와 지역 가설(local hypotheses) 모두에 의미를 부여합니다.
 
@@ -46,16 +46,15 @@ import Lean
 open Lean Lean.Expr Lean.Meta
 ```
 
-
 The 'Meta' in `MetaM` refers to metavariables, so we should talk about these
 first. Lean users do not usually interact much with metavariables -- at least
 not consciously -- but they are used all over the place in metaprograms. There
 are two ways to view them: as holes in an expression or as goals.
 
+`MetaM`의 'Meta'는 메타변수(metavariables)를 가리키므로, 먼저 이에 대해 이야기해야 합니다. Lean 사용자들은 메타변수와 직접 상호작용하는 경우가 많지 않습니다 -- 적어도 의식적으로는 -- 하지만 메타프로그램에서는 도처에서 사용됩니다. 메타변수를 바라보는 두 가지 관점이 있습니다: 표현식의 빈 구멍(hole)으로 보는 것과 목표(goal)로 보는 것입니다.
+
 Take the goal perspective first. When we prove things in Lean, we always operate
 on goals, such as
-
-`MetaM`의 'Meta'는 메타변수(metavariables)를 가리키므로, 먼저 이에 대해 이야기해야 합니다. Lean 사용자들은 메타변수와 직접 상호작용하는 경우가 많지 않습니다 -- 적어도 의식적으로는 -- 하지만 메타프로그램에서는 도처에서 사용됩니다. 메타변수를 바라보는 두 가지 관점이 있습니다: 표현식의 빈 구멍(hole)으로 보는 것과 목표(goal)로 보는 것입니다.
 
 먼저 목표의 관점으로 살펴보겠습니다. Lean에서 무언가를 증명할 때, 우리는 항상 다음과 같은 목표(goal)에 대해 작업합니다:
 
@@ -68,18 +67,18 @@ These goals are internally represented by metavariables. Accordingly, each
 metavariable has a *local context* containing hypotheses (here `[n : Nat, m : Nat]`) and a *target type* (here `n + m = m + n`). Metavariables also have a
 unique name, say `m`, and we usually render them as `?m`.
 
+이러한 목표들은 내부적으로 메타변수로 표현됩니다. 따라서 각 메타변수는 가설(여기서는 `[n : Nat, m : Nat]`)을 포함하는 *지역 컨텍스트(local context)*와 *목표 타입(target type)*(여기서는 `n + m = m + n`)을 가집니다. 메타변수는 또한 고유한 이름(예: `m`)을 가지며, 우리는 보통 이를 `?m`으로 표기합니다.
+
 To close a goal, we must give an expression `e` of the target type. The
 expression may contain fvars from the metavariable's local context, but no
 others. Internally, closing a goal in this way corresponds to *assigning* the
 metavariable; we write `?m := e` for this assignment.
 
+목표를 닫으려면, 목표 타입의 표현식 `e`를 제공해야 합니다. 표현식은 메타변수의 지역 컨텍스트에 있는 fvar를 포함할 수 있지만, 그 외의 것은 포함할 수 없습니다. 내부적으로, 이런 방식으로 목표를 닫는 것은 메타변수를 *할당(assigning)*하는 것에 해당합니다; 이 할당을 `?m := e`로 표기합니다.
+
 The second, complementary view of metavariables is that they represent holes
 in an expression. For instance, an application of `Eq.trans` may generate two
 goals which look like this:
-
-이러한 목표들은 내부적으로 메타변수로 표현됩니다. 따라서 각 메타변수는 가설(여기서는 `[n : Nat, m : Nat]`)을 포함하는 *지역 컨텍스트(local context)*와 *목표 타입(target type)*(여기서는 `n + m = m + n`)을 가집니다. 메타변수는 또한 고유한 이름(예: `m`)을 가지며, 우리는 보통 이를 `?m`으로 표기합니다.
-
-목표를 닫으려면, 목표 타입의 표현식 `e`를 제공해야 합니다. 표현식은 메타변수의 지역 컨텍스트에 있는 fvar를 포함할 수 있지만, 그 외의 것은 포함할 수 없습니다. 내부적으로, 이런 방식으로 목표를 닫는 것은 메타변수를 *할당(assigning)*하는 것에 해당합니다; 이 할당을 `?m := e`로 표기합니다.
 
 메타변수를 바라보는 두 번째, 보완적인 관점은 표현식의 빈 구멍을 나타낸다는 것입니다. 예를 들어, `Eq.trans`의 적용은 다음과 같은 두 개의 목표를 생성할 수 있습니다:
 
@@ -97,10 +96,10 @@ context is `[n : Nat, m : Nat]`. Now, if we solve the first goal by reflexivity,
 then `?x` must be `n`, so we assign `?x := n`. Crucially, this also affects the
 second goal: it is "updated" (not really, as we will see) to have target `n = m`. The metavariable `?x` represents the same expression everywhere it occurs.
 
+여기서 `?x`는 또 다른 메타변수입니다 -- 두 목표의 목표 타입에 있는 빈 구멍으로, 나중에 증명 과정에서 채워질 것입니다. `?x`의 타입은 `Nat`이고 그 지역 컨텍스트는 `[n : Nat, m : Nat]`입니다. 이제 첫 번째 목표를 반사성(reflexivity)으로 풀면 `?x`는 반드시 `n`이어야 하므로, `?x := n`을 할당합니다. 중요한 것은, 이것이 두 번째 목표에도 영향을 미친다는 점입니다: 두 번째 목표는 목표 타입이 `n = m`이 되도록 "업데이트"됩니다(실제로는 그렇지 않지만, 나중에 살펴볼 것입니다). 메타변수 `?x`는 그것이 등장하는 모든 곳에서 동일한 표현식을 나타냅니다.
+
 Tactics use metavariables to communicate the current goals. To see how, consider
 this simple (and slightly artificial) proof:
-
-여기서 `?x`는 또 다른 메타변수입니다 -- 두 목표의 목표 타입에 있는 빈 구멍으로, 나중에 증명 과정에서 채워질 것입니다. `?x`의 타입은 `Nat`이고 그 지역 컨텍스트는 `[n : Nat, m : Nat]`입니다. 이제 첫 번째 목표를 반사성(reflexivity)으로 풀면 `?x`는 반드시 `n`이어야 하므로, `?x := n`을 할당합니다. 중요한 것은, 이것이 두 번째 목표에도 영향을 미친다는 점입니다: 두 번째 목표는 목표 타입이 `n = m`이 되도록 "업데이트"됩니다(실제로는 그렇지 않지만, 나중에 살펴볼 것입니다). 메타변수 `?x`는 그것이 등장하는 모든 곳에서 동일한 표현식을 나타냅니다.
 
 tactic은 메타변수를 사용하여 현재 목표를 전달합니다. 이를 이해하기 위해 다음의 간단한(그리고 약간 인위적인) 증명을 살펴보겠습니다:
 
@@ -117,10 +116,10 @@ Lean generates a metavariable `?m1` with target `f (f a) = a` and a local
 context containing these hypotheses. This metavariable is passed to the first
 `apply` tactic as the current goal.
 
+tactic 모드로 들어가면, 우리의 최종 목표는 가설 `α`, `a`, `f`, `h`를 포함할 수 있는 타입 `f (f a) = a`의 표현식을 생성하는 것입니다. 따라서 Lean은 목표 타입이 `f (f a) = a`이고 이 가설들을 포함하는 지역 컨텍스트를 가진 메타변수 `?m1`을 생성합니다. 이 메타변수는 현재 목표로서 첫 번째 `apply` tactic에 전달됩니다.
+
 The `apply` tactic then tries to apply `Eq.trans` and succeeds, generating three
 new metavariables:
-
-tactic 모드로 들어가면, 우리의 최종 목표는 가설 `α`, `a`, `f`, `h`를 포함할 수 있는 타입 `f (f a) = a`의 표현식을 생성하는 것입니다. 따라서 Lean은 목표 타입이 `f (f a) = a`이고 이 가설들을 포함하는 지역 컨텍스트를 가진 메타변수 `?m1`을 생성합니다. 이 메타변수는 현재 목표로서 첫 번째 `apply` tactic에 전달됩니다.
 
 그러면 `apply` tactic은 `Eq.trans`를 적용하려 시도하고 성공하여, 세 개의 새로운 메타변수를 생성합니다:
 
@@ -140,9 +139,9 @@ the intermediate element of the transitivity proof and occurs in `?m2` and
 `?m3`. The local contexts of all metavariables in this proof are the same, so
 we omit them.
 
-Having created these metavariables, `apply` assigns
-
 이 메타변수들을 `?m2`, `?m3`, `?b`라고 부르겠습니다. 마지막 `?b`는 추이성(transitivity) 증명의 중간 원소를 나타내며 `?m2`와 `?m3`에 등장합니다. 이 증명에서 모든 메타변수의 지역 컨텍스트는 동일하므로 생략합니다.
+
+Having created these metavariables, `apply` assigns
 
 이 메타변수들을 생성한 후, `apply`는 다음을 할당합니다:
 
@@ -152,22 +151,22 @@ Having created these metavariables, `apply` assigns
 
 and reports that `?m2`, `?m3` and `?b` are now the current goals.
 
+그리고 `?m2`, `?m3`, `?b`가 이제 현재 목표들이라고 보고합니다.
+
 At this point the second `apply` tactic takes over. It receives `?m2` as the
 current goal and applies `h` to it. This succeeds and the tactic assigns `?m2 := h (f a)`. This assignment implies that `?b` must be `f a`, so the tactic also
 assigns `?b := f a`. Assigned metavariables are not considered open goals, so
 the only goal that remains is `?m3`.
 
+이 시점에서 두 번째 `apply` tactic이 이어받습니다. `?m2`를 현재 목표로 받아 `h`를 적용합니다. 이것이 성공하고 tactic은 `?m2 := h (f a)`를 할당합니다. 이 할당은 `?b`가 반드시 `f a`여야 함을 의미하므로, tactic은 `?b := f a`도 할당합니다. 할당된 메타변수는 열린 목표로 간주되지 않으므로, 남은 유일한 목표는 `?m3`입니다.
+
 Now the third `apply` comes in. Since `?b` has been assigned, the target of
 `?m3` is now `f a = a`. Again, the application of `h` succeeds and the
 tactic assigns `?m3 := h a`.
 
-At this point, all metavariables are assigned as follows:
-
-그리고 `?m2`, `?m3`, `?b`가 이제 현재 목표들이라고 보고합니다.
-
-이 시점에서 두 번째 `apply` tactic이 이어받습니다. `?m2`를 현재 목표로 받아 `h`를 적용합니다. 이것이 성공하고 tactic은 `?m2 := h (f a)`를 할당합니다. 이 할당은 `?b`가 반드시 `f a`여야 함을 의미하므로, tactic은 `?b := f a`도 할당합니다. 할당된 메타변수는 열린 목표로 간주되지 않으므로, 남은 유일한 목표는 `?m3`입니다.
-
 이제 세 번째 `apply`가 들어옵니다. `?b`가 할당되었으므로, `?m3`의 목표 타입은 이제 `f a = a`입니다. 다시, `h`의 적용이 성공하고 tactic은 `?m3 := h a`를 할당합니다.
+
+At this point, all metavariables are assigned as follows:
 
 이 시점에서, 모든 메타변수는 다음과 같이 할당되었습니다:
 
@@ -194,7 +193,6 @@ proof term.
 
 이 예제는 또한 메타변수를 바라보는 두 가지 관점 -- 표현식의 빈 구멍으로 보는 것과 목표로 보는 것 -- 이 어떻게 연관되어 있는지를 보여줍니다: 우리가 얻는 목표들은 최종 증명 항의 빈 구멍들입니다.
 
-
 Let us make these concepts concrete. When we operate in the `MetaM` monad, we
 have read-write access to a `MetavarContext` structure containing information
 about the currently declared metavariables. Each metavariable is identified by
@@ -210,6 +208,8 @@ mkFreshExprMVar (type? : Option Expr) (kind := MetavarKind.natural)
 
 Its arguments are:
 
+인수들은 다음과 같습니다:
+
 * `type?`: the target type of the new metavariable. If `none`, the target type
   is `Sort ?u`, where `?u` is a universe level metavariable. (This is a special
   class of metavariables for universe levels, distinct from the expression
@@ -220,26 +220,24 @@ Its arguments are:
   when the metavariable appears in a goal. Unlike the `MVarId`, this name does
   not need to be unique.
 
+* `type?`: 새 메타변수의 목표 타입입니다. `none`이면, 목표 타입은 `Sort ?u`가 되는데, 여기서 `?u`는 우주 레벨(universe level) 메타변수입니다. (이것은 우주 레벨을 위한 특별한 메타변수 클래스로, 우리가 단순히 "메타변수"라고 불러온 표현식 메타변수와는 구별됩니다.)
+* `kind`: 메타변수 종류입니다. [메타변수 종류 섹션](#metavariable-kinds)을 참조하세요(기본값이 보통 정확합니다).
+* `userName`: 새 메타변수의 사용자 표시 이름입니다. 메타변수가 목표에 나타날 때 출력되는 이름입니다. `MVarId`와 달리, 이 이름은 고유할 필요가 없습니다.
+
 The returned `Expr` is always a metavariable. We can use `Lean.Expr.mvarId!` to
 extract the `MVarId`, which is guaranteed to be unique. (Arguably
 `mkFreshExprMVar` should just return the `MVarId`.)
+
+반환된 `Expr`은 항상 메타변수입니다. `Lean.Expr.mvarId!`를 사용하여 `MVarId`를 추출할 수 있으며, 이는 고유성이 보장됩니다. (논란의 여지가 있지만, `mkFreshExprMVar`는 그냥 `MVarId`를 반환해야 할 것입니다.)
 
 The local context of the new metavariable is inherited from the current local
 context, more about which in the next section. If you want to give a different
 local context, use `Lean.Meta.mkFreshExprMVarAt`.
 
+새 메타변수의 지역 컨텍스트는 현재 지역 컨텍스트로부터 상속됩니다. 이에 대해서는 다음 섹션에서 더 자세히 설명합니다. 다른 지역 컨텍스트를 지정하려면 `Lean.Meta.mkFreshExprMVarAt`을 사용하세요.
+
 Metavariables are initially unassigned. To assign them, use
 `Lean.MVarId.assign` with type
-
-인수들은 다음과 같습니다:
-
-* `type?`: 새 메타변수의 목표 타입입니다. `none`이면, 목표 타입은 `Sort ?u`가 되는데, 여기서 `?u`는 우주 레벨(universe level) 메타변수입니다. (이것은 우주 레벨을 위한 특별한 메타변수 클래스로, 우리가 단순히 "메타변수"라고 불러온 표현식 메타변수와는 구별됩니다.)
-* `kind`: 메타변수 종류입니다. [메타변수 종류 섹션](#metavariable-kinds)을 참조하세요(기본값이 보통 정확합니다).
-* `userName`: 새 메타변수의 사용자 표시 이름입니다. 메타변수가 목표에 나타날 때 출력되는 이름입니다. `MVarId`와 달리, 이 이름은 고유할 필요가 없습니다.
-
-반환된 `Expr`은 항상 메타변수입니다. `Lean.Expr.mvarId!`를 사용하여 `MVarId`를 추출할 수 있으며, 이는 고유성이 보장됩니다. (논란의 여지가 있지만, `mkFreshExprMVar`는 그냥 `MVarId`를 반환해야 할 것입니다.)
-
-새 메타변수의 지역 컨텍스트는 현재 지역 컨텍스트로부터 상속됩니다. 이에 대해서는 다음 섹션에서 더 자세히 설명합니다. 다른 지역 컨텍스트를 지정하려면 `Lean.Meta.mkFreshExprMVarAt`을 사용하세요.
 
 메타변수는 처음에 할당되지 않은 상태입니다. 메타변수를 할당하려면, 다음 타입의 `Lean.MVarId.assign`을 사용합니다:
 
@@ -254,10 +252,14 @@ assigned value, `val`, has the right type. This means (a) that `val` must have
 the target type of `mvarId` and (b) that `val` must only contain fvars from the
 local context of `mvarId`.
 
+이것은 `?mvarId := val` 할당으로 `MetavarContext`를 업데이트합니다. `mvarId`가 아직 할당되지 않았는지(또는 이전 할당이 새 할당과 정의적으로 동등한지) 반드시 확인해야 합니다. 또한 할당된 값 `val`이 올바른 타입을 가지고 있는지 확인해야 합니다. 이는 (a) `val`이 `mvarId`의 목표 타입을 가져야 하고, (b) `val`이 `mvarId`의 지역 컨텍스트에 있는 fvar만 포함해야 함을 의미합니다.
+
 If you `#check Lean.MVarId.assign`, you will see that its real type is more
 general than the one we showed above: it works in any monad that has access to a
 `MetavarContext`. But `MetaM` is by far the most important such monad, so in
 this chapter, we specialise the types of `assign` and similar functions.
+
+`#check Lean.MVarId.assign`을 확인하면, 실제 타입이 위에서 보여준 것보다 더 일반적임을 알 수 있습니다: `MetavarContext`에 접근할 수 있는 임의의 monad에서 작동합니다. 하지만 `MetaM`이 단연 가장 중요한 monad이므로, 이 장에서는 `assign`과 유사한 함수들의 타입을 특수화합니다.
 
 To get information about a declared metavariable, use `Lean.MVarId.getDecl`.
 Given an `MVarId`, this returns a `MetavarDecl` structure. (If no metavariable
@@ -266,17 +268,13 @@ with the given `MVarId` is declared, the function throws an exception.) The
 context and user-facing name. This function has some convenient variants, such
 as `Lean.MVarId.getType`.
 
+선언된 메타변수에 대한 정보를 얻으려면, `Lean.MVarId.getDecl`을 사용합니다. `MVarId`가 주어지면, 이것은 `MetavarDecl` 구조체를 반환합니다. (주어진 `MVarId`로 선언된 메타변수가 없으면, 함수는 예외를 던집니다.) `MetavarDecl`은 메타변수에 대한 정보, 예를 들어 타입, 지역 컨텍스트, 사용자 표시 이름 등을 포함합니다. 이 함수에는 `Lean.MVarId.getType`과 같은 편리한 변형들이 있습니다.
+
 To get the current assignment of a metavariable (if any), use
 `Lean.getExprMVarAssignment?`. To check whether a metavariable is assigned, use
 `Lean.MVarId.isAssigned`. However, these functions are relatively rarely
 used in tactic code because we usually prefer a more powerful operation:
 `Lean.Meta.instantiateMVars` with type
-
-이것은 `?mvarId := val` 할당으로 `MetavarContext`를 업데이트합니다. `mvarId`가 아직 할당되지 않았는지(또는 이전 할당이 새 할당과 정의적으로 동등한지) 반드시 확인해야 합니다. 또한 할당된 값 `val`이 올바른 타입을 가지고 있는지 확인해야 합니다. 이는 (a) `val`이 `mvarId`의 목표 타입을 가져야 하고, (b) `val`이 `mvarId`의 지역 컨텍스트에 있는 fvar만 포함해야 함을 의미합니다.
-
-`#check Lean.MVarId.assign`을 확인하면, 실제 타입이 위에서 보여준 것보다 더 일반적임을 알 수 있습니다: `MetavarContext`에 접근할 수 있는 임의의 monad에서 작동합니다. 하지만 `MetaM`이 단연 가장 중요한 monad이므로, 이 장에서는 `assign`과 유사한 함수들의 타입을 특수화합니다.
-
-선언된 메타변수에 대한 정보를 얻으려면, `Lean.MVarId.getDecl`을 사용합니다. `MVarId`가 주어지면, 이것은 `MetavarDecl` 구조체를 반환합니다. (주어진 `MVarId`로 선언된 메타변수가 없으면, 함수는 예외를 던집니다.) `MetavarDecl`은 메타변수에 대한 정보, 예를 들어 타입, 지역 컨텍스트, 사용자 표시 이름 등을 포함합니다. 이 함수에는 `Lean.MVarId.getType`과 같은 편리한 변형들이 있습니다.
 
 메타변수의 현재 할당값을 얻으려면(있는 경우), `Lean.getExprMVarAssignment?`를 사용합니다. 메타변수가 할당되었는지 확인하려면, `Lean.MVarId.isAssigned`를 사용합니다. 하지만 이 함수들은 tactic 코드에서 상대적으로 드물게 사용되는데, 우리가 보통 더 강력한 연산을 선호하기 때문입니다: 다음 타입의 `Lean.Meta.instantiateMVars`입니다:
 
@@ -288,6 +286,8 @@ Given an expression `e`, `instantiateMVars` replaces any assigned metavariable
 `?m` in `e` with its assigned value. Unassigned metavariables remain as they
 are.
 
+표현식 `e`가 주어지면, `instantiateMVars`는 `e` 안의 할당된 메타변수 `?m`을 그 할당값으로 대체합니다. 할당되지 않은 메타변수는 그대로 남습니다.
+
 This operation should be used liberally. When we assign a metavariable, existing
 expressions containing this metavariable are not immediately updated. This is a
 problem when, for example, we match on an expression to check whether it is an
@@ -296,20 +296,18 @@ equation. Without `instantiateMVars`, we might miss the fact that the expression
 other words, `instantiateMVars` brings our expressions up to date with the
 current metavariable state.
 
+이 연산은 자유롭게 사용해야 합니다. 메타변수를 할당할 때, 해당 메타변수를 포함하는 기존 표현식은 즉시 업데이트되지 않습니다. 이것은 예를 들어, 표현식이 방정식인지 확인하기 위해 패턴 매칭할 때 문제가 됩니다. `instantiateMVars` 없이는, `?m`이 `0 = n`에 할당되어 있는 경우에 표현식 `?m`이 방정식을 나타낸다는 사실을 놓칠 수 있습니다. 다시 말해, `instantiateMVars`는 우리의 표현식들을 현재 메타변수 상태에 맞게 최신화합니다.
+
 Instantiating metavariables requires a full traversal of the input expression,
 so it can be somewhat expensive. But if the input expression does not contain
 any metavariables, `instantiateMVars` is essentially free. Since this is the
 common case, liberal use of `instantiateMVars` is fine in most situations.
 
+메타변수를 인스턴스화하려면 입력 표현식을 완전히 순회해야 하므로 다소 비용이 들 수 있습니다. 하지만 입력 표현식에 메타변수가 없다면, `instantiateMVars`는 사실상 비용이 없습니다. 이것이 일반적인 경우이므로, 대부분의 상황에서 `instantiateMVars`를 자유롭게 사용해도 괜찮습니다.
+
 Before we go on, here is a synthetic example demonstrating how the basic
 metavariable operations are used. More natural examples appear in the following
 sections.
-
-표현식 `e`가 주어지면, `instantiateMVars`는 `e` 안의 할당된 메타변수 `?m`을 그 할당값으로 대체합니다. 할당되지 않은 메타변수는 그대로 남습니다.
-
-이 연산은 자유롭게 사용해야 합니다. 메타변수를 할당할 때, 해당 메타변수를 포함하는 기존 표현식은 즉시 업데이트되지 않습니다. 이것은 예를 들어, 표현식이 방정식인지 확인하기 위해 패턴 매칭할 때 문제가 됩니다. `instantiateMVars` 없이는, `?m`이 `0 = n`에 할당되어 있는 경우에 표현식 `?m`이 방정식을 나타낸다는 사실을 놓칠 수 있습니다. 다시 말해, `instantiateMVars`는 우리의 표현식들을 현재 메타변수 상태에 맞게 최신화합니다.
-
-메타변수를 인스턴스화하려면 입력 표현식을 완전히 순회해야 하므로 다소 비용이 들 수 있습니다. 하지만 입력 표현식에 메타변수가 없다면, `instantiateMVars`는 사실상 비용이 없습니다. 이것이 일반적인 경우이므로, 대부분의 상황에서 `instantiateMVars`를 자유롭게 사용해도 괜찮습니다.
 
 계속 진행하기 전에, 기본 메타변수 연산이 어떻게 사용되는지를 보여주는 합성 예제를 소개합니다. 더 자연스러운 예제들은 다음 섹션에서 등장합니다.
 
@@ -364,7 +362,6 @@ sections.
 --   meta3: Nat.succ
 ```
 
-
 Consider the expression `e` which refers to the free variable with unique name
 `h`:
 
@@ -377,20 +374,19 @@ which `e` is interpreted. One local context may declare that `h` is a local
 hypothesis of type `Nat`; another local context may declare that `h` is a local
 definition with value `List.map`.
 
+고유한 이름 `h`를 가진 자유 변수를 참조하는 표현식 `e`를 생각해 봅시다:
+
 Thus, expressions are only meaningful if they are interpreted in the local
 context for which they were intended. And as we saw, each metavariable has its
 own local context. So in principle, functions which manipulate expressions
 should have an additional `MVarId` argument specifying the goal in which the
 expression should be interpreted.
 
+이 표현식의 타입은 무엇일까요? 답은 `e`가 해석되는 지역 컨텍스트에 따라 다릅니다. 한 지역 컨텍스트는 `h`가 `Nat` 타입의 지역 가설이라고 선언할 수도 있고, 다른 지역 컨텍스트는 `h`가 `List.map` 값을 가진 지역 정의라고 선언할 수도 있습니다.
+
 That would be cumbersome, so Lean goes a slightly different route. In `MetaM`,
 we always have access to an ambient `LocalContext`, obtained with `Lean.getLCtx`
 of type
-
-고유한 이름 `h`를 가진 자유 변수를 참조하는 표현식 `e`를 생각해 봅시다:
-
-
-이 표현식의 타입은 무엇일까요? 답은 `e`가 해석되는 지역 컨텍스트에 따라 다릅니다. 한 지역 컨텍스트는 `h`가 `Nat` 타입의 지역 가설이라고 선언할 수도 있고, 다른 지역 컨텍스트는 `h`가 `List.map` 값을 가진 지역 정의라고 선언할 수도 있습니다.
 
 따라서, 표현식은 그것이 의도된 지역 컨텍스트에서 해석될 때만 의미가 있습니다. 그리고 보았듯이, 각 메타변수는 자체 지역 컨텍스트를 가집니다. 원칙적으로, 표현식을 조작하는 함수들은 표현식이 해석될 목표를 지정하는 추가적인 `MVarId` 인수를 가져야 합니다.
 
@@ -513,7 +509,6 @@ The `myAssumption` tactic contains three functions we have not seen before:
 * `Lean.Meta.isDefEq`는 두 정의가 정의적으로 동등한지 확인합니다. [정의적 동등성 섹션](#definitional-equality)을 참조하세요.
 * `Lean.LocalDecl.toExpr`는 지역 가설에 해당하는 `fvar` 표현식을 구성하는 도우미 함수입니다.
 
-
 The above discussion of metavariable assignment contains a lie by omission:
 there are actually two ways to assign a metavariable. We have seen the regular
 way; the other way is called a *delayed assignment*.
@@ -576,7 +571,6 @@ This pattern is encapsulated in `Lean.Meta.withNewMCtxDepth`.
 
 이 패턴은 `Lean.Meta.withNewMCtxDepth`에 캡슐화되어 있습니다.
 
-
 Computation is a core concept of dependent type theory. The terms `2`, `Nat.succ 1` and `1 + 1` are all "the same" in the sense that they compute the same value.
 We call them *definitionally equal*. The problem with this, from a
 metaprogramming perspective, is that definitionally equal terms may be
@@ -586,7 +580,6 @@ write our tactics, we must do additional work to ensure that definitionally
 equal terms are treated similarly.
 
 계산(computation)은 의존 타입 이론(dependent type theory)의 핵심 개념입니다. `2`, `Nat.succ 1`, `1 + 1`이라는 항(term)들은 모두 같은 값을 계산한다는 의미에서 "동일"합니다. 우리는 이를 *정의적으로 동등(definitionally equal)*하다고 합니다. 메타프로그래밍 관점에서의 문제는, 정의적으로 동등한 항들이 완전히 다른 표현식으로 나타날 수 있지만, 사용자들은 보통 `2`에 작동하는 tactic이 `1 + 1`에도 작동하기를 기대한다는 것입니다. 따라서 tactic을 작성할 때, 정의적으로 동등한 항들이 유사하게 처리되도록 추가 작업을 해야 합니다.
-
 
 The simplest thing we can do with computation is to bring a term into normal
 form. With some exceptions for numeric types, the normal form of a term `t` of
@@ -639,7 +632,6 @@ The `#reduce` command is essentially an application of `reduce`:
 #reduce someNumber
 -- 5
 ```
-
 
 An ugly but important detail of Lean 4 metaprogramming is that any given
 expression does not have a single normal form. Rather, it has a normal form up
@@ -754,7 +746,6 @@ appropriate transparency for each operation that involves normalisation.
 `#eval` 명령들은 같은 항 `reducibleDef`가 각 투명도에 대해 다른 정규형을 가질 수 있음을 보여줍니다.
 
 왜 이 모든 의식이 필요할까요? 본질적으로 성능 때문입니다: 정규화가 항상 모든 상수를 펼치도록 허용한다면, 타입 클래스 탐색 같은 연산은 엄청나게 비용이 비싸질 것입니다. 그 대가는 정규화를 포함하는 각 연산에 적절한 투명도를 선택해야 한다는 것입니다.
-
 
 Transparency addresses some of the performance issues with normalisation. But
 even more important is to recognise that for many purposes, we don't need to
@@ -955,7 +946,6 @@ ourselves.
 
 이런 계산까지 고려한 깊은 매칭은 자동화될 수 있습니다. 하지만 누군가 이 자동화를 구축하기 전까지는, 필요한 `whnf`들을 직접 파악해야 합니다.
 
-
 As mentioned, definitional equality is equality up to computation. Two
 expressions `t` and `s` are definitionally equal or *defeq* (at the current
 transparency) if their normal forms (at the current transparency) are equal.
@@ -1012,14 +1002,12 @@ factors:
    * Synthetic: `isDefEq`는 메타변수를 할당할 수 있지만, 가능하면 피합니다. 예를 들어, `?n`이 natural 메타변수이고 `?s`가 synthetic 메타변수라고 가정합니다. `?s =?= ?n` 통합 문제에 직면했을 때, `isDefEq`는 `?s` 대신 `?n`을 할당합니다.
    * Synthetic opaque: `isDefEq`는 메타변수를 절대 할당하지 않습니다.
 
-
 In the previous chapter, we saw some primitive functions for building
 expressions: `Expr.app`, `Expr.const`, `mkAppN` and so on. There is nothing
 wrong with these functions, but the additional facilities of `MetaM` often
 provide more convenient ways.
 
 이전 장에서, 우리는 표현식을 구성하는 몇 가지 기본 함수들을 살펴봤습니다: `Expr.app`, `Expr.const`, `mkAppN` 등. 이 함수들에는 문제가 없지만, `MetaM`의 추가 기능들이 더 편리한 방법을 제공하는 경우가 많습니다.
-
 
 When we write regular Lean code, Lean helpfully infers many implicit arguments
 and universe levels. If it did not, our code would look rather ugly:
@@ -1123,7 +1111,6 @@ contains `mkAppM` also contains various other helper functions, e.g. for making
 list literals or `sorry`s.
 
 `mkAppM`과 마찬가지로, `mkAppOptM`에는 첫 번째 인수로 `Name` 대신 `Expr`을 받는 프라임 변형 `Lean.Meta.mkAppOptM'`이 있습니다. `mkAppM`을 포함하는 파일에는 리스트 리터럴이나 `sorry`를 만드는 등의 다른 도우미 함수들도 있습니다.
-
 
 Another common task is to construct expressions involving `λ` or `∀` binders.
 Suppose we want to create the expression `λ (x : Nat), Nat.add x x`. One way is
@@ -1270,7 +1257,6 @@ elab "someProp" : term => somePropExpr
 -- ∀ (n : Nat), Nat.succ n = Nat.succ (Nat.succ n)
 ```
 
-
 Just like we can construct expressions more easily in `MetaM`, we can also
 deconstruct them more easily. Particularly useful is a family of functions for
 deconstructing expressions which start with `λ` and `∀` binders.
@@ -1384,7 +1370,6 @@ example (h : α → β) (a : α) : β := by
   myApply a
 ```
 
-
 Many tactics naturally require backtracking: the ability to go back to a
 previous state, as if the tactic had never been executed. A few examples:
 
@@ -1488,7 +1473,6 @@ Lean parser.
 
 다음 장에서는 정교화(elaboration) 주제로 넘어가는데, 이 장에서 이미 여러 번 glimpse를 봤습니다. Lean 파서에 사용자 정의 구문 구조를 추가할 수 있게 해주는 Lean의 구문 시스템 논의부터 시작합니다.
 
-
 1. [**Metavariables**] Create a metavariable with type `Nat`, and assign to it value `3`.
    Notice that changing the type of the metavariable from `Nat` to, for example, `String`, doesn't raise any errors - that's why, as was mentioned, we must make sure *"(a) that `val` must have the target type of `mvarId` and (b) that `val` must only contain `fvars` from the local context of `mvarId`"*.
 
@@ -1524,6 +1508,7 @@ Lean parser.
      -- Instantiate `mvar1`, which should result in expression `2 + ?mvar2 + 1`
      ...
    ```
+
 4. [**Metavariables**] Consider the theorem `red`, and tactic `explore` below.
    **a)** What would be the `type` and `userName` of metavariable `mvarId`?
    **b)** What would be the `type`s and `userName`s of all local declarations in this metavariable's local context?
@@ -1549,6 +1534,7 @@ Lean parser.
      explore
      sorry
    ```
+
 5. [**Metavariables**] Write a tactic `solve` that proves the theorem `red`.
 
    [**메타변수**] 정리 `red`를 증명하는 tactic `solve`를 작성하세요.
@@ -1617,6 +1603,7 @@ Lean parser.
      let reducedExpr ← Meta.reduce constantExpr
      dbg_trace (← ppExpr reducedExpr) -- ...
    ```
+
 10. [**Constructing Expressions**] Create expression `fun x => 1 + x` in two ways:
     **a)** not idiomatically, with loose bound variables
     **b)** idiomatically.
@@ -1663,6 +1650,7 @@ Lean parser.
       let (_, _, conclusion) ← lambdaMetaTelescope expr
       dbg_trace conclusion -- ...
     ```
+
 15. [**Backtracking**] Check that the expressions `?a + Int` and `"hi" + ?b` are definitionally equal with `isDefEq` (make sure to use the proper types or `Option.none` for the types of your metavariables!).
     Use `saveState` and `restoreState` to revert metavariable assignments.
 

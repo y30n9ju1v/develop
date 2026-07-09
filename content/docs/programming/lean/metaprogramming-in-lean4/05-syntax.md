@@ -14,7 +14,6 @@ later chapters.
 
 이 챕터는 Lean에서 syntax를 선언하고 조작하는 방법을 다룹니다. 이를 조작하는 방법이 다양하기 때문에, 아직 자세히 다루지 않고 상당 부분을 이후 챕터로 미룰 것입니다.
 
-
 Some readers might be familiar with the `infix` or even the `notation`
 commands, for those that are not here is a brief recap:
 
@@ -56,14 +55,14 @@ in theory create syntax with 0 up to as many parameters as we wish using the
 
 The two unintuitive parts about these two are:
 
+이 두 가지에서 직관적이지 않은 부분이 두 가지 있습니다:
+
 * The fact that we are leaving spaces around our operators: " ⊕ ", " LXOR ".
   This is so that, when Lean pretty prints our syntax later on, it also
   uses spaces around the operators, otherwise the syntax would just be presented
   as `l⊕r` as opposed to `l ⊕ r`.
 * The `60` and `10` right after the respective commands -- these denote the operator
   precedence, meaning how strong they bind to their arguments, let's see this in action:
-
-이 두 가지에서 직관적이지 않은 부분이 두 가지 있습니다:
 
 * 연산자 주위에 공백을 남긴다는 점: " ⊕ ", " LXOR ". 이렇게 하면 Lean이 나중에 syntax를 pretty print할 때도 연산자 주위에 공백을 사용합니다. 그렇지 않으면 `l ⊕ r` 대신 `l⊕r`로 표시됩니다.
 * 각 명령 바로 뒤의 `60`과 `10` -- 이것들은 연산자 우선순위를 나타내며, 인수에 얼마나 강하게 결합하는지를 의미합니다. 실제로 확인해 보겠습니다:
@@ -88,11 +87,21 @@ or greater. The way the arguments are assigned their respective precedence is by
 the precedence of the rule that was used to parse them. Consider for example
 `a LXOR b LXOR c`. Theoretically speaking this could be parsed in two ways:
 
+마지막으로 `notation` 예제에는 인수에 대한 `:precedence` 바인딩도 있습니다: `l:10`과 `r:11`. 이는 왼쪽 인수의 우선순위가 최소 10 이상이어야 하고, 오른쪽 인수의 우선순위는 11 이상이어야 함을 나타냅니다. 인수에 각각의 우선순위가 할당되는 방식은 해당 인수를 파싱하는 데 사용된 규칙의 우선순위를 살펴보는 것입니다. 예를 들어 `a LXOR b LXOR c`를 생각해봅시다. 이론적으로 두 가지 방식으로 파싱될 수 있습니다:
+
+1. `(a LXOR b) LXOR c`
+2. `a LXOR (b LXOR c)`
+
 1. `(a LXOR b) LXOR c`
 2. `a LXOR (b LXOR c)`
 
 Since the arguments in parentheses are parsed by the `LXOR` rule with precedence
 10 they will appear as arguments with precedence 10 to the outer `LXOR` rule:
+
+괄호 안의 인수들은 우선순위 10의 `LXOR` 규칙으로 파싱되므로, 외부 `LXOR` 규칙에 대해 우선순위 10의 인수로 나타납니다:
+
+1. `(a LXOR b):10 LXOR c`
+2. `a LXOR (b LXOR c):10`
 
 1. `(a LXOR b):10 LXOR c`
 2. `a LXOR (b LXOR c):10`
@@ -102,31 +111,21 @@ we can see that the right hand side argument requires a precedence of at least 1
 or greater, thus the second parse is invalid and we remain with: `(a LXOR b) LXOR c`
 assuming that:
 
+그런데 `LXOR`의 정의인 `notation:10 l:10 " LXOR " r:11`을 보면, 우변 인수는 11 이상의 우선순위를 요구하므로 두 번째 파싱은 유효하지 않습니다. 따라서 다음을 가정할 때 `(a LXOR b) LXOR c`만 남습니다:
+
 * `a` has precedence 10 or higher
 * `b` has precedence 11 or higher
 * `c` has precedence 11 or higher
-
-Thus `LXOR` is a left associative notation. Can you make it right associative?
-
-NOTE: If parameters of a notation are not explicitly given a precedence they will implicitly be tagged with precedence 0.
-
-마지막으로 `notation` 예제에는 인수에 대한 `:precedence` 바인딩도 있습니다: `l:10`과 `r:11`. 이는 왼쪽 인수의 우선순위가 최소 10 이상이어야 하고, 오른쪽 인수의 우선순위는 11 이상이어야 함을 나타냅니다. 인수에 각각의 우선순위가 할당되는 방식은 해당 인수를 파싱하는 데 사용된 규칙의 우선순위를 살펴보는 것입니다. 예를 들어 `a LXOR b LXOR c`를 생각해봅시다. 이론적으로 두 가지 방식으로 파싱될 수 있습니다:
-
-1. `(a LXOR b) LXOR c`
-2. `a LXOR (b LXOR c)`
-
-괄호 안의 인수들은 우선순위 10의 `LXOR` 규칙으로 파싱되므로, 외부 `LXOR` 규칙에 대해 우선순위 10의 인수로 나타납니다:
-
-1. `(a LXOR b):10 LXOR c`
-2. `a LXOR (b LXOR c):10`
-
-그런데 `LXOR`의 정의인 `notation:10 l:10 " LXOR " r:11`을 보면, 우변 인수는 11 이상의 우선순위를 요구하므로 두 번째 파싱은 유효하지 않습니다. 따라서 다음을 가정할 때 `(a LXOR b) LXOR c`만 남습니다:
 
 * `a`의 우선순위가 10 이상
 * `b`의 우선순위가 11 이상
 * `c`의 우선순위가 11 이상
 
+Thus `LXOR` is a left associative notation. Can you make it right associative?
+
 따라서 `LXOR`는 좌결합 표기법입니다. 우결합으로 만들 수 있을까요?
+
+NOTE: If parameters of a notation are not explicitly given a precedence they will implicitly be tagged with precedence 0.
 
 참고: notation의 매개변수에 우선순위가 명시적으로 주어지지 않으면 암묵적으로 우선순위 0이 부여됩니다.
 
@@ -138,10 +137,10 @@ and then attempt to keep parsing (as long as precedence allows it) until
 it cannot continue anymore. Hence Lean will parse this expression as `a ^ (b ^ c)`
 (as we would expect it to).
 
+이 섹션의 마지막 주의사항으로: Lean은 항상 가능한 가장 긴 파싱을 얻으려 시도합니다. 이는 세 가지 중요한 함의를 가집니다. 첫 번째는 매우 직관적인 것으로, 우결합 연산자 `^`가 있고 Lean이 `a ^ b ^ c`와 같은 식을 보면, 먼저 `a ^ b`를 파싱한 뒤 더 이상 계속할 수 없을 때까지(우선순위가 허용하는 한) 계속 파싱하려 합니다. 따라서 Lean은 이 식을 우리가 예상하는 대로 `a ^ (b ^ c)`로 파싱합니다.
+
 Secondly, if we have a notation where precedence does not allow to figure
 out how the expression should be parenthesized, for example:
-
-이 섹션의 마지막 주의사항으로: Lean은 항상 가능한 가장 긴 파싱을 얻으려 시도합니다. 이는 세 가지 중요한 함의를 가집니다. 첫 번째는 매우 직관적인 것으로, 우결합 연산자 `^`가 있고 Lean이 `a ^ b ^ c`와 같은 식을 보면, 먼저 `a ^ b`를 파싱한 뒤 더 이상 계속할 수 없을 때까지(우선순위가 허용하는 한) 계속 파싱하려 합니다. 따라서 Lean은 이 식을 우리가 예상하는 대로 `a ^ (b ^ c)`로 파싱합니다.
 
 두 번째로, 우선순위만으로 식의 괄호화를 결정할 수 없는 표기법이 있는 경우, 예를 들면:
 
@@ -183,7 +182,6 @@ in this case involves also consuming `mod` and the relation argument.
 
 이것 역시 가능한 가장 긴 파서를 찾기 때문이며, 이 경우에는 `mod`와 관계 인수도 함께 소비하는 것을 포함합니다.
 
-
 With the above `infix` and `notation` commands, you can get quite far with
 declaring ordinary mathematical syntax already. Lean does however allow you to
 introduce arbitrarily complex syntax as well. This is done using two main commands
@@ -191,18 +189,18 @@ introduce arbitrarily complex syntax as well. This is done using two main comman
 syntax rule to an already existing so-called "syntax category". The most common syntax
 categories are:
 
+위의 `infix`와 `notation` 명령만으로도 일반적인 수학적 syntax를 선언하는 데 꽤 멀리 갈 수 있습니다. 그러나 Lean은 임의로 복잡한 syntax도 도입할 수 있게 해줍니다. 이는 두 가지 주요 명령 `syntax`와 `declare_syntax_cat`을 사용하여 수행됩니다. `syntax` 명령은 이미 존재하는 소위 "syntax category"에 새 syntax 규칙을 추가할 수 있게 해줍니다. 가장 일반적인 syntax category는 다음과 같습니다:
+
 * `term`, this category will be discussed in detail in the elaboration chapter,
   for now you can think of it as "the syntax of everything that has a value"
 * `command`, this is the category for top-level commands like `#check`, `def` etc.
 * TODO: ...
 
-Let's see this in action:
-
-위의 `infix`와 `notation` 명령만으로도 일반적인 수학적 syntax를 선언하는 데 꽤 멀리 갈 수 있습니다. 그러나 Lean은 임의로 복잡한 syntax도 도입할 수 있게 해줍니다. 이는 두 가지 주요 명령 `syntax`와 `declare_syntax_cat`을 사용하여 수행됩니다. `syntax` 명령은 이미 존재하는 소위 "syntax category"에 새 syntax 규칙을 추가할 수 있게 해줍니다. 가장 일반적인 syntax category는 다음과 같습니다:
-
 * `term`: 이 category는 elaboration 챕터에서 자세히 다룰 것입니다. 지금은 "값을 가지는 모든 것의 syntax"라고 생각하면 됩니다
 * `command`: `#check`, `def` 등과 같은 최상위 명령들을 위한 category입니다
 * TODO: ...
+
+Let's see this in action:
 
 실제로 확인해 보겠습니다:
 
@@ -296,32 +294,31 @@ syntax "[Bool|" boolean_expr "]" : term
 #check_failure [Bool| ⊥ AND ⊤] -- elaboration function hasn't been implemented but parsing passes
 ```
 
-
 In order to declare more complex syntax, it is often very desirable to have
 some basic operations on syntax already built-in, these include:
+
+더 복잡한 syntax를 선언하기 위해서는 다음과 같은 기본 연산들이 내장되어 있는 것이 매우 바람직합니다:
 
 * helper parsers without syntax categories (i.e. not extendable)
 * alternatives
 * repetitive parts
 * optional parts
 
-While all of these do have an encoding based on syntax categories, this
-can make things quite ugly at times, so Lean provides an easier way to do all
-of these.
-
-In order to see all of these in action, we will briefly define a simple
-binary expression syntax.
-First things first, declaring named parsers that don't belong to a syntax
-category is quite similar to ordinary `def`s:
-
-더 복잡한 syntax를 선언하기 위해서는 다음과 같은 기본 연산들이 내장되어 있는 것이 매우 바람직합니다:
-
 * syntax category 없는 헬퍼 파서 (즉, 확장 불가능)
 * 대안(alternatives)
 * 반복 부분
 * 선택적 부분
 
+While all of these do have an encoding based on syntax categories, this
+can make things quite ugly at times, so Lean provides an easier way to do all
+of these.
+
 이 모든 것들은 syntax category를 기반으로 인코딩할 수 있지만, 때로는 상당히 복잡해질 수 있으므로 Lean은 이 모든 것들을 더 쉽게 처리하는 방법을 제공합니다.
+
+In order to see all of these in action, we will briefly define a simple
+binary expression syntax.
+First things first, declaring named parsers that don't belong to a syntax
+category is quite similar to ordinary `def`s:
 
 이것들을 실제로 확인하기 위해 간단한 이진 식 syntax를 간략하게 정의해 보겠습니다. 우선, syntax category에 속하지 않는 이름이 붙은 파서를 선언하는 것은 일반적인 `def`와 꽤 유사합니다:
 
@@ -337,20 +334,20 @@ and we cannot define new patterns for them as we would with proper syntax catego
 There does also exist a number of built-in named parsers that are generally useful,
 most notably:
 
+이 이름이 붙은 파서들은 위의 syntax category와 같은 위치에서 사용할 수 있으며, 유일한 차이점은 확장 불가능하다는 것입니다. 즉, 이들은 syntax 선언 내에서 직접 확장되며, 적절한 syntax category처럼 새 패턴을 정의할 수 없습니다. 일반적으로 유용한 다수의 내장 이름 파서도 있습니다. 가장 주목할 만한 것들은:
+
 * `str` for string literals
 * `num` for number literals
 * `ident` for identifiers
 * ... TODO: better list or link to compiler docs
 
-Next up we want to declare a parser that understands digits, a binary digit is
-either 0 or 1 so we can write:
-
-이 이름이 붙은 파서들은 위의 syntax category와 같은 위치에서 사용할 수 있으며, 유일한 차이점은 확장 불가능하다는 것입니다. 즉, 이들은 syntax 선언 내에서 직접 확장되며, 적절한 syntax category처럼 새 패턴을 정의할 수 없습니다. 일반적으로 유용한 다수의 내장 이름 파서도 있습니다. 가장 주목할 만한 것들은:
-
 * `str`: 문자열 리터럴용
 * `num`: 숫자 리터럴용
 * `ident`: 식별자용
 * ... TODO: 더 나은 목록 또는 컴파일러 문서 링크
+
+Next up we want to declare a parser that understands digits, a binary digit is
+either 0 or 1 so we can write:
 
 다음으로 숫자를 이해하는 파서를 선언하려 합니다. 이진 숫자는 0 또는 1이므로 다음과 같이 작성할 수 있습니다:
 
@@ -411,7 +408,6 @@ syntax "binDoc(" (str ";")? binNumber ")" : term
 #check_failure binDoc("mycomment"; Z, O, Z, Z, O) -- elaboration function hasn't been implemented but parsing passes
 ```
 
-
 As explained above, we will not go into detail in this chapter on how to teach
 Lean about the meaning you want to give your syntax. We will, however, take a look
 at how to write functions that operate on it. Like all things in Lean, syntax is
@@ -435,6 +431,8 @@ end Playground2
 
 Lets go through the definition one constructor at a time:
 
+각 생성자를 하나씩 살펴보겠습니다:
+
 * `missing` is used when there is something the Lean compiler cannot parse,
   it is what allows Lean to have a syntax error in one part of the file but
   recover from it and try to understand the rest of it. This also means we pretty
@@ -455,13 +453,10 @@ Lets go through the definition one constructor at a time:
   that will be discussed in detail in the macro chapter. For now, you can consider them
   basically equivalent.
 
-각 생성자를 하나씩 살펴보겠습니다:
-
 * `missing`은 Lean 컴파일러가 파싱할 수 없는 것이 있을 때 사용됩니다. 이것이 Lean이 파일의 한 부분에서 syntax 오류가 있어도 복구하고 나머지를 이해하려 시도할 수 있게 해주는 것입니다. 이는 또한 우리가 이 생성자에 대해 거의 신경 쓰지 않는다는 것을 의미합니다.
 * `node`는 이름에서 알 수 있듯이 syntax 트리의 노드입니다. `SyntaxNodeKind`가 단순히 `Lean.Name`인 소위 `kind : SyntaxNodeKind`를 가집니다. 기본적으로, 우리의 각 `syntax` 선언은 자동으로 생성된 `SyntaxNodeKind`를 받습니다(`syntax (name := foo) ... : cat`으로 이름을 명시적으로 지정할 수도 있습니다). 이를 통해 Lean에게 "이 함수가 이 특정 syntax 구성요소를 처리하는 역할을 합니다"라고 알릴 수 있습니다. 또한 트리의 모든 노드처럼 자식을 가지며, 이 경우 `Array Syntax` 형태입니다.
 * `atom`은 (하나의 예외를 제외하고) 계층 구조의 최하위에 있는 모든 syntax 객체를 나타냅니다. 예를 들어, 위의 연산자 `⊕`와 `LXOR`는 atom으로 표현됩니다.
 * `ident`는 언급된 이 규칙의 예외입니다. `ident`와 `atom`의 차이점도 매우 명확합니다: 식별자는 이를 나타내는 `String` 대신 `Lean.Name`을 가집니다. `Lean.Name`이 단순한 `String`이 아닌 이유는 macro 챕터에서 자세히 다룰 macro hygiene이라는 개념과 관련이 있습니다. 지금은 이들을 기본적으로 동등하다고 생각하면 됩니다.
-
 
 Now that we know how syntax is represented in Lean, we could of course write programs that
 generate all of these inductive trees by hand, which would be incredibly tedious and is something
@@ -498,7 +493,6 @@ which will be explained in the macro chapter.
 
 이 방식으로 `Syntax`를 생성하는 것이 전혀 마음에 들지 않더라도 그럴 만합니다. 그러나 이것을 예쁘고 올바르게(주로 올바른 부분에 관한 것입니다) 수행하는 기계적 장치와 관련된 몇 가지 사항이 있으며, 이는 macro 챕터에서 설명할 것입니다.
 
-
 Just like constructing `Syntax` is an important topic, especially
 with macros, matching on syntax is equally (or in fact even more) interesting.
 Luckily we don't have to match on the inductive type itself either: we can
@@ -530,7 +524,6 @@ def isAdd : Syntax → Option (Syntax × Syntax)
 #eval isAdd (Syntax.mkApp (mkIdent `Nat.add) #[mkIdent `foo, Syntax.mkNumLit "1"]) -- some ...
 #eval isAdd (Syntax.mkApp (mkIdent `Nat.add) #[mkIdent `foo]) -- none
 ```
-
 
 Note that `x` and `y` in this example are of type `` TSyntax `term ``, not `Syntax`.
 Even though we are pattern matching on `Syntax` which, as we can see in the constructors,
@@ -567,7 +560,6 @@ form it only works on syntax from the `term` category. If you want to use
 it to match on your own syntax categories you will have to use  `` `(category| ...) ``.
 
 syntax 매칭에 대한 마지막 중요한 참고사항: 이 기본 형태에서는 `term` category의 syntax에만 작동합니다. 자신의 syntax category에 매칭하려면 `` `(category| ...) ``를 사용해야 합니다.
-
 
 As a final mini project for this chapter we will declare the syntax of a mini
 arithmetic expression language and a function of type `Syntax → Nat` to evaluate
@@ -607,17 +599,16 @@ on `Syntax` in some way.
 
 이 예제를 자유롭게 가지고 놀고 원하는 방식으로 확장해 보세요. 다음 챕터들은 주로 어떤 방식으로든 `Syntax`에서 작동하는 함수들에 관한 것입니다.
 
-
 We can use type classes in order to add notation that is extensible via
 the type instead of the syntax system, this is for example how `+`
 using the typeclasses `HAdd` and `Add` and other common operators in
 Lean are generically defined.
 
+syntax 시스템 대신 타입을 통해 확장 가능한 표기법을 추가하기 위해 type class를 사용할 수 있습니다. 예를 들어 `HAdd`와 `Add` typeclass를 사용하는 `+`와 Lean의 다른 일반 연산자들이 이런 방식으로 일반적으로 정의됩니다.
+
 For example, we might want to have a generic notation for subset notation.
 The first thing we have to do is define a type class that captures
 the function we want to build notation for.
-
-syntax 시스템 대신 타입을 통해 확장 가능한 표기법을 추가하기 위해 type class를 사용할 수 있습니다. 예를 들어 `HAdd`와 `Add` typeclass를 사용하는 `+`와 Lean의 다른 일반 연산자들이 이런 방식으로 일반적으로 정의됩니다.
 
 예를 들어, 부분집합 표기법에 대한 일반적인 표기법이 필요할 수 있습니다. 먼저 해야 할 것은 표기법을 만들고자 하는 함수를 캡처하는 type class를 정의하는 것입니다.
 
@@ -665,20 +656,19 @@ example : ∀ (X : Set α), Set.empty ⊆ X := by
   exact False.elim h -- empty set has no members
 ```
 
-
 Because declaring syntax that uses variable binders used to be a rather
 unintuitive thing to do in Lean 3, we'll take a brief look at how naturally
 this can be done in Lean 4.
+
+변수 바인더를 사용하는 syntax를 선언하는 것이 Lean 3에서는 다소 직관적이지 않은 일이었기 때문에, Lean 4에서 이것이 얼마나 자연스럽게 이루어질 수 있는지 간략히 살펴보겠습니다.
 
 For this example we will define the well-known notation for the set
 that contains all elements `x` such that some property holds:
 `{x ∈ ℕ | x < 10}` for example.
 
-First things first we need to extend the theory of sets from above slightly:
-
-변수 바인더를 사용하는 syntax를 선언하는 것이 Lean 3에서는 다소 직관적이지 않은 일이었기 때문에, Lean 4에서 이것이 얼마나 자연스럽게 이루어질 수 있는지 간략히 살펴보겠습니다.
-
 이 예제에서는 어떤 속성이 성립하는 모든 원소 `x`를 포함하는 집합에 대한 잘 알려진 표기법을 정의할 것입니다: 예를 들어 `{x ∈ ℕ | x < 10}`.
+
+First things first we need to extend the theory of sets from above slightly:
 
 우선 위의 집합 이론을 약간 확장해야 합니다:
 
@@ -704,14 +694,13 @@ example : 2 ∈ { (y : Nat) | y ≤ 3 ∧ 1 ≤ y } := by simp[Membership.mem, S
 This intuitive notation will indeed deal with what we could throw at
 it in the way we would expect it.
 
+이 직관적인 표기법은 우리가 던질 수 있는 것들을 예상한 대로 처리할 것입니다.
+
 As to how one might extend this notation to allow more set-theoretic
 things such as `{x ∈ X | p x}` and leave out the parentheses around
 the bound variables, we refer the reader to the macro chapter.
 
-이 직관적인 표기법은 우리가 던질 수 있는 것들을 예상한 대로 처리할 것입니다.
-
 `{x ∈ X | p x}`와 같은 더 많은 집합론적인 것들을 허용하고 한정 변수 주위의 괄호를 생략하도록 이 표기법을 어떻게 확장할 수 있는지에 대해서는 독자를 macro 챕터로 안내합니다.
-
 
 1. Create an "urgent minus 💀" notation such that `5 * 8 💀 4` returns `20`, and `8 💀 6 💀 1` returns `3`.
 
@@ -727,6 +716,7 @@ the bound variables, we refer the reader to the macro chapter.
      syntax "hello" : command
      syntax "yellow" : tactic
    ```
+
 3. Create a `syntax` rule that would accept the following commands:
 
    * `red red red 4`
@@ -742,6 +732,7 @@ the bound variables, we refer the reader to the macro chapter.
    -- our "elaboration function" that infuses syntax with semantics
    @[command_elab colors] def elabColors : CommandElab := λ stx => Lean.logInfo "success!"
    ```
+
 4. Mathlib has a `#help option` command that displays all options available in the current environment, and their descriptions. `#help option pp.r` will display all options starting with a "pp.r" substring.
 
    Create a `syntax` rule that would accept the following commands:
@@ -757,6 +748,7 @@ the bound variables, we refer the reader to the macro chapter.
    -- our "elaboration function" that infuses syntax with semantics
    @[command_elab help] def elabHelp : CommandElab := λ stx => Lean.logInfo "success!"
    ```
+
 5. Mathlib has a ∑ operator. Create a `syntax` rule that would accept the following terms:
 
    * `∑ x in { 1, 2, 3 }, x^2`

@@ -32,7 +32,6 @@ the encoding, the grammar and consequently the metaprogramming didactic.
 
 이는 `1 + true`와 같은 이상한 표현을 허용하게 됨을 의미합니다! 하지만 이렇게 하면 인코딩, 문법, 그리고 결과적으로 메타프로그래밍 교육이 단순해집니다.
 
-
 We begin by defining our atomic literal value.
 
 원자 리터럴 값을 정의하는 것부터 시작합니다.
@@ -91,7 +90,6 @@ inductive IMPProgram
   | While  : IMPExpr → IMPProgram → IMPProgram
 ```
 
-
 Now that we have our data types, let's elaborate terms of `Syntax` into
 terms of `Expr`. We begin by defining the syntax and an elaboration function for
 literals.
@@ -118,7 +116,6 @@ elab "test_elabIMPLit " l:imp_lit : term => elabIMPLit l
 #reduce test_elabIMPLit true  -- IMPLit.bool true
 #reduce test_elabIMPLit false -- IMPLit.bool true
 ```
-
 
 In order to elaborate expressions, we also need a way to elaborate our unary and
 binary operators.
@@ -209,7 +206,6 @@ elab "test_elabIMPExpr " e:imp_expr : term => elabIMPExpr e
 #reduce test_elabIMPExpr 1 + true
 -- IMPExpr.bin IMPBinOp.add (IMPExpr.lit (IMPLit.nat 1)) (IMPExpr.lit (IMPLit.bool true))
 ```
-
 
 And now we have everything we need to elaborate our IMP programs!
 
