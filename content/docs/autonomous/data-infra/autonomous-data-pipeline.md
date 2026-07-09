@@ -97,7 +97,7 @@ FiftyOne의 내부 구조는 두 레이어로 나뉩니다. 메타데이터(라�
 
 특히 **FiftyOne Brain**은 시각적 유사도를 임베딩 벡터로 계산해 비슷한 이미지를 묶거나, 반대로 다양성이 높은 샘플만 골라내는 기능을 제공합니다. "이 데이터셋에서 지금껏 한 번도 못 본 낯선 장면들만 뽑아줘"라는 요청을 처리할 수 있습니다. 단순 조건 필터링이 아니라 의미 기반 슬라이싱이 가능해집니다.
 
-익스포트 단계에서 선별된 샘플의 py123d Arrow 파일 경로와 씬 ID가 JSON 재생 목록으로 출력됩니다. 이 목록 파일이 DORA `scenario-player` 노드와 FiftyOne을 연결하는 징검다리입니다. `scenario-player`가 목록을 읽어 Arrow 파일을 순서대로 DORA 토픽에 발행하면, 나머지 파이프라인(perception, evaluator, Rerun 시각화)은 데이터 출처를 모른 채 동일하게 동작합니다.
+익스포트 단계에서 선별된 샘플의 py123d Arrow 파일 경로와 씬 ID가 JSON 재생 목록으로 출력됩니다. 이 목록 파일이 DORA `scenario-player` 노드와 FiftyOne을 연결하는 징검다리입니다. `scenario-player`가 목록을 읽어 Arrow 파일을 순서대로 DORA 토픽에 발행하면, 나머지 파이프라인(perception, evaluator, Rerun 시각화)은 데이터 출처를 모른 채 동일하게 동작합니다. scenario-player가 파이프라인 전체에서 어떤 역할을 하는지는 [DORA 회귀 테스트 파이프라인](../../dora/dora-rs-av-regression-testing/)에서 자세히 다룹니다.
 
 ### 3단계: 고속 3D 시각화 (`Rerun`)
 

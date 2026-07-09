@@ -205,3 +205,5 @@ LiDAR의 가장 큰 약점은 **악천후**입니다. 레이저가 빛이기 때
 ---
 
 *관련 글: [카메라 모델 입문](/docs/autonomous/sensor/camera-models-for-beginners/), [좌표계 입문](/docs/autonomous/sensor/ego-coordinate-system-for-beginners/), [센서 퓨전 기초: LiDAR 포인트를 카메라 이미지에 투영하기](/docs/autonomous/sensor/lidar-to-camera-projection/)*
+
+*파이프라인 실무: LAZ vs Arrow IPC 포맷 선택, voxel grid 다운샘플링, py123d ParsedLidar 연동은 [LiDAR 포인트 클라우드: 구조, 포맷, 전처리](/docs/autonomous/data-infra/lidar-point-cloud/)에서 다룹니다.*

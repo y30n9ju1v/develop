@@ -601,11 +601,19 @@ py123d는 PCD 파일을 네이티브로 지원하지 않습니다. 두 가지 �
 
 운영 편의를 위해서는 변환 전처리 단계에서 PCD를 LAZ로 변환해두는 것이 낫습니다.
 
-```bash
-# libLAS로 PCD → LAZ 일괄 변환
-for f in lidar/*.pcd; do
-    las2las --input "$f" --output "${f%.pcd}.laz"
-done
+```python
+# pdal + laspy로 PCD → LAZ 일괄 변환 (libLAS는 PCD 포맷 미지원)
+import laspy, numpy as np
+import open3d as o3d
+from pathlib import Path
+
+for pcd_path in Path("lidar").glob("*.pcd"):
+    pc = o3d.io.read_point_cloud(str(pcd_path))
+    pts = np.asarray(pc.points).astype(np.float32)
+    header = laspy.LasHeader(point_format=0, version="1.4")
+    las = laspy.LasData(header=header)
+    las.x, las.y, las.z = pts[:, 0], pts[:, 1], pts[:, 2]
+    las.write(str(pcd_path.with_suffix(".laz")))
 ```
 
 ### Pickle 안전성

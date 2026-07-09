@@ -7,6 +7,8 @@ categories: ["autonomous"]
 description: "ISO 8855, SAE J670, CARLA/UE4, ROS, OpenCV 카메라 좌표계의 차이와 실무 변환 — 부호 하나가 버그가 되는 이유를 정리합니다."
 ---
 
+> Ego/World/Sensor 좌표계 개념과 변환의 기초 직관은 [자율주행 좌표계 입문](/docs/autonomous/sensor/ego-coordinate-system-for-beginners/)을 먼저 읽으세요. 이 글은 규약 비교(ISO 8855 vs SAE J670 vs CARLA vs ROS)와 파이프라인 경계에서의 실무 변환에 집중합니다.
+
 > 이 글은 [py123d 입문](../py123d-for-beginners/)과 연결됩니다. py123d가 ISO 8855를 왜 표준 좌표계로 채택했는지, CARLA 연동 시 왜 Y축 부호를 뒤집어야 하는지를 이해하는 데 필요한 배경입니다.
 
 자율주행 파이프라인에서 좌표계 불일치는 **소리 없이 스며드는 버그**입니다. 코드가 실행되고 수치도 나오는데 바운딩 박스가 좌우 반전되거나, 회전 방향이 반대로 계획되거나, 시뮬레이터에서 잘 되던 것이 실 차량에서 틀려집니다. 원인은 대부분 좌표계 규약이 달라서입니다.

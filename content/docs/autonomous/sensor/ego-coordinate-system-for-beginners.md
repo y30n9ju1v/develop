@@ -239,3 +239,5 @@ print("Ego 좌표계:", ego_points)
 ---
 
 *관련 글: [카메라 모델 입문](/docs/autonomous/sensor/camera-models-for-beginners/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/)*
+
+*파이프라인 실무: ISO 8855 vs SAE J670 vs CARLA vs ROS 규약 비교, CARLA·nuScenes·Waymo 경계에서의 실무 변환은 [자율주행 좌표계 완전 정리: ISO 8855와 실무 변환](/docs/autonomous/data-infra/iso-8855-coordinate-systems/)에서 다룹니다.*
