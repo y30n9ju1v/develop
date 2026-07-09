@@ -1,5 +1,5 @@
 ---
-title: "Cheat Sheet"
+title: "치트시트"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "metaprogramming"]
@@ -101,7 +101,8 @@ let goal_type ← goal.getType
 * Throw an error: `Lean.Meta.throwTacticEx name mvar message_data`
   where `name : Lean.Name` is the name of a tactic and `mvar` contains error data.
 
-  Use as `Lean.Meta.throwTacticEx` tac goal (m!"unable to find matching hypothesis of type ({goal\_type})")`where the`m!`formatting builds a`MessageData` for better printing of terms
+  Use as `Lean.Meta.throwTacticEx `tac goal (m!"unable to find matching hypothesis of type ({goal_type})")`
+  where the `m!` formatting builds a `MessageData` for better printing of terms
 
 * 일반 사용 시 "영구적인" 메시지 출력:
 
@@ -112,9 +113,10 @@ let goal_type ← goal.getType
 * 오류 발생시키기: `Lean.Meta.throwTacticEx name mvar message_data`
   `name : Lean.Name`은 tactic의 이름이고 `mvar`은 오류 데이터를 담음.
 
-  `Lean.Meta.throwTacticEx` tac goal (m!"unable to find matching hypothesis of type ({goal\_type})")` 형태로 사용. `m!` 포매팅은 항(term)을 더 잘 출력하기 위한 `MessageData`를 생성함
+  `Lean.Meta.throwTacticEx `tac goal (m!"unable to find matching hypothesis of type ({goal_type})")` 형태로 사용.
+  여기서 `m!` 포매팅은 항(term)을 더 잘 출력하기 위한 `MessageData`를 생성함.
 
-TODO: Add?
+TODO: 추가?
 
 * Lean.LocalContext.forM
 * Lean.LocalContext.findDeclM?

@@ -1,5 +1,5 @@
 ---
-title: "Elaboration"
+title: "정교화(Elaboration)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "metaprogramming"]
@@ -486,7 +486,9 @@ elab "⟨⟨" args:term,* "⟩⟩" : term <= t => do
 
 2. 실제 mathlib 커맨드 `alias`에서 가져온 구문입니다.
 
-   
+   ```
+   syntax (name := our_alias) (docComment)? "our_alias " ident " ← " ident* : command
+   ```
 
    `alias hi ← hello yes`가 `←` 다음에 오는 식별자들, 즉 "hello"와 "yes"를 출력하도록 하고 싶습니다.
 
@@ -513,7 +515,10 @@ elab "⟨⟨" args:term,* "⟩⟩" : term <= t => do
 
 3. 실제 mathlib tactic `nth_rewrite`에서 가져온 구문입니다.
 
-   
+   ```
+   open Parser.Tactic
+   syntax (name := nthRewriteSeq) "nth_rewrite " (config)? num rwRuleSeq (ppSpace location)? : tactic
+   ```
 
    `nth_rewrite 5 [←add_zero a] at h`가 사용자가 location을 제공했을 때는 `"rewrite location!"`을, 제공하지 않았을 때는 `"rewrite target!"`을 출력하도록 하고 싶습니다.
 
