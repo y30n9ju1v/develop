@@ -1,5 +1,5 @@
 ---
-title: "IO 모나드"
+title: "4.5. IO 모나드"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

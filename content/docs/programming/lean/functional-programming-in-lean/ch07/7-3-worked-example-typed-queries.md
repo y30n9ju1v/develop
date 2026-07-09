@@ -1,5 +1,5 @@
 ---
-title: "예제로 배우기: 타입이 있는 쿼리 (Worked Example: Typed Queries)"
+title: "7.3. 예제로 배우기: 타입이 있는 쿼리 (Worked Example: Typed Queries)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

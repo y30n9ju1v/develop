@@ -1,5 +1,5 @@
 ---
-title: "구문"
+title: "5. 구문"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "metaprogramming"]

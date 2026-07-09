@@ -1,5 +1,5 @@
 ---
-title: "프로그램 실행하기"
+title: "2.1. 프로그램 실행하기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

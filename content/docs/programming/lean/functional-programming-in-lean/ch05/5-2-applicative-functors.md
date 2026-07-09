@@ -1,5 +1,5 @@
 ---
-title: "어플리커티브 펑터"
+title: "5.2. 어플리커티브 펑터"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

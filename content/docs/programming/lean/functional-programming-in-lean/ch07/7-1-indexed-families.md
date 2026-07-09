@@ -1,5 +1,5 @@
 ---
-title: "색인 패밀리 (Indexed Families)"
+title: "7.1. 색인 패밀리 (Indexed Families)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

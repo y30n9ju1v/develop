@@ -1,5 +1,5 @@
 ---
-title: "단계별로 살펴보기"
+title: "2.2. 단계별로 살펴보기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

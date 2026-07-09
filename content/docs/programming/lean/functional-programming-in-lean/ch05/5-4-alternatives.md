@@ -1,5 +1,5 @@
 ---
-title: "대안"
+title: "5.4. 대안"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

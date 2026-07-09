@@ -1,5 +1,5 @@
 ---
-title: "Monad 타입 클래스"
+title: "4.2. Monad 타입 클래스"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

@@ -1,5 +1,5 @@
 ---
-title: "배열과 인덱싱"
+title: "3.4. 배열과 인덱싱"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

@@ -1,5 +1,5 @@
 ---
-title: "꼬리 재귀 (Tail Recursion)"
+title: "8.1. 꼬리 재귀 (Tail Recursion)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

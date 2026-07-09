@@ -1,5 +1,5 @@
 ---
-title: "인덱스, 파라미터, 유니버스 레벨 (Indices, Parameters, and Universe Levels)"
+title: "7.4. 인덱스, 파라미터, 유니버스 레벨 (Indices, Parameters, and Universe Levels)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

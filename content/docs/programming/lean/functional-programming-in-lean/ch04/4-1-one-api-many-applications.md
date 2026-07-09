@@ -1,5 +1,5 @@
 ---
-title: "하나의 API, 다양한 응용"
+title: "4.1. 하나의 API, 다양한 응용"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

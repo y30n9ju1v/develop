@@ -1,5 +1,5 @@
 ---
-title: "예제: Monad에서의 산술 연산"
+title: "4.3. 예제: Monad에서의 산술 연산"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

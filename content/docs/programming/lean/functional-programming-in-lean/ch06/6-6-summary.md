@@ -1,5 +1,5 @@
 ---
-title: "요약"
+title: "6.6. 요약"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

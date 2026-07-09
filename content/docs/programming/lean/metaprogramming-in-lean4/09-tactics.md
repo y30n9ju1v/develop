@@ -1,5 +1,5 @@
 ---
-title: "Tactic 작성하기"
+title: "9. Tactic 작성하기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "metaprogramming"]

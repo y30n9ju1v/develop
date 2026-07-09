@@ -1,5 +1,5 @@
 ---
-title: "유계 숫자 (Bounded Numbers)"
+title: "8.5. 유계 숫자 (Bounded Numbers)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

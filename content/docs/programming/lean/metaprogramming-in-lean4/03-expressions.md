@@ -1,5 +1,5 @@
 ---
-title: "표현식"
+title: "3. 표현식"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "metaprogramming"]

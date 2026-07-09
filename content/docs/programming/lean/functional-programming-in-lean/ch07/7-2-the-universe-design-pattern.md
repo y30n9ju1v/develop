@@ -1,5 +1,5 @@
 ---
-title: "유니버스 디자인 패턴 (The Universe Design Pattern)"
+title: "7.2. 유니버스 디자인 패턴 (The Universe Design Pattern)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

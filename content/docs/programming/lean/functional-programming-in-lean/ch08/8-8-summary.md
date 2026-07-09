@@ -1,5 +1,5 @@
 ---
-title: "요약 (Summary)"
+title: "8.8. 요약 (Summary)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

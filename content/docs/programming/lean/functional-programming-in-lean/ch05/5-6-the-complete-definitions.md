@@ -1,5 +1,5 @@
 ---
-title: "완전한 정의"
+title: "5.6. 완전한 정의"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

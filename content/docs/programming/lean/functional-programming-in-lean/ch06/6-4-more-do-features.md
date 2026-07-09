@@ -1,5 +1,5 @@
 ---
-title: "do 표기법의 추가 기능"
+title: "6.4. do 표기법의 추가 기능"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

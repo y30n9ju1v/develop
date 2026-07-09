@@ -1,5 +1,5 @@
 ---
-title: "의존 타입 프로그래밍의 함정 (Pitfalls of Programming with Dependent Types)"
+title: "7.5. 의존 타입 프로그래밍의 함정 (Pitfalls of Programming with Dependent Types)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

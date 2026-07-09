@@ -1,5 +1,5 @@
 ---
-title: "추가 편의 기능"
+title: "1.7. 추가 편의 기능"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

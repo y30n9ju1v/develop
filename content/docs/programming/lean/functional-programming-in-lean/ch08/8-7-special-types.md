@@ -1,5 +1,5 @@
 ---
-title: "특수 타입 (Special Types)"
+title: "8.7. 특수 타입 (Special Types)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]

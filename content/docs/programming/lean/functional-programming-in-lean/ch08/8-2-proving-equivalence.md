@@ -1,5 +1,5 @@
 ---
-title: "동치 증명하기 (Proving Equivalence)"
+title: "8.2. 동치 증명하기 (Proving Equivalence)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
