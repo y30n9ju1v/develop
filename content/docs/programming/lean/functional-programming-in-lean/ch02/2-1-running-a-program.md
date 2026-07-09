@@ -1,10 +1,10 @@
 ---
-title: "Running a Program"
+title: "프로그램 실행하기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Running a Program"
+description: "Lean 프로그램을 실행하고 IO 액션의 동작 원리를 이해합니다"
 ---
 
 # 2.1. Running a Program
@@ -15,13 +15,17 @@ Create a file called `Hello.lean` and enter the following contents:
 Lean 프로그램을 실행하는 가장 간단한 방법은 Lean 실행 파일에 `--run` 옵션을 사용하는 것입니다.
 `Hello.lean`이라는 파일을 만들고 다음 내용을 입력하세요:
 
-`def main : IO Unit := IO.println "Hello, world!"`
+```lean
+def main : IO Unit := IO.println "Hello, world!"
+```
 
 Then, from the command line, run:
 
 그다음, 명령줄에서 다음을 실행하세요:
 
-`$ lean --run Hello.lean`
+```bash
+$ lean --run Hello.lean
+```
 
 The program displays `Hello, world!` and exits.
 
@@ -183,13 +187,15 @@ The following program, called `HelloName.lean`, asks the user for their name and
 나아가, 입력을 기반으로 결정을 내릴 수 있으며, 입력 데이터를 계산의 일부로 사용할 수 있습니다.
 `HelloName.lean`이라는 다음 프로그램은 사용자에게 이름을 묻고 인사합니다:
 
-`def main : IO Unit := do
-let stdin ← IO.getStdin
-let stdout ← IO.getStdout
-stdout.putStrLn "How would you like to be addressed?"
-let input ← stdin.getLine
-let name := input.dropRightWhile Char.isWhitespace
-stdout.putStrLn s!"Hello, {name}!"`
+```lean
+def main : IO Unit := do
+  let stdin ← IO.getStdin
+  let stdout ← IO.getStdout
+  stdout.putStrLn "How would you like to be addressed?"
+  let input ← stdin.getLine
+  let name := input.dropRightWhile Char.isWhitespace
+  stdout.putStrLn s!"Hello, {name}!"
+```
 
 In this program, the `main` action consists of a `do` block.
 This block contains a sequence of *statements*, which can be both local variables (introduced using `let`) and actions that are to be executed.
@@ -203,7 +209,9 @@ SQL을 데이터베이스와 상호작용하기 위한 특수 목적 언어로 �
 
 This program can be run in the same manner as the prior program:
 
-`$ lean --run HelloName.lean`
+```bash
+$ lean --run HelloName.lean
+```
 
 If the user responds with `David`, a session of interaction with the program reads:
 
@@ -219,7 +227,9 @@ Hello, David!
 
 The type signature line is just like the one for `Hello.lean`:
 
-`def main : IO Unit := do`
+```lean
+def main : IO Unit := do
+```
 
 The only difference is that it ends with the keyword `do`, which initiates a sequence of commands.
 Each indented line following the keyword `do` is part of the same sequence of commands.
@@ -231,8 +241,10 @@ Each indented line following the keyword `do` is part of the same sequence of co
 
 The first two lines, which read:
 
-`let stdin ← IO.getStdin
-let stdout ← IO.getStdout`
+```lean
+let stdin ← IO.getStdin
+let stdout ← IO.getStdout
+```
 
 retrieve the `stdin` and `stdout` handles by executing the library actions `IO.getStdin` and `IO.getStdout`, respectively.
 In a `do` block, `let` has a slightly different meaning than in an ordinary expression.
@@ -246,8 +258,10 @@ If they were global variables as in C, then there would be no meaningful way to 
 
 처음 두 줄은 다음과 같습니다:
 
-`let stdin ← IO.getStdin
-let stdout ← IO.getStdout`
+```lean
+let stdin ← IO.getStdin
+let stdout ← IO.getStdout
+```
 
 각각 라이브러리 액션 `IO.getStdin`과 `IO.getStdout`을 실행하여 `stdin`과 `stdout` 핸들을 검색합니다.
 `do` 블록에서 `let`은 일반 식에서와 약간 다른 의미를 가집니다.
@@ -261,9 +275,11 @@ C에서처럼 전역 변수였다면, 이를 오버라이드할 의미 있는 �
 
 The next part of the `do` block is responsible for asking the user for their name:
 
-`stdout.putStrLn "How would you like to be addressed?"
+```lean
+stdout.putStrLn "How would you like to be addressed?"
 let input ← stdin.getLine
-let name := input.dropRightWhile Char.isWhitespace`
+let name := input.dropRightWhile Char.isWhitespace
+```
 
 The first line writes the question to `stdout`, the second line requests input from `stdin`, and the third line removes the trailing newline (plus any other trailing whitespace) from the input line.
 The definition of `name` uses `:=`, rather than `←`, because `String.dropRightWhile` is an ordinary function on strings, rather than an `IO` action.
@@ -275,10 +291,16 @@ The definition of `name` uses `:=`, rather than `←`, because `String.dropRight
 
 Finally, the last line in the program is:
 
-`stdout.putStrLn s!"Hello, {name}!"`
+```lean
+stdout.putStrLn s!"Hello, {name}!"
+```
 
 It uses [string interpolation](../ch01/) to insert the provided name into a greeting string, writing the result to `stdout`.
 
-마지막으로, 프로그램의 마지막 줄은.
+마지막으로, 프로그램의 마지막 줄은 다음과 같습니다:
+
+```lean
+stdout.putStrLn s!"Hello, {name}!"
+```
 
 [문자열 보간](../ch01/)을 사용하여 제공된 이름을 인사 문자열에 삽입하고 결과를 `stdout`에 씁니다.

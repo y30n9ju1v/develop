@@ -1,10 +1,10 @@
 ---
-title: "Arrays and Indexing"
+title: "배열과 인덱싱"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Arrays and Indexing"
+description: "GetElem 타입 클래스로 배열, 리스트, 커스텀 컬렉션의 인덱싱 오버로딩하기"
 ---
 
 # 3.4. Arrays and Indexing
@@ -39,8 +39,10 @@ Arrays are written similarly to lists, but with a leading `#`:
 
 Array는 list와 유사하게 작성되지만 앞에 `#`이 붙습니다:
 
-`def northernTrees : Array String :=
-#["sloe", "birch", "elm", "oak"]`
+```lean
+def northernTrees : Array String :=
+  #["sloe", "birch", "elm", "oak"]
+```
 
 The number of values in an array can be found using `Array.size`.
 For instance, `northernTrees.size` evaluates to `4`.
@@ -71,23 +73,27 @@ A datatype that represents non-empty lists can be defined as a structure with a 
 
 Non-empty list를 나타내는 datatype은 list의 head를 위한 field와 ordinary하고 잠재적으로 비어 있을 수 있는 list인 tail을 위한 field를 가진 structure로 정의할 수 있습니다:
 
-`structure NonEmptyList (α : Type) : Type where
-head : α
-tail : List α`
+```lean
+structure NonEmptyList (α : Type) : Type where
+  head : α
+  tail : List α
+```
 
 For example, the non-empty list `idahoSpiders` (which contains some spider species native to the US state of Idaho) consists of `"Banded Garden Spider"` followed by four other spiders, for a total of five spiders:
 
 예를 들어, non-empty list인 `idahoSpiders`(미국 아이다호 주에 자생하는 거미 종을 포함함)는 `"Banded Garden Spider"`로 시작하여 네 마리의 다른 거미가 뒤따르며, 총 다섯 마리의 거미로 구성됩니다:
 
-`def idahoSpiders : NonEmptyList String := {
-head := "Banded Garden Spider",
-tail := [
-"Long-legged Sac Spider",
-"Wolf Spider",
-"Hobo Spider",
-"Cat-faced Spider"
-]
-}`
+```lean
+def idahoSpiders : NonEmptyList String := {
+  head := "Banded Garden Spider",
+  tail := [
+    "Long-legged Sac Spider",
+    "Wolf Spider",
+    "Hobo Spider",
+    "Cat-faced Spider"
+  ]
+}
+```
 
 Looking up the value at a specific index in this list with a recursive function should consider three possibilities:
 
@@ -105,10 +111,12 @@ For example, a lookup function that returns an `Option` can be written as follow
 
 예를 들어, `Option`을 반환하는 lookup function은 다음과 같이 작성할 수 있습니다:
 
-`def NonEmptyList.get? : NonEmptyList α → Nat → Option α
-| xs, 0 => some xs.head
-| {head := _, tail := []}, _ + 1 => none
-| {head := _, tail := h :: t}, n + 1 => get? {head := h, tail := t} n`
+```lean
+def NonEmptyList.get? : NonEmptyList α → Nat → Option α
+  | xs, 0 => some xs.head
+  | {head := _, tail := []}, _ + 1 => none
+  | {head := _, tail := h :: t}, n + 1 => get? {head := h, tail := t} n
+```
 
 Each case in the pattern match corresponds to one of the possibilities above.
 The recursive call to `get?` does not require a `NonEmptyList` namespace qualifier because the body of the definition is implicitly in the definition's namespace.
@@ -118,9 +126,11 @@ Pattern match의 각 경우는 위의 가능성 중 하나에 해당합니다.
 definition의 본문이 암묵적으로 definition의 namespace에 있으므로, `get?`에 대한 recursive call은 `NonEmptyList` namespace qualifier가 필요하지 않습니다.
 이 function을 작성하는 또 다른 방법은 index가 0보다 클 때 list lookup `xs.tail[n]?`을 사용합니다:
 
-`def NonEmptyList.get? : NonEmptyList α → Nat → Option α
-| xs, 0 => some xs.head
-| xs, n + 1 => xs.tail[n]?`
+```lean
+def NonEmptyList.get? : NonEmptyList α → Nat → Option α
+  | xs, 0 => some xs.head
+  | xs, n + 1 => xs.tail[n]?
+```
 
 If the list contains one entry, then only `0` is a valid index.
 If it contains two entries, then both `0` and `1` are valid indices.
@@ -136,8 +146,10 @@ The definition of what it means for an index to be in bounds should be written a
 
 Index가 범위 내에 있다는 것이 무엇을 의미하는지의 정의는 `abbrev`로 작성되어야 합니다. 왜냐하면 index가 허용 가능하다는 증명을 찾기 위해 사용되는 tactic들은 숫자의 부등식을 풀 수 있지만 `NonEmptyList.inBounds`라는 이름에 대해 아무것도 모르기 때문입니다:
 
-`abbrev NonEmptyList.inBounds (xs : NonEmptyList α) (i : Nat) : Prop :=
-i ≤ xs.tail.length`
+```lean
+abbrev NonEmptyList.inBounds (xs : NonEmptyList α) (i : Nat) : Prop :=
+  i ≤ xs.tail.length
+```
 
 This function returns a proposition that might be true or false.
 For instance, `2` is in bounds for `idahoSpiders`, while `5` is not:
@@ -145,8 +157,19 @@ For instance, `2` is in bounds for `idahoSpiders`, while `5` is not:
 이 function은 true이거나 false일 수 있는 proposition을 반환합니다.
 예를 들어, `2`는 `idahoSpiders`에 대해 범위 내에 있지만, `5`는 그렇지 않습니다:
 
-`theorem atLeastThreeSpiders : idahoSpiders.inBounds 2 := by⊢ idahoSpiders.inBounds 2 decideAll goals completed! 🐙
-theorem notSixSpiders : ¬idahoSpiders.inBounds 5 := by⊢ ¬idahoSpiders.inBounds 5 decideAll goals completed! 🐙`
+```lean
+theorem atLeastThreeSpiders : idahoSpiders.inBounds 2 := by
+  decide
+theorem notSixSpiders : ¬idahoSpiders.inBounds 5 := by
+  decide
+```
+
+```
+⊢ idahoSpiders.inBounds 2
+All goals completed! 🐙
+⊢ ¬idahoSpiders.inBounds 5
+All goals completed! 🐙
+```
 
 The logical negation operator has a very low precedence, which means that `¬idahoSpiders.inBounds 5` is equivalent to `¬(idahoSpiders.inBounds 5)`.
 
@@ -156,11 +179,13 @@ This fact can be used to write a lookup function that requires evidence that the
 
 이 사실은 index가 유효하다는 증명을 요구하고, compile time에 증명을 검사하는 list 버전으로 위임하여 `Option`을 반환할 필요가 없는 lookup function을 작성하는 데 사용될 수 있습니다:
 
-`def NonEmptyList.get (xs : NonEmptyList α)
-(i : Nat) (ok : xs.inBounds i) : α :=
-match i with
-| 0 => xs.head
-| n + 1 => xs.tail[n]`
+```lean
+def NonEmptyList.get (xs : NonEmptyList α)
+    (i : Nat) (ok : xs.inBounds i) : α :=
+  match i with
+  | 0 => xs.head
+  | n + 1 => xs.tail[n]
+```
 
 It is, of course, possible to write this function to use the evidence directly, rather than delegating to a standard library function that happens to be able to use the same evidence.
 This requires techniques for working with proofs and propositions that are described later in this book.
@@ -192,12 +217,14 @@ The element type and the evidence function are both output parameters.
 Element type과 evidence function은 모두 output parameter입니다.
 `GetElem`은 collection value, index value, index가 범위 내에 있다는 증명을 인자로 받고 element를 반환하는 하나의 method인 `getElem`을 가집니다:
 
-`class GetElem
-(coll : Type)
-(idx : Type)
-(item : outParam Type)
-(inBounds : outParam (coll → idx → Prop)) where
-getElem : (c : coll) → (i : idx) → inBounds c i → item`
+```lean
+class GetElem
+    (coll : Type)
+    (idx : Type)
+    (item : outParam Type)
+    (inBounds : outParam (coll → idx → Prop)) where
+  getElem : (c : coll) → (i : idx) → inBounds c i → item
+```
 
 In the case of `NonEmptyList α`, these parameters are:
 
@@ -217,8 +244,10 @@ In fact, the `GetElem` instance can delegate directly to `NonEmptyList.get`:
 
 실제로 `GetElem` instance는 `NonEmptyList.get`으로 직접 위임할 수 있습니다:
 
-`instance : GetElem (NonEmptyList α) Nat α NonEmptyList.inBounds where
-getElem := NonEmptyList.get`
+```lean
+instance : GetElem (NonEmptyList α) Nat α NonEmptyList.inBounds where
+  getElem := NonEmptyList.get
+```
 
 With this instance, `NonEmptyList` becomes just as convenient to use as `List`.
 Evaluating `idahoSpiders.head` yields `"Banded Garden Spider"`, while `idahoSpiders[9]` leads to the compile-time error:
@@ -243,9 +272,11 @@ Collection type과 index type이 모두 `GetElem` type class의 input parameter�
 Positive number type인 `Pos`는 `List`의 완전히 합리적인 index이며, 첫 번째 항목을 가리킬 수 없다는 주의사항이 있습니다.
 다음의 `GetElem` instance는 `Pos`를 `Nat`만큼 편리하게 사용하여 list 항목을 찾을 수 있게 합니다:
 
-`instance : GetElem (List α) Pos α
-(fun list n => list.length > n.toNat) where
-getElem (xs : List α) (i : Pos) ok := xs[i.toNat]`
+```lean
+instance : GetElem (List α) Pos α
+    (fun list n => list.length > n.toNat) where
+  getElem (xs : List α) (i : Pos) ok := xs[i.toNat]
+```
 
 Indexing can also make sense for non-numeric indices.
 For example, `Bool` can be used to select between the fields in a point, with `false` corresponding to `x` and `true` corresponding to `y`:
@@ -253,9 +284,11 @@ For example, `Bool` can be used to select between the fields in a point, with `f
 Indexing은 non-numeric index에 대해서도 의미를 가질 수 있습니다.
 예를 들어, `Bool`을 point의 field 사이를 선택하는 데 사용할 수 있으며, `false`는 `x`에, `true`는 `y`에 해당합니다:
 
-`instance : GetElem (PPoint α) Bool α (fun _ _ => True) where
-getElem (p : PPoint α) (i : Bool) _ :=
-if not i then p.x else p.y`
+```lean
+instance : GetElem (PPoint α) Bool α (fun _ _ => True) where
+  getElem (p : PPoint α) (i : Bool) _ :=
+    if not i then p.x else p.y
+```
 
 In this case, both Booleans are valid indices.
 Because every possible `Bool` is in bounds, the evidence is simply the true proposition `True`.

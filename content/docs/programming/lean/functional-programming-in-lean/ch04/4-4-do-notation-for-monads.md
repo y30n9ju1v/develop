@@ -1,10 +1,10 @@
 ---
-title: "do -Notation for Monads"
+title: "Monad를 위한 do 표기법"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "do -Notation for Monads"
+description: "명령형처럼 보이는 do 표기법이 어떻게 Monad 연산으로 변환되는지"
 ---
 
 # 4.4. `do`-Notation for Monads
@@ -25,90 +25,112 @@ In this case, the `do` is removed, so
 
 `do` 번역의 첫 번째는 `do`의 유일한 명령문이 단일 표현식 `E`일 때 사용됩니다. 이 경우 `do`가 제거되므로:
 
-`do E`
+```lean
+do E
+```
 
 translates to
 
-번역.
+번역:
+
+```lean
+E
+```
 
 The second translation is used when the first statement of the `do` is a `let` with an arrow, binding a local variable.
 This translates to a use of `>>=` together with a function that binds that very same variable, so
 
 두 번째 번역은 `do`의 첫 번째 명령문이 화살표가 있는 `let`일 때 사용되며, 로컬 변수를 바인딩합니다. 이는 동일한 변수를 바인딩하는 함수와 함께 `>>=`의 사용으로 변환되므로:
 
-`do let x ← E₁
-Stmt
-…
-Eₙ`
+```lean
+do let x ← E₁
+   Stmt
+   …
+   Eₙ
+```
 
 translates to
 
 번역:
 
-`E₁ >>= fun x =>
-do Stmt
-…
-Eₙ`
+```lean
+E₁ >>= fun x =>
+  do Stmt
+     …
+     Eₙ
+```
 
 When the first statement of the `do` block is an expression, then it is considered to be a monadic action that returns `Unit`, so the function matches the `Unit` constructor and
 
 `do` 블록의 첫 번째 명령문이 표현식일 때, 이는 `Unit`을 반환하는 Monadic 액션으로 간주되므로 함수는 `Unit` 생성자와 일치합니다:
 
-`do E₁
-Stmt
-…
-Eₙ`
+```lean
+do E₁
+   Stmt
+   …
+   Eₙ
+```
 
 translates to
 
 번역:
 
-`E₁ >>= fun () =>
-do Stmt
-…
-Eₙ`
+```lean
+E₁ >>= fun () =>
+  do Stmt
+     …
+     Eₙ
+```
 
 Finally, when the first statement of the `do` block is a `let` that uses `:=`, the translated form is an ordinary let expression, so
 
 마지막으로 `do` 블록의 첫 번째 명령문이 `:=`를 사용하는 `let`일 때, 변환된 형식은 일반적인 let 표현식이므로:
 
-`do let x := E₁
-Stmt
-…
-Eₙ`
+```lean
+do let x := E₁
+   Stmt
+   …
+   Eₙ
+```
 
 translates to
 
 번역:
 
-`let x := E₁
+```lean
+let x := E₁
 do Stmt
-…
-Eₙ`
+   …
+   Eₙ
+```
 
 The definition of `firstThirdFifthSeventh` that uses the `Monad` class looks like this:
 
 `Monad` 클래스를 사용하는 `firstThirdFifthSeventh`의 정의는 다음과 같습니다:
 
-`def firstThirdFifthSeventh [Monad m] (lookup : List α → Nat → m α)
-(xs : List α) : m (α × α × α × α) :=
-lookup xs 0 >>= fun first =>
-lookup xs 2 >>= fun third =>
-lookup xs 4 >>= fun fifth =>
-lookup xs 6 >>= fun seventh =>
-pure (first, third, fifth, seventh)`
+```lean
+def firstThirdFifthSeventh [Monad m] (lookup : List α → Nat → m α)
+    (xs : List α) : m (α × α × α × α) :=
+  lookup xs 0 >>= fun first =>
+  lookup xs 2 >>= fun third =>
+  lookup xs 4 >>= fun fifth =>
+  lookup xs 6 >>= fun seventh =>
+  pure (first, third, fifth, seventh)
+```
 
 Using `do`-notation, it becomes significantly more readable:
 
 `do`-표기법을 사용하면 훨씬 더 읽기 쉬워집니다:
 
-`def firstThirdFifthSeventh [Monad m] (lookup : List α → Nat → m α)
-(xs : List α) : m (α × α × α × α) := do
-let first ← lookup xs 0
-let third ← lookup xs 2
-let fifth ← lookup xs 4
-let seventh ← lookup xs 6
-pure (first, third, fifth, seventh)`
+```lean
+def firstThirdFifthSeventh [Monad m] (lookup : List α → Nat → m α)
+    (xs : List α) : m (α × α × α × α) := do
+  let first ← lookup xs 0
+  let third ← lookup xs 2
+  let fifth ← lookup xs 4
+  let seventh ← lookup xs 6
+  pure (first, third, fifth, seventh)
+```
 
 All of the conveniences from `do` with `IO` are also available when using it with other monads.
 For example, nested actions also work in any monad.
@@ -116,51 +138,60 @@ The original definition of `mapM` was:
 
 `IO`를 사용한 `do`의 모든 편의성은 다른 Monad와 함께 사용할 때도 사용할 수 있습니다. 예를 들어, 중첩된 액션은 모든 Monad에서도 작동합니다. `mapM`의 원래 정의는:
 
-`def mapM [Monad m] (f : α → m β) : List α → m (List β)
-| [] => pure []
-| x :: xs =>
-f x >>= fun hd =>
-mapM f xs >>= fun tl =>
-pure (hd :: tl)`
+```lean
+def mapM [Monad m] (f : α → m β) : List α → m (List β)
+  | [] => pure []
+  | x :: xs =>
+    f x >>= fun hd =>
+    mapM f xs >>= fun tl =>
+    pure (hd :: tl)
+```
 
 With `do`-notation, it can be written:
 
 `do`-표기법으로 다음과 같이 작성할 수 있습니다:
 
-`def mapM [Monad m] (f : α → m β) : List α → m (List β)
-| [] => pure []
-| x :: xs => do
-let hd ← f x
-let tl ← mapM f xs
-pure (hd :: tl)`
+```lean
+def mapM [Monad m] (f : α → m β) : List α → m (List β)
+  | [] => pure []
+  | x :: xs => do
+    let hd ← f x
+    let tl ← mapM f xs
+    pure (hd :: tl)
+```
 
 Using nested actions makes it almost as short as the original non-monadic `map`:
 
 중첩된 액션을 사용하면 원래의 non-monadic `map`만큼 짧아집니다:
 
-`def mapM [Monad m] (f : α → m β) : List α → m (List β)
-| [] => pure []
-| x :: xs => do
-pure ((← f x) :: (← mapM f xs))`
+```lean
+def mapM [Monad m] (f : α → m β) : List α → m (List β)
+  | [] => pure []
+  | x :: xs => do
+    pure ((← f x) :: (← mapM f xs))
+```
 
 Using nested actions, `number` can be made much more concise:
 
 중첩된 액션을 사용하면 `number`를 훨씬 더 간결하게 만들 수 있습니다:
 
-`def increment : State Nat Nat := do
-let n ← get
-set (n + 1)
-pure n
+```lean
+def increment : State Nat Nat := do
+  let n ← get
+  set (n + 1)
+  pure n
+
 def number (t : BinTree α) : BinTree (Nat × α) :=
-let rec helper : BinTree α → State Nat (BinTree (Nat × α))
-| BinTree.leaf => pure BinTree.leaf
-| BinTree.branch left x right => do
-pure
-(BinTree.branch
-(← helper left)
-((← increment), x)
-(← helper right))
-(helper t 0).snd`
+  let rec helper : BinTree α → State Nat (BinTree (Nat × α))
+    | BinTree.leaf => pure BinTree.leaf
+    | BinTree.branch left x right => do
+      pure
+        (BinTree.branch
+          (← helper left)
+          ((← increment), x)
+          (← helper right))
+  (helper t 0).snd
+```
 
 ## 4.4.1. Exercises
 

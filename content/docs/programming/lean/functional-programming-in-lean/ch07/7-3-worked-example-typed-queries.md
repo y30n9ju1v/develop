@@ -1,10 +1,10 @@
 ---
-title: "Worked Example: Typed Queries"
+title: "예제로 배우기: 타입이 있는 쿼리 (Worked Example: Typed Queries)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Worked Example: Typed Queries"
+description: "예제로 배우기: 타입이 있는 쿼리 (Worked Example: Typed Queries)"
 ---
 
 # Worked Example: Typed Queries
@@ -29,17 +29,21 @@ However, it is large enough to demonstrate useful principles and techniques.
 
 In this relational algebra, the base data that can be held in columns can have types `Int`, `String`, and `Bool` and are described by the universe `DBType`:
 
-`inductive DBType where
+```lean
+inductive DBType where
 | int | string | bool
 abbrev DBType.asType : DBType → Type
 | .int => Int
 | .string => String
-| .bool => Bool`
+| .bool => Bool
+```
 
 Using `DBType.asType` allows these codes to be used for types.
 For example:
 
-`"Mount Hood"#eval ("Mount Hood" : DBType.string.asType)`
+```lean
+#eval ("Mount Hood" : DBType.string.asType)
+```
 
 ```
 "Mount Hood"
@@ -52,11 +56,10 @@ Explaining this to Lean, however, requires a bit of work.
 하지만 이를 Lean에 설명하려면 약간의 작업이 필요합니다.
 Simply using `BEq` directly fails:
 
-`` def DBType.beq (t : DBType) (x y : t.asType) : Bool :=
-failed to synthesize
-BEq t.asType
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.x == y ``
+```lean
+def DBType.beq (t : DBType) (x y : t.asType) : Bool :=
+  x == y
+```
 
 ```
 failed to synthesize
@@ -71,28 +74,34 @@ The solution is to use pattern matching to refine the types of `x` and `y`:
 nested pairs universe에서처럼, type class search는 `t`의 값에 대한 각 가능성을 자동으로 확인하지 않습니다.
 해결 방법은 pattern matching을 사용하여 `x`와 `y`의 type을 refine하는 것입니다.
 
-`def DBType.beq (t : DBType) (x y : t.asType) : Bool :=
-match t with
-| .int => x == y
-| .string => x == y
-| .bool => x == y`
+```lean
+def DBType.beq (t : DBType) (x y : t.asType) : Bool :=
+  match t with
+  | .int => x == y
+  | .string => x == y
+  | .bool => x == y
+```
 
 In this version of the function, `x` and `y` have types `Int`, `String`, and `Bool` in the three respective cases, and these types all have `BEq` instances.
 
 이 버전의 함수에서 `x`와 `y`는 세 가지 각각의 경우에 `Int`, `String`, `Bool` type을 가지며, 이 type들 모두는 `BEq` instance를 가집니다.
 The definition of `DBType.beq` can be used to define a `BEq` instance for the types that are coded for by `DBType`:
 
-`instance {t : DBType} : BEq t.asType where
-beq := t.beq`
+```lean
+instance {t : DBType} : BEq t.asType where
+  beq := t.beq
+```
 
 This is not the same as an instance for the codes:
 
-`instance : BEq DBType where
-beq
-| .int, .int => true
-| .string, .string => true
-| .bool, .bool => true
-| _, _ => false`
+```lean
+instance : BEq DBType where
+  beq
+    | .int, .int => true
+    | .string, .string => true
+    | .bool, .bool => true
+    | _, _ => false
+```
 
 The former instance allows comparison of values drawn from the types described by the codes, while the latter allows comparison of the codes themselves.
 
@@ -106,12 +115,14 @@ Refining the type through dependent pattern matching allows the `reprPrec` metho
 `Repr` class의 method는 `reprPrec`이라고 불리는데, 이는 값을 표시할 때 operator precedence와 같은 것들을 고려하도록 설계되었기 때문입니다.
 dependent pattern matching을 통해 type을 refine하면 `Int`, `String`, `Bool`에 대한 `Repr` instance의 `reprPrec` method를 사용할 수 있습니다.
 
-`instance {t : DBType} : Repr t.asType where
-reprPrec :=
-match t with
-| .int => reprPrec
-| .string => reprPrec
-| .bool => reprPrec`
+```lean
+instance {t : DBType} : Repr t.asType where
+  reprPrec :=
+    match t with
+    | .int => reprPrec
+    | .string => reprPrec
+    | .bool => reprPrec
+```
 
 ## 7.3.2. Schemas and Tables
 
@@ -119,10 +130,12 @@ A schema describes the name and type of each column in a database:
 
 Schema는 데이터베이스의 각 column의 name과 type을 설명합니다.
 
-`structure Column where
-name : String
-contains : DBType
-abbrev Schema := List Column`
+```lean
+structure Column where
+  name : String
+  contains : DBType
+abbrev Schema := List Column
+```
 
 In fact, a schema can be seen as a universe that describes rows in a table.
 The empty schema describes the unit type, a schema with a single column describes that value on its own, and a schema with at least two columns is represented by a tuple:
@@ -130,10 +143,12 @@ The empty schema describes the unit type, a schema with a single column describe
 실제로, schema는 table의 row를 설명하는 universe로 볼 수 있습니다.
 빈 schema는 unit type을 설명하고, 단일 column을 가진 schema는 해당 값 자체를 설명하며, 최소한 두 개의 column을 가진 schema는 tuple로 표현됩니다.
 
-`abbrev Row : Schema → Type
-| [] => Unit
-| [col] => col.contains.asType
-| col1 :: col2 :: cols => col1.contains.asType × Row (col2::cols)`
+```lean
+abbrev Row : Schema → Type
+  | [] => Unit
+  | [col] => col.contains.asType
+  | col1 :: col2 :: cols => col1.contains.asType × Row (col2::cols)
+```
 
 As described in [the initial section on product types](../ch01/), Lean's product type and tuples are right-associative.
 This means that nested pairs are equivalent to ordinary flat tuples.
@@ -145,42 +160,54 @@ A table is a list of rows that share a schema:
 
 Table은 schema를 공유하는 row들의 list입니다.
 
-`abbrev Table (s : Schema) := List (Row s)`
+```lean
+abbrev Table (s : Schema) := List (Row s)
+```
 
 For example, a diary of visits to mountain peaks can be represented with the schema `peak`:
 
 예를 들어, 산봉우리 방문 일기는 schema `peak`로 표현할 수 있습니다.
 
-`abbrev peak : Schema := [
-⟨"name", .string⟩,
-⟨"location", .string⟩,
-⟨"elevation", .int⟩,
-⟨"lastVisited", .int⟩
-]`
+```lean
+abbrev peak : Schema := [
+  ⟨"name", .string⟩,
+  ⟨"location", .string⟩,
+  ⟨"elevation", .int⟩,
+  ⟨"lastVisited", .int⟩
+]
+```
 
 A selection of peaks visited by the author of this book appears as an ordinary list of tuples:
 
 이 책의 저자가 방문한 산봉우리들의 선택은 ordinary list of tuple로 나타납니다.
 
-`def mountainDiary : Table peak := [
-("Mount Nebo", "USA", 3637, 2013),
-("Moscow Mountain", "USA", 1519, 2015),
-("Himmelbjerget", "Denmark", 147, 2004),
-("Mount St. Helens", "USA", 2549, 2010)
-]`
+```lean
+def mountainDiary : Table peak := [
+  ("Mount Nebo", "USA", 3637, 2013),
+  ("Moscow Mountain", "USA", 1519, 2015),
+  ("Himmelbjerget", "Denmark", 147, 2004),
+  ("Mount St. Helens", "USA", 2549, 2010)
+]
+```
 
 Another example consists of waterfalls and a diary of visits to them:
 
 또 다른 예는 폭포와 그곳 방문 일기로 구성됩니다.
 
-`abbrev waterfall : Schema := [
-⟨"name", .string⟩,
-⟨"location", .string⟩,
-⟨"lastVisited", .int⟩
-]``def waterfallDiary : Table waterfall := [
-("Multnomah Falls", "USA", 2018),
-("Shoshone Falls", "USA", 2014)
-]`
+```lean
+abbrev waterfall : Schema := [
+  ⟨"name", .string⟩,
+  ⟨"location", .string⟩,
+  ⟨"lastVisited", .int⟩
+]
+```
+
+```lean
+def waterfallDiary : Table waterfall := [
+  ("Multnomah Falls", "USA", 2018),
+  ("Shoshone Falls", "USA", 2014)
+]
+```
 
 ### 7.3.2.1. Recursion and Universes, Revisited
 
@@ -190,18 +217,15 @@ row를 tuple로 편리하게 구조화하는 것에는 대가가 따릅니다. `
 One example of a case where this matters is an equality check that uses recursion over the schema to define a function that checks rows for equality.
 This example does not pass Lean's type checker:
 
-`def Row.bEq (r1 r2 : Row s) : Bool :=
-match s with
-| [] => true
-| col::cols =>
-match r1, r2 with
-| Type mismatch
-(v1, r1')
-has type
-?m.10 × ?m.11
-but is expected to have type
-Row (col :: cols)(v1, r1'), (v2, r2') =>
-v1 == v2 && bEq r1' r2'`
+```lean
+def Row.bEq (r1 r2 : Row s) : Bool :=
+  match s with
+  | [] => true
+  | col::cols =>
+    match r1, r2 with
+    | (v1, r1'), (v2, r2') =>
+      v1 == v2 && bEq r1' r2'
+```
 
 ```
 Type mismatch
@@ -219,16 +243,19 @@ This is because Lean cannot yet tell whether the singleton pattern `[col]` or th
 이는 Lean이 `Row`의 정의에서 singleton pattern `[col]`인지 아니면 `col1 :: col2 :: cols` pattern인지 아직 구분할 수 없기 때문에, `Row`에 대한 호출이 pair type으로 계산되지 않습니다.
 The solution is to mirror the structure of `Row` in the definition of `Row.bEq`:
 
-`def Row.bEq (r1 r2 : Row s) : Bool :=
-match s with
-| [] => true
-| [_] => r1 == r2
-| _::_::_ =>
-match r1, r2 with
-| (v1, r1'), (v2, r2') =>
-v1 == v2 && bEq r1' r2'
+```lean
+def Row.bEq (r1 r2 : Row s) : Bool :=
+  match s with
+  | [] => true
+  | [_] => r1 == r2
+  | _::_::_ =>
+    match r1, r2 with
+    | (v1, r1'), (v2, r2') =>
+      v1 == v2 && bEq r1' r2'
+
 instance : BEq (Row s) where
-beq := Row.bEq`
+  beq := Row.bEq
+```
 
 Unlike in other contexts, functions that occur in types cannot be considered only in terms of their input/output behavior.
 Programs that use these types will find themselves forced to mirror the algorithm used in the type-level function so that their structure matches the pattern-matching and recursive behavior of the type.
@@ -256,9 +283,11 @@ column이 schema에 존재할 수 있는 두 가지 방법이 있습니다. sche
 
 The indexed family `HasCol` is a translation of the specification into Lean code:
 
-`inductive HasCol : Schema → String → DBType → Type where
-| here : HasCol (⟨name, t⟩ :: _) name t
-| there : HasCol s name t → HasCol (_ :: s) name t`
+```lean
+inductive HasCol : Schema → String → DBType → Type where
+  | here : HasCol (⟨name, t⟩ :: _) name t
+  | there : HasCol s name t → HasCol (_ :: s) name t
+```
 
 The family's three arguments are the schema, the column name, and its type.
 All three are indices, but re-ordering the arguments to place the schema after the column name and type would allow the name and type to be parameters.
@@ -282,11 +311,13 @@ A pointer to a particular column in a schema can be used to extract that column'
 
 schema의 특정 column에 대한 pointer는 row에서 해당 column의 값을 추출하는 데 사용할 수 있습니다.
 
-`def Row.get (row : Row s) (col : HasCol s n t) : t.asType :=
-match s, col, row with
-| [_], .here, v => v
-| _::_::_, .here, (v, _) => v
-| _::_::_, .there next, (_, r) => get r next`
+```lean
+def Row.get (row : Row s) (col : HasCol s n t) : t.asType :=
+  match s, col, row with
+  | [_], .here, v => v
+  | _::_::_, .here, (v, _) => v
+  | _::_::_, .there next, (_, r) => get r next
+```
 
 The first step is to pattern match on the schema, because this determines whether the row is a tuple or a single value.
 No case is needed for the empty schema because there is a `HasCol` available, and both constructors of `HasCol` specify non-empty schemas.
@@ -346,12 +377,14 @@ This is represented by the constructor `cons`.
 더 작은 schema가 column을 가지고 있다면, 그 column은 더 큰 schema에 있어야 하고, subschema의 나머지 모든 column도 더 큰 schema의 subschema여야 합니다.
 이는 constructor `cons`로 표현됩니다.
 
-`inductive Subschema : Schema → Schema → Type where
-| nil : Subschema [] bigger
-| cons :
-HasCol bigger n t →
-Subschema smaller bigger →
-Subschema (⟨n, t⟩ :: smaller) bigger`
+```lean
+inductive Subschema : Schema → Schema → Type where
+  | nil : Subschema [] bigger
+  | cons :
+    HasCol bigger n t →
+    Subschema smaller bigger →
+    Subschema (⟨n, t⟩ :: smaller) bigger
+```
 
 In other words, `Subschema` assigns each column of the smaller schema a `HasCol` that points to its location in the larger schema.
 
@@ -361,17 +394,21 @@ The schema `travelDiary` represents the fields that are common to both `peak` an
 
 schema `travelDiary`는 `peak`과 `waterfall` 모두에 공통인 field를 나타냅니다.
 
-`abbrev travelDiary : Schema :=
-[⟨"name", .string⟩, ⟨"location", .string⟩, ⟨"lastVisited", .int⟩]`
+```lean
+abbrev travelDiary : Schema :=
+  [⟨"name", .string⟩, ⟨"location", .string⟩, ⟨"lastVisited", .int⟩]
+```
 
 It is certainly a subschema of `peak`, as shown by this example:
 
 그것은 확실히 `peak`의 subschema입니다. 이 예제에서 보여지듯이:
 
-`example : Subschema travelDiary peak :=
-.cons .here
-(.cons (.there .here)
-(.cons (.there (.there (.there .here))) .nil))`
+```lean
+example : Subschema travelDiary peak :=
+  .cons .here
+  (.cons (.there .here)
+  (.cons (.there (.there (.there .here))) .nil))
+```
 
 However, code like this is difficult to read and difficult to maintain.
 One way to improve it is to instruct Lean to write the `Subschema` and `HasCol` constructors automatically.
@@ -390,14 +427,23 @@ In this context, two tactics are useful:
 
 In the next example, `by constructor` has the same effect as just writing `.nil` would have:
 
-`example : Subschema [] peak := by⊢ Subschema [] peak constructorAll goals completed! 🐙`
+```lean
+example : Subschema [] peak := by
+  constructor
+```
+
+```
+⊢ Subschema [] peak
+constructor
+All goals completed! 🐙
+```
 
 However, attempting that same tactic with a slightly more complicated type fails:
 
-`example : Subschema [⟨"location", .string⟩] peak := unsolved goals
-a⊢ HasCol peak "location" DBType.string
-
-a⊢ Subschema [] peakby⊢ Subschema [{ name := "location", contains := DBType.string }] peak constructora⊢ HasCol peak "location" DBType.stringa⊢ Subschema [] peak`
+```lean
+example : Subschema [⟨"location", .string⟩] peak := by
+  constructor
+```
 
 ```
 unsolved goals
@@ -416,18 +462,11 @@ Lean의 tactic language에서, *goal*은 tactic이 뒤에서 적절한 expressio
 이 경우, `constructor`는 `Subschema.cons`를 적용하게 했고, 두 개의 goal은 `cons`에 의해 예상되는 두 개의 인자를 나타냅니다.
 `constructor`의 또 다른 instance를 추가하면 첫 번째 goal (`HasCol peak "location" DBType.string`)이 `HasCol.there`로 처리되게 하는데, 이는 `peak`의 첫 번째 column이 `"location"`이 아니기 때문입니다.
 
-`example : Subschema [⟨"location", .string⟩] peak := unsolved goals
-a.a⊢ HasCol
-[{ name := "location", contains := DBType.string }, { name := "elevation", contains := DBType.int },
-{ name := "lastVisited", contains := DBType.int }]
-"location" DBType.string
-
-a⊢ Subschema [] peakby⊢ Subschema [{ name := "location", contains := DBType.string }] peak
-constructora⊢ HasCol peak "location" DBType.stringa⊢ Subschema [] peak
-constructora.a⊢ HasCol
-[{ name := "location", contains := DBType.string }, { name := "elevation", contains := DBType.int },
-{ name := "lastVisited", contains := DBType.int }]
-"location" DBType.stringa⊢ Subschema [] peak`
+```lean
+example : Subschema [⟨"location", .string⟩] peak := by
+  constructor
+  constructor
+```
 
 ```
 unsolved goals
@@ -441,14 +480,12 @@ a⊢ Subschema [] peak
 
 However, adding a third `constructor` results in the first goal being solved, because `HasCol.here` is applicable:
 
-`example : Subschema [⟨"location", .string⟩] peak := unsolved goals
-a⊢ Subschema [] peakby⊢ Subschema [{ name := "location", contains := DBType.string }] peak
-constructora⊢ HasCol peak "location" DBType.stringa⊢ Subschema [] peak
-constructora.a⊢ HasCol
-[{ name := "location", contains := DBType.string }, { name := "elevation", contains := DBType.int },
-{ name := "lastVisited", contains := DBType.int }]
-"location" DBType.stringa⊢ Subschema [] peak
-constructora⊢ Subschema [] peak`
+```lean
+example : Subschema [⟨"location", .string⟩] peak := by
+  constructor
+  constructor
+  constructor
+```
 
 ```
 unsolved goals
@@ -457,28 +494,49 @@ a⊢ Subschema [] peak
 
 A fourth instance of `constructor` solves the `Subschema peak []` goal:
 
-`example : Subschema [⟨"location", .string⟩] peak := by⊢ Subschema [{ name := "location", contains := DBType.string }] peak
-constructora⊢ HasCol peak "location" DBType.stringa⊢ Subschema [] peak
-constructora.a⊢ HasCol
-[{ name := "location", contains := DBType.string }, { name := "elevation", contains := DBType.int },
-{ name := "lastVisited", contains := DBType.int }]
-"location" DBType.stringa⊢ Subschema [] peak
-constructora⊢ Subschema [] peak
-constructorAll goals completed! 🐙`
+```lean
+example : Subschema [⟨"location", .string⟩] peak := by
+  constructor
+  constructor
+  constructor
+  constructor
+```
+
+```
+All goals completed! 🐙
+```
 
 Indeed, a version written without the use of tactics has four constructors:
 
-`example : Subschema [⟨"location", .string⟩] peak :=
-.cons (.there .here) .nil`
+```lean
+example : Subschema [⟨"location", .string⟩] peak :=
+  .cons (.there .here) .nil
+```
 
 Instead of experimenting to find the right number of times to write `constructor`, the `repeat` tactic can be used to ask Lean to just keep trying `constructor` as long as it keeps making progress:
 
-`example : Subschema [⟨"location", .string⟩] peak := by⊢ Subschema [{ name := "location", contains := DBType.string }] peak repeat constructorAll goals completed! 🐙`
+```lean
+example : Subschema [⟨"location", .string⟩] peak := by
+  repeat constructor
+```
+
+```
+All goals completed! 🐙
+```
 
 This more flexible version also works for more interesting `Subschema` problems:
 
-`example : Subschema travelDiary peak := by⊢ Subschema travelDiary peak repeat constructorAll goals completed! 🐙
-example : Subschema travelDiary waterfall := by⊢ Subschema travelDiary waterfall repeat constructorAll goals completed! 🐙`
+```lean
+example : Subschema travelDiary peak := by
+  repeat constructor
+
+example : Subschema travelDiary waterfall := by
+  repeat constructor
+```
+
+```
+All goals completed! 🐙
+```
 
 The approach of blindly trying constructors until something works is not very useful for types like `Nat` or `List Bool`.
 Just because an expression has type `Nat` doesn't mean that it's the *correct* `Nat`, after all.
@@ -496,11 +554,13 @@ This fact can be captured as a function definition.
 이 사실은 function definition으로 캡처될 수 있습니다.
 `Subschema.addColumn`은 `smaller`이 `bigger`의 subschema임을 나타내는 evidence를 받고, `smaller`이 `c :: bigger` 즉, 추가 column이 있는 `bigger`의 subschema임을 나타내는 evidence를 반환합니다.
 
-`def Subschema.addColumn :
-Subschema smaller bigger →
-Subschema smaller (c :: bigger)
-| .nil => .nil
-| .cons col sub' => .cons (.there col) sub'.addColumn`
+```lean
+def Subschema.addColumn :
+    Subschema smaller bigger →
+    Subschema smaller (c :: bigger)
+  | .nil => .nil
+  | .cons col sub' => .cons (.there col) sub'.addColumn
+```
 
 A subschema describes where to find each column from the smaller schema in the larger schema.
 `Subschema.addColumn` must translate these descriptions from the original larger schema into the extended larger schema.
@@ -518,9 +578,11 @@ This relation is reflexive, meaning that every schema is a subschema of itself:
 `Subschema`를 생각하는 또 다른 방법은 두 schema 사이의 *relation*을 정의한다는 것입니다. `Subschema smaller bigger` type을 가진 expression의 존재는 `(smaller, bigger)`이 relation에 있다는 것을 의미합니다.
 이 relation은 reflexive이며, 즉, 모든 schema가 자신의 subschema임입니다.
 
-`def Subschema.reflexive : (s : Schema) → Subschema s s
-| [] => .nil
-| _ :: cs => .cons .here (reflexive cs).addColumn`
+```lean
+def Subschema.reflexive : (s : Schema) → Subschema s s
+  | [] => .nil
+  | _ :: cs => .cons .here (reflexive cs).addColumn
+```
 
 ### 7.3.2.4. Projecting Rows
 
@@ -538,10 +600,12 @@ It uses `Row.get` together with each `HasCol` in the `Subschema` argument to con
 이 projection을 수행하는 function `Row.project`는 `Row` 자체의 각 경우에 대해 하나씩 세 가지 case를 가집니다.
 이는 projected row를 구성하기 위해 `Row.get`을 `Subschema` 인자의 각 `HasCol`과 함께 사용합니다.
 
-`def Row.project (row : Row s) : (s' : Schema) → Subschema s' s → Row s'
-| [], .nil => ()
-| [_], .cons c .nil => row.get c
-| _::_::_, .cons c cs => (row.get c, row.project _ cs)`
+```lean
+def Row.project (row : Row s) : (s' : Schema) → Subschema s' s → Row s'
+  | [], .nil => ()
+  | [_], .cons c .nil => row.get c
+  | _::_::_, .cons c cs => (row.get c, row.project _ cs)
+```
 
 ## 7.3.3. Conditions and Selection
 
@@ -563,12 +627,14 @@ Expression은 indexed family `DBExpr`로 표현됩니다.
 expression은 데이터베이스의 column을 참조할 수 있지만, 서로 다른 sub-expression은 모두 동일한 schema를 가지기 때문에, `DBExpr`은 database schema를 parameter로 취합니다.
 또한, 각 expression은 type을 가지고 있으며, 이들이 다르므로 index가 됩니다.
 
-`inductive DBExpr (s : Schema) : DBType → Type where
-| col (n : String) (loc : HasCol s n t) : DBExpr s t
-| eq (e1 e2 : DBExpr s t) : DBExpr s .bool
-| lt (e1 e2 : DBExpr s .int) : DBExpr s .bool
-| and (e1 e2 : DBExpr s .bool) : DBExpr s .bool
-| const : t.asType → DBExpr s t`
+```lean
+inductive DBExpr (s : Schema) : DBType → Type where
+  | col (n : String) (loc : HasCol s n t) : DBExpr s t
+  | eq (e1 e2 : DBExpr s t) : DBExpr s .bool
+  | lt (e1 e2 : DBExpr s .int) : DBExpr s .bool
+  | and (e1 e2 : DBExpr s .bool) : DBExpr s .bool
+  | const : t.asType → DBExpr s t
+```
 
 The `col` constructor represents a reference to a column in the database.
 The `eq` constructor compares two expressions for equality, `lt` checks whether one is less than the other, `and` is Boolean conjunction, and `const` is a constant value of some type.
@@ -580,9 +646,11 @@ For example, an expression in `peak` that checks whether the `elevation` column 
 
 예를 들어, `peak`의 `elevation` column이 1000보다 크고 location이 `"Denmark"`인지 확인하는 expression은 다음과 같이 작성할 수 있습니다.
 
-`def tallInDenmark : DBExpr peak .bool :=
-.and (.lt (.const 1000) (.col "elevation" (by⊢ HasCol peak "elevation" DBType.int repeat constructorAll goals completed! 🐙)))
-(.eq (.col "location" (by⊢ HasCol peak "location" ?m.16 repeat constructorAll goals completed! 🐙)) (.const "Denmark"))`
+```lean
+def tallInDenmark : DBExpr peak .bool :=
+  .and (.lt (.const 1000) (.col "elevation" (by repeat constructor)))
+       (.eq (.col "location" (by repeat constructor)) (.const "Denmark"))
+```
 
 This is somewhat noisy.
 In particular, references to columns contain boilerplate calls to `by repeat constructor`.
@@ -592,7 +660,9 @@ A Lean feature called *macros* can help make expressions easier to read by elimi
 특히, column에 대한 참조는 `by repeat constructor`에 대한 boilerplate 호출을 포함합니다.
 *macros*라는 Lean feature는 이 boilerplate을 제거하여 expression을 읽기 쉽게 만드는 데 도움이 될 수 있습니다.
 
-`` macro "c!" n:term : term => `(DBExpr.col $n (by repeat constructor)) ``
+```lean
+macro "c!" n:term : term => `(DBExpr.col $n (by repeat constructor))
+```
 
 This declaration adds the `c!` keyword to Lean, and instructs Lean to replace any instance of `c!` followed by an expression with the corresponding `DBExpr.col` construction.
 Here, `term` stands for Lean expressions, rather than commands, tactics, or some other part of the language.
@@ -606,26 +676,32 @@ Lean macro는 C preprocessor macro와 좀 비슷한데, language에 더 잘 통�
 
 With this macro, the expression can be much easier to read:
 
-`def tallInDenmark : DBExpr peak .bool :=
-.and (.lt (.const 1000) (c! "elevation"))
-(.eq (c! "location") (.const "Denmark"))`
+```lean
+def tallInDenmark : DBExpr peak .bool :=
+  .and (.lt (.const 1000) (c! "elevation"))
+       (.eq (c! "location") (.const "Denmark"))
+```
 
 Finding the value of an expression with respect to a given row uses `Row.get` to extract column references, and it delegates to Lean's operations on values for every other expression:
 
 주어진 row에 대한 expression의 값을 찾는 것은 column 참조를 추출하기 위해 `Row.get`을 사용하고, 다른 모든 expression에 대해 Lean의 operation에 위임합니다.
 
-`def DBExpr.evaluate (row : Row s) : DBExpr s t → t.asType
-| .col _ loc => row.get loc
-| .eq e1 e2 => evaluate row e1 == evaluate row e2
-| .lt e1 e2 => evaluate row e1 < evaluate row e2
-| .and e1 e2 => evaluate row e1 && evaluate row e2
-| .const v => v`
+```lean
+def DBExpr.evaluate (row : Row s) : DBExpr s t → t.asType
+  | .col _ loc => row.get loc
+  | .eq e1 e2 => evaluate row e1 == evaluate row e2
+  | .lt e1 e2 => evaluate row e1 < evaluate row e2
+  | .and e1 e2 => evaluate row e1 && evaluate row e2
+  | .const v => v
+```
 
 Evaluating the expression for Valby Bakke, the tallest hill in the Copenhagen area, yields `false` because Valby Bakke is much less than 1 km over sea level:
 
 Copenhagen 지역의 가장 높은 언덕인 Valby Bakke에 대한 expression을 평가하면 `false`를 생성합니다. Valby Bakke는 해수면 위로 1km보다 훨씬 작기 때문입니다.
 
-`false#eval tallInDenmark.evaluate ("Valby Bakke", "Denmark", 31, 2023)`
+```lean
+#eval tallInDenmark.evaluate ("Valby Bakke", "Denmark", 31, 2023)
+```
 
 ```
 false
@@ -635,7 +711,9 @@ Evaluating it for a fictional mountain of 1230m elevation yields `true`:
 
 1230m elevation을 가진 fictional mountain에 대해 평가하면 `true`를 생성합니다.
 
-`true#eval tallInDenmark.evaluate ("Fictional mountain", "Denmark", 1230, 2023)`
+```lean
+#eval tallInDenmark.evaluate ("Fictional mountain", "Denmark", 1230, 2023)
+```
 
 ```
 true
@@ -645,7 +723,13 @@ Evaluating it for the highest peak in the US state of Idaho yields `false`, as I
 
 미국 Idaho 주의 가장 높은 봉우리에 대해 평가하면 `false`를 생성합니다. Idaho는 Denmark의 일부가 아니기 때문입니다.
 
-`false#eval tallInDenmark.evaluate ("Mount Borah", "USA", 3859, 1996)`
+```lean
+#eval tallInDenmark.evaluate ("Mount Borah", "USA", 3859, 1996)
+```
+
+```
+false
+```
 
 ## 7.3.5. Executing Queries
 
@@ -665,10 +749,12 @@ Because this is a common operation, factoring the pattern matching out into a he
 우선, `Row`의 구조로 인해, row에 단일 column을 추가하려면 결과가 bare value인지 tuple인지를 결정하기 위해 schema에서 pattern matching이 필요합니다.
 이것이 일반적인 operation이므로, pattern matching을 helper로 factor out하는 것이 편합니다.
 
-`def addVal (v : c.contains.asType) (row : Row s) : Row (c :: s) :=
-match s, row with
-| [], () => v
-| c' :: cs, v' => (v, v')`
+```lean
+def addVal (v : c.contains.asType) (row : Row s) : Row (c :: s) :=
+  match s, row with
+  | [], () => v
+  | c' :: cs, v' => (v, v')
+```
 
 Appending two rows is recursive on the structure of both the first schema and the first row, because the structure of the row proceeds in lock-step with the structure of the schema.
 When the first row is empty, appending returns the second row.
@@ -680,19 +766,23 @@ When the first row contains multiple columns, the first column's value is added 
 첫 번째 row가 singleton이면, 값이 두 번째 row에 추가됩니다.
 첫 번째 row가 여러 column을 포함하면, 첫 번째 column의 값이 row의 나머지에 대한 recursion의 결과에 추가됩니다.
 
-`def Row.append (r1 : Row s1) (r2 : Row s2) : Row (s1 ++ s2) :=
-match s1, r1 with
-| [], () => r2
-| [_], v => addVal v r2
-| _::_::_, (v, r') => (v, r'.append r2)`
+```lean
+def Row.append (r1 : Row s1) (r2 : Row s2) : Row (s1 ++ s2) :=
+  match s1, r1 with
+  | [], () => r2
+  | [_], v => addVal v r2
+  | _::_::_, (v, r') => (v, r'.append r2)
+```
 
 `List.flatMap`, found in the standard library, applies a function that itself returns a list to every entry in an input list, returning the result of appending the resulting lists in order:
 
 standard library에서 찾을 수 있는 `List.flatMap`은 자신이 list를 반환하는 function을 input list의 모든 entry에 적용하며, 결과 list를 순서대로 append한 결과를 반환합니다.
 
-`def List.flatMap (f : α → List β) : (xs : List α) → List β
-| [] => []
-| x :: xs => f x ++ xs.flatMap f`
+```lean
+def List.flatMap (f : α → List β) : (xs : List α) → List β
+  | [] => []
+  | x :: xs => f x ++ xs.flatMap f
+```
 
 The type signature suggests that `List.flatMap` could be used to implement a `Monad List` instance.
 Indeed, together with `pure x := [x]`, `List.flatMap` does implement a monad.
@@ -708,21 +798,25 @@ type signature는 `List.flatMap`이 `Monad List` instance를 구현하는 데 �
 이 performance trap으로 인해, 일반적으로 `List`에 대해 `Monad` instance를 정의하는 것은 좋지 않습니다.
 하지만 여기서는, query language는 반환될 결과의 수를 제한하기 위한 operator가 없으므로, 모든 가능성을 결합하는 것이 정확히 원하는 것입니다.
 
-`def Table.cartesianProduct (table1 : Table s1) (table2 : Table s2) :
-Table (s1 ++ s2) :=
-table1.flatMap fun r1 => table2.map r1.append`
+```lean
+def Table.cartesianProduct (table1 : Table s1) (table2 : Table s2) :
+    Table (s1 ++ s2) :=
+  table1.flatMap fun r1 => table2.map r1.append
+```
 
 Just as with `List.product`, a loop with mutation in the identity monad can be used as an alternative implementation technique:
 
 `List.product`와 마찬가지로, identity monad의 mutation을 가진 loop을 alternative implementation technique으로 사용할 수 있습니다.
 
-`def Table.cartesianProduct (table1 : Table s1) (table2 : Table s2) :
-Table (s1 ++ s2) := Id.run do
-let mut out : Table (s1 ++ s2) := []
-for r1 in table1 do
-for r2 in table2 do
-out := (r1.append r2) :: out
-pure out.reverse`
+```lean
+def Table.cartesianProduct (table1 : Table s1) (table2 : Table s2) :
+    Table (s1 ++ s2) := Id.run do
+  let mut out : Table (s1 ++ s2) := []
+  for r1 in table1 do
+    for r2 in table2 do
+      out := (r1.append r2) :: out
+  pure out.reverse
+```
 
 ### 7.3.5.2. Difference
 
@@ -734,11 +828,15 @@ table에서 원하지 않는 row를 제거하는 것은 `List.filter`를 사용�
 함수가 `true`를 반환하는 entry만 포함하는 새로운 list가 반환됩니다.
 예를 들어,
 
-`["Willamette", "Columbia", "Sandy", "Deschutes"].filter (·.length > 8)`
+```lean
+["Willamette", "Columbia", "Sandy", "Deschutes"].filter (·.length > 8)
+```
 
 evaluates to
 
-`["Willamette", "Deschutes"]`
+```
+["Willamette", "Deschutes"]
+```
 
 because `"Columbia"` and `"Sandy"` have lengths less than or equal to `8`.
 Removing the entries of a table can be done using the helper `List.without`:
@@ -746,8 +844,10 @@ Removing the entries of a table can be done using the helper `List.without`:
 `"Columbia"`과 `"Sandy"`는 길이가 `8` 이하이기 때문입니다.
 table의 entry를 제거하는 것은 helper `List.without`을 사용하여 수행할 수 있습니다.
 
-`def List.without [BEq α] (source banned : List α) : List α :=
-source.filter fun r => !(banned.contains r)`
+```lean
+def List.without [BEq α] (source banned : List α) : List α :=
+  source.filter fun r => !(banned.contains r)
+```
 
 This will be used with the `BEq` instance for `Row` when interpreting queries.
 
@@ -759,12 +859,14 @@ Renaming a column in a row is done with a recursive function that traverses the 
 
 row의 column을 rename하는 것은 문제의 column이 발견될 때까지 row를 traverse하는 recursive function으로 수행되며, 이 시점에서 새로운 name을 가진 column은 이전 name을 가진 column과 동일한 값을 얻습니다.
 
-`def Row.rename (c : HasCol s n t) (row : Row s) :
-Row (s.renameColumn c n') :=
-match s, row, c with
-| [_], v, .here => v
-| _::_::_, (v, r), .here => (v, r)
-| _::_::_, (v, r), .there next => addVal v (r.rename next)`
+```lean
+def Row.rename (c : HasCol s n t) (row : Row s) :
+    Row (s.renameColumn c n') :=
+  match s, row, c with
+  | [_], v, .here => v
+  | _::_::_, (v, r), .here => (v, r)
+  | _::_::_, (v, r), .there next => addVal v (r.rename next)
+```
 
 While this function changes the *type* of its argument, the actual return value contains precisely the same data as the original argument.
 From a run-time perspective, `Row.rename` is nothing but a slow identity function.
@@ -784,12 +886,14 @@ Instead of proceeding to a desired column and then returning, `prefixRow` must p
 column name에 prefix를 추가하는 것은 column을 rename하는 것과 매우 유사합니다.
 원하는 column으로 진행한 후 반환하는 대신, `prefixRow`는 모든 column을 처리해야 합니다.
 
-`def prefixRow (row : Row s) :
-Row (s.map fun c => {c with name := n ++ "." ++ c.name}) :=
-match s, row with
-| [], _ => ()
-| [_], v => v
-| _::_::_, (v, r) => (v, prefixRow r)`
+```lean
+def prefixRow (row : Row s) :
+    Row (s.map fun c => {c with name := n ++ "." ++ c.name}) :=
+  match s, row with
+  | [], _ => ()
+  | [_], v => v
+  | _::_::_, (v, r) => (v, prefixRow r)
+```
 
 This can be used with `List.map` in order to add a prefix to all rows in a table.
 Once again, this function only exists to change the type of a value.
@@ -803,15 +907,17 @@ With all of these helpers defined, executing a query requires only a short recur
 
 이 모든 helper가 정의되면, query를 실행하려면 단지 짧은 recursive function이 필요합니다.
 
-`def Query.exec : Query s → Table s
-| .table t => t
-| .union q1 q2 => exec q1 ++ exec q2
-| .diff q1 q2 => exec q1 |>.without (exec q2)
-| .select q e => exec q |>.filter e.evaluate
-| .project q _ sub => exec q |>.map (·.project _ sub)
-| .product q1 q2 _ => exec q1 |>.cartesianProduct (exec q2)
-| .renameColumn q c _ _ => exec q |>.map (·.rename c)
-| .prefixWith _ q => exec q |>.map prefixRow`
+```lean
+def Query.exec : Query s → Table s
+  | .table t => t
+  | .union q1 q2 => exec q1 ++ exec q2
+  | .diff q1 q2 => exec q1 |>.without (exec q2)
+  | .select q e => exec q |>.filter e.evaluate
+  | .project q _ sub => exec q |>.map (·.project _ sub)
+  | .product q1 q2 _ => exec q1 |>.cartesianProduct (exec q2)
+  | .renameColumn q c _ _ => exec q |>.map (·.rename c)
+  | .prefixWith _ q => exec q |>.map prefixRow
+```
 
 Some arguments to the constructors are not used during execution.
 In particular, both the constructor `project` and the function `Row.project` take the smaller schema as explicit arguments, but the type of the *evidence* that this schema is a subschema of the larger schema contains enough information for Lean to fill out the argument automatically.
@@ -845,15 +951,19 @@ A query that finds the heights of all mountain peaks with an elevation greater t
 
 elevation이 500미터 이상인 모든 산봉우리의 높이를 찾는 query는 다음과 같이 작성할 수 있습니다.
 
-`open Query in
+```lean
+open Query in
 def example1 :=
-table mountainDiary |>.select
-(.lt (.const 500) (c! "elevation")) |>.project
-[⟨"elevation", .int⟩] (by⊢ Subschema [{ name := "elevation", contains := DBType.int }] peak repeat constructorAll goals completed! 🐙)`
+  table mountainDiary |>.select
+    (.lt (.const 500) (c! "elevation")) |>.project
+    [⟨"elevation", .int⟩] (by repeat constructor)
+```
 
 Executing it returns the expected list of integers:
 
-`[3637, 1519, 2549]#eval example1.exec`
+```lean
+#eval example1.exec
+```
 
 ```
 [3637, 1519, 2549]
@@ -865,29 +975,24 @@ This can be done by taking the Cartesian product of both tables, selecting only 
 관광 여행을 계획하기 위해, 같은 위치의 모든 산과 폭포 쌍을 일치시키는 것이 관련이 있을 수 있습니다.
 이것은 두 table의 Cartesian product를 취하고, 그들이 같은 row만 선택하며, 그 다음 name을 project out하여 수행할 수 있습니다.
 
-`open Query in
+```lean
+open Query in
 def example2 :=
-let mountain := table mountainDiary |>.prefixWith "mountain"
-let waterfall := table waterfallDiary |>.prefixWith "waterfall"
-mountain.product waterfall (bymountain:Query (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak) := prefixWith "mountain" (table mountainDiary)waterfall:Query (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) _root_.waterfall) := prefixWith "waterfall" (table waterfallDiary)⊢ disjoint
-(List.map Column.name (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak))
-(List.map Column.name
-(List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) _root_.waterfall)) =
-true decideAll goals completed! 🐙)
-|>.select (.eq (c! "mountain.location") (c! "waterfall.location"))
-|>.project [⟨"mountain.name", .string⟩, ⟨"waterfall.name", .string⟩]
-(bymountain:Query (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak) := prefixWith "mountain" (table mountainDiary)waterfall:Query (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) _root_.waterfall) := prefixWith "waterfall" (table waterfallDiary)⊢ Subschema
-[{ name := "mountain.name", contains := DBType.string }, { name := "waterfall.name", contains := DBType.string }]
-(List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak ++
-List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) _root_.waterfall) repeat constructorAll goals completed! 🐙)`
+  let mountain := table mountainDiary |>.prefixWith "mountain"
+  let waterfall := table waterfallDiary |>.prefixWith "waterfall"
+  mountain.product waterfall (by decide)
+    |>.select (.eq (c! "mountain.location") (c! "waterfall.location"))
+    |>.project [⟨"mountain.name", .string⟩, ⟨"waterfall.name", .string⟩]
+      (by repeat constructor)
+```
 
 Because the example data includes only waterfalls in the USA, executing the query returns pairs of mountains and waterfalls in the US:
 
 예제 data가 USA의 폭포만 포함하기 때문에, query를 실행하면 US의 산과 폭포 쌍이 반환됩니다.
 
-`[("Mount Nebo", "Multnomah Falls"), ("Mount Nebo", "Shoshone Falls"), ("Moscow Mountain", "Multnomah Falls"),
-("Moscow Mountain", "Shoshone Falls"), ("Mount St. Helens", "Multnomah Falls"),
-("Mount St. Helens", "Shoshone Falls")]#eval example2.exec`
+```lean
+#eval example2.exec
+```
 
 ```
 [("Mount Nebo", "Multnomah Falls"), ("Mount Nebo", "Shoshone Falls"), ("Moscow Mountain", "Multnomah Falls"),
@@ -903,27 +1008,16 @@ For instance, forgetting the added qualifier in `"mountain.location"` yields a c
 많은 잠재적 오류가 `Query`의 정의에 의해 배제됩니다.
 예를 들어, `"mountain.location"`에서 추가된 qualifier를 잊어버리면 column 참조 `c! "location"`을 강조하는 compile-time error를 생성합니다.
 
-`open Query in
+```lean
+open Query in
 def example2 :=
-let mountains := table mountainDiary |>.prefixWith "mountain"
-let waterfalls := table waterfallDiary |>.prefixWith "waterfall"
-mountains.product waterfalls (unsolved goals
-mountains:Query (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak) := prefixWith "mountain" (table mountainDiary)waterfalls:Query (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) waterfall) := prefixWith "waterfall" (table waterfallDiary)⊢ disjoint ["mountain.name", "mountain.location", "mountain.elevation", "mountain.lastVisited"]
-["waterfall.name", "waterfall.location", "waterfall.lastVisited"] =
-truebymountains:Query (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak) := prefixWith "mountain" (table mountainDiary)waterfalls:Query (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) waterfall) := prefixWith "waterfall" (table waterfallDiary)⊢ disjoint
-(List.map Column.name (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak))
-(List.map Column.name
-(List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) waterfall)) =
-true simpmountains:Query (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak) := prefixWith "mountain" (table mountainDiary)waterfalls:Query (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) waterfall) := prefixWith "waterfall" (table waterfallDiary)⊢ disjoint ["mountain.name", "mountain.location", "mountain.elevation", "mountain.lastVisited"]
-["waterfall.name", "waterfall.location", "waterfall.lastVisited"] =
-true)
-|>.select (.eq (unsolved goals
-a.a.a.a.a.a.amountains:Query (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak) := ⋯waterfalls:Query (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) waterfall) := ⋯⊢ HasCol (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) []) "location" ?m.31c! "location") (c! "waterfall.location"))
-|>.project [⟨"mountain.name", .string⟩, ⟨"waterfall.name", .string⟩]
-(bymountains:Query (List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak) := prefixWith "mountain" (table mountainDiary)waterfalls:Query (List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) waterfall) := prefixWith "waterfall" (table waterfallDiary)⊢ Subschema
-[{ name := "mountain.name", contains := DBType.string }, { name := "waterfall.name", contains := DBType.string }]
-(List.map (fun c => { name := "mountain" ++ "." ++ c.name, contains := c.contains }) peak ++
-List.map (fun c => { name := "waterfall" ++ "." ++ c.name, contains := c.contains }) waterfall) repeat constructorAll goals completed! 🐙)`
+  let mountains := table mountainDiary |>.prefixWith "mountain"
+  let waterfalls := table waterfallDiary |>.prefixWith "waterfall"
+  mountains.product waterfalls (by simp)
+    |>.select (.eq (c! "location") (c! "waterfall.location"))
+    |>.project [⟨"mountain.name", .string⟩, ⟨"waterfall.name", .string⟩]
+      (by repeat constructor)
+```
 
 This is excellent feedback!
 On the other hand, the text of the error message is quite difficult to act on:
@@ -940,23 +1034,16 @@ Similarly, forgetting to add prefixes to the names of the two tables results in 
 
 유사하게, 두 table의 name에 prefix를 추가하는 것을 잊어버리면 `by decide`에서 error가 발생하며, 이는 schema가 실제로 disjoint임을 나타내는 evidence를 제공해야 합니다.
 
-`` open Query in
+```lean
+open Query in
 def example2 :=
-let mountains := table mountainDiary
-let waterfalls := table waterfallDiary
-mountains.product waterfalls (bymountains:Query peak := table mountainDiarywaterfalls:Query waterfall := table waterfallDiary⊢ disjoint (List.map Column.name peak) (List.map Column.name waterfall) = true Tactic `decide` proved that the proposition
-disjoint (List.map Column.name peak) (List.map Column.name waterfall) = true
-is falsedecidemountains:Query peak := table mountainDiarywaterfalls:Query waterfall := table waterfallDiary⊢ disjoint (List.map Column.name peak) (List.map Column.name waterfall) = true)
-|>.select (.eq (unsolved goals
-a.a.a.a.a.a.amountains:Query peak := ⋯waterfalls:Query waterfall := ⋯⊢ HasCol [] "mountain.location" ?m.29c! "mountain.location") (unsolved goals
-a.a.a.a.a.a.amountains:Query peak := ⋯waterfalls:Query waterfall := ⋯⊢ HasCol [] "waterfall.location" ?m.29c! "waterfall.location"))
-|>.project [⟨"mountain.name", .string⟩, ⟨"waterfall.name", .string⟩]
-(unsolved goals
-a.a.a.a.a.a.a.amountains:Query peak := ⋯waterfalls:Query waterfall := ⋯⊢ HasCol [] "mountain.name" DBType.string
-
-amountains:Query peak := ⋯waterfalls:Query waterfall := ⋯⊢ Subschema [{ name := "waterfall.name", contains := DBType.string }] (peak ++ waterfall)bymountains:Query peak := table mountainDiarywaterfalls:Query waterfall := table waterfallDiary⊢ Subschema
-[{ name := "mountain.name", contains := DBType.string }, { name := "waterfall.name", contains := DBType.string }]
-(peak ++ waterfall) repeat constructora.a.a.a.a.a.a.amountains:Query peak := table mountainDiarywaterfalls:Query waterfall := table waterfallDiary⊢ HasCol [] "mountain.name" DBType.stringamountains:Query peak := table mountainDiarywaterfalls:Query waterfall := table waterfallDiary⊢ Subschema [{ name := "waterfall.name", contains := DBType.string }] (peak ++ waterfall)) ``
+  let mountains := table mountainDiary
+  let waterfalls := table waterfallDiary
+  mountains.product waterfalls (by decide)
+    |>.select (.eq (c! "mountain.location") (c! "waterfall.location"))
+    |>.project [⟨"mountain.name", .string⟩, ⟨"waterfall.name", .string⟩]
+      (by repeat constructor)
+```
 
 This error message is more helpful:
 

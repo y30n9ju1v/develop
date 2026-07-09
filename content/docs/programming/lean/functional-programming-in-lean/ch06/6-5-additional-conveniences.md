@@ -1,10 +1,10 @@
 ---
-title: "Additional Conveniences"
+title: "추가 편의 기능"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Additional Conveniences"
+description: "추가 편의 기능"
 ---
 
 # Additional Conveniences
@@ -24,7 +24,9 @@ For example, evaluating:
 
 Pipeline `E₁ |> E₂`는 `E₂ E₁`의 약자입니다. 예를 들어:
 
-`"(some 5)"#eval some 5 |> toString`
+```lean
+#eval some 5 |> toString
+```
 
 results in:
 
@@ -38,11 +40,15 @@ While this change of emphasis can make some programs more convenient to read, pi
 
 With the definition:
 
-`def times3 (n : Nat) : Nat := n * 3`
+```lean
+def times3 (n : Nat) : Nat := n * 3
+```
 
 the following pipeline:
 
-`"It is 15"#eval 5 |> times3 |> toString |> ("It is " ++ ·)`
+```lean
+#eval 5 |> times3 |> toString |> ("It is " ++ ·)
+```
 
 yields:
 
@@ -60,11 +66,23 @@ The prior example could be equivalently written as:
 
 Pipeline은 역으로도 작성될 수 있습니다. 이 경우 데이터 변환의 주제를 먼저 배치하지 않습니다. 그러나 많은 중첩된 괄호가 독자에게 도전이 되는 경우 응용 단계를 명확히 할 수 있습니다. 이전 예는 다음과 같이 동등하게 작성할 수 있습니다:
 
-`"It is 15"#eval ("It is " ++ ·) <| toString <| times3 <| 5`
+```lean
+#eval ("It is " ++ ·) <| toString <| times3 <| 5
+```
+
+```
+"It is 15"
+```
 
 which is short for:
 
-`"It is 15"#eval ("It is " ++ ·) (toString (times3 5))`
+```lean
+#eval ("It is " ++ ·) (toString (times3 5))
+```
+
+```
+"It is 15"
+```
 
 Lean's method dot notation that uses the name of the type before the dot to resolve the namespace of the operator after the dot serves a similar purpose to pipelines.
 Even without the pipeline operator, it is possible to write `[1, 2, 3].reverse` instead of `List.reverse [1, 2, 3]`.
@@ -84,8 +102,10 @@ For example, a program that spams the string `"Spam!"` can use it:
 
 `do` 블록 내에서 `repeat` 키워드는 무한 루프를 소개합니다. 예를 들어 문자열 `"Spam!"`을 스팸하는 프로그램은 이를 사용할 수 있습니다:
 
-`def spam : IO Unit := do
-repeat IO.println "Spam!"`
+```lean
+def spam : IO Unit := do
+  repeat IO.println "Spam!"
+```
 
 A `repeat` loop supports `break` and `continue`, just like `for` loops.
 
@@ -93,23 +113,27 @@ The `dump` function from the [implementation of `feline`](../ch02/) uses a recur
 
 `repeat` 루프는 `for` 루프처럼 `break` 및 `continue`를 지원합니다. [implementation of `feline`](../ch02/)의 `dump` 함수는 재귀 함수를 사용하여 영원히 실행합니다:
 
-`partial def dump (stream : IO.FS.Stream) : IO Unit := do
-let buf ← stream.read bufsize
-if buf.isEmpty then
-pure ()
-else
-let stdout ← IO.getStdout
-stdout.write buf
-dump stream`
+```lean
+partial def dump (stream : IO.FS.Stream) : IO Unit := do
+  let buf ← stream.read bufsize
+  if buf.isEmpty then
+    pure ()
+  else
+    let stdout ← IO.getStdout
+    stdout.write buf
+    dump stream
+```
 
 This function can be greatly shortened using `repeat`:
 
-`def dump (stream : IO.FS.Stream) : IO Unit := do
-let stdout ← IO.getStdout
-repeat do
-let buf ← stream.read bufsize
-if buf.isEmpty then break
-stdout.write buf`
+```lean
+def dump (stream : IO.FS.Stream) : IO Unit := do
+  let stdout ← IO.getStdout
+  repeat do
+    let buf ← stream.read bufsize
+    if buf.isEmpty then break
+    stdout.write buf
+```
 
 Neither `spam` nor `dump` need to be declared as `partial` because they are not themselves infinitely recursive.
 Instead, `repeat` makes use of a type whose `ForM` instance is `partial`.

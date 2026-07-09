@@ -1,10 +1,10 @@
 ---
-title: "Interlude: Tactics, Induction, and Proofs"
+title: "간주곡: 전술, 귀납법, 증명 (Interlude: Tactics, Induction, and Proofs)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Interlude: Tactics, Induction, and Proofs"
+description: "간주곡: 전술, 귀납법, 증명 (Interlude: Tactics, Induction, and Proofs)"
 ---
 
 # Interlude: Tactics, Induction, and Proofs
@@ -64,11 +64,10 @@ Then, use `by induction k` as the body of the definition:
 
 `induction` tactic으로 `plusR_zero_left`를 증명하려면, 그 signature를 먼저 작성하여 시작합니다(`theorem`을 사용합니다. 이것이 실제 증명이기 때문입니다). 그 다음, 정의의 본문으로 `by induction k`를 사용합니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := unsolved goals
-zero⊢ 0 = Nat.plusR 0 0
-
-succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1)byk:Nat⊢ k = Nat.plusR 0 k
-induction kzero⊢ 0 = Nat.plusR 0 0succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1)`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k
+```
 
 The resulting message states that there are two goals:
 
@@ -111,12 +110,12 @@ Adding `with` to the end of the `induction` statement provides a syntax that is 
 
 증명을 작성하는 다음 단계는 두 개의 목표 각각에 차례로 초점을 맞추는 것입니다. `do` 블록에서 `pure ()`를 “아무것도 하지 않음”을 나타내기 위해 사용할 수 있는 것처럼, tactic 언어는 역시 아무것도 하지 않는 `skip` 문을 가지고 있습니다. 이는 Lean의 구문이 tactic을 요구하지만 어떤 것을 사용해야 할지 아직 명확하지 않을 때 사용할 수 있습니다. `induction` 문의 끝에 `with`을 추가하면 패턴 매칭과 유사한 구문을 제공합니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero unsolved goals
-zero⊢ 0 = Nat.plusR 0 0=> skipzero⊢ 0 = Nat.plusR 0 0
-| succ n ih unsolved goals
-succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)=> skipsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => skip
+  | succ n ih => skip
+```
 
 Each of the two `skip` statements has a message associated with it.
 The first shows the base case:
@@ -141,17 +140,17 @@ In the induction step, the inaccessible names with daggers have been replaced wi
 
 귀납 단계에서, dagger가 있는 접근 불가능한 이름들은 `succ` 다음에 제공된 이름(즉, `n`과 `ih`)으로 바뀌었습니다.
 
-The cases after `induction``...``with` are not patterns: they consist of the name of a goal followed by zero or more names.
+The cases after `induction ... with` are not patterns: they consist of the name of a goal followed by zero or more names.
 The names are used for assumptions introduced in the goal; it is an error to provide more names than the goal introduces:
 
-`induction`...`with` 이후의 cases는 패턴이 아닙니다: 목표의 이름 다음에 0개 이상의 이름으로 구성됩니다. 이름들은 목표에서 도입된 가정들을 위해 사용됩니다; 목표가 도입하는 것보다 많은 이름을 제공하는 것은 오류입니다:
+`induction ... with` 이후의 cases는 패턴이 아닙니다: 목표의 이름 다음에 0개 이상의 이름으로 구성됩니다. 이름들은 목표에서 도입된 가정들을 위해 사용됩니다; 목표가 도입하는 것보다 많은 이름을 제공하는 것은 오류입니다:
 
-`` theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero unsolved goals
-zero⊢ 0 = Nat.plusR 0 0=> skipzero⊢ 0 = Nat.plusR 0 0
-Too many variable names provided at alternative `succ`: 5 provided, but 2 expected| succ n ih lots of names unsolved goals
-succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)=> skipsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1) ``
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => skip
+  | succ n ih lots of names => skip
+```
 
 ```
 Too many variable names provided at alternative `succ`: 5 provided, but 2 expected
@@ -159,11 +158,12 @@ Too many variable names provided at alternative `succ`: 5 provided, but 2 expect
 
 Focusing on the base case, the `rfl` tactic works just as well inside of the `induction` tactic as it does in a recursive function:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih unsolved goals
-succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)=> skipsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih => skip
+```
 
 기저 경우에 초점을 맞추면, `rfl` tactic은 `induction` tactic 내에서 재귀 함수 내에서처럼 잘 작동합니다.
 
@@ -173,12 +173,13 @@ The `unfold` tactic replaces a defined name with its definition:
 
 증명의 재귀 함수 버전에서, 타입 annotation은 예상된 타입을 이해하기 더 쉬운 것으로 만들었습니다. tactic 언어에서는 목표를 해결하기 더 쉽도록 변환하는 많은 구체적인 방법들이 있습니다. `unfold` tactic은 정의된 이름을 그 정의로 대체합니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih unsolved goals
-succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 n + 1=>
-unfold Nat.plusRsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 n + 1succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih =>
+    unfold Nat.plusR
+```
 
 Now, the right-hand side of the equality in the goal has become `Nat.plusR 0 n + 1` instead of `Nat.plusR 0 (Nat.succ n)`:
 
@@ -195,13 +196,14 @@ This almost does the right thing in `plusR_zero_left`:
 
 `congrArg`와 같은 함수들이나 `▸`와 같은 연산자들에 의존하는 대신, 등식 증명을 사용하여 증명 목표를 변환할 수 있는 tactic들이 있습니다. 가장 중요한 것 중 하나는 `rw`로, 등식 증명들의 리스트를 받아 목표에서 왼쪽을 오른쪽으로 대체합니다. 이것은 `plusR_zero_left`에서 거의 올바른 작업을 합니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih unsolved goals
-succn:Natih:n = Nat.plusR 0 n⊢ Nat.plusR 0 n + 1 = Nat.plusR 0 (Nat.plusR 0 n) + 1=>
-unfold Nat.plusRsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 n + 1
-rw [ih]succn:Natih:n = Nat.plusR 0 n⊢ Nat.plusR 0 n + 1 = Nat.plusR 0 (Nat.plusR 0 n) + 1succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih =>
+    unfold Nat.plusR
+    rw [ih]
+```
 
 However, the direction of the rewrite was incorrect.
 Replacing `n` with `Nat.plusR 0 n` made the goal more complicated rather than less complicated:
@@ -215,12 +217,18 @@ succn:Natih:n = Nat.plusR 0 n⊢ Nat.plusR 0 n + 1 = Nat.plusR 0 (Nat.plusR 0 n)
 
 This can be remedied by placing a left arrow before `ih` in the call to `rw`, which instructs it to replace the right-hand side of the equality with the left-hand side:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih =>succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)
-unfold Nat.plusRsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 n + 1
-rw [←ih]All goals completed! 🐙`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih =>
+    unfold Nat.plusR
+    rw [←ih]
+```
+
+```
+All goals completed! 🐙
+```
 
 이것은 `rw` 호출에서 `ih` 앞에 왼쪽 화살표를 배치함으로써 해결할 수 있습니다. 이것은 등식의 오른쪽을 왼쪽으로 대체하도록 지시합니다.
 
@@ -243,11 +251,13 @@ Using `simp` on its own does not help:
 
 `plusR_zero_left`의 귀납 단계는 단순화 tactic인 `simp`를 사용하여 증명할 수 있습니다. `simp`를 단독으로 사용하는 것은 도움이 되지 않습니다:
 
-`` theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih =>succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)
-`simp` made no progresssimpsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1) ``
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih =>
+    simp
+```
 
 ```
 `simp` made no progress
@@ -257,12 +267,13 @@ However, `simp` can be configured to make use of a set of definitions.
 Just like `rw`, these arguments are provided in a list.
 Asking `simp` to take the definition of `Nat.plusR` into account leads to a simpler goal:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih unsolved goals
-succn:Natih:n = Nat.plusR 0 n⊢ n = Nat.plusR 0 n=>
-simp [Nat.plusR]succn:Natih:n = Nat.plusR 0 n⊢ n = Nat.plusR 0 nsuccn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih =>
+    simp [Nat.plusR]
+```
 
 하지만 `simp`는 정의들의 집합을 사용하도록 설정할 수 있습니다. `rw`와 마찬가지로, 이러한 인수들은 리스트에 제공됩니다. `simp`가 `Nat.plusR`의 정의를 고려하도록 요청하면 더 간단한 목표로 이어집니다.
 
@@ -277,12 +288,18 @@ Because the induction hypothesis `ih` has exactly the right type, the `exact` ta
 
 특히, 이제 목표는 귀납 가설과 동일합니다. 간단한 등식 문을 자동으로 증명하는 것 외에도, simplifier는 `Nat.succ A = Nat.succ B`와 같은 목표를 자동으로 `A = B`로 대체합니다. 귀납 가설 `ih`가 정확히 올바른 타입을 가지고 있기 때문에, `exact` tactic은 그것을 사용해야 함을 나타낼 수 있습니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih =>succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)
-simp [Nat.plusR]succn:Natih:n = Nat.plusR 0 n⊢ n = Nat.plusR 0 n
-exact ihAll goals completed! 🐙`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih =>
+    simp [Nat.plusR]
+    exact ih
+```
+
+```
+All goals completed! 🐙
+```
 
 However, the use of `exact` is somewhat fragile.
 Renaming the induction hypothesis, which may happen while “golfing” the proof, would cause this proof to stop working.
@@ -290,12 +307,18 @@ The `assumption` tactic solves the current goal if *any* of the assumptions matc
 
 하지만 `exact`의 사용은 다소 취약합니다. 증명을 “golfing” 할 때 발생할 수 있는 귀납 가설의 이름 변경은 이 증명이 작동하지 않도록 할 것입니다. `assumption` tactic은 가정 중 어떤 것이라도 일치하면 현재 목표를 해결합니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction k with
-| zero =>zero⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| succ n ih =>succn:Natih:n = Nat.plusR 0 n⊢ n + 1 = Nat.plusR 0 (n + 1)
-simp [Nat.plusR]succn:Natih:n = Nat.plusR 0 n⊢ n = Nat.plusR 0 n
-assumptionAll goals completed! 🐙`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k with
+  | zero => rfl
+  | succ n ih =>
+    simp [Nat.plusR]
+    assumption
+```
+
+```
+All goals completed! 🐙
+```
 
 This proof is no shorter than the prior proof that used unfolding and explicit rewriting.
 However, a series of transformations can make it much shorter, taking advantage of the fact that `simp` can solve many kinds of goals.
@@ -307,17 +330,23 @@ But shortening proofs can often require a more liberal approach.
 이 증명은 unfolding과 명시적 rewriting을 사용한 이전 증명보다 짧지 않습니다. 그러나 일련의 변환들은 `simp`가 많은 종류의 목표를 해결할 수 있다는 사실을 이용하여 그것을 훨씬 더 짧게 만들 수 있습니다. 첫 번째 단계는 `induction`의 끝에서 `with`을 제거하는 것입니다. 구조화된 읽기 쉬운 증명을 위해, `with` 구문은 편리합니다. 어떤 cases가 누락되면 불평하고, 귀납의 구조를 명확히 보여줍니다. 하지만 증명을 단축하려면 종종 더 관대한 접근 방식이 필요합니다.
 
 Using `induction` without `with` simply results in a proof state with two goals.
-The `case` tactic can be used to select one of them, just as in the branches of the `induction``...``with` tactic.
+The `case` tactic can be used to select one of them, just as in the branches of the `induction ... with` tactic.
 In other words, the following proof is equivalent to the prior proof:
 
 `with` 없이 `induction`을 사용하면 단순히 두 개의 목표가 있는 증명 상태를 초래합니다. `case` tactic은 `induction`...`with` tactic의 분기에서처럼 그 중 하나를 선택하는 데 사용될 수 있습니다. 즉, 다음 증명은 이전 증명과 동등합니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction kzero⊢ 0 = Nat.plusR 0 0succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1)
-case zero =>⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-case succ n ih =>n:Natih:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1)
-simp [Nat.plusR]n:Natih:n✝ = Nat.plusR 0 n✝⊢ n = Nat.plusR 0 n
-assumptionAll goals completed! 🐙`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k
+  case zero => rfl
+  case succ n ih =>
+    simp [Nat.plusR]
+    assumption
+```
+
+```
+All goals completed! 🐙
+```
 
 In a context with a single goal (namely, `k = Nat.plusR 0 k`), the `induction k` tactic yields two goals.
 In general, a tactic will either fail with an error or take a goal and transform it into zero or more new goals.
@@ -335,9 +364,10 @@ One such general tactic is `simp`.
 
 Because `simp` can both complete the proof of the base case and make progress on the proof of the induction step, using it with `induction` and `<;>` shortens the proof:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := unsolved goals
-succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ = Nat.plusR 0 n✝byk:Nat⊢ k = Nat.plusR 0 k
-induction kzero⊢ 0 = Nat.plusR 0 0succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1) <;>zero⊢ 0 = Nat.plusR 0 0succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1) simp [Nat.plusR]succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ = Nat.plusR 0 n✝`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k <;> simp [Nat.plusR]
+```
 
 `simp`는 기저 경우의 증명을 완료하고 귀납 단계의 증명에 진전을 만들 수 있으므로, `induction`과 `<;>`와 함께 사용하면 증명을 단축합니다.
 
@@ -354,8 +384,14 @@ Running `assumption` in this goal completes the proof:
 
 이 목표에서 `assumption`을 실행하면 증명이 완료됩니다:
 
-`theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := byk:Nat⊢ k = Nat.plusR 0 k
-induction kzero⊢ 0 = Nat.plusR 0 0succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1) <;>zero⊢ 0 = Nat.plusR 0 0succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ + 1 = Nat.plusR 0 (n✝ + 1) simp [Nat.plusR]succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ = Nat.plusR 0 n✝ <;>succn✝:Nata✝:n✝ = Nat.plusR 0 n✝⊢ n✝ = Nat.plusR 0 n✝ assumptionAll goals completed! 🐙`
+```lean
+theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
+  induction k <;> simp [Nat.plusR] <;> assumption
+```
+
+```
+All goals completed! 🐙
+```
 
 Here, `exact` would not have been possible, because `ih` was never explicitly named.
 
@@ -390,10 +426,12 @@ Induction on binary trees is a proof technique where a statement is proven for *
 
 `BinTree.count` counts the number of branches in a tree:
 
-`def BinTree.count : BinTree α → Nat
-| .leaf => 0
-| .branch l _ r =>
-1 + l.count + r.count`
+```lean
+def BinTree.count : BinTree α → Nat
+  | .leaf => 0
+  | .branch l _ r =>
+    1 + l.count + r.count
+```
 
 `BinTree.count`는 트리의 가지 수를 세는 함수입니다.
 
@@ -403,13 +441,13 @@ The first step is to state the theorem and invoke `induction`:
 
 트리를 뒤집기(mirroring)는 그 안의 가지 수를 변경하지 않습니다. 이는 트리에 대한 귀납법을 사용하여 증명할 수 있습니다. 첫 번째 단계는 정리를 진술하고 `induction`을 호출하는 것입니다:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction t with
-| leaf unsolved goals
-leafα:Type⊢ leaf.mirror.count = leaf.count=> skipleafα:Type⊢ leaf.mirror.count = leaf.count
-| branch l x r ihl ihr unsolved goals
-branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count=> skipbranchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t with
+  | leaf => skip
+  | branch l x r ihl ihr => skip
+```
 
 The base case states that counting the mirror of a leaf is the same as counting the leaf:
 
@@ -434,23 +472,25 @@ This can be expressed by using `simp` with instructions to unfold `BinTree.mirro
 
 기저 경우는 참입니다. 왜냐하면 `leaf`를 뒤집기는 `leaf`를 낳기 때문입니다. 그래서 좌측과 우측은 정의상 같습니다. 이는 `BinTree.mirror`를 unfold하도록 지시하는 `simp`를 사용하여 표현할 수 있습니다:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction t with
-| leaf =>leafα:Type⊢ leaf.mirror.count = leaf.count simp [BinTree.mirror]All goals completed! 🐙
-| branch l x r ihl ihr unsolved goals
-branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count=> skipbranchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t with
+  | leaf => simp [BinTree.mirror]
+  | branch l x r ihl ihr => skip
+```
 
 In the induction step, nothing in the goal immediately matches the induction hypotheses.
 Simplifying using the definitions of `BinTree.count` and `BinTree.mirror` reveals the relationship:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction t with
-| leaf =>leafα:Type⊢ leaf.mirror.count = leaf.count simp [BinTree.mirror]All goals completed! 🐙
-| branch l x r ihl ihr unsolved goals
-branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ 1 + r.mirror.count + l.mirror.count = 1 + l.count + r.count=>
-simp [BinTree.mirror, BinTree.count]branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ 1 + r.mirror.count + l.mirror.count = 1 + l.count + r.countbranchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t with
+  | leaf => simp [BinTree.mirror]
+  | branch l x r ihl ihr =>
+    simp [BinTree.mirror, BinTree.count]
+```
 
 귀납 단계에서, 목표의 어떤 것도 귀납 가설과 즉시 일치하지 않습니다. `BinTree.count`와 `BinTree.mirror`의 정의를 사용하여 단순화하면 그 관계를 드러냅니다.
 
@@ -463,14 +503,15 @@ Both induction hypotheses can be used to rewrite the left-hand side of the goal 
 
 두 귀납 가설은 모두 목표의 좌측을 오른쪽과 유사한 것으로 rewrite하는 데 사용할 수 있습니다:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction t with
-| leaf =>leafα:Type⊢ leaf.mirror.count = leaf.count simp [BinTree.mirror]All goals completed! 🐙
-| branch l x r ihl ihr unsolved goals
-branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ 1 + r.count + l.count = 1 + l.count + r.count=>
-simp [BinTree.mirror, BinTree.count]branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ 1 + r.mirror.count + l.mirror.count = 1 + l.count + r.count
-rw [ihl, ihr]branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ 1 + r.count + l.count = 1 + l.count + r.countbranchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t with
+  | leaf => simp [BinTree.mirror]
+  | branch l x r ihl ihr =>
+    simp [BinTree.mirror, BinTree.count]
+    rw [ihl, ihr]
+```
 
 ```
 unsolved goals
@@ -482,26 +523,38 @@ It is enough to prove this goal, yielding:
 
 `simp` tactic은 `+arith` 옵션을 전달받을 때 추가 산술 항등식을 사용할 수 있습니다. 이는 이 목표를 증명하기에 충분하며, 다음을 낳습니다:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction t with
-| leaf =>leafα:Type⊢ leaf.mirror.count = leaf.count simp [BinTree.mirror]All goals completed! 🐙
-| branch l x r ihl ihr =>branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count
-simp [BinTree.mirror, BinTree.count]branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ 1 + r.mirror.count + l.mirror.count = 1 + l.count + r.count
-rw [ihl, ihr]branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ 1 + r.count + l.count = 1 + l.count + r.count
-simp +arithAll goals completed! 🐙`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t with
+  | leaf => simp [BinTree.mirror]
+  | branch l x r ihl ihr =>
+    simp [BinTree.mirror, BinTree.count]
+    rw [ihl, ihr]
+    simp +arith
+```
+
+```
+All goals completed! 🐙
+```
 
 In addition to definitions to be unfolded, the simplifier can also be passed names of equality proofs to use as rewrites while it simplifies proof goals.
 `BinTree.mirror_count` can also be written:
 
 unfold될 정의들 외에도, simplifier는 증명 목표를 단순화하는 동안 rewrite로 사용할 등식 증명들의 이름을 전달받을 수 있습니다. `BinTree.mirror_count`는 또한 다음과 같이 작성할 수 있습니다:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction t with
-| leaf =>leafα:Type⊢ BinTree.leaf.mirror.count = BinTree.leaf.count simp [BinTree.mirror]All goals completed! 🐙
-| branch l x r ihl ihr =>branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count
-simp +arith [BinTree.mirror, BinTree.count, ihl, ihr]All goals completed! 🐙`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t with
+  | leaf => simp [BinTree.mirror]
+  | branch l x r ihl ihr =>
+    simp +arith [BinTree.mirror, BinTree.count, ihl, ihr]
+```
+
+```
+All goals completed! 🐙
+```
 
 As proofs grow more complicated, listing assumptions by hand can become tedious.
 Furthermore, manually writing assumption names can make it more difficult to re-use proof steps for multiple subgoals.
@@ -510,26 +563,40 @@ In other words, the proof could also be written:
 
 증명이 더 복잡해지면, 가정들을 손으로 나열하는 것은 지루할 수 있습니다. 또한, 수동으로 가정 이름을 작성하는 것은 여러 부분목표들에 대해 증명 단계를 다시 사용하기 더 어렵게 만들 수 있습니다. `simp` 또는 `simp +arith`에 대한 `*` 인수는 목표를 단순화하거나 해결하는 동안 모든 가정을 사용하도록 지시합니다. 다시 말해, 증명을 다음과 같이 작성할 수도 있습니다:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction t with
-| leaf =>leafα:Type⊢ BinTree.leaf.mirror.count = BinTree.leaf.count simp [BinTree.mirror]All goals completed! 🐙
-| branch l x r ihl ihr =>branchα:Typel:BinTree αx:αr:BinTree αihl:l.mirror.count = l.countihr:r.mirror.count = r.count⊢ (l.branch x r).mirror.count = (l.branch x r).count
-simp +arith [BinTree.mirror, BinTree.count, *]All goals completed! 🐙`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t with
+  | leaf => simp [BinTree.mirror]
+  | branch l x r ihl ihr =>
+    simp +arith [BinTree.mirror, BinTree.count, *]
+```
+
+```
+All goals completed! 🐙
+```
 
 Because both branches are using the simplifier, the proof can be reduced to:
 
 두 분기 모두 simplifier를 사용하고 있으므로, 증명을 다음과 같이 축약할 수 있습니다:
 
-`theorem BinTree.mirror_count (t : BinTree α) :
-t.mirror.count = t.count := byα:Typet:BinTree α⊢ t.mirror.count = t.count
-induction tleafα:Type⊢ BinTree.leaf.mirror.count = BinTree.leaf.countbranchα:Typea✝²:BinTree αa✝¹:αa✝:BinTree αa_ih✝¹:a✝².mirror.count = a✝².counta_ih✝:a✝.mirror.count = a✝.count⊢ (a✝².branch a✝¹ a✝).mirror.count = (a✝².branch a✝¹ a✝).count <;>leafα:Type⊢ BinTree.leaf.mirror.count = BinTree.leaf.countbranchα:Typea✝²:BinTree αa✝¹:αa✝:BinTree αa_ih✝¹:a✝².mirror.count = a✝².counta_ih✝:a✝.mirror.count = a✝.count⊢ (a✝².branch a✝¹ a✝).mirror.count = (a✝².branch a✝¹ a✝).count simp +arith [BinTree.mirror, BinTree.count, *]All goals completed! 🐙`
+```lean
+theorem BinTree.mirror_count (t : BinTree α) :
+    t.mirror.count = t.count := by
+  induction t <;> simp +arith [BinTree.mirror, BinTree.count, *]
+```
+
+```
+All goals completed! 🐙
+```
 
 ## Exercises
 
-* Prove `plusR_succ_left` using the `induction``...``with` tactic.
+* Prove `plusR_succ_left` using the `induction ... with` tactic.
 * Rewrite the proof of `plusR_succ_left` to use `<;>` in a single line.
 * Prove that appending lists is associative using induction on lists:
 
-  `theorem List.append_assoc (xs ys zs : List α) :
-  xs ++ (ys ++ zs) = (xs ++ ys) ++ zs`
+  ```lean
+  theorem List.append_assoc (xs ys zs : List α) :
+      xs ++ (ys ++ zs) = (xs ++ ys) ++ zs
+  ```

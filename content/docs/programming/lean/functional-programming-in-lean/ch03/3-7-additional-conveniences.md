@@ -1,10 +1,10 @@
 ---
-title: "Additional Conveniences"
+title: "추가적인 편의 기능"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Additional Conveniences"
+description: "구조체 인스턴스 표기법과 익명 생성자로 코드 간결하게 작성하기"
 ---
 
 # Additional Conveniences
@@ -23,18 +23,23 @@ For example, a forestry application might represent trees as follows:
 
 예를 들어, 임업 응용 프로그램은 다음과 같이 나무를 나타낼 수 있습니다:
 
-`structure Tree : Type where
-latinName : String
-commonNames : List String
+```lean
+structure Tree : Type where
+  latinName : String
+  commonNames : List String
+
 def oak : Tree :=
-⟨"Quercus robur", ["common oak", "European oak"]⟩
+  ⟨"Quercus robur", ["common oak", "European oak"]⟩
+
 def birch : Tree :=
-{ latinName := "Betula pendula",
-commonNames := ["silver birch", "warty birch"]
-}
+  { latinName := "Betula pendula",
+    commonNames := ["silver birch", "warty birch"]
+  }
+
 def sloe : Tree where
-latinName := "Prunus spinosa"
-commonNames := ["sloe", "blackthorn"]`
+  latinName := "Prunus spinosa"
+  commonNames := ["sloe", "blackthorn"]
+```
 
 All three syntaxes are equivalent.
 
@@ -44,14 +49,19 @@ Similarly, type class instances can be defined using all three syntaxes:
 
 마찬가지로, type class instance는 세 가지 문법 모두를 사용하여 정의할 수 있습니다:
 
-`class Display (α : Type) where
-displayName : α → String
+```lean
+class Display (α : Type) where
+  displayName : α → String
+
 instance : Display Tree :=
-⟨Tree.latinName⟩
+  ⟨Tree.latinName⟩
+
 instance : Display Tree :=
-{ displayName := Tree.latinName }
+  { displayName := Tree.latinName }
+
 instance : Display Tree where
-displayName t := t.latinName`
+  displayName t := t.latinName
+```
 
 The `where` syntax is typically used for instances, while structures use either the curly-brace syntax or the `where` syntax.
 The `⟨...⟩` syntax can be useful when emphasizing that a structure type is very much like a tuple in which the fields happen to be named, but the names are not important at the moment.
@@ -89,17 +99,21 @@ For instance, a non-empty list of birds commonly found in Copenhagen's green spa
 예제는 이름이 없는 definition과 같습니다.
 예를 들어, Copenhagen의 녹지에서 흔히 발견되는 새의 비어있지 않은 목록은 다음과 같이 작성할 수 있습니다:
 
-`example : NonEmptyList String :=
-{ head := "Sparrow",
-tail := ["Duck", "Swan", "Magpie", "Eurasian coot", "Crow"]
-}`
+```lean
+example : NonEmptyList String :=
+  { head := "Sparrow",
+    tail := ["Duck", "Swan", "Magpie", "Eurasian coot", "Crow"]
+  }
+```
 
 Examples may define functions by accepting arguments:
 
 예제는 인수를 받아들임으로써 함수를 정의할 수 있습니다:
 
-`example (n : Nat) (k : Nat) : Bool :=
-n + k == k + n`
+```lean
+example (n : Nat) (k : Nat) : Bool :=
+  n + k == k + n
+```
 
 While this creates a function behind the scenes, this function has no name and cannot be called.
 Nonetheless, this is useful for demonstrating how a library can be used with arbitrary or unknown values of some given type.

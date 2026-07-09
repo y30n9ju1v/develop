@@ -1,10 +1,10 @@
 ---
-title: "Tail Recursion"
+title: "꼬리 재귀 (Tail Recursion)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Tail Recursion"
+description: "꼬리 재귀 (Tail Recursion)"
 ---
 
 # 8.1. Tail Recursion
@@ -39,15 +39,26 @@ Programmers must be able to reliably identify tail calls, and they must be able 
 
 The function `NonTail.sum` adds the contents of a list of `Nat`s:
 
-`def NonTail.sum : List Nat → Nat
-| [] => 0
-| x :: xs => x + sum xs`
+```lean
+def NonTail.sum : List Nat → Nat
+  | [] => 0
+  | x :: xs => x + sum xs
+```
 
 `NonTail.sum` 함수는 `Nat` 리스트의 내용을 더합니다.
 
 Applying this function to the list `[1, 2, 3]` results in the following sequence of evaluation steps:
 
-`NonTail.sum [1, 2, 3]``1 + (NonTail.sum [2, 3])``1 + (2 + (NonTail.sum [3]))``1 + (2 + (3 + (NonTail.sum [])))``1 + (2 + (3 + 0))``1 + (2 + 3)``1 + 5``6`
+```
+NonTail.sum [1, 2, 3]
+1 + (NonTail.sum [2, 3])
+1 + (2 + (NonTail.sum [3]))
+1 + (2 + (3 + (NonTail.sum [])))
+1 + (2 + (3 + 0))
+1 + (2 + 3)
+1 + 5
+6
+```
 
 이 함수를 리스트 `[1, 2, 3]`에 적용하면 다음의 평가 단계 순서가 생깁니다.
 
@@ -77,17 +88,30 @@ Storing the heads of the list and the instructions to add them is not free; it t
 
 The function `Tail.sum` also adds the contents of a list of `Nat`s:
 
-`def Tail.sumHelper (soFar : Nat) : List Nat → Nat
-| [] => soFar
-| x :: xs => sumHelper (x + soFar) xs
+```lean
+def Tail.sumHelper (soFar : Nat) : List Nat → Nat
+  | [] => soFar
+  | x :: xs => sumHelper (x + soFar) xs
+
 def Tail.sum (xs : List Nat) : Nat :=
-Tail.sumHelper 0 xs`
+  Tail.sumHelper 0 xs
+```
 
 `Tail.sum` 함수도 `Nat` 리스트의 내용을 더합니다.
 
 Applying it to the list `[1, 2, 3]` results in the following sequence of evaluation steps:
 
-`Tail.sum [1, 2, 3]``Tail.sumHelper 0 [1, 2, 3]``Tail.sumHelper (0 + 1) [2, 3]``Tail.sumHelper 1 [2, 3]``Tail.sumHelper (1 + 2) [3]``Tail.sumHelper 3 [3]``Tail.sumHelper (3 + 3) []``Tail.sumHelper 6 []``6`
+```
+Tail.sum [1, 2, 3]
+Tail.sumHelper 0 [1, 2, 3]
+Tail.sumHelper (0 + 1) [2, 3]
+Tail.sumHelper 1 [2, 3]
+Tail.sumHelper (1 + 2) [3]
+Tail.sumHelper 3 [3]
+Tail.sumHelper (3 + 3) []
+Tail.sumHelper 6 []
+6
+```
 
 이를 리스트 `[1, 2, 3]`에 적용하면 다음의 평가 단계 순서가 생깁니다.
 
@@ -169,25 +193,39 @@ While it is certainly possible to eliminate a tail call to some other function, 
 
 The function `NonTail.reverse` reverses lists by appending the head of each sub-list to the end of the result:
 
-`def NonTail.reverse : List α → List α
-| [] => []
-| x :: xs => reverse xs ++ [x]`
+```lean
+def NonTail.reverse : List α → List α
+  | [] => []
+  | x :: xs => reverse xs ++ [x]
+```
 
 `NonTail.reverse` 함수는 각 부분 리스트의 헤드를 결과의 끝에 추가하여 리스트를 역순으로 합니다.
 
 Using it to reverse `[1, 2, 3]` yields the following sequence of steps:
 
-`NonTail.reverse [1, 2, 3]``(NonTail.reverse [2, 3]) ++ [1]``((NonTail.reverse [3]) ++ [2]) ++ [1]``(((NonTail.reverse []) ++ [3]) ++ [2]) ++ [1]``(([] ++ [3]) ++ [2]) ++ [1]``([3] ++ [2]) ++ [1]``[3, 2] ++ [1]``[3, 2, 1]`
+```
+NonTail.reverse [1, 2, 3]
+(NonTail.reverse [2, 3]) ++ [1]
+((NonTail.reverse [3]) ++ [2]) ++ [1]
+(((NonTail.reverse []) ++ [3]) ++ [2]) ++ [1]
+(([] ++ [3]) ++ [2]) ++ [1]
+([3] ++ [2]) ++ [1]
+[3, 2] ++ [1]
+[3, 2, 1]
+```
 
 이를 사용하여 `[1, 2, 3]`을 역순으로 하면 다음의 단계 순서가 생깁니다.
 
 The tail-recursive version uses `x :: ·` instead of `· ++ [x]` on the accumulator at each step:
 
-`def Tail.reverseHelper (soFar : List α) : List α → List α
-| [] => soFar
-| x :: xs => reverseHelper (x :: soFar) xs
+```lean
+def Tail.reverseHelper (soFar : List α) : List α → List α
+  | [] => soFar
+  | x :: xs => reverseHelper (x :: soFar) xs
+
 def Tail.reverse (xs : List α) : List α :=
-Tail.reverseHelper [] xs`
+  Tail.reverseHelper [] xs
+```
 
 꼬리 재귀 버전은 각 단계에서 누적자에 `· ++ [x]` 대신 `x :: ·`를 사용합니다.
 
@@ -195,7 +233,14 @@ This is because the context saved in each stack frame while computing with `NonT
 Each “remembered” piece of context is executed in last-in, first-out order.
 On the other hand, the accumulator-passing version modifies the accumulator beginning from the first entry in the list, rather than the original base case, as can be seen in the series of reduction steps:
 
-`Tail.reverse [1, 2, 3]``Tail.reverseHelper [] [1, 2, 3]``Tail.reverseHelper [1] [2, 3]``Tail.reverseHelper [2, 1] [3]``Tail.reverseHelper [3, 2, 1] []``[3, 2, 1]`
+```
+Tail.reverse [1, 2, 3]
+Tail.reverseHelper [] [1, 2, 3]
+Tail.reverseHelper [1] [2, 3]
+Tail.reverseHelper [2, 1] [3]
+Tail.reverseHelper [3, 2, 1] []
+[3, 2, 1]
+```
 
 이는 `NonTail.reverse`로 계산할 때 각 스택 프레임에 저장된 컨텍스트가 기본 경우부터 시작하여 적용되기 때문입니다.
 각 “기억된” 컨텍스트 조각은 후입선출(LIFO) 순서로 실행됩니다.
@@ -221,9 +266,11 @@ Appending `[x]` after the result of the recursion in `NonTail.reverse` is analog
 
 In the definition of `BinTree.mirror`, there are two recursive calls:
 
-`def BinTree.mirror : BinTree α → BinTree α
-| .leaf => .leaf
-| .branch l x r => .branch (mirror r) x (mirror l)`
+```lean
+def BinTree.mirror : BinTree α → BinTree α
+  | .leaf => .leaf
+  | .branch l x r => .branch (mirror r) x (mirror l)
+```
 
 `BinTree.mirror`의 정의에서 두 개의 재귀 호출이 있습니다.
 
@@ -249,24 +296,32 @@ There are systematic techniques for making these functions tail-recursive, such 
 
 Translate each of the following non-tail-recursive functions into accumulator-passing tail-recursive functions:
 
-`def NonTail.length : List α → Nat
-| [] => 0
-| _ :: xs => NonTail.length xs + 1``def NonTail.factorial : Nat → Nat
-| 0 => 1
-| n + 1 => factorial n * (n + 1)`
+```lean
+def NonTail.length : List α → Nat
+  | [] => 0
+  | _ :: xs => NonTail.length xs + 1
+```
+
+```lean
+def NonTail.factorial : Nat → Nat
+  | 0 => 1
+  | n + 1 => factorial n * (n + 1)
+```
 
 다음의 각 non-tail-recursive 함수를 누적자 전달 꼬리 재귀 함수로 변환합니다.
 
 The translation of `NonTail.filter` should result in a program that takes constant stack space through tail recursion, and time linear in the length of the input list.
 A constant factor overhead is acceptable relative to the original:
 
-`def NonTail.filter (p : α → Bool) : List α → List α
-| [] => []
-| x :: xs =>
-if p x then
-x :: filter p xs
-else
-filter p xs`
+```lean
+def NonTail.filter (p : α → Bool) : List α → List α
+  | [] => []
+  | x :: xs =>
+    if p x then
+      x :: filter p xs
+    else
+      filter p xs
+```
 
 `NonTail.filter`의 변환은 꼬리 재귀를 통해 상수 스택 공간을 취하는 프로그램과 입력 리스트의 길이에 대해 선형 시간을 생성해야 합니다.
 상수 계수 오버헤드는 원본에 상대적으로 허용됩니다:

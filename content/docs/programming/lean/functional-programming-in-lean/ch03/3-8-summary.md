@@ -1,10 +1,10 @@
 ---
-title: "Summary"
+title: "요약"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Summary"
+description: "3장 오버로딩과 타입 클래스 요약"
 ---
 
 # 3.8. Summary

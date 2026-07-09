@@ -1,10 +1,10 @@
 ---
-title: "Additional Conveniences"
+title: "추가 편의 기능"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Additional Conveniences"
+description: "Lean이 프로그램을 더 간결하게 작성할 수 있도록 제공하는 여러 편의 기능"
 ---
 
 # Additional Conveniences
@@ -33,9 +33,11 @@ Then, replace the `:=` with each case of the pattern match:
 예를 들어, `length`의 타입은 `List α → Nat`입니다.
 그 다음 `:=`을 패턴 매치의 각 경우로 대체합니다:
 
-`def length : List α → Nat
+```lean
+def length : List α → Nat
 | [] => 0
-| y :: ys => Nat.succ (length ys)`
+| y :: ys => Nat.succ (length ys)
+```
 
 This syntax can also be used to define functions that take more than one argument.
 In this case, their patterns are separated by commas.
@@ -45,10 +47,12 @@ For instance, `drop` takes a number `n` and a list, and returns the list after r
 이 경우, 패턴들은 쉼표로 구분됩니다.
 예를 들어, `drop`은 숫자 `n`과 리스트를 받아서 처음 `n`개 항목을 제거한 리스트를 반환합니다.
 
-`def drop : Nat → List α → List α
+```lean
+def drop : Nat → List α → List α
 | Nat.zero, xs => xs
 | _, [] => []
-| Nat.succ n, x :: xs => drop n xs`
+| Nat.succ n, x :: xs => drop n xs
+```
 
 Named arguments and patterns can also be used in the same definition.
 For instance, a function that takes a default value and an optional value, and returns the default when the optional value is `none`, can be written:
@@ -56,21 +60,27 @@ For instance, a function that takes a default value and an optional value, and r
 명명된 인자와 패턴은 같은 정의에서도 함께 사용할 수 있습니다.
 예를 들어, 기본값과 선택적 값을 받고, 선택적 값이 `none`일 때 기본값을 반환하는 함수는 다음과 같이 작성할 수 있습니다:
 
-`def fromOption (default : α) : Option α → α
+```lean
+def fromOption (default : α) : Option α → α
 | none => default
-| some x => x`
+| some x => x
+```
 
 This function is called `Option.getD` in the standard library, and can be called with dot notation:
 
 이 함수는 표준 라이브러리에서 `Option.getD`라고 불리며, 점 표기법으로 호출할 수 있습니다:
 
-`"salmonberry"#eval (some "salmonberry").getD ""`
+```lean
+#eval (some "salmonberry").getD ""
+```
 
 ```
 "salmonberry"
 ```
 
-`""#eval none.getD ""`
+```lean
+#eval none.getD ""
+```
 
 ```
 ""
@@ -98,10 +108,12 @@ This definition of `unzip` follows that description exactly:
 쌍의 리스트가 헤드에 쌍을 가지고 있으면, 그 쌍의 두 필드가 나머지 리스트를 unzip한 결과에 추가됩니다.
 `unzip`의 이 정의는 그 설명을 정확히 따릅니다:
 
-`def unzip : List (α × β) → List α × List β
+```lean
+def unzip : List (α × β) → List α × List β
 | [] => ([], [])
 | (x, y) :: xys =>
-(x :: (unzip xys).fst, y :: (unzip xys).snd)`
+  (x :: (unzip xys).fst, y :: (unzip xys).snd)
+```
 
 Unfortunately, there is a problem: this code is slower than it needs to be.
 Each entry in the list of pairs leads to two recursive calls, which makes this function take exponential time.
@@ -121,11 +133,13 @@ Lean에서는 `let`을 사용하여 재귀 호출의 결과에 이름을 붙이�
 지역 정의 후, 지역 정의가 사용 가능한 표현식 (`let`-표현식의 *본문*이라고 불림)은 새로운 줄에 있어야 하며, 파일의 `let` 키워드의 열보다 작거나 같은 열에서 시작해야 합니다.
 `unzip`에서 `let`을 사용한 지역 정의는 다음과 같습니다:
 
-`def unzip : List (α × β) → List α × List β
+```lean
+def unzip : List (α × β) → List α × List β
 | [] => ([], [])
 | (x, y) :: xys =>
-let unzipped : List α × List β := unzip xys
-(x :: unzipped.fst, y :: unzipped.snd)`
+  let unzipped : List α × List β := unzip xys
+  (x :: unzipped.fst, y :: unzipped.snd)
+```
 
 To use `let` on a single line, separate the local definition from the body with a semicolon.
 
@@ -139,11 +153,13 @@ Because pairs have only a single constructor, the name `unzipped` can be replace
 `unzip`의 경우, 재귀 호출의 결과는 쌍입니다.
 쌍은 단 하나의 생성자를 가지므로, `unzipped`라는 이름을 쌍 패턴으로 대체할 수 있습니다:
 
-`def unzip : List (α × β) → List α × List β
+```lean
+def unzip : List (α × β) → List α × List β
 | [] => ([], [])
 | (x, y) :: xys =>
-let (xs, ys) : List α × List β := unzip xys
-(x :: xs, y :: ys)`
+  let (xs, ys) : List α × List β := unzip xys
+  (x :: xs, y :: ys)
+```
 
 Judicious use of patterns with `let` can make code easier to read, compared to writing the accessor calls by hand.
 
@@ -155,11 +171,13 @@ For instance, one way to reverse a list involves a recursive helper function, as
 `let`과 `def`의 가장 큰 차이점은 재귀적 `let` 정의는 `let rec`을 작성하여 명시적으로 나타내야 한다는 것입니다.
 예를 들어, 리스트를 역순으로 하는 한 가지 방법은 이 정의와 같이 재귀 도우미 함수를 사용합니다:
 
-`def reverse (xs : List α) : List α :=
-let rec helper : List α → List α → List α
-| [], soFar => soFar
-| y :: ys, soFar => helper ys (y :: soFar)
-helper xs []`
+```lean
+def reverse (xs : List α) : List α :=
+  let rec helper : List α → List α → List α
+    | [], soFar => soFar
+    | y :: ys, soFar => helper ys (y :: soFar)
+  helper xs []
+```
 
 The helper function walks down the input list, moving one entry at a time over to `soFar`.
 When it reaches the end of the input list, `soFar` contains a reversed version of the input.
@@ -177,11 +195,13 @@ For example, the recursive call to `unzip` does not need an annotation:
 이 경우들에서, 명시적 타입은 최상위 정의(`def`) 및 지역 정의(`let`) 모두에서 생략될 수 있습니다.
 예를 들어, `unzip`에 대한 재귀 호출은 주석이 필요하지 않습니다:
 
-`def unzip : List (α × β) → List α × List β
+```lean
+def unzip : List (α × β) → List α × List β
 | [] => ([], [])
 | (x, y) :: xys =>
-let unzipped := unzip xys
-(x :: unzipped.fst, y :: unzipped.snd)`
+  let unzipped := unzip xys
+  (x :: unzipped.fst, y :: unzipped.snd)
+```
 
 As a rule of thumb, omitting the types of literal values (like strings and numbers) usually works, although Lean may pick a type for literal numbers that is more specific than the intended type.
 Lean can usually determine a type for a function application, because it already knows the argument types and the return type.
@@ -195,12 +215,14 @@ Lean은 이미 인자 타입과 반환 타입을 알고 있으므로 보통 함�
 
 Omitting the return type for `unzip` is possible when using an explicit `match` expression:
 
-`def unzip (pairs : List (α × β)) :=
+```lean
+def unzip (pairs : List (α × β)) :=
 match pairs with
 | [] => ([], [])
 | (x, y) :: xys =>
-let unzipped := unzip xys
-(x :: unzipped.fst, y :: unzipped.snd)`
+  let unzipped := unzip xys
+  (x :: unzipped.fst, y :: unzipped.snd)
+```
 
 `unzip`의 반환 타입을 생략하는 것은 명시적 `match` 표현식을 사용할 때 가능합니다.
 
@@ -218,13 +240,17 @@ Lean의 타입 시스템이 매우 표현력이 풍부하기 때문에, 모든 �
 즉, 타입을 얻는다 해도 주어진 애플리케이션에 대해 *올바른* 타입이라는 보장이 없습니다.
 예를 들어, `14`는 `Nat` 또는 `Int`일 수 있습니다:
 
-`14 : Nat#check 14`
+```lean
+#check 14
+```
 
 ```
 14 : Nat
 ```
 
-`14 : Int#check (14 : Int)`
+```lean
+#check (14 : Int)
+```
 
 ```
 14 : Int
@@ -267,17 +293,23 @@ With argument and type annotations, it looks like this:
 예를 들어, 항등 함수는 단지 전달받은 인자를 반환합니다.
 인자와 타입 주석과 함께, 다음과 같이 보입니다:
 
-`def id (x : α) : α := x`
+```lean
+def id (x : α) : α := x
+```
 
 Lean is capable of determining the return type on its own:
 
-`def id (x : α) := x`
+```lean
+def id (x : α) := x
+```
 
 Lean은 반환 타입을 스스로 결정할 수 있습니다.
 
 Omitting the argument type, however, causes an error:
 
-`` def Failed to infer type of definition `id`id Failed to infer type of binder `x`x := x ``
+```lean
+def id x := x
+```
 
 ```
 Failed to infer type of binder `x`
@@ -301,11 +333,13 @@ Here is a version of `drop` that uses simultaneous matching:
 검사할 표현식과 매칭할 패턴 모두 정의에 사용된 문법과 유사하게 쉼표를 사이에 두고 작성됩니다.
 동시 매칭을 사용하는 `drop`의 버전은 다음과 같습니다:
 
-`def drop (n : Nat) (xs : List α) : List α :=
+```lean
+def drop (n : Nat) (xs : List α) : List α :=
 match n, xs with
 | Nat.zero, ys => ys
 | _, [] => []
-| Nat.succ n , y :: ys => drop n ys`
+| Nat.succ n, y :: ys => drop n ys
+```
 
 Simultaneous matching resembles matching on a pair, but there is an important difference.
 Lean tracks the connection between the expression being matched and the patterns, and this information is used for purposes that include checking for termination and propagating static type information.
@@ -315,31 +349,13 @@ As a result, the version of `sameLength` that matches a pair is rejected by the 
 Lean은 매칭되는 표현식과 패턴 간의 연결을 추적하며, 이 정보는 종료 확인 및 정적 타입 정보 전파 등의 목적으로 사용됩니다.
 결과적으로, 쌍에 매칭하는 `sameLength` 버전은 종료 확인자에 의해 거부되는데, `xs`와 `x :: xs'` 사이의 연결이 중간 쌍에 의해 가려지기 때문입니다:
 
-`` def fail to show termination for
-sameLength
-with errors
-failed to infer structural recursion:
-Not considering parameter α of sameLength:
-it is unchanged in the recursive calls
-Not considering parameter β of sameLength:
-it is unchanged in the recursive calls
-Cannot use parameter xs:
-failed to eliminate recursive application
-sameLength xs' ys'
-Cannot use parameter ys:
-failed to eliminate recursive application
-sameLength xs' ys'
-
-Could not find a decreasing measure.
-The basic measures relate at each recursive call as follows:
-(<, ≤, =: relation proved, ? all proofs failed, _: no proof attempted)
-xs ys
-1) 1816:28-46 ? ?
-Please use `termination_by` to specify a decreasing measure.sameLength (xs : List α) (ys : List β) : Bool :=
+```lean
+def sameLength (xs : List α) (ys : List β) : Bool :=
 match (xs, ys) with
 | ([], []) => true
 | (x :: xs', y :: ys') => sameLength xs' ys'
-| _ => false ``
+| _ => false
+```
 
 ```
 fail to show termination for
@@ -367,15 +383,15 @@ Please use `termination_by` to specify a decreasing measure.
 
 Simultaneously matching both lists is accepted:
 
-감소하는 측정값을 지정하려면 `termination_by`를 사용하세요.
-
 동시에 두 리스트를 모두 매칭하는 것은 허용됩니다:
 
-`def sameLength (xs : List α) (ys : List β) : Bool :=
+```lean
+def sameLength (xs : List α) (ys : List β) : Bool :=
 match xs, ys with
 | [], [] => true
 | x :: xs', y :: ys' => sameLength xs' ys'
-| _, _ => false`
+| _, _ => false
+```
 
 ## 1.7.6. Natural Number Patterns
 
@@ -383,10 +399,12 @@ In the section on [datatypes and patterns](../ch01/), `even` was defined like th
 
 [datatypes and patterns 섹션](../ch01/)에서, `even`은 다음과 같이 정의되었습니다:
 
-`def even (n : Nat) : Bool :=
+```lean
+def even (n : Nat) : Bool :=
 match n with
 | Nat.zero => true
-| Nat.succ k => not (even k)`
+| Nat.succ k => not (even k)
+```
 
 Just as there is special syntax to make list patterns more readable than using `List.cons` and `List.nil` directly, natural numbers can be matched using literal numbers and `+`.
 For example, `even` can also be defined like this:
@@ -394,9 +412,11 @@ For example, `even` can also be defined like this:
 `List.cons`와 `List.nil`을 직접 사용하는 것보다 리스트 패턴을 더 읽기 좋게 만드는 특별한 문법이 있는 것처럼, 자연수는 리터럴 숫자와 `+`를 사용하여 매칭할 수 있습니다.
 예를 들어, `even`은 또한 다음과 같이 정의할 수 있습니다:
 
-`def even : Nat → Bool
+```lean
+def even : Nat → Bool
 | 0 => true
-| n + 1 => not (even n)`
+| n + 1 => not (even n)
+```
 
 In this notation, the arguments to the `+` pattern serve different roles.
 Behind the scenes, the left argument (`n` above) becomes an argument to some number of `Nat.succ` patterns, and the right argument (`1` above) determines how many `Nat.succ`s to wrap around the pattern.
@@ -407,19 +427,23 @@ The explicit patterns in `halve`, which divides a `Nat` by two and drops the rem
 
 `Nat`을 2로 나누고 나머지를 버리는 `halve`의 명시적 패턴:
 
-`def halve : Nat → Nat
+```lean
+def halve : Nat → Nat
 | Nat.zero => 0
 | Nat.succ Nat.zero => 0
-| Nat.succ (Nat.succ n) => halve n + 1`
+| Nat.succ (Nat.succ n) => halve n + 1
+```
 
 can be replaced by numeric literals and `+`:
 
 숫자 리터럴과 `+`로 대체할 수 있습니다:
 
-`def halve : Nat → Nat
+```lean
+def halve : Nat → Nat
 | 0 => 0
 | 1 => 0
-| n + 2 => halve n + 1`
+| n + 2 => halve n + 1
+```
 
 Behind the scenes, both definitions are completely equivalent.
 Remember: `halve n + 1` is equivalent to `(halve n) + 1`, not `halve (n + 1)`.
@@ -433,11 +457,12 @@ Even though addition is commutative, flipping the arguments in a pattern can res
 이 문법을 사용할 때, `+`의 두 번째 인자는 항상 리터럴 `Nat`이어야 합니다.
 덧셈이 교환법칙을 만족하지만, 패턴에서 인자를 뒤집으면 다음과 같은 오류가 발생할 수 있습니다:
 
-`` def halve : Nat → Nat
+```lean
+def halve : Nat → Nat
 | 0 => 0
 | 1 => 0
-Invalid pattern(s): `n` is an explicit pattern variable, but it only occurs in positions that are inaccessible to pattern matching:
-.(Nat.add 2 n)| 2 + n => halve n + 1 ``
+| 2 + n => halve n + 1
+```
 
 ```
 Invalid pattern(s): `n` is an explicit pattern variable, but it only occurs in positions that are inaccessible to pattern matching:
@@ -460,7 +485,9 @@ Lean의 함수는 최상위 수준에서 정의될 필요가 없습니다.
 함수 표현식은 `fun` 키워드로 시작하고, 반환 표현식과 `=>`로 분리된 하나 이상의 매개변수가 뒤따릅니다.
 예를 들어, 숫자에 하나를 더하는 함수는 다음과 같이 작성할 수 있습니다:
 
-`fun x => x + 1 : Nat → Nat#check fun x => x + 1`
+```lean
+#check fun x => x + 1
+```
 
 ```
 fun x => x + 1 : Nat → Nat
@@ -470,7 +497,9 @@ Type annotations are written the same way as on `def`, using parentheses and col
 
 타입 주석은 `def`에서와 동일한 방식으로 괄호와 콜론을 사용하여 작성됩니다:
 
-`fun x => x + 1 : Int → Int#check fun (x : Int) => x + 1`
+```lean
+#check fun (x : Int) => x + 1
+```
 
 ```
 fun x => x + 1 : Int → Int
@@ -480,7 +509,9 @@ Similarly, implicit parameters may be written with curly braces:
 
 유사하게, 암시적 매개변수는 중괄호로 작성할 수 있습니다:
 
-`fun {α} x => x : {α : Type} → α → α#check fun {α : Type} (x : α) => x`
+```lean
+#check fun {α : Type} (x : α) => x
+```
 
 ```
 fun {α} x => x : {α : Type} → α → α
@@ -498,12 +529,11 @@ For instance, a function that returns the predecessor of a natural number if it 
 무명 함수는 또한 `def`에서 사용되는 다중 패턴 스타일을 지원합니다.
 예를 들어, 존재하면 자연수의 전임자를 반환하는 함수는 다음과 같이 작성할 수 있습니다:
 
-`fun x =>
-match x with
-| 0 => none
-| n.succ => some n : Nat → Option Nat#check fun
-| 0 => none
-| n + 1 => some n`
+```lean
+#check fun
+  | 0 => none
+  | n + 1 => some n
+```
 
 ```
 fun x =>
@@ -524,9 +554,11 @@ For instance, a function that doubles its argument can be written as follows:
 `def`을 사용한 정의는 함수 표현식으로 다시 작성될 수 있습니다.
 예를 들어, 인자를 두 배로 하는 함수는 다음과 같이 작성할 수 있습니다:
 
-`def double : Nat → Nat := fun
+```lean
+def double : Nat → Nat := fun
 | 0 => 0
-| k + 1 => double k + 2`
+| k + 1 => double k + 2
+```
 
 When an anonymous function is very simple, like `fun x => x + 1`, the syntax for creating the function can be fairly verbose.
 In that particular example, six non-whitespace characters are used to introduce the function, and its body consists of only three non-whitespace characters.
@@ -548,21 +580,25 @@ If multiple dots are used, then they become parameters from left to right:
 예를 들어, `(· + 5, 3)`은 숫자 쌍을 반환하는 함수이고, `((· + 5), 3)`은 함수와 숫자의 쌍입니다.
 여러 개의 점이 사용되면, 왼쪽부터 오른쪽까지 매개변수가 됩니다:
 
-`(· , ·) 1 2``(1, ·) 2``(1, 2)`
+`(· , ·) 1 2` becomes `(1, ·) 2`, which becomes `(1, 2)`
 
 Anonymous functions can be applied in precisely the same way as functions defined using `def` or `let`.
-The command `10#eval (fun x => x + x) 5` results in:
+The command `#eval (fun x => x + x) 5` results in:
 
 무명 함수는 `def` 또는 `let`을 사용하여 정의된 함수와 정확히 동일한 방식으로 적용될 수 있습니다.
-명령어 `10#eval (fun x => x + x) 5`의 결과:
+명령어 `#eval (fun x => x + x) 5`의 결과:
 
 ```
 10
 ```
 
-while `10#eval (· * 2) 5` results in:
+while `#eval (· * 2) 5` results in:
 
-한편, `10#eval (· * 2) 5`의 결과.
+한편, `#eval (· * 2) 5`의 결과:
+
+```
+10
+```
 
 ## 1.7.8. Namespaces
 
@@ -584,13 +620,17 @@ For instance, the name `double` can be defined in the `Nat` namespace:
 이름은 네임스페이스 내에서 직접 정의될 수 있습니다.
 예를 들어, `double` 이름은 `Nat` 네임스페이스에서 정의될 수 있습니다:
 
-`def Nat.double (x : Nat) : Nat := x + x`
+```lean
+def Nat.double (x : Nat) : Nat := x + x
+```
 
 Because `Nat` is also the name of a type, dot notation is available to call `Nat.double` on expressions with type `Nat`:
 
 `Nat`은 또한 타입의 이름이므로, `Nat` 타입의 표현식에 대해 `Nat.double`을 호출하기 위해 점 표기법을 사용할 수 있습니다:
 
-`8#eval (4 : Nat).double`
+```lean
+#eval (4 : Nat).double
+```
 
 ```
 8
@@ -602,36 +642,44 @@ For instance, this defines `triple` and `quadruple` in the namespace `NewNamespa
 네임스페이스에서 이름을 직접 정의하는 것 외에도, `namespace`와 `end` 명령을 사용하여 선언 시퀀스를 네임스페이스에 배치할 수 있습니다.
 예를 들어, 이것은 `NewNamespace` 네임스페이스에서 `triple`과 `quadruple`을 정의합니다:
 
-`namespace NewNamespace
+```lean
+namespace NewNamespace
 def triple (x : Nat) : Nat := 3 * x
 def quadruple (x : Nat) : Nat := 2 * x + 2 * x
-end NewNamespace`
+end NewNamespace
+```
 
 To refer to them, prefix their names with `NewNamespace.`:
 
 이들을 참조하려면, 이름 앞에 `NewNamespace.`를 붙입니다:
 
-`NewNamespace.triple (x : Nat) : Nat#check NewNamespace.triple`
+```lean
+#check NewNamespace.triple
+```
 
 ```
 NewNamespace.triple (x : Nat) : Nat
 ```
 
-`NewNamespace.quadruple (x : Nat) : Nat#check NewNamespace.quadruple`
+```lean
+#check NewNamespace.quadruple
+```
 
 ```
 NewNamespace.quadruple (x : Nat) : Nat
 ```
 
 Namespaces may be *opened*, which allows the names in them to be used without explicit qualification.
-Writing `open` `MyNamespace``in` before an expression causes the contents of `MyNamespace` to be available in the expression.
+Writing `open MyNamespace in` before an expression causes the contents of `MyNamespace` to be available in the expression.
 For example, `timesTwelve` uses both `quadruple` and `triple` after opening `NewNamespace`:
 
 예를 들어, `timesTwelve`는 `NewNamespace`를 열 때 `quadruple`과 `triple`을 모두 사용합니다:
 
-`def timesTwelve (x : Nat) :=
+```lean
+def timesTwelve (x : Nat) :=
 open NewNamespace in
-quadruple (triple x)`
+quadruple (triple x)
+```
 
 Namespaces can also be opened prior to a command.
 This allows all parts of the command to refer to the contents of the namespace, rather than just a single expression.
@@ -641,8 +689,14 @@ To do this, place the `open` command prior to the command.
 이렇게 하면 명령의 모든 부분이 단일 표현식이 아닌 네임스페이스의 내용을 참조할 수 있습니다.
 이를 수행하려면, 명령 전에 `open` 명령을 배치합니다.
 
-`open NewNamespace in
-NewNamespace.quadruple (x : Nat) : Nat#check quadruple`
+```lean
+open NewNamespace in
+#check quadruple
+```
+
+```
+NewNamespace.quadruple (x : Nat) : Nat
+```
 
 Function signatures show the name's full namespace.
 Namespaces may additionally be opened for *all* following commands for the rest of the file.
@@ -710,7 +764,9 @@ Lean에서, 문자열 앞에 `s!`를 붙이면 *interpolation*이 트리거되�
 이것은 Python의 `f`-문자열 및 C#의 `$`-접두어가 붙은 문자열과 유사합니다.
 예를 들어,
 
-`"three fives is 15"#eval s!"three fives is {NewNamespace.triple 5}"`
+```lean
+#eval s!"three fives is {NewNamespace.triple 5}"
+```
 
 yields the output
 
@@ -724,10 +780,9 @@ For instance, attempting to interpolate a function results in an error.
 모든 표현식을 문자열로 interpolate할 수는 없습니다.
 예를 들어, 함수를 interpolate하려고 시도하면 오류가 발생합니다.
 
-`` toString "three fives is " ++ sorry : String#check s!"three fives is {failed to synthesize
-ToString (Nat → Nat)
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.NewNamespace.triple}" ``
+```lean
+#check s!"three fives is {NewNamespace.triple}"
+```
 
 yields the error
 

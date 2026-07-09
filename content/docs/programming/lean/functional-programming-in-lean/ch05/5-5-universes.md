@@ -1,10 +1,10 @@
 ---
-title: "Universes"
+title: "유니버스"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Universes"
+description: "유니버스"
 ---
 
 # 5.5. Universes
@@ -23,7 +23,9 @@ universe는 다른 type들을 분류하는 type입니다.
 `Prop`은 `"nisse" = "elf"` 또는 `3 > 2` 같은 참이거나 거짓일 수 있는 명제들을 분류합니다.
 `Prop`의 type은 `Type`입니다:
 
-`Prop : Type#check Prop`
+```lean
+#check Prop
+```
 
 ```
 Prop : Type
@@ -83,7 +85,9 @@ This type is called `Type 1`:
 Lean이 일관된 논리적 기초를 가지고 수학을 위한 도구로 사용될 수 있도록 보장하기 위해, `Type`은 다른 type을 가져야 합니다.
 이 type을 `Type 1`이라고 부릅니다:
 
-`Type : Type 1#check Type`
+```lean
+#check Type
+```
 
 ```
 Type : Type 1
@@ -112,7 +116,7 @@ Similarly, even though `Type` is in `Type 1`, the function type `Type → 2 + 2 
 
 이 규칙에는 한 가지 예외가 있습니다.
 function의 return type이 `Prop`이면, argument가 `Type` 또는 `Type 1` 같은 더 큰 universe에 있더라도 전체 function type은 `Prop`에 있습니다.
-특히, 즉, ordinary type을 가지는 값들에 대한 predicate들이 `Prop`에 있음입니다.
+특히, ordinary type을 가지는 값들에 대한 predicate들은 `Prop`에 있습니다.
 예를 들어, type `(n : Nat) → n = n + 0`은 `Nat`에서 그것이 자신 더하기 영과 같다는 증명으로의 function을 나타냅니다.
 `Nat`이 `Type`에 있음에도 불구하고, 이 function type은 이 규칙 때문에 `Prop`에 있습니다.
 마찬가지로, `Type`이 `Type 1`에 있음에도 불구하고, function type `Type → 2 + 2 = 4`는 여전히 `Prop`에 있습니다.
@@ -127,9 +131,11 @@ For instance, in the following declaration, `MyList` is declared to reside in `T
 Lean은 각 datatype이 자신의 type을 포함하는 것을 방지할 수 있을 만큼 충분히 큰 universe에 있어서 역설을 회피하는지 확인합니다.
 예를 들어, 다음 선언에서 `MyList`는 `Type`에 거주하도록 선언되며, 그 type argument `α`도 마찬가지입니다:
 
-`inductive MyList (α : Type) : Type where
-| nil : MyList α
-| cons : α → MyList α → MyList α`
+```lean
+inductive MyList (α : Type) : Type where
+  | nil : MyList α
+  | cons : α → MyList α → MyList α
+```
 
 `MyList` itself is a `Type → Type`.
 This means that it cannot be used to contain actual types, because then its argument would be `Type`, which is a `Type 1`:
@@ -137,15 +143,10 @@ This means that it cannot be used to contain actual types, because then its argu
 `MyList` 자체는 `Type → Type`입니다.
 즉, 그것이 실제 type들을 포함하는 데 사용될 수 없음입니다. 왜냐하면 그 argument가 `Type 1`인 `Type`이 되기 때문입니다:
 
-`` def myListOfNat : MyList Application type mismatch: The argument
-Type
-has type
-Type 1
-of sort `Type 2` but is expected to have type
-Type
-of sort `Type 1` in the application
-MyList TypeType :=
-.cons Nat .nil ``
+```lean
+def myListOfNat : MyList Type :=
+  .cons Nat .nil
+```
 
 ```
 Application type mismatch: The argument
@@ -162,14 +163,11 @@ Updating `MyList` so that its argument is a `Type 1` results in a definition rej
 
 `MyList`의 argument를 `Type 1`로 업데이트하면 Lean에 의해 거부되는 정의가 됩니다:
 
-`` inductive MyList (α : Type 1) : Type where
-| nil : MyList α
-Invalid universe level in constructor `MyList.cons`: Parameter has type
-α
-at universe level
-2
-which is not less than or equal to the inductive type's resulting universe level
-1| cons : α → MyList α → MyList α ``
+```lean
+inductive MyList (α : Type 1) : Type where
+  | nil : MyList α
+  | cons : α → MyList α → MyList α
+```
 
 ```
 Invalid universe level in constructor `MyList.cons`: Parameter has type
@@ -222,25 +220,31 @@ If the resulting datatype is used with `Type`, then `u` is `0`, and if it's used
 `MyList`의 이 정의는 특정 universe level을 지정하지 않고, 대신 변수 `u`를 사용하여 임의의 level을 나타냅니다.
 결과 datatype이 `Type`과 함께 사용되면 `u`는 `0`이고, `Type 3`과 함께 사용되면 `u`는 `3`입니다:
 
-`inductive MyList (α : Type u) : Type u where
-| nil : MyList α
-| cons : α → MyList α → MyList α`
+```lean
+inductive MyList (α : Type u) : Type u where
+  | nil : MyList α
+  | cons : α → MyList α → MyList α
+```
 
 With this definition, the same definition of `MyList` can be used to contain both actual natural numbers and the natural number type itself:
 
 이 정의를 사용하면, 동일한 `MyList` 정의를 사용하여 실제 자연수와 자연수 type 자체를 모두 포함할 수 있습니다:
 
-`def myListOfNumbers : MyList Nat :=
-.cons 0 (.cons 1 .nil)
+```lean
+def myListOfNumbers : MyList Nat :=
+  .cons 0 (.cons 1 .nil)
 def myListOfNat : MyList Type :=
-.cons Nat .nil`
+  .cons Nat .nil
+```
 
 It can even contain itself:
 
 그것은 심지어 자신을 포함할 수도 있습니다:
 
-`def myListOfList : MyList (Type → Type) :=
-.cons MyList .nil`
+```lean
+def myListOfList : MyList (Type → Type) :=
+  .cons MyList .nil
+```
 
 It would seem that this would make it possible to write a logical paradox.
 After all, the whole point of the universe system is to rule out self-referential types.
@@ -258,12 +262,14 @@ Writing the levels explicitly, the prior example becomes:
 
 level들을 명시적으로 작성하면, 이전 예제는 다음과 같이 됩니다:
 
-`def myListOfNumbers : MyList.{0} Nat :=
-.cons 0 (.cons 1 .nil)
+```lean
+def myListOfNumbers : MyList.{0} Nat :=
+  .cons 0 (.cons 1 .nil)
 def myListOfNat : MyList.{1} Type :=
-.cons Nat .nil
+  .cons Nat .nil
 def myListOfList : MyList.{1} (Type → Type) :=
-.cons MyList.{0} .nil`
+  .cons MyList.{0} .nil
+```
 
 When a universe-polymorphic definition takes multiple types as arguments, it's a good idea to give each argument its own level variable for maximum flexibility.
 For example, a version of `Sum` with a single level argument can be written as follows:
@@ -271,29 +277,28 @@ For example, a version of `Sum` with a single level argument can be written as f
 universe-polymorphic 정의가 여러 type들을 argument로 취할 때, 최대 유연성을 위해 각 argument에 자신의 level 변수를 주는 것이 좋습니다.
 예를 들어, 단일 level argument를 가진 `Sum`의 버전은 다음과 같이 작성될 수 있습니다:
 
-`inductive Sum (α : Type u) (β : Type u) : Type u where
-| inl : α → Sum α β
-| inr : β → Sum α β`
+```lean
+inductive Sum (α : Type u) (β : Type u) : Type u where
+  | inl : α → Sum α β
+  | inr : β → Sum α β
+```
 
 This definition can be used at multiple levels:
 
 이 정의는 여러 level들에서 사용될 수 있습니다:
 
-`def stringOrNat : Sum String Nat := .inl "hello"
-def typeOrType : Sum Type Type := .inr Nat`
+```lean
+def stringOrNat : Sum String Nat := .inl "hello"
+def typeOrType : Sum Type Type := .inr Nat
+```
 
 However, it requires that both arguments be in the same universe:
 
 그러나, 그것은 두 argument들이 같은 universe에 있기를 요구합니다:
 
-`` def stringOrType : Sum String Application type mismatch: The argument
-Type
-has type
-Type 1
-of sort `Type 2` but is expected to have type
-Type
-of sort `Type 1` in the application
-Sum String TypeType := .inr Nat ``
+```lean
+def stringOrType : Sum String Type := .inr Nat
+```
 
 ```
 Application type mismatch: The argument
@@ -310,15 +315,19 @@ This datatype can be made more flexible by using different variables for the two
 
 이 datatype은 두 type argument들의 universe level에 대해 서로 다른 변수들을 사용함으로써 더 유연하게 만들 수 있으며, 그러면 결과 datatype이 둘 중 가장 큰 것에 있다고 선언합니다:
 
-`inductive Sum (α : Type u) (β : Type v) : Type (max u v) where
-| inl : α → Sum α β
-| inr : β → Sum α β`
+```lean
+inductive Sum (α : Type u) (β : Type v) : Type (max u v) where
+  | inl : α → Sum α β
+  | inr : β → Sum α β
+```
 
 This allows `Sum` to be used with arguments from different universes:
 
 이는 `Sum`이 서로 다른 universe들의 argument들과 함께 사용되도록 허용합니다:
 
-`def stringOrType : Sum String Type := .inr Nat`
+```lean
+def stringOrType : Sum String Type := .inr Nat
+```
 
 In positions where Lean expects a universe level, any of the following are allowed:
 
@@ -380,19 +389,23 @@ Lists of propositions have type `List Prop`:
 즉, `Prop`이 `Nat`과 같은 이유로 `List`에 제공할 적절한 argument라는 것입니다.
 명제들의 list는 type `List Prop`을 가집니다:
 
-`def someTruePropositions : List Prop := [
-1 + 1 = 2,
-"Hello, " ++ "world!" = "Hello, world!"
-]`
+```lean
+def someTruePropositions : List Prop := [
+  1 + 1 = 2,
+  "Hello, " ++ "world!" = "Hello, world!"
+]
+```
 
 Filling out the universe argument explicitly demonstrates that `Prop` is a `Type`:
 
 universe argument를 명시적으로 채우면 `Prop`이 `Type`임을 보여줍니다:
 
-`def someTruePropositions : List.{0} Prop := [
-1 + 1 = 2,
-"Hello, " ++ "world!" = "Hello, world!"
-]`
+```lean
+def someTruePropositions : List.{0} Prop := [
+  1 + 1 = 2,
+  "Hello, " ++ "world!" = "Hello, world!"
+]
+```
 
 Behind the scenes, `Prop` and `Type` are united into a single hierarchy called `Sort`.
 `Prop` is the same as `Sort 0`, `Type 0` is `Sort 1`, `Type 1` is `Sort 2`, and so forth.

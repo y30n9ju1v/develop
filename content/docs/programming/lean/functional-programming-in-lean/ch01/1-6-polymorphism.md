@@ -1,10 +1,10 @@
 ---
-title: "Polymorphism"
+title: "다형성"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Polymorphism"
+description: "다형성"
 ---
 
 # 1.6. Polymorphism
@@ -33,9 +33,11 @@ The `Point` structure requires that both the `x` and `y` fields are `Float`s.
 There is, however, nothing about points that require a specific representation for each coordinate.
 A polymorphic version of `Point`, called `PPoint`, can take a type as an argument, and then use that type for both fields:
 
-`structure PPoint (α : Type) where
+```lean
+structure PPoint (α : Type) where
 x : α
-y : α`
+y : α
+```
 
 Just as a function definition's arguments are written immediately after the name being defined, a structure's arguments are written immediately after the structure's name.
 It is customary to use Greek letters to name type arguments in Lean when no more specific name suggests itself.
@@ -45,9 +47,11 @@ It is customary to use Greek letters to name type arguments in Lean when no more
 그러나 각 좌표에 대한 특정 표현이 필요한 점에 대해 특별한 것은 없습니다.
 `PPoint`라고 불리는 `Point`의 다형 버전은 타입을 인수로 받을 수 있고, 그 타입을 두 필드 모두에 사용할 수 있습니다:
 
-`structure PPoint (α : Type) where
+```lean
+structure PPoint (α : Type) where
 x : α
-y : α`
+y : α
+```
 
 함수 정의의 인수가 정의되는 이름 직후에 작성되는 것처럼, 구조체의 인수는 구조체의 이름 직후에 작성됩니다.
 더 구체적인 이름이 없을 때 Lean에서 타입 인수의 이름을 지정하기 위해 그리스 문자를 사용하는 것이 관례입니다.
@@ -55,8 +59,10 @@ y : α`
 
 Just like `List`, `PPoint` can be used by providing a specific type as its argument:
 
-`def natOrigin : PPoint Nat :=
-{ x := Nat.zero, y := Nat.zero }`
+```lean
+def natOrigin : PPoint Nat :=
+{ x := Nat.zero, y := Nat.zero }
+```
 
 In this example, both fields are expected to be `Nat`s.
 Just as a function is called by replacing its argument variables with its argument values, providing `PPoint` with the type `Nat` as an argument yields a structure in which the fields `x` and `y` have the type `Nat`, because the argument name `α` has been replaced by the argument type `Nat`.
@@ -73,8 +79,10 @@ The function `replaceX` replaces the `x` field of a `PPoint` with a new value.
 In order to allow `replaceX` to work with *any* polymorphic point, it must be polymorphic itself.
 This is achieved by having its first argument be the type of the point's fields, with later arguments referring back to the first argument's name.
 
-`def replaceX (α : Type) (point : PPoint α) (newX : α) : PPoint α :=
-{ point with x := newX }`
+```lean
+def replaceX (α : Type) (point : PPoint α) (newX : α) : PPoint α :=
+{ point with x := newX }
+```
 
 In other words, when the types of the arguments `point` and `newX` mention `α`, they are referring to *whichever type was provided as the first argument*.
 This is similar to the way that function argument names refer to the values that were provided when they occur in the function's body.
@@ -89,7 +97,9 @@ This is similar to the way that function argument names refer to the values that
 
 This can be seen by asking Lean to check the type of `replaceX`, and then asking it to check the type of `replaceX Nat`.
 
-`#check (replaceX)`
+```lean
+#check replaceX
+```
 
 ```
 replaceX : (α : Type) → PPoint α → α → PPoint α
@@ -105,7 +115,9 @@ Providing the first argument, `Nat`, causes all occurrences of `α` in the remai
 함수 적용의 값이 함수의 본문에서 인수 이름을 제공된 인수 값으로 대체하여 찾아지는 것처럼, 함수 적용의 타입은 함수의 반환 타입에서 인수의 이름을 제공된 값으로 대체하여 찾아집니다.
 첫 번째 인수 `Nat`을 제공하면, 타입의 나머지 부분에서 `α`의 모든 발생이 `Nat`으로 대체됩니다:
 
-`#check replaceX Nat`
+```lean
+#check replaceX Nat
+```
 
 ```
 replaceX Nat : PPoint Nat → Nat → PPoint Nat
@@ -115,13 +127,17 @@ Because the remaining arguments are not explicitly named, no further substitutio
 
 나머지 인수들이 명시적으로 이름지어지지 않았으므로, 더 많은 인수가 제공될 때 추가 대체가 발생하지 않습니다:
 
-`#check replaceX Nat natOrigin`
+```lean
+#check replaceX Nat natOrigin
+```
 
 ```
 replaceX Nat natOrigin : Nat → PPoint Nat
 ```
 
-`#check replaceX Nat natOrigin 5`
+```lean
+#check replaceX Nat natOrigin 5
+```
 
 ```
 replaceX Nat natOrigin 5 : PPoint Nat
@@ -131,7 +147,9 @@ The fact that the type of the whole function application expression was determin
 
 전체 함수 적용 표현식의 타입이 타입을 인수로 전달하여 결정된다는 사실은 그것을 평가하는 능력에 영향을 주지 않습니다.
 
-`#eval replaceX Nat natOrigin 5`
+```lean
+#eval replaceX Nat natOrigin 5
+```
 
 ```
 { x := 5, y := 0 }
@@ -145,9 +163,11 @@ Given a datatype that represents positive or negative signs:
 그러나 타입 인수가 이름지어질 수 있도록 하는 특별한 것은 없습니다.
 양수 또는 음수 부호를 나타내는 데이터타입이 주어지면:
 
-`inductive Sign where
+```lean
+inductive Sign where
 | pos
-| neg`
+| neg
+```
 
 it is possible to write a function whose argument is a sign.
 If the argument is positive, the function returns a `Nat`, while if it's negative, it returns an `Int`:
@@ -155,11 +175,13 @@ If the argument is positive, the function returns a `Nat`, while if it's negativ
 부호를 인수로 받는 함수를 작성할 수 있습니다.
 인수가 양수이면 함수는 `Nat`을 반환하고, 음수이면 `Int`를 반환합니다:
 
-`def posOrNegThree (s : Sign) :
+```lean
+def posOrNegThree (s : Sign) :
 match s with | Sign.pos => Nat | Sign.neg => Int :=
 match s with
 | Sign.pos => (3 : Nat)
-| Sign.neg => (-3 : Int)`
+| Sign.neg => (-3 : Int)
+```
 
 Because types are first class and can be computed using the ordinary rules of the Lean language, they can be computed by pattern-matching against a datatype.
 When Lean is checking this function, it uses the fact that the `match`-expression in the function's body corresponds to the `match`-expression in the type to make `Nat` be the expected type for the `pos` case and to make `Int` be the expected type for the `neg` case.
@@ -179,13 +201,17 @@ Lean's standard library includes a canonical linked list datatype, called `List`
 Lists are written in square brackets.
 For instance, a list that contains the prime numbers less than 10 can be written:
 
-`def primesUnder10 : List Nat := [2, 3, 5, 7]`
+```lean
+def primesUnder10 : List Nat := [2, 3, 5, 7]
+```
 
 Behind the scenes, `List` is an inductive datatype, defined like this:
 
-`inductive List (α : Type) where
+```lean
+inductive List (α : Type) where
 | nil : List α
-| cons : α → List α → List α`
+| cons : α → List α → List α
+```
 
 The actual definition in the standard library is slightly different, because it uses features that have not yet been presented, but it is substantially similar.
 
@@ -212,8 +238,10 @@ A list that contains `n` entries contains `n` `cons` constructors, the last of w
 
 The `primesUnder10` example can be written more explicitly by using `List`'s constructors directly:
 
-`def explicitPrimesUnder10 : List Nat :=
-List.cons 2 (List.cons 3 (List.cons 5 (List.cons 7 List.nil)))`
+```lean
+def explicitPrimesUnder10 : List Nat :=
+List.cons 2 (List.cons 3 (List.cons 5 (List.cons 7 List.nil)))
+```
 
 These two definitions are completely equivalent, but `primesUnder10` is much easier to read than `explicitPrimesUnder10`.
 
@@ -237,20 +265,24 @@ Generally, functions follow the shape of the data: recursive datatypes lead to r
 `length`의 정의는 다형적(리스트 항목 타입을 인수로 받기 때문에)이면서 동시에 재귀적(자신을 참조하기 때문에)입니다.
 일반적으로, 함수들은 데이터의 모양을 따릅니다: 재귀적 데이터타입은 재귀적 함수를 야기하고, 다형 데이터타입은 다형 함수를 야기합니다.
 
-`def length (α : Type) (xs : List α) : Nat :=
+```lean
+def length (α : Type) (xs : List α) : Nat :=
 match xs with
 | List.nil => Nat.zero
-| List.cons y ys => Nat.succ (length α ys)`
+| List.cons y ys => Nat.succ (length α ys)
+```
 
 Names such as `xs` and `ys` are conventionally used to stand for lists of unknown values.
 The `s` in the name indicates that they are plural, so they are pronounced “exes” and “whys” rather than “x s” and “y s”.
 
 To make it easier to read functions on lists, the bracket notation `[]` can be used to pattern-match against `nil`, and an infix `::` can be used in place of `cons`:
 
-`def length (α : Type) (xs : List α) : Nat :=
+```lean
+def length (α : Type) (xs : List α) : Nat :=
 match xs with
 | [] => 0
-| y :: ys => Nat.succ (length α ys)`
+| y :: ys => Nat.succ (length α ys)
+```
 
 ## 1.6.2. Implicit Arguments
 
@@ -260,8 +292,10 @@ This is also the case in Lean.
 Arguments can be declared *implicit* by wrapping them in curly braces instead of parentheses when defining a function.
 For example, a version of `replaceX` with an implicit type argument looks like this:
 
-`def replaceX {α : Type} (point : PPoint α) (newX : α) : PPoint α :=
-{ point with x := newX }`
+```lean
+def replaceX {α : Type} (point : PPoint α) (newX : α) : PPoint α :=
+{ point with x := newX }
+```
 
 It can be used with `natOrigin` without providing `Nat` explicitly, because Lean can *infer* the value of `α` from the later arguments:
 
@@ -273,22 +307,32 @@ Lean도 마찬가지입니다.
 
 `Nat`을 명시적으로 제공하지 않고도 `natOrigin`과 함께 사용할 수 있습니다. Lean이 나중 인수에서 `α`의 값을 *추론*할 수 있기 때문입니다:
 
-`{ x := 5, y := 0 }#eval replaceX natOrigin 5`
+```lean
+#eval replaceX natOrigin 5
+```
+
+```
+{ x := 5, y := 0 }
+```
 
 Similarly, `length` can be redefined to take the entry type implicitly:
 
 마찬가지로, `length`는 항목 타입을 암시적으로 받도록 재정의할 수 있습니다:
 
-`def length {α : Type} (xs : List α) : Nat :=
+```lean
+def length {α : Type} (xs : List α) : Nat :=
 match xs with
 | [] => 0
-| y :: ys => Nat.succ (length ys)`
+| y :: ys => Nat.succ (length ys)
+```
 
 This `length` function can be applied directly to `primesUnder10`:
 
 이 `length` 함수는 `primesUnder10`에 직접 적용될 수 있습니다:
 
-`4#eval length primesUnder10`
+```lean
+#eval length primesUnder10
+```
 
 ```
 4
@@ -298,7 +342,13 @@ In the standard library, Lean calls this function `List.length`, which means tha
 
 표준 라이브러리에서, Lean은 이 함수를 `List.length`라고 부르며, 이는 구조체 필드 접근에 사용되는 점 표기법이 또한 리스트의 길이를 찾는 데도 사용될 수 있음을 의미합니다:
 
-`4#eval primesUnder10.length`
+```lean
+#eval primesUnder10.length
+```
+
+```
+4
+```
 
 Just as C# and Java require type arguments to be provided explicitly from time to time, Lean is not always capable of finding implicit arguments.
 In these cases, they can be provided using their names.
@@ -308,7 +358,9 @@ C#과 Java가 때때로 타입 인수를 명시적으로 제공하도록 요구�
 이러한 경우들에, 그들은 이름을 사용하여 제공될 수 있습니다.
 예를 들어, 정수 리스트에만 작동하는 `List.length` 버전은 `α`를 `Int`로 설정하여 지정할 수 있습니다:
 
-`List.length : List Int → Nat#check List.length (α := Int)`
+```lean
+#check List.length (α := Int)
+```
 
 ```
 List.length : List Int → Nat
@@ -348,9 +400,11 @@ The non-null constructor, `some`, contains the underlying value, while `none` ta
 `Option`은 `some`과 `none`이라는 두 개의 생성자를 가지는데, 이들은 각각 기저 타입의 non-null과 null 버전을 나타냅니다.
 non-null 생성자인 `some`은 기저 값을 포함하고, `none`은 인수를 받지 않습니다:
 
-`inductive Option (α : Type) : Type where
+```lean
+inductive Option (α : Type) : Type where
 | none : Option α
-| some (val : α) : Option α`
+| some (val : α) : Option α
+```
 
 The `Option` type is very similar to nullable types in languages like C# and Kotlin, but it is not identical.
 In these languages, if a type (say, `Boolean`) always refers to actual values of the type (`true` and `false`), the type `Boolean?` or `Nullable<Boolean>` additionally admits the `null` value.
@@ -381,10 +435,12 @@ Using underscores instead of names is a way to clearly communicate to readers th
 패턴에서, 언더스코어는 모든 것을 매칭하지만, 매칭된 데이터를 참조하기 위한 변수를 도입하지 않습니다.
 이름 대신 언더스코어를 사용하는 것은 입력의 일부가 무시된다는 것을 독자에게 명확하게 전달하는 방법입니다.
 
-`def List.head? {α : Type} (xs : List α) : Option α :=
+```lean
+def List.head? {α : Type} (xs : List α) : Option α :=
 match xs with
 | [] => none
-| y :: _ => some y`
+| y :: _ => some y
+```
 
 A Lean naming convention is to define operations that might fail in groups using the suffixes `?` for a version that returns an `Option`, `!` for a version that crashes when provided with invalid input, and `D` for a version that returns a default value when the operation would otherwise fail.
 Following this pattern, `List.head` requires the caller to provide mathematical evidence that the list is not empty, `List.head?` returns an `Option`, `List.head!` crashes the program when passed an empty list, and `List.headD` takes a default value to return in case the list is empty.
@@ -398,7 +454,9 @@ Because `head?` is defined in the `List` namespace, it can be used with accessor
 
 `head?`가 `List` namespace에 정의되어 있기 때문에, 접근자 표기법과 함께 사용될 수 있습니다:
 
-`some 2#eval primesUnder10.head?`
+```lean
+#eval primesUnder10.head?
+```
 
 ```
 some 2
@@ -406,13 +464,9 @@ some 2
 
 However, attempting to test it on the empty list leads to two errors:
 
-`` #eval don't know how to synthesize implicit argument `α`
-@_root_.List.head? ?m.3 []
-context:
-⊢ Type ?u.71735don't know how to synthesize implicit argument `α`
-@List.nil ?m.3
-context:
-⊢ Type ?u.71735[].head? ``
+```lean
+#eval [].head?
+```
 
 ```
 don't know how to synthesize implicit argument `α`
@@ -442,7 +496,9 @@ Lean의 출력에서, `?m.XYZ`는 추론될 수 없는 프로그램의 일부를
 표현식을 평가하기 위해, Lean은 그 타입을 찾을 수 있어야 하며, 빈 리스트는 타입을 찾을 수 있는 항목이 없기 때문에 타입을 사용할 수 없었습니다.
 명시적으로 타입을 제공하면 Lean이 진행할 수 있습니다:
 
-`none#eval [].head? (α := Int)`
+```lean
+#eval [].head? (α := Int)
+```
 
 ```
 none
@@ -452,7 +508,13 @@ The type can also be provided with a type annotation:
 
 타입은 타입 주석으로도 제공될 수 있습니다:
 
-`none#eval ([] : List Int).head?`
+```lean
+#eval ([] : List Int).head?
+```
+
+```
+none
+```
 
 The error messages provide a useful clue.
 Both messages use the *same* metavariable to describe the missing implicit argument, which means that Lean has determined that the two missing pieces will share a solution, even though it was unable to determine the actual value of the solution.
@@ -488,9 +550,11 @@ The structure `Prod` is defined with two type arguments:
 
 `Prod` 구조체는 두 개의 타입 인수로 정의됩니다:
 
-`structure Prod (α : Type) (β : Type) : Type where
+```lean
+structure Prod (α : Type) (β : Type) : Type where
 fst : α
-snd : β`
+snd : β
+```
 
 Lists are used so frequently that there is special syntax to make them more readable.
 For the same reason, both the product type and its constructor have special syntax.
@@ -504,13 +568,17 @@ In other words, instead of writing:
 마찬가지로, pair에 대한 관례적인 수학 표기법이 `Prod`에 사용될 수 있습니다.
 다시 말해, 다음과 같이 작성하는 대신:
 
-`def fives : String × Int := { fst := “five”, snd := 5 }`
+```lean
+def fives : String × Int := { fst := "five", snd := 5 }
+```
 
 it suffices to write:
 
 다음과 같이 쓰면 충분합니다:
 
-`def fives : String × Int := (“five”, 5)`
+```lean
+def fives : String × Int := ("five", 5)
+```
 
 Both notations are right-associative.
 
@@ -519,7 +587,10 @@ This means that the following definitions are equivalent:
 
 이는 다음 정의들이 동등함을 의미합니다:
 
-`def sevens : String × Int × Nat := ("VII", 7, 4 + 3)``def sevens : String × (Int × Nat) := ("VII", (7, 4 + 3))`
+```lean
+def sevens : String × Int × Nat := ("VII", 7, 4 + 3)
+def sevens : String × (Int × Nat) := ("VII", (7, 4 + 3))
+```
 
 In other words, all products of more than two types, and their corresponding constructors, are actually nested products and nested pairs behind the scenes.
 
@@ -541,9 +612,11 @@ Values of type `Sum α β` are either the constructor `inl` applied to a value o
 
 `Sum α β` 타입의 값들은 `α` 타입의 값에 적용된 생성자 `inl`이거나 `β` 타입의 값에 적용된 생성자 `inr`입니다:
 
-`inductive Sum (α : Type) (β : Type) : Type where
+```lean
+inductive Sum (α : Type) (β : Type) : Type where
 | inl : α → Sum α β
-| inr : β → Sum α β`
+| inr : β → Sum α β
+```
 
 These names are abbreviations for “left injection” and “right injection”, respectively.
 Just as the Cartesian product notation is used for `Prod`, a “circled plus” notation is used for `Sum`, so `α ⊕ β` is another way to write `Sum α β`.
@@ -557,7 +630,9 @@ As an example, if pet names can either be dog names or cat names, then a type fo
 
 예시로, 애완동물 이름이 개 이름이거나 고양이 이름이라면, 그들을 위한 타입은 문자열의 합으로 도입될 수 있습니다:
 
-`def PetName : Type := String ⊕ String`
+```lean
+def PetName : Type := String ⊕ String
+```
 
 In a real program, it would usually be better to define a custom inductive datatype for this purpose with informative constructor names.
 Here, `Sum.inl` is to be used for dog names, and `Sum.inr` is to be used for cat names.
@@ -567,9 +642,11 @@ These constructors can be used to write a list of animal names:
 여기서, `Sum.inl`은 개 이름을 위해 사용되고, `Sum.inr`은 고양이 이름을 위해 사용됩니다.
 이 생성자들은 동물 이름의 리스트를 작성하는 데 사용될 수 있습니다:
 
-`def animals : List PetName :=
+```lean
+def animals : List PetName :=
 [Sum.inl "Spot", Sum.inr "Tiger", Sum.inl "Fifi",
-Sum.inl "Rex", Sum.inr "Floof"]`
+Sum.inl "Rex", Sum.inr "Floof"]
+```
 
 Pattern matching can be used to distinguish between the two constructors.
 For instance, a function that counts the number of dogs in a list of animal names (that is, the number of `Sum.inl` constructors) looks like this:
@@ -577,17 +654,19 @@ For instance, a function that counts the number of dogs in a list of animal name
 패턴 매칭을 사용하여 두 생성자를 구분할 수 있습니다.
 예를 들어, 동물 이름 리스트에서 개의 개수를 세는 함수 (즉, `Sum.inl` 생성자의 개수)는 다음과 같습니다:
 
-`def howManyDogs (pets : List PetName) : Nat :=
+```lean
+def howManyDogs (pets : List PetName) : Nat :=
 match pets with
 | [] => 0
 | Sum.inl _ :: morePets => howManyDogs morePets + 1
-| Sum.inr _ :: morePets => howManyDogs morePets`
+| Sum.inr _ :: morePets => howManyDogs morePets
+```
 
 Function calls are evaluated before infix operators, so `howManyDogs morePets + 1` is the same as `(howManyDogs morePets) + 1`.
-As expected, `3#eval howManyDogs animals` yields `3`.
+As expected, `#eval howManyDogs animals` yields `3`.
 
 함수 호출은 중위 연산자 전에 평가되므로, `howManyDogs morePets + 1`은 `(howManyDogs morePets) + 1`과 동일합니다.
-예상대로, `3#eval howManyDogs animals`는 `3`을 산출합니다.
+예상대로, `#eval howManyDogs animals`는 `3`을 산출합니다.
 
 ### 1.6.3.4. `Unit`
 
@@ -595,18 +674,22 @@ As expected, `3#eval howManyDogs animals` yields `3`.
 In other words, it describes only a single value, which consists of said constructor applied to no arguments whatsoever.
 `Unit` is defined as follows:
 
-`inductive Unit : Type where
-| unit : Unit`
+```lean
+inductive Unit : Type where
+| unit : Unit
+```
 
 On its own, `Unit` is not particularly useful.
 However, in polymorphic code, it can be used as a placeholder for data that is missing.
 For instance, the following inductive datatype represents arithmetic expressions:
 
-`inductive ArithExpr (ann : Type) : Type where
+```lean
+inductive ArithExpr (ann : Type) : Type where
 | int : ann → Int → ArithExpr ann
 | plus : ann → ArithExpr ann → ArithExpr ann → ArithExpr ann
 | minus : ann → ArithExpr ann → ArithExpr ann → ArithExpr ann
-| times : ann → ArithExpr ann → ArithExpr ann → ArithExpr ann`
+| times : ann → ArithExpr ann → ArithExpr ann → ArithExpr ann
+```
 
 The type argument `ann` stands for annotations, and each constructor is annotated.
 Expressions coming from a parser might be annotated with source locations, so a return type of `ArithExpr SourcePos` ensures that the parser put a `SourcePos` at each subexpression.
@@ -616,8 +699,10 @@ Expressions that don't come from the parser, however, will not have source locat
 다시 말해, 이는 단일 값만 설명하며, 인수 없이 적용된 생성자로 구성됩니다.
 `Unit`은 다음과 같이 정의됩니다:
 
-`inductive Unit : Type where
-| unit : Unit`
+```lean
+inductive Unit : Type where
+| unit : Unit
+```
 
 자체적으로 `Unit`은 특별히 유용하지 않습니다.
 그러나 다형 코드에서, 누락된 데이터에 대한 자리 표시자로 사용될 수 있습니다.
@@ -691,13 +776,10 @@ These errors usually state something about “universe levels”.
 이 에러들은 보통 “universe levels”에 대해 언급합니다.
 For example, for this inductive type:
 
-`` inductive MyType : Type where
-Invalid universe level in constructor `MyType.ctor`: Parameter `α` has type
-Type
-at universe level
-2
-which is not less than or equal to the inductive type's resulting universe level
-1| ctor : (α : Type) → α → MyType ``
+```lean
+inductive MyType : Type where
+| ctor : (α : Type) → α → MyType
+```
 
 Lean gives the following error:
 
@@ -722,8 +804,10 @@ For example:
 마찬가지로, 생성자의 인수가 정의되는 데이터타입을 인수로 받는 함수라면, 정의는 거부됩니다.
 예를 들어:
 
-`(kernel) arg #1 of 'MyType.ctor' has a non positive occurrence of the datatypes being declaredinductive MyType : Type where
-| ctor : (MyType → Int) → MyType`
+```lean
+inductive MyType : Type where
+| ctor : (MyType → Int) → MyType
+```
 
 yields the message:
 
@@ -743,31 +827,13 @@ For example, this function that determines whether two lists have the same lengt
 그렇지 않으면, 재귀 호출이 더 작은 값에 대해 이루어지는지 확인하는 Lean의 메커니즘이 입력 값과 재귀 호출의 인수 사이의 연결을 볼 수 없습니다.
 예를 들어, 두 개의 리스트가 같은 길이를 가지는지 결정하는 이 함수는 거부됩니다:
 
-`` def fail to show termination for
-sameLength
-with errors
-failed to infer structural recursion:
-Not considering parameter α of sameLength:
-it is unchanged in the recursive calls
-Not considering parameter β of sameLength:
-it is unchanged in the recursive calls
-Cannot use parameter xs:
-failed to eliminate recursive application
-sameLength xs' ys'
-Cannot use parameter ys:
-failed to eliminate recursive application
-sameLength xs' ys'
-
-Could not find a decreasing measure.
-The basic measures relate at each recursive call as follows:
-(<, ≤, =: relation proved, ? all proofs failed, _: no proof attempted)
-xs ys
-1) 1816:28-46 ? ?
-Please use `termination_by` to specify a decreasing measure.sameLength (xs : List α) (ys : List β) : Bool :=
+```lean
+def sameLength (xs : List α) (ys : List β) : Bool :=
 match (xs, ys) with
 | ([], []) => true
 | (x :: xs', y :: ys') => sameLength xs' ys'
-| _ => false ``
+| _ => false
+```
 
 The error message is:
 
@@ -801,16 +867,18 @@ The problem can be fixed through nested pattern matching:
 
 문제는 중첩된 패턴 매칭을 통해 해결될 수 있습니다:
 
-`def sameLength (xs : List α) (ys : List β) : Bool :=
+```lean
+def sameLength (xs : List α) (ys : List β) : Bool :=
 match xs with
 | [] =>
-match ys with
-| [] => true
-| _ => false
+  match ys with
+  | [] => true
+  | _ => false
 | x :: xs' =>
-match ys with
-| y :: ys' => sameLength xs' ys'
-| _ => false`
+  match ys with
+  | y :: ys' => sameLength xs' ys'
+  | _ => false
+```
 
 [Simultaneous matching](../ch01/), described in the next section, is another way to solve the problem that is often more elegant.
 
@@ -819,9 +887,10 @@ match ys with
 Forgetting an argument to an inductive type can also yield a confusing message.
 For example, when the argument `α` is not passed to `MyType` in `ctor`'s type:
 
-`inductive MyType (α : Type) : Type where
-| ctor : α → type expected, got
- (MyType : Type → Type)MyType`
+```lean
+inductive MyType (α : Type) : Type where
+| ctor : α → MyType
+```
 
 Lean replies with the following error:
 
@@ -835,19 +904,33 @@ The error message is saying that `MyType`'s type, which is `Type → Type`, does
 
 The same message can appear when type arguments are omitted in other contexts, such as in a type signature for a definition:
 
-`inductive MyType (α : Type) : Type where
-| ctor : α → MyType α``def ofFive : type expected, got
- (MyType : Type → Type)MyType := ctor 5`
+```lean
+inductive MyType (α : Type) : Type where
+| ctor : α → MyType α
+
+def ofFive : MyType := ctor 5
+```
+
+```
+type expected, got
+  (MyType : Type → Type)
+```
 
 Evaluating expressions that use polymorphic types may trigger a situation in which Lean is incapable of displaying a value.
 The `#eval` command evaluates the provided expression, using the expression's type to determine how to display the result.
 For some types, such as functions, this process fails, but Lean is perfectly capable of automatically generating display code for most other types.
 There is no need, for example, to provide Lean with any specific display code for `WoodSplittingTool`:
 
-`inductive WoodSplittingTool where
+```lean
+inductive WoodSplittingTool where
 | axe
 | maul
-| froe``WoodSplittingTool.axe#eval WoodSplittingTool.axe`
+| froe
+```
+
+```lean
+#eval WoodSplittingTool.axe
+```
 
 ```
 WoodSplittingTool.axe
@@ -856,16 +939,19 @@ WoodSplittingTool.axe
 There are limits to the automation that Lean uses here, however.
 `allTools` is a list of all three tools:
 
-`def allTools : List WoodSplittingTool := [
-WoodSplittingTool.axe,
-WoodSplittingTool.maul,
-WoodSplittingTool.froe
-]`
+```lean
+def allTools : List WoodSplittingTool := [
+  WoodSplittingTool.axe,
+  WoodSplittingTool.maul,
+  WoodSplittingTool.froe
+]
+```
 
 Evaluating it leads to an error:
 
-`` could not synthesize a `ToExpr`, `Repr`, or `ToString` instance for type
-List WoodSplittingTool#eval allTools ``
+```lean
+#eval allTools
+```
 
 ```
 could not synthesize a `ToExpr`, `Repr`, or `ToString` instance for type
@@ -875,19 +961,27 @@ could not synthesize a `ToExpr`, `Repr`, or `ToString` instance for type
 This is because Lean attempts to use code from a built-in table to display a list, but this code demands that display code for `WoodSplittingTool` already exists.
 This error can be worked around by instructing Lean to generate this display code when a datatype is defined, instead of at the last moment as part of `#eval`, by adding `deriving Repr` to its definition:
 
-`inductive Firewood where
+```lean
+inductive Firewood where
 | birch
 | pine
 | beech
-deriving Repr`
+deriving Repr
+```
 
 Evaluating a list of `Firewood` succeeds:
 
-`def allFirewood : List Firewood := [
-Firewood.birch,
-Firewood.pine,
-Firewood.beech
-]``[Firewood.birch, Firewood.pine, Firewood.beech]#eval allFirewood`
+```lean
+def allFirewood : List Firewood := [
+  Firewood.birch,
+  Firewood.pine,
+  Firewood.beech
+]
+```
+
+```lean
+#eval allFirewood
+```
 
 ```
 [Firewood.birch, Firewood.pine, Firewood.beech]
@@ -900,6 +994,6 @@ Firewood.beech
 * Write a function `Prod.switch` that switches the two fields in a pair for each other. Start the definition with `def Prod.switch {α β : Type} (pair : α × β) : β × α := …`.
 * Rewrite the `PetName` example to use a custom datatype and compare it to the version that uses `Sum`.
 * Write a function `zip` that combines two lists into a list of pairs. The resulting list should be as long as the shortest input list. Start the definition with `def zip {α β : Type} (xs : List α) (ys : List β) : List (α × β) := …`.
-* Write a polymorphic function `take` that returns the first `n` entries in a list, where `n` is a `Nat`. If the list contains fewer than `n` entries, then the resulting list should be the entire input list. `#eval take 3 ["bolete", "oyster"]` should yield `["bolete", "oyster"]`, and `["bolete"]#eval take 1 ["bolete", "oyster"]` should yield `["bolete"]`.
+* Write a polymorphic function `take` that returns the first `n` entries in a list, where `n` is a `Nat`. If the list contains fewer than `n` entries, then the resulting list should be the entire input list. `#eval take 3 ["bolete", "oyster"]` should yield `["bolete", "oyster"]`, and `#eval take 1 ["bolete", "oyster"]` should yield `["bolete"]`.
 * Using the analogy between types and arithmetic, write a function that distributes products over sums. In other words, it should have type `α × (β ⊕ γ) → (α × β) ⊕ (α × γ)`.
 * Using the analogy between types and arithmetic, write a function that turns multiplication by two into a sum. In other words, it should have type `Bool × α → α ⊕ α`.

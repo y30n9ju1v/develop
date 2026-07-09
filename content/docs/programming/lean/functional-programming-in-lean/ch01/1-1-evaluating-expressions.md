@@ -1,10 +1,10 @@
 ---
-title: "Evaluating Expressions"
+title: "표현식 평가하기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Evaluating Expressions"
+description: "Lean에서 표현식을 평가하는 방법"
 ---
 
 # 1.1. Evaluating Expressions
@@ -50,7 +50,9 @@ To ask Lean to evaluate an expression, write `#eval` before it in your editor, w
 Typically, the result is found by putting the cursor or mouse pointer over `#eval`.
 For instance,
 
-`3#eval 1 + 2`
+```lean
+#eval 1 + 2
+```
 
 yields the value
 
@@ -61,7 +63,9 @@ yields the value
 Lean obeys the ordinary rules of precedence and associativity for
 arithmetic operators. That is,
 
-`11#eval 1 + 2 * 5`
+```lean
+#eval 1 + 2 * 5
+```
 
 yields the value `11` rather than `15`.
 
@@ -81,24 +85,40 @@ Rather than writing
 
 to compute `"Hello, Lean!"`, one would instead write
 
-`"Hello, Lean!"#eval String.append "Hello, " "Lean!"`
+```lean
+#eval String.append "Hello, " "Lean!"
+```
 
 where the function's two arguments are simply written next to it with spaces.
 
 일반적인 수학 표기법과 대부분의 프로그래밍 언어가 함수를 인수에 적용하기 위해 괄호(예: `f(x)`)를 사용하는 반면, Lean은 단순히 함수를 인수 옆에 씁니다(예: `f x`).
 함수 적용은 가장 일반적인 연산 중 하나이므로 간결하게 유지하는 것이 좋습니다.
-`"Hello, Lean!"`을 계산하기 위해 위 구문 대신 아래처럼 작성할 수 있습니다. 여기서 함수의 두 인수는 단순히 공백을 사이에 두고 옆에 씁니다.
+`"Hello, Lean!"`을 계산하기 위해 위 구문 대신 아래처럼 작성할 수 있습니다.
+
+```lean
+#eval String.append "Hello, " "Lean!"
+```
+
+여기서 함수의 두 인수는 단순히 공백을 사이에 두고 옆에 씁니다.
 
 Just as the order-of-operations rules for arithmetic demand parentheses in the expression `(1 + 2) * 5`, parentheses are also necessary when a function's argument is to be computed via another function call.
 For instance, parentheses are required in
 
-`"great oak tree"#eval String.append "great " (String.append "oak " "tree")`
+```lean
+#eval String.append "great " (String.append "oak " "tree")
+```
 
 because otherwise the second `String.append` would be interpreted as an argument to the first, rather than as a function being passed `"oak "` and `"tree"` as arguments.
 The value of the inner `String.append` call must be found first, after which it can be appended to `"great "`, yielding the final value `"great oak tree"`.
 
 산술에 대한 연산 순서 규칙이 표현식 `(1 + 2) * 5`에서 괄호를 요구하는 것처럼, 함수의 인수가 다른 함수 호출을 통해 계산될 때도 괄호가 필요합니다.
-예를 들어, 위 코드에서 괄호가 필요한 이유는 그렇지 않으면 두 번째 `String.append`가 `"oak "`과 `"tree"`를 인수로 전달받는 함수가 아니라 첫 번째의 인수로 해석되기 때문입니다.
+예를 들어, 다음 코드에서 괄호가 필요합니다.
+
+```lean
+#eval String.append "great " (String.append "oak " "tree")
+```
+
+괄호가 필요한 이유는 그렇지 않으면 두 번째 `String.append`가 `"oak "`과 `"tree"`를 인수로 전달받는 함수가 아니라 첫 번째의 인수로 해석되기 때문입니다.
 내부 `String.append` 호출의 값을 먼저 찾아야 하고, 그 후 `"great "`에 추가되어 최종 값 `"great oak tree"`를 산출합니다.
 
 Imperative languages often have two kinds of conditional: a conditional *statement* that determines which instructions to carry out based on a Boolean value, and a conditional *expression* that determines which of two expressions to evaluate based on a Boolean value.
@@ -108,15 +128,21 @@ Because Lean is an expression-oriented functional language, there are no conditi
 They are written using `if`, `then`, and `else`.
 For example,
 
-`String.append "it is " (if 1 > 2 then "yes" else "no")`
+```lean
+String.append "it is " (if 1 > 2 then "yes" else "no")
+```
 
 evaluates to
 
-`String.append "it is " (if false then "yes" else "no")`
+```lean
+String.append "it is " (if false then "yes" else "no")
+```
 
 which evaluates to
 
-`String.append "it is " "no"`
+```lean
+String.append "it is " "no"
+```
 
 which finally evaluates to `"it is no"`.
 
@@ -125,7 +151,25 @@ which finally evaluates to `"it is no"`.
 Python에서 조건 문장은 `if`로 시작하고, 조건 표현식은 `if`를 중간에 놓습니다.
 Lean은 표현식 지향적 함수형 언어이므로, 조건 문장이 없고 조건 표현식만 있습니다.
 이들은 `if`, `then`, `else`를 사용하여 작성됩니다.
-위 코드는 단계적으로 평가되어 마지막에 `"it is no"`으로 평가됩니다.
+예를 들어,
+
+```lean
+String.append "it is " (if 1 > 2 then "yes" else "no")
+```
+
+는 다음과 같이 평가되고,
+
+```lean
+String.append "it is " (if false then "yes" else "no")
+```
+
+이는 다시 다음과 같이 평가되며,
+
+```lean
+String.append "it is " "no"
+```
+
+최종적으로 `"it is no"`으로 평가됩니다.
 
 For the sake of brevity, a series of evaluation steps like this will sometimes be written with arrows between them:
 
@@ -136,8 +180,9 @@ For the sake of brevity, a series of evaluation steps like this will sometimes b
 Asking Lean to evaluate a function application that is missing an argument will lead to an error message.
 In particular, the example
 
-`` could not synthesize a `ToExpr`, `Repr`, or `ToString` instance for type
-String → String#eval String.append "it is " ``
+```
+#eval String.append "it is "
+```
 
 yields a quite long error message:
 

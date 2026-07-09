@@ -9,8 +9,6 @@ description: "감사의 말"
 
 # Acknowledgments
 
-# Acknowledgments
-
 This free online book was made possible by the generous support of Microsoft Research, who paid for it to be written and given away.
 During the process of writing, they made the expertise of the Lean development team available to both answer my questions and make Lean easier to use.
 In particular, Leonardo de Moura initiated the project and helped me get started, Chris Lovett set up the CI and deployment automation and provided great feedback as a test reader, Gabriel Ebner provided technical reviews, Sarah Smith kept the administrative side working well, and Vanessa Rodriguez helped me diagnose a tricky interaction between the source-code highlighting library and certain versions of Safari on iOS.
@@ -34,5 +32,5 @@ In particular, I'd like to thank Arien Malec, Asta Halkjær From, Bulhwi Cha, Cr
 
 Lean을 둘러싼 온라인 커뮤니티는 기술적이고 정서적인 프로젝트에 대한 열정적인 지원을 제공했습니다.
 특히, Sebastian Ullrich은 오류 메시지의 텍스트가 CI에서 확인되고 책 자체에 쉽게 포함될 수 있도록 하는 지원 코드를 작성하기 위해 Lean의 메타프로그래밍 시스템을 배우고 있을 때 핵심적인 도움을 제공했습니다.
-새로운 수정본을 게시한 후 몇 시간 안에, 흥분한 독자들은 실수를 찾고, 제안을 제공하고, 저를 친절로 샤워해 주었습니다.
+새로운 수정본을 게시한 후 몇 시간 안에, 흥분한 독자들은 실수를 찾고, 제안을 해 주었으며, 저에게 많은 격려와 도움을 아끼지 않았습니다.
 특히, Arien Malec, Asta Halkjær From, Bulhwi Cha, Craig Stuntz, Daniel Fabian, Evgenia Karunus, eyelash, Floris van Doorn, František Silváši, Henrik Böving, Ian Young, Jeremy Salwen, Jireh Loreaux, Kevin Buzzard, Lars Ericson, Liu Yuxi, Mac Malone, Malcolm Langfield, Mario Carneiro, Newell Jensen, Patrick Massot, Paul Chisholm, Pietro Monticone, Tomas Puverle, Yaël Dillies, Zhiyuan Bao, 그리고 Zyad Hassan에게 감사를 드리고 싶습니다. 그들의 많은 제안, 스타일적이고 기술적인 것에 대해 감사합니다.

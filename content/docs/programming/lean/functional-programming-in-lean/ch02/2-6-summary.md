@@ -1,10 +1,10 @@
 ---
-title: "Summary"
+title: "요약"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Summary"
+description: "평가와 실행, do 표기법, 프로그램 컴파일과 실행, 부분성(partiality)을 정리한 2장 요약"
 ---
 
 # 2.6. Summary

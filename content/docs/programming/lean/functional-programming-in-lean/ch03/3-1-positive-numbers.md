@@ -1,10 +1,10 @@
 ---
-title: "Positive Numbers"
+title: "양수"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Positive Numbers"
+description: "양수를 표현하는 타입 클래스"
 ---
 
 # 3.1. Positive Numbers
@@ -19,22 +19,20 @@ One way to represent positive numbers is very similar to `Nat`, except with `one
 
 양수를 나타내는 한 가지 방법은 `Nat`과 매우 유사하지만, `zero` 대신 `one`을 기본 경우로 사용합니다:
 
-`inductive Pos : Type where
+```lean
+inductive Pos : Type where
 | one : Pos
-| succ : Pos → Pos`
+| succ : Pos → Pos
+```
 
 This datatype represents exactly the intended set of values, but it is not very convenient to use.
 For example, numeric literals are rejected:
 
 이 데이터타입은 의도한 값들의 집합을 정확히 나타내지만, 사용하기에는 매우 불편합니다. 예를 들어, 숫자 리터럴이 거부됩니다:
 
-`` def seven : Pos := failed to synthesize
-OfNat Pos 7
-numerals are polymorphic in Lean, but the numeral `7` cannot be used in a context where the expected type is
-Pos
-due to the absence of the instance above
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.7 ``
+```lean
+def seven : Pos := 7
+```
 
 ```
 failed to synthesize
@@ -50,17 +48,18 @@ Instead, the constructors must be used directly:
 
 대신, constructor를 직접 사용해야 합니다:
 
-`def seven : Pos :=
-Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ Pos.one)))))`
+```lean
+def seven : Pos :=
+  Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ Pos.one)))))
+```
 
 Similarly, addition and multiplication are not easy to use:
 
 마찬가지로, 덧셈과 곱셈도 사용하기 쉽지 않습니다:
 
-`` def fourteen : Pos := failed to synthesize
-HAdd Pos Pos ?m.3
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.seven + seven ``
+```lean
+def fourteen : Pos := seven + seven
+```
 
 ```
 failed to synthesize
@@ -69,10 +68,9 @@ failed to synthesize
 Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
 ```
 
-`` def fortyNine : Pos := failed to synthesize
-HMul Pos Pos ?m.3
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.seven * seven ``
+```lean
+def fortyNine : Pos := seven * seven
+```
 
 ```
 failed to synthesize
@@ -102,7 +100,9 @@ Once an instance of `Plus` for `Nat` has been defined, it becomes possible to ad
 
 덧셈을 overload하는 한 가지 방법은 `plus`라는 덧셈 method를 가진 `Plus`라는 type class를 정의하는 것입니다. `Nat`에 대한 `Plus`의 instance가 정의되면, `Plus.plus`를 사용하여 두 `Nat`을 더할 수 있습니다:
 
-`8#eval Plus.plus 5 3`
+```lean
+#eval Plus.plus 5 3
+```
 
 ```
 8
@@ -116,8 +116,10 @@ In the following type class declaration, `Plus` is the name of the class, `α : 
 
 다음 type class 선언에서 `Plus`는 클래스의 이름이고, `α : Type`은 유일한 인자이며, `plus : α → α → α`는 유일한 method입니다:
 
-`class Plus (α : Type) where
-plus : α → α → α`
+```lean
+class Plus (α : Type) where
+  plus : α → α → α
+```
 
 This declaration says that there is a type class `Plus` that overloads operations with respect to a type `α`.
 In particular, there is one overloaded operation called `plus` that takes two `α`s and returns an `α`.
@@ -134,8 +136,10 @@ To overload `plus` for a particular type, write an instance:
 
 특정 타입에 대해 `plus`를 overload하려면 instance를 작성합니다:
 
-`instance : Plus Nat where
-plus := Nat.add`
+```lean
+instance : Plus Nat where
+  plus := Nat.add
+```
 
 The colon after `instance` indicates that `Plus Nat` is indeed a type.
 Each method of class `Plus` should be assigned a value using `:=`.
@@ -149,27 +153,37 @@ Parentheses in an `open` command indicate that only the indicated names from the
 
 기본적으로, type class method는 type class와 같은 이름의 namespace에 정의됩니다. 사용자가 먼저 클래스의 이름을 입력할 필요가 없도록 namespace를 `open`하는 것이 편할 수 있습니다. `open` 명령의 괄호는 namespace의 지정된 이름만 접근 가능하게 해야 함을 나타냅니다:
 
-`open Plus (plus)``8#eval plus 5 3`
+```lean
+open Plus (plus)
+#eval plus 5 3
+```
+
+```
+8
+```
 
 Defining an addition function for `Pos` and an instance of `Plus Pos` allows `plus` to be used to add both `Pos` and `Nat` values:
 
 `Pos`에 대한 덧셈 함수와 `Plus Pos`의 instance를 정의하면 `plus`를 사용하여 `Pos`와 `Nat` 값을 모두 더할 수 있습니다:
 
-`def Pos.plus : Pos → Pos → Pos
-| Pos.one, k => Pos.succ k
-| Pos.succ n, k => Pos.succ (n.plus k)
+```lean
+def Pos.plus : Pos → Pos → Pos
+  | Pos.one, k => Pos.succ k
+  | Pos.succ n, k => Pos.succ (n.plus k)
+
 instance : Plus Pos where
-plus := Pos.plus
-def fourteen : Pos := plus seven seven`
+  plus := Pos.plus
+
+def fourteen : Pos := plus seven seven
+```
 
 Because there is not yet an instance of `Plus Float`, attempting to add two floating-point numbers with `plus` fails with a familiar message:
 
 아직 `Plus Float`의 instance가 없기 때문에, `plus`로 두 부동소수점 수를 더하려고 시도하면 친숙한 메시지와 함께 실패합니다:
 
-`` #eval failed to synthesize
-Plus Float
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.plus 5.2 917.25861 ``
+```lean
+#eval plus 5.2 917.25861
+```
 
 ```
 failed to synthesize
@@ -200,8 +214,12 @@ Defining an instance of `Add Pos` allows `Pos` values to use ordinary addition s
 
 `Add Pos`의 instance를 정의하면 `Pos` 값이 일반적인 덧셈 문법을 사용할 수 있습니다:
 
-`instance : Add Pos where
-add := Pos.plus``def  : Pos := seven + seven`
+```lean
+instance : Add Pos where
+  add := Pos.plus
+
+def fourteen : Pos := seven + seven
+```
 
 ## 3.1.3. Conversion to Strings
 
@@ -216,24 +234,30 @@ The function `posToString` takes a `Bool` that determines whether to parenthesiz
 
 예를 들어, `Pos`를 `String`으로 변환하는 한 가지 방법은 그 내부 구조를 드러내는 것입니다. `posToString` 함수는 `Pos.succ`의 사용에 괄호를 붙일지를 결정하는 `Bool`을 받습니다. 이는 함수의 초기 호출에서는 `true`이고 모든 재귀 호출에서는 `false`여야 합니다.
 
-`def posToString (atTop : Bool) (p : Pos) : String :=
-let paren s := if atTop then s else "(" ++ s ++ ")"
-match p with
-| Pos.one => "Pos.one"
-| Pos.succ n => paren s!"Pos.succ {posToString false n}"`
+```lean
+def posToString (atTop : Bool) (p : Pos) : String :=
+  let paren s := if atTop then s else "(" ++ s ++ ")"
+  match p with
+  | Pos.one => "Pos.one"
+  | Pos.succ n => paren s!"Pos.succ {posToString false n}"
+```
 
 Using this function for a `ToString` instance:
 
 `ToString` instance에 이 함수를 사용하면:
 
-`instance : ToString Pos where
-toString := posToString true`
+```lean
+instance : ToString Pos where
+  toString := posToString true
+```
 
 results in informative, yet overwhelming, output:
 
 그 결과는 유익하지만 압도적인 출력입니다:
 
-`"There are Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ Pos.one)))))"#eval s!"There are {seven}"`
+```lean
+#eval s!"There are {seven}"
+```
 
 ```
 "There are Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ (Pos.succ Pos.one)))))"
@@ -244,10 +268,18 @@ Converting it to a `Nat` and then using the `ToString Nat` instance (that is, th
 
 반면에, 모든 양수는 해당하는 `Nat`을 가지고 있습니다. 이를 `Nat`으로 변환한 다음 `ToString Nat` instance를 사용하면 (즉, `Nat`에 대한 `ToString`의 overloading), 훨씬 짧은 출력을 빠르게 생성할 수 있습니다:
 
-`def Pos.toNat : Pos → Nat
-| Pos.one => 1
-| Pos.succ n => n.toNat + 1``instance : ToString Pos where
-toString x := toString (x.toNat)``"There are 7"#eval s!"There are {seven}"`
+```lean
+def Pos.toNat : Pos → Nat
+  | Pos.one => 1
+  | Pos.succ n => n.toNat + 1
+
+instance : ToString Pos where
+  toString x := toString (x.toNat)
+```
+
+```lean
+#eval s!"There are {seven}"
+```
 
 ```
 "There are 7"
@@ -270,19 +302,24 @@ An instance of `Mul` allows ordinary multiplication syntax to be used with `Pos`
 
 `Mul`의 instance는 `Pos`에서 일반적인 곱셈 문법을 사용할 수 있게 합니다:
 
-`def Pos.mul : Pos → Pos → Pos
-| Pos.one, k => k
-| Pos.succ n, k => n.mul k + k
+```lean
+def Pos.mul : Pos → Pos → Pos
+  | Pos.one, k => k
+  | Pos.succ n, k => n.mul k + k
+
 instance : Mul Pos where
-mul := Pos.mul`
+  mul := Pos.mul
+```
 
 With this instance, multiplication works as expected:
 
 이 instance를 사용하면 곱셈이 예상대로 작동합니다:
 
-`[7, 49, 14]#eval [seven * Pos.one,
-seven * seven,
-Pos.succ Pos.one * seven]`
+```lean
+#eval [seven * Pos.one,
+       seven * seven,
+       Pos.succ Pos.one * seven]
+```
 
 ```
 [7, 49, 14]
@@ -306,8 +343,10 @@ It is defined as follows:
 
 numeric literal을 overload하는 데 사용되는 세 가지 type class가 있습니다: `Zero`, `One`, `OfNat`. 많은 타입이 `0`으로 자연스럽게 쓰이는 값을 가지고 있기 때문에, `Zero` class는 이러한 특정 값을 재정의할 수 있게 합니다. 다음과 같이 정의됩니다:
 
-`class Zero (α : Type) where
-zero : α`
+```lean
+class Zero (α : Type) where
+  zero : α
+```
 
 Because `0` is not a positive number, there should be no instance of `Zero Pos`.
 
@@ -318,21 +357,27 @@ The `One` class allows these to be overridden:
 
 마찬가지로, 많은 타입이 `1`로 자연스럽게 쓰이는 값을 가지고 있습니다. `One` class는 이러한 값을 재정의할 수 있게 합니다:
 
-`class One (α : Type) where
-one : α`
+```lean
+class One (α : Type) where
+  one : α
+```
 
 An instance of `One Pos` makes perfect sense:
 
 `One Pos`의 instance는 완벽한 의미가 있습니다:
 
-`instance : One Pos where
-one := Pos.one`
+```lean
+instance : One Pos where
+  one := Pos.one
+```
 
 With this instance, `1` can be used for `Pos.one`:
 
 이 instance를 사용하면, `1`을 `Pos.one`에 사용할 수 있습니다:
 
-`1#eval (1 : Pos)`
+```lean
+#eval (1 : Pos)
+```
 
 ```
 1
@@ -342,8 +387,10 @@ In Lean, natural number literals are interpreted using a type class called `OfNa
 
 Lean에서 natural number literal은 `OfNat`이라는 type class를 사용하여 해석됩니다:
 
-`class OfNat (α : Type) (_ : Nat) where
-ofNat : α`
+```lean
+class OfNat (α : Type) (_ : Nat) where
+  ofNat : α
+```
 
 This type class takes two arguments: `α` is the type for which a natural number is overloaded, and the unnamed `Nat` argument is the actual literal number that was encountered in the program.
 The method `ofNat` is then used as the value of the numeric literal.
@@ -363,36 +410,44 @@ A sum type that represents natural numbers less than four can be defined as foll
 
 4 미만의 natural number를 나타내는 sum type은 다음과 같이 정의할 수 있습니다:
 
-`inductive LT4 where
-| zero
-| one
-| two
-| three`
+```lean
+inductive LT4 where
+  | zero
+  | one
+  | two
+  | three
+```
 
 While it would not make sense to allow *any* literal number to be used for this type, numbers less than four clearly make sense:
 
 이 타입에 *어떤* literal number도 사용하는 것이 의미 있지는 않겠지만, 4 미만의 수는 분명히 의미가 있습니다:
 
-`instance : OfNat LT4 0 where
-ofNat := LT4.zero
+```lean
+instance : OfNat LT4 0 where
+  ofNat := LT4.zero
 instance : OfNat LT4 1 where
-ofNat := LT4.one
+  ofNat := LT4.one
 instance : OfNat LT4 2 where
-ofNat := LT4.two
+  ofNat := LT4.two
 instance : OfNat LT4 3 where
-ofNat := LT4.three`
+  ofNat := LT4.three
+```
 
 With these instances, the following examples work:
 
 이 instance들을 사용하면, 다음 예제들이 작동합니다:
 
-`LT4.three#eval (3 : LT4)`
+```lean
+#eval (3 : LT4)
+```
 
 ```
 LT4.three
 ```
 
-`LT4.zero#eval (0 : LT4)`
+```lean
+#eval (0 : LT4)
+```
 
 ```
 LT4.zero
@@ -402,13 +457,9 @@ On the other hand, out-of-bounds literals are still not allowed:
 
 반면에, out-of-bounds literal은 여전히 허용되지 않습니다:
 
-`` #eval (failed to synthesize
-OfNat LT4 4
-numerals are polymorphic in Lean, but the numeral `4` cannot be used in a context where the expected type is
-LT4
-due to the absence of the instance above
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.4 : LT4) ``
+```lean
+#eval (4 : LT4)
+```
 
 ```
 failed to synthesize
@@ -427,25 +478,24 @@ In this instance, the argument `n` stands for any `Nat`, and the instance is def
 
 `Pos`의 경우, `OfNat` instance는 `Nat.zero` 외의 *모든* `Nat`에 대해 작동해야 합니다. 이를 다르게 표현하면, 모든 자연수 `n`에 대해, instance는 `n + 1`에 대해 작동해야 한다는 것입니다. `α`와 같은 이름이 자동으로 Lean이 채우는 함수의 implicit argument가 되는 것처럼, instance도 automatic implicit argument를 받을 수 있습니다. 이 instance에서, 인자 `n`은 모든 `Nat`을 나타내고, instance는 하나 더 큰 `Nat`에 대해 정의됩니다:
 
-`instance : OfNat Pos (n + 1) where
-ofNat :=
-let rec natPlusOne : Nat → Pos
-| 0 => Pos.one
-| k + 1 => Pos.succ (natPlusOne k)
-natPlusOne n`
+```lean
+instance : OfNat Pos (n + 1) where
+  ofNat :=
+    let rec natPlusOne : Nat → Pos
+      | 0 => Pos.one
+      | k + 1 => Pos.succ (natPlusOne k)
+    natPlusOne n
+```
 
 Because `n` stands for a `Nat` that's one less than what the user wrote, the helper function `natPlusOne` returns a `Pos` that's one greater than its argument.
 This makes it possible to use natural number literals for positive numbers, but not for zero:
 
 `n`이 사용자가 쓴 것보다 1 작은 `Nat`을 나타내기 때문에, helper function `natPlusOne`은 자신의 인자보다 1 더 큰 `Pos`를 반환합니다. 이는 양수에 대해 natural number literal을 사용하는 것을 가능하게 하지만, 0에 대해서는 불가능합니다:
 
-`def eight : Pos := 8``` def zero : Pos := failed to synthesize
-OfNat Pos 0
-numerals are polymorphic in Lean, but the numeral `0` cannot be used in a context where the expected type is
-Pos
-due to the absence of the instance above
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.0 ``
+```lean
+def eight : Pos := 8
+def zero : Pos := 0
+```
 
 ```
 failed to synthesize
@@ -464,9 +514,11 @@ Hint: Additional diagnostic information may be available using the `set_option d
 An alternative way to represent a positive number is as the successor of some `Nat`.
 Replace the definition of `Pos` with a structure whose constructor is named `succ` that contains a `Nat`:
 
-`structure Pos where
-succ ::
-pred : Nat`
+```lean
+structure Pos where
+  succ ::
+  pred : Nat
+```
 
 Define instances of `Add`, `Mul`, `ToString`, and `OfNat` that allow this version of `Pos` to be used conveniently.
 

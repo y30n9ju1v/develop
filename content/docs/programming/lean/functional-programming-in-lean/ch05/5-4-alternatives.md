@@ -1,10 +1,10 @@
 ---
-title: "Alternatives"
+title: "대안"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Alternatives"
+description: "대안"
 ---
 
 # Alternatives
@@ -38,20 +38,23 @@ The following inductive type captures the values that can be produced from these
 
 다음 귀납 유형은 이러한 명시된 규칙으로부터 생성될 수 있는 값들을 포착합니다:
 
-`abbrev NonEmptyString := {s : String // s ≠ ""}
+```lean
+abbrev NonEmptyString := {s : String // s ≠ ""}
+
 inductive LegacyCheckedInput where
-| humanBefore1970 :
-(birthYear : {y : Nat // y > 999 ∧ y < 1970}) →
-String →
-LegacyCheckedInput
-| humanAfter1970 :
-(birthYear : {y : Nat // y > 1970}) →
-NonEmptyString →
-LegacyCheckedInput
-| company :
-NonEmptyString →
-LegacyCheckedInput
-deriving Repr`
+  | humanBefore1970 :
+    (birthYear : {y : Nat // y > 999 ∧ y < 1970}) →
+    String →
+    LegacyCheckedInput
+  | humanAfter1970 :
+    (birthYear : {y : Nat // y > 1970}) →
+    NonEmptyString →
+    LegacyCheckedInput
+  | company :
+    NonEmptyString →
+    LegacyCheckedInput
+deriving Repr
+```
 
 A validator for these rules is more complicated, however, as it must address all three cases.
 While it can be written as a series of nested `if` expressions, it's easier to design the three cases independently and then combine them.
@@ -59,31 +62,37 @@ This requires a means of recovering from failure while preserving error messages
 
 이러한 규칙에 대한 검증자는 더 복잡하지만, 세 가지 경우를 모두 처리해야 합니다. 중첩된 `if` 표현 시리즈로 작성할 수 있지만, 세 가지 경우를 독립적으로 설계한 다음 결합하는 것이 더 쉽습니다. 이를 위해서는 오류 메시지를 보존하면서 실패로부터 회복하는 수단이 필요합니다:
 
-`def Validate.orElse
-(a : Validate ε α)
-(b : Unit → Validate ε α) :
-Validate ε α :=
-match a with
-| .ok x => .ok x
-| .errors errs1 =>
-match b () with
-| .ok x => .ok x
-| .errors errs2 => .errors (errs1 ++ errs2)`
+```lean
+def Validate.orElse
+    (a : Validate ε α)
+    (b : Unit → Validate ε α) :
+    Validate ε α :=
+  match a with
+  | .ok x => .ok x
+  | .errors errs1 =>
+    match b () with
+    | .ok x => .ok x
+    | .errors errs2 => .errors (errs1 ++ errs2)
+```
 
 This pattern of recovery from failures is common enough that Lean has built-in syntax for it, attached to a type class named `OrElse`:
 
 실패로부터 회복하는 이 패턴은 흔하기 때문에 Lean은 `OrElse`라는 type class에 연결된 내장 구문을 가지고 있습니다:
 
-`class OrElse (α : Type) where
-orElse : α → (Unit → α) → α`
+```lean
+class OrElse (α : Type) where
+  orElse : α → (Unit → α) → α
+```
 
 The expression `E1 <|> E2` is short for `OrElse.orElse E1 (fun () => E2)`.
 An instance of `OrElse` for `Validate` allows this syntax to be used for error recovery:
 
 표현식 `E1 <|> E2`는 `OrElse.orElse E1 (fun () => E2)`의 축약입니다. `Validate`에 대한 `OrElse` 인스턴스는 오류 회복에 이 구문을 사용할 수 있게 합니다:
 
-`instance : OrElse (Validate ε α) where
-orElse := Validate.orElse`
+```lean
+instance : OrElse (Validate ε α) where
+  orElse := Validate.orElse
+```
 
 The validator for `LegacyCheckedInput` can be built from a validator for each constructor.
 The rules for a company state that the birth year should be the string `"FIRM"` and that the name should be non-empty.
@@ -96,21 +105,25 @@ Checking that a Boolean condition holds without recording any evidence of this f
 
 Boolean 조건이 type에 증거를 기록하지 않고도 유지되는지 확인하는 것은 `checkThat`으로 수행할 수 있습니다:
 
-`def checkThat (condition : Bool)
-(field : Field) (msg : String) :
-Validate (Field × String) Unit :=
-if condition then pure () else reportError field msg`
+```lean
+def checkThat (condition : Bool)
+    (field : Field) (msg : String) :
+    Validate (Field × String) Unit :=
+  if condition then pure () else reportError field msg
+```
 
 This definition of `checkCompany` uses `checkThat`, and then throws away the resulting `Unit` value:
 
 이 `checkCompany` 정의는 `checkThat`을 사용한 다음, 결과적인 `Unit` 값을 버립니다:
 
-`def checkCompany (input : RawInput) :
-Validate (Field × String) LegacyCheckedInput :=
-pure (fun () name => .company name) <*>
-checkThat (input.birthYear == "FIRM")
-"birth year" "FIRM if a company" <*>
-checkName input.name`
+```lean
+def checkCompany (input : RawInput) :
+    Validate (Field × String) LegacyCheckedInput :=
+  pure (fun () name => .company name) <*>
+    checkThat (input.birthYear == "FIRM")
+      "birth year" "FIRM if a company" <*>
+    checkName input.name
+```
 
 However, this definition is quite noisy.
 It can be simplified in two ways.
@@ -119,8 +132,10 @@ This operator is also controlled by a type class, called `SeqRight`, and `E1 *> 
 
 하지만 이 정의는 상당히 복잡합니다. 두 가지 방법으로 단순화될 수 있습니다. 첫 번째는 `<*>`의 첫 번째 사용을 `*>`라고 불리는 첫 번째 인수에 의해 반환된 값을 자동으로 무시하는 특수 버전으로 대체하는 것입니다. 이 연산자는 또한 `SeqRight`라는 type class로 제어되며, `E1 *> E2`는 `SeqRight.seqRight E1 (fun () => E2)`의 syntactic sugar입니다:
 
-`class SeqRight (f : Type → Type) where
-seqRight : f α → (Unit → f β) → f β`
+```lean
+class SeqRight (f : Type → Type) where
+  seqRight : f α → (Unit → f β) → f β
+```
 
 There is a default implementation of `seqRight` in terms of `seq`: `seqRight (a : f α) (b : Unit → f β) : f β := pure (fun _ x => x) <*> a <*> b ()`.
 
@@ -130,11 +145,13 @@ Using `seqRight`, `checkCompany` becomes simpler:
 
 `seqRight`를 사용하면, `checkCompany`는 더 간단해집니다:
 
-`def checkCompany (input : RawInput) :
-Validate (Field × String) LegacyCheckedInput :=
-checkThat (input.birthYear == "FIRM")
-"birth year" "FIRM if a company" *>
-pure .company <*> checkName input.name`
+```lean
+def checkCompany (input : RawInput) :
+    Validate (Field × String) LegacyCheckedInput :=
+  checkThat (input.birthYear == "FIRM")
+    "birth year" "FIRM if a company" *>
+  pure .company <*> checkName input.name
+```
 
 One more simplification is possible.
 For every `Applicative`, `pure f <*> E` is equivalent to `f <$> E`.
@@ -143,23 +160,27 @@ This simplification yields:
 
 한 가지 더 단순화가 가능합니다. 모든 `Applicative`에 대해 `pure f <*> E`는 `f <$> E`와 동등합니다. 즉, `pure`를 사용하여 `Applicative` type에 배치된 함수를 적용하기 위해 `seq`를 사용하는 것은 과도하며, 함수는 단지 `Functor.map`을 사용하여 적용될 수 있습니다. 이 단순화는 다음을 생성합니다:
 
-`def checkCompany (input : RawInput) :
-Validate (Field × String) LegacyCheckedInput :=
-checkThat (input.birthYear == "FIRM")
-"birth year" "FIRM if a company" *>
-.company <$> checkName input.name`
+```lean
+def checkCompany (input : RawInput) :
+    Validate (Field × String) LegacyCheckedInput :=
+  checkThat (input.birthYear == "FIRM")
+    "birth year" "FIRM if a company" *>
+  .company <$> checkName input.name
+```
 
 The remaining two constructors of `LegacyCheckedInput` use subtypes for their fields.
 A general-purpose tool for checking subtypes will make these easier to read:
 
 `LegacyCheckedInput`의 나머지 두 생성자는 해당 필드에 대해 subtype을 사용합니다. subtype을 확인하기 위한 범용 도구는 이들을 더 쉽게 읽을 수 있게 만들 것입니다:
 
-`def checkSubtype {α : Type} (v : α) (p : α → Prop) [Decidable (p v)]
-(err : ε) : Validate ε {x : α // p x} :=
-if h : p v then
-pure ⟨v, h⟩
-else
-.errors { head := err, tail := [] }`
+```lean
+def checkSubtype {α : Type} (v : α) (p : α → Prop) [Decidable (p v)]
+    (err : ε) : Validate ε {x : α // p x} :=
+  if h : p v then
+    pure ⟨v, h⟩
+  else
+    .errors { head := err, tail := [] }
+```
 
 In the function's argument list, it's important that the type class `[Decidable (p v)]` occur after the specification of the arguments `v` and `p`.
 Otherwise, it would refer to an additional set of automatic implicit arguments, rather than to the manually-provided values.
@@ -171,47 +192,59 @@ The two human cases do not need any additional tools:
 
 두 가지 인간 경우는 추가 도구가 필요하지 않습니다:
 
-`def checkHumanBefore1970 (input : RawInput) :
-Validate (Field × String) LegacyCheckedInput :=
-(checkYearIsNat input.birthYear).andThen fun y =>
-.humanBefore1970 <$>
-checkSubtype y (fun x => x > 999 ∧ x < 1970)
-("birth year", "less than 1970") <*>
-pure input.name``def checkHumanAfter1970 (input : RawInput) :
-Validate (Field × String) LegacyCheckedInput :=
-(checkYearIsNat input.birthYear).andThen fun y =>
-.humanAfter1970 <$>
-checkSubtype y (· > 1970)
-("birth year", "greater than 1970") <*>
-checkName input.name`
+```lean
+def checkHumanBefore1970 (input : RawInput) :
+    Validate (Field × String) LegacyCheckedInput :=
+  (checkYearIsNat input.birthYear).andThen fun y =>
+    .humanBefore1970 <$>
+      checkSubtype y (fun x => x > 999 ∧ x < 1970)
+        ("birth year", "less than 1970") <*>
+      pure input.name
+
+def checkHumanAfter1970 (input : RawInput) :
+    Validate (Field × String) LegacyCheckedInput :=
+  (checkYearIsNat input.birthYear).andThen fun y =>
+    .humanAfter1970 <$>
+      checkSubtype y (· > 1970)
+        ("birth year", "greater than 1970") <*>
+      checkName input.name
+```
 
 The validators for the three cases can be combined using `<|>`:
 
 세 가지 경우에 대한 검증자는 `<|>`를 사용하여 결합될 수 있습니다:
 
-`def checkLegacyInput (input : RawInput) :
-Validate (Field × String) LegacyCheckedInput :=
-checkCompany input <|>
-checkHumanBefore1970 input <|>
-checkHumanAfter1970 input`
+```lean
+def checkLegacyInput (input : RawInput) :
+    Validate (Field × String) LegacyCheckedInput :=
+  checkCompany input <|>
+  checkHumanBefore1970 input <|>
+  checkHumanAfter1970 input
+```
 
 The successful cases return constructors of `LegacyCheckedInput`, as expected:
 
 성공한 경우는 예상대로 `LegacyCheckedInput`의 생성자를 반환합니다:
 
-`Validate.ok (LegacyCheckedInput.company "Johnny's Troll Groomers")#eval checkLegacyInput ⟨"Johnny's Troll Groomers", "FIRM"⟩`
+```lean
+#eval checkLegacyInput ⟨"Johnny's Troll Groomers", "FIRM"⟩
+```
 
 ```
 Validate.ok (LegacyCheckedInput.company "Johnny's Troll Groomers")
 ```
 
-`Validate.ok (LegacyCheckedInput.humanBefore1970 1963 "Johnny")#eval checkLegacyInput ⟨"Johnny", "1963"⟩`
+```lean
+#eval checkLegacyInput ⟨"Johnny", "1963"⟩
+```
 
 ```
 Validate.ok (LegacyCheckedInput.humanBefore1970 1963 "Johnny")
 ```
 
-`Validate.ok (LegacyCheckedInput.humanBefore1970 1963 "")#eval checkLegacyInput ⟨"", "1963"⟩`
+```lean
+#eval checkLegacyInput ⟨"", "1963"⟩
+```
 
 ```
 Validate.ok (LegacyCheckedInput.humanBefore1970 1963 "")
@@ -221,12 +254,9 @@ The worst possible input returns all the possible failures:
 
 가장 나쁜 가능한 입력은 모든 가능한 실패를 반환합니다:
 
-`Validate.errors
-{ head := ("birth year", "FIRM if a company"),
-tail := [("name", "Required"),
-("birth year", "less than 1970"),
-("birth year", "greater than 1970"),
-("name", "Required")] }#eval checkLegacyInput ⟨"", "1970"⟩`
+```lean
+#eval checkLegacyInput ⟨"", "1970"⟩
+```
 
 ```
 Validate.errors
@@ -251,67 +281,83 @@ The `Alternative` class describes applicative functors that have additional oper
 
 `Alternative` 클래스는 실패와 회복을 위한 추가 연산자가 있는 applicative functor를 설명합니다:
 
-`class Alternative (f : Type → Type) extends Applicative f where
-failure : f α
-orElse : f α → (Unit → f α) → f α`
+```lean
+class Alternative (f : Type → Type) extends Applicative f where
+  failure : f α
+  orElse : f α → (Unit → f α) → f α
+```
 
 Just as implementors of `Add α` get `HAdd α α α` instances for free, implementors of `Alternative` get `OrElse` instances for free:
 
 `Add α`의 구현자가 `HAdd α α α` 인스턴스를 무료로 얻는 것처럼, `Alternative`의 구현자는 `OrElse` 인스턴스를 무료로 얻습니다:
 
-`instance [Alternative f] : OrElse (f α) where
-orElse := Alternative.orElse`
+```lean
+instance [Alternative f] : OrElse (f α) where
+  orElse := Alternative.orElse
+```
 
 The implementation of `Alternative` for `Option` keeps the first non-`none` argument:
 
 `Option`에 대한 `Alternative` 구현은 첫 번째 non-`none` 인수를 유지합니다:
 
-`instance : Alternative Option where
-failure := none
-orElse
-| some x, _ => some x
-| none, y => y ()`
+```lean
+instance : Alternative Option where
+  failure := none
+  orElse
+    | some x, _ => some x
+    | none, y => y ()
+```
 
 Similarly, the implementation for `Many` follows the general structure of `Many.union`, with minor differences due to the laziness-inducing `Unit` parameters being placed differently:
 
 마찬가지로, `Many`의 구현은 `Many.union`의 일반 구조를 따릅니다. 지연을 유도하는 `Unit` 매개변수가 다르게 배치되어 있기 때문에 약간의 차이가 있습니다:
 
-`def Many.orElse : Many α → (Unit → Many α) → Many α
-| .none, ys => ys ()
-| .more x xs, ys => .more x (fun () => orElse (xs ()) ys)
+```lean
+def Many.orElse : Many α → (Unit → Many α) → Many α
+  | .none, ys => ys ()
+  | .more x xs, ys => .more x (fun () => orElse (xs ()) ys)
+
 instance : Alternative Many where
-failure := .none
-orElse := Many.orElse`
+  failure := .none
+  orElse := Many.orElse
+```
 
 Like other type classes, `Alternative` enables the definition of a variety of operations that work for *any* applicative functor that implements `Alternative`.
 One of the most important is `guard`, which causes `failure` when a decidable proposition is false:
 
 다른 type class와 마찬가지로, `Alternative`는 `Alternative`를 구현하는 *모든* applicative functor에 대해 작동하는 다양한 연산의 정의를 활성화합니다. 가장 중요한 것 중 하나는 decidable 명제가 거짓일 때 `failure`를 발생시키는 `guard`입니다:
 
-`def guard [Alternative f] (p : Prop) [Decidable p] : f Unit :=
-if p then
-pure ()
-else failure`
+```lean
+def guard [Alternative f] (p : Prop) [Decidable p] : f Unit :=
+  if p then
+    pure ()
+  else failure
+```
 
 It is very useful in monadic programs to terminate execution early.
 In `Many`, it can be used to filter out a whole branch of a search, as in the following program that computes all even divisors of a natural number:
 
 monadic 프로그램에서 실행을 조기에 종료하는 것은 매우 유용합니다. `Many`에서, 자연수의 모든 짝수 약수를 계산하는 다음 프로그램과 같이 검색의 전체 분기를 필터링하는 데 사용될 수 있습니다:
 
-`def Many.countdown : Nat → Many Nat
-| 0 => .none
-| n + 1 => .more n (fun () => countdown n)
+```lean
+def Many.countdown : Nat → Many Nat
+  | 0 => .none
+  | n + 1 => .more n (fun () => countdown n)
+
 def evenDivisors (n : Nat) : Many Nat := do
-let k ← Many.countdown (n + 1)
-guard (k % 2 = 0)
-guard (n % k = 0)
-pure k`
+  let k ← Many.countdown (n + 1)
+  guard (k % 2 = 0)
+  guard (n % k = 0)
+  pure k
+```
 
 Running it on `20` yields the expected results:
 
 `20`에서 실행하면 예상된 결과를 생성합니다:
 
-`[20, 10, 4, 2]#eval (evenDivisors 20).takeAll`
+```lean
+#eval (evenDivisors 20).takeAll
+```
 
 ```
 [20, 10, 4, 2]

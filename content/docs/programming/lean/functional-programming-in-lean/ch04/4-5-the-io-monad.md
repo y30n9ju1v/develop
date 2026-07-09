@@ -1,10 +1,10 @@
 ---
-title: "The IO Monad"
+title: "IO 모나드"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "The IO Monad"
+description: "IO Monad의 내부 구현과 세계 전달(world-passing) 방식 이해하기"
 ---
 
 # 4.5. The IO Monad
@@ -34,11 +34,9 @@ For example,
 
 이것이 어떻게 작동하는지 보기 위해서는 한 번에 하나씩 정의를 벗겨내는 것이 도움이 될 수 있습니다. `#print` 명령은 Lean 데이터타입과 정의의 내부를 드러냅니다. 예를 들어,
 
-`inductive Nat : Type
-number of parameters: 0
-constructors:
-Nat.zero : Nat
-Nat.succ : Nat → Nat#print Nat`
+```lean
+#print Nat
+```
 
 results in
 
@@ -52,8 +50,9 @@ Nat.succ : Nat → Nat
 
 and
 
-`def Char.isAlpha : Char → Bool :=
-fun c => c.isUpper || c.isLower#print Char.isAlpha`
+```lean
+#print Char.isAlpha
+```
 
 results in
 
@@ -67,11 +66,9 @@ For example,
 
 때로는 `#print`의 출력에 이 책에서 아직 제시되지 않은 Lean 기능이 포함될 수 있습니다. 예를 들어,
 
-`def List.isEmpty.{u} : {α : Type u} → List α → Bool :=
-fun {α} x =>
-match x with
-| [] => true
-| head :: tail => false#print List.isEmpty`
+```lean
+#print List.isEmpty
+```
 
 produces
 
@@ -92,8 +89,9 @@ Printing the definition of `IO` shows that it's defined in terms of simpler stru
 
 `IO`의 정의를 출력하면 더 간단한 구조로 정의되어 있음을 알 수 있습니다:
 
-`@[reducible] def IO : Type → Type :=
-EIO IO.Error#print IO`
+```lean
+#print IO
+```
 
 ```
 @[reducible] def IO : Type → Type :=
@@ -104,28 +102,9 @@ EIO IO.Error
 
 `IO.Error`는 `IO` 액션으로 인해 발생할 수 있는 모든 오류를 나타냅니다:
 
-`inductive IO.Error : Type
-number of parameters: 0
-constructors:
-IO.Error.alreadyExists : Option String → UInt32 → String → IO.Error
-IO.Error.otherError : UInt32 → String → IO.Error
-IO.Error.resourceBusy : UInt32 → String → IO.Error
-IO.Error.resourceVanished : UInt32 → String → IO.Error
-IO.Error.unsupportedOperation : UInt32 → String → IO.Error
-IO.Error.hardwareFault : UInt32 → String → IO.Error
-IO.Error.unsatisfiedConstraints : UInt32 → String → IO.Error
-IO.Error.illegalOperation : UInt32 → String → IO.Error
-IO.Error.protocolError : UInt32 → String → IO.Error
-IO.Error.timeExpired : UInt32 → String → IO.Error
-IO.Error.interrupted : String → UInt32 → String → IO.Error
-IO.Error.noFileOrDirectory : String → UInt32 → String → IO.Error
-IO.Error.invalidArgument : Option String → UInt32 → String → IO.Error
-IO.Error.permissionDenied : Option String → UInt32 → String → IO.Error
-IO.Error.resourceExhausted : Option String → UInt32 → String → IO.Error
-IO.Error.inappropriateType : Option String → UInt32 → String → IO.Error
-IO.Error.noSuchThing : Option String → UInt32 → String → IO.Error
-IO.Error.unexpectedEof : IO.Error
-IO.Error.userError : String → IO.Error#print IO.Error`
+```lean
+#print IO.Error
+```
 
 ```
 inductive IO.Error : Type
@@ -155,14 +134,15 @@ IO.Error.userError : String → IO.Error
 `EIO ε α` represents `IO` actions that will either terminate with an error of type `ε` or succeed with a value of type `α`.
 This means that, like the `Except ε` monad, the `IO` monad includes the ability to define error handling and exceptions.
 
-`EIO ε α`는 `ε` 타입의 오류로 종료되거나 `α` 타입의 값으로 성공할 `IO` 액션을 나타냅니다. 즉, `Except ε` monad처럼 `IO` monad도 오류 처리 및 예외를 정의할 수 있는 기능을 포함함입니다.
+`EIO ε α`는 `ε` 타입의 오류로 종료되거나 `α` 타입의 값으로 성공할 `IO` 액션을 나타냅니다. 즉, `Except ε` monad처럼 `IO` monad도 오류 처리 및 예외를 정의할 수 있는 기능을 포함합니다.
 
 Peeling back another layer, `EIO` is itself defined in terms of a simpler structure:
 
 더 깊은 레이어를 벗겨내면, `EIO`도 더 간단한 구조로 정의되어 있습니다:
 
-`def EIO : Type → Type → Type :=
-fun ε α => EST ε IO.RealWorld α#print EIO`
+```lean
+#print EIO
+```
 
 ```
 def EIO : Type → Type → Type :=
@@ -174,8 +154,9 @@ It is defined using another type, `EST.Out`:
 
 `EST` monad는 오류와 상태를 모두 포함하며, `Except`와 `State`의 조합과 유사합니다. 다른 타입인 `EST.Out`을 사용하여 정의됩니다:
 
-`def EST : Type → Type → Type → Type :=
-fun ε σ α => Void σ → EST.Out ε σ α#print EST`
+```lean
+#print EST
+```
 
 ```
 def EST : Type → Type → Type → Type :=
@@ -191,11 +172,9 @@ The state is wrapped in the type `Void`, which is an internal primitive that cau
 
 `EST.Out`은 성공적인 종료를 나타내는 하나의 생성자와 오류를 나타내는 하나의 생성자를 가지는 `Except`의 정의와 매우 유사합니다:
 
-`inductive EST.Out : Type → Type → Type → Type
-number of parameters: 3
-constructors:
-EST.Out.ok : {ε σ α : Type} → α → Void σ → EST.Out ε σ α
-EST.Out.error : {ε σ α : Type} → ε → Void σ → EST.Out ε σ α#print EST.Out`
+```lean
+#print EST.Out
+```
 
 ```
 inductive EST.Out : Type → Type → Type → Type
@@ -215,8 +194,9 @@ Just as with `State`, the implementation of `pure` for `EST` accepts an initial 
 
 `EST ε σ`의 `Monad` 인스턴스는 `pure`과 `bind`를 필요로 합니다. `State`와 마찬가지로 `EST`의 `pure` 구현은 초기 상태를 받아들이고 변경되지 않은 상태로 반환하며, `Except`와 마찬가지로 `ok` 생성자에서 인자를 반환합니다:
 
-`protected def EST.pure : {α ε σ : Type} → α → EST ε σ α :=
-fun {α ε σ} a s => EST.Out.ok a s#print EST.pure`
+```lean
+#print EST.pure
+```
 
 ```
 protected def EST.pure : {α ε σ : Type} → α → EST ε σ α :=
@@ -235,11 +215,9 @@ If the result was a success, then the second argument is applied to both the ret
 
 마찬가지로 `EST`의 `bind`는 초기 상태를 인자로 받습니다. 이 초기 상태를 첫 번째 액션에 전달합니다. `Except`의 `bind`처럼 결과가 오류인지 확인합니다. 그렇다면 오류가 변경되지 않은 상태로 반환되고 `bind`의 두 번째 인자는 사용되지 않습니다. 결과가 성공이었다면 두 번째 인자는 반환된 값과 결과 상태 모두에 적용됩니다.
 
-`protected def EST.bind : {ε σ α β : Type} → EST ε σ α → (α → EST ε σ β) → EST ε σ β :=
-fun {ε σ α β} x f s =>
-match x s with
-| EST.Out.ok a s => f a s
-| EST.Out.error e s => EST.Out.error e s#print EST.bind`
+```lean
+#print EST.bind
+```
 
 ```
 protected def EST.bind : {ε σ α β : Type} → EST ε σ α → (α → EST ε σ β) → EST ε σ β :=

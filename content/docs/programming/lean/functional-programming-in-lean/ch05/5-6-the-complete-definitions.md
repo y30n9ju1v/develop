@@ -1,10 +1,10 @@
 ---
-title: "The Complete Definitions"
+title: "완전한 정의"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "The Complete Definitions"
+description: "완전한 정의"
 ---
 
 # 5.6. The Complete Definitions
@@ -21,10 +21,12 @@ The complete definition of the `Functor` class makes use of universe polymorphis
 
 `Functor` 클래스의 완전한 정의는 universe 다형성과 기본 메서드 구현을 사용합니다:
 
-`class Functor (f : Type u → Type v) : Type (max (u+1) v) where
-map : {α β : Type u} → (α → β) → f α → f β
-mapConst : {α β : Type u} → α → f β → f α :=
-Function.comp map (Function.const _)`
+```lean
+class Functor (f : Type u → Type v) : Type (max (u+1) v) where
+  map : {α β : Type u} → (α → β) → f α → f β
+  mapConst : {α β : Type u} → α → f β → f α :=
+    Function.comp map (Function.const _)
+```
 
 In this definition, `Function.comp` is function composition, which is typically written with the `∘` operator.
 `Function.const` is the *constant function*, which is a two-argument function that ignores its second argument.
@@ -37,13 +39,17 @@ A simple version of `Function.const` can be written as follows:
 
 `Function.const`의 간단한 버전은 다음과 같이 작성할 수 있습니다:
 
-`def simpleConst (x : α) (_ : β) : α := x`
+```lean
+def simpleConst (x : α) (_ : β) : α := x
+```
 
 Using it with one argument as the function argument to `List.map` demonstrates its utility:
 
 하나의 인자를 가지고 `List.map`의 함수 인자로 사용하면 그 유용성을 알 수 있습니다:
 
-`["same", "same", "same"]#eval [1, 2, 3].map (simpleConst "same")`
+```lean
+#eval [1, 2, 3].map (simpleConst "same")
+```
 
 ```
 ["same", "same", "same"]
@@ -69,15 +75,19 @@ To see why the structure that implements the `Functor` type class must be in a u
 여기서 `u`는 `f`의 인자로 받는 universe들의 수준이고, `v`는 `f`가 반환하는 universe입니다.
 `Functor` type class를 구현하는 구조가 `u`보다 큰 universe에 있어야 하는 이유를 보기 위해, 클래스의 간단한 정의로부터 시작합니다:
 
-`class Functor (f : Type u → Type v) : Type (max (u+1) v) where
-map : {α β : Type u} → (α → β) → f α → f β`
+```lean
+class Functor (f : Type u → Type v) : Type (max (u+1) v) where
+  map : {α β : Type u} → (α → β) → f α → f β
+```
 
 This type class's structure type is equivalent to the following inductive type:
 
 이 type class의 구조 타입은 다음의 귀납적 타입과 동치입니다:
 
-`inductive Functor (f : Type u → Type v) : Type (max (u+1) v) where
-| mk : ({α β : Type u} → (α → β) → f α → f β) → Functor f`
+```lean
+inductive Functor (f : Type u → Type v) : Type (max (u+1) v) where
+  | mk : ({α β : Type u} → (α → β) → f α → f β) → Functor f
+```
 
 The implementation of the `map` method that is passed as an argument to `mk` contains a function that takes two types in `Type u` as arguments.
 This means that the type of the function itself is in `Type (u+1)`, so `Functor` must also be at a level that is at least `u+1`.
@@ -97,17 +107,25 @@ The first are `Pure` and `Seq`, which contain `pure` and `seq` respectively:
 `Applicative` type class는 실제로는 각각 관련 메서드의 일부를 포함하는 여러 개의 더 작은 클래스들로부터 구성됩니다.
 먼저 `pure`와 `seq`를 각각 포함하는 `Pure`와 `Seq`가 있습니다:
 
-`class Pure (f : Type u → Type v) : Type (max (u+1) v) where
-pure {α : Type u} : α → f α``class Seq (f : Type u → Type v) : Type (max (u+1) v) where
-seq : {α β : Type u} → f (α → β) → (Unit → f α) → f β`
+```lean
+class Pure (f : Type u → Type v) : Type (max (u+1) v) where
+  pure {α : Type u} : α → f α
+
+class Seq (f : Type u → Type v) : Type (max (u+1) v) where
+  seq : {α β : Type u} → f (α → β) → (Unit → f α) → f β
+```
 
 In addition to these, `Applicative` also depends on `SeqRight` and an analogous `SeqLeft` class:
 
 이 외에도 `Applicative`는 `SeqRight`와 유사한 `SeqLeft` 클래스에도 의존합니다:
 
-`class SeqRight (f : Type u → Type v) : Type (max (u+1) v) where
-seqRight : {α β : Type u} → f α → (Unit → f β) → f β``class SeqLeft (f : Type u → Type v) : Type (max (u+1) v) where
-seqLeft : {α β : Type u} → f α → (Unit → f β) → f α`
+```lean
+class SeqRight (f : Type u → Type v) : Type (max (u+1) v) where
+  seqRight : {α β : Type u} → f α → (Unit → f β) → f β
+
+class SeqLeft (f : Type u → Type v) : Type (max (u+1) v) where
+  seqLeft : {α β : Type u} → f α → (Unit → f β) → f α
+```
 
 The `seqRight` function, which was introduced in the [section about alternatives and validation](Functors___-Applicative-Functors___-and-Monads/Alternatives/#alternative), is easiest to understand from the perspective of effects.
 `E1 *> E2`, which desugars to `SeqRight.seqRight E1 (fun () => E2)`, can be understood as first executing `E1`, and then `E2`, resulting only in `E2`'s result.
@@ -137,11 +155,13 @@ The definition of `Applicative` extends all these classes, along with `Functor`:
 
 `Applicative`의 정의는 `Functor`와 함께 이 모든 클래스들을 확장합니다:
 
-`class Applicative (f : Type u → Type v)
-extends Functor f, Pure f, Seq f, SeqLeft f, SeqRight f where
-map := fun x y => Seq.seq (pure x) fun _ => y
-seqLeft := fun a b => Seq.seq (Functor.map (Function.const _) a) b
-seqRight := fun a b => Seq.seq (Functor.map (Function.const _ id) a) b`
+```lean
+class Applicative (f : Type u → Type v)
+    extends Functor f, Pure f, Seq f, SeqLeft f, SeqRight f where
+  map := fun x y => Seq.seq (pure x) fun _ => y
+  seqLeft := fun a b => Seq.seq (Functor.map (Function.const _) a) b
+  seqRight := fun a b => Seq.seq (Functor.map (Function.const _ id) a) b
+```
 
 A complete definition of `Applicative` requires only definitions for `pure` and `seq`.
 This is because there are default definitions for all of the methods from `Functor`, `SeqLeft`, and `SeqRight`.
@@ -161,11 +181,15 @@ Replacing some of the names with their syntactic sugar or their definitions can 
 `seqLeft`의 기본 구현은 매우 간결합니다.
 일부 이름을 그들의 syntactic sugar 또는 정의로 바꾸면 다른 관점을 제공할 수 있으므로:
 
-`Seq.seq (Functor.map (Function.const _) a) b`
+```lean
+Seq.seq (Functor.map (Function.const _) a) b
+```
 
 becomes
 
-`fun a b => Seq.seq ((fun x _ => x) <$> a) b`
+```lean
+fun a b => Seq.seq ((fun x _ => x) <$> a) b
+```
 
 다음이 된다.
 
@@ -182,27 +206,29 @@ This definition can be understood similarly, by first introducing some standard 
 `seqRight`의 기본 구현은 매우 유사하지만, `Function.const`가 추가 인자 `id`를 가진다는 점이 다릅니다.
 이 정의는 유사하게 이해할 수 있으며, 먼저 표준 syntactic sugar를 도입한 다음 일부 이름을 그들의 정의로 바꾸면 됩니다:
 
-`fun a b => Seq.seq (Functor.map (Function.const _ id) a) b`
+```lean
+fun a b => Seq.seq (Functor.map (Function.const _ id) a) b
+```
 
 becomes
 
-`fun a b => Seq.seq ((fun _ => id) <$> a) b`
+```lean
+fun a b => Seq.seq ((fun _ => id) <$> a) b
+```
 
 becomes
 
-`fun a b => Seq.seq ((fun _ => fun x => x) <$> a) b`
+```lean
+fun a b => Seq.seq ((fun _ => fun x => x) <$> a) b
+```
 
 becomes
 
-`fun a b => Seq.seq ((fun _ x => x) <$> a) b`
+```lean
+fun a b => Seq.seq ((fun _ x => x) <$> a) b
+```
 
-다음과 같이 변합니다.
-
-다음과 같이 변합니다.
-
-다음과 같이 변합니다.
-
-다음과 같이 변합니다.
+이는 차례로 다음과 같이, 다음과 같이, 그리고 마지막으로 다음과 같이 변합니다.
 
 `(fun _ x => x) <$> a`는 어떻게 이해해야 할까요?
 다시 한 번, 예시가 유용합니다.
@@ -216,19 +242,23 @@ Just as the constituent operations of `Applicative` are split into their own typ
 
 `Applicative`의 구성 연산들이 자신의 type class로 분리되는 것처럼, `Bind`도 자신의 클래스를 가집니다:
 
-`class Bind (m : Type u → Type v) where
-bind : {α β : Type u} → m α → (α → m β) → m β`
+```lean
+class Bind (m : Type u → Type v) where
+  bind : {α β : Type u} → m α → (α → m β) → m β
+```
 
 `Monad` extends `Applicative` with `Bind`:
 
 `Monad`는 `Bind`를 포함하여 `Applicative`를 확장합니다:
 
-`class Monad (m : Type u → Type v) : Type (max (u+1) v)
-extends Applicative m, Bind m where
-map f x := bind x (Function.comp pure f)
-seq f x := bind f fun y => Functor.map y (x ())
-seqLeft x y := bind x fun a => bind (y ()) (fun _ => pure a)
-seqRight x y := bind x fun _ => y ()`
+```lean
+class Monad (m : Type u → Type v) : Type (max (u+1) v)
+    extends Applicative m, Bind m where
+  map f x := bind x (Function.comp pure f)
+  seq f x := bind f fun y => Functor.map y (x ())
+  seqLeft x y := bind x fun a => bind (y ()) (fun _ => pure a)
+  seqRight x y := bind x fun _ => y ()
+```
 
 Tracing the collection of inherited methods and default methods from the entire hierarchy shows that a `Monad` instance requires only implementations of `bind` and `pure`.
 In other words, `Monad` instances automatically yield implementations of `seq`, `seqLeft`, `seqRight`, `map`, and `mapConst`.

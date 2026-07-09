@@ -107,7 +107,10 @@ Lean 도구 모음은 다음으로 구성됩니다:
 
 Code examples that are provided to Lean as *input* are formatted like this:
 
-`def add1 (n : Nat) : Nat := n + 1``#eval add1 7`
+```lean
+def add1 (n : Nat) : Nat := n + 1
+#eval add1 7
+```
 
 The last line above (beginning with `#eval`) is a command that instructs Lean to calculate an answer.
 Lean's replies are formatted like this:
@@ -152,7 +155,7 @@ For example, to enter `α`, type `\alpha`.
 To find out how to type a character in Visual Studio Code, point the mouse at it and look at the tooltip.
 In Emacs, use `C-c C-k` with point on the character in question.
 
-관용적인 Lean 코드는 ASCII에 없는 다양한 유니코드 문자를 씁니다.
+관용적인 Lean 코드는 ASCII에 없는 다양한 유니코드 문자를 사용합니다.
 예를 들어 `α`, `β` 같은 그리스 문자와 화살표 `→`가 1장에서부터 등장합니다.
 이 덕분에 Lean 코드가 일반적인 수학 표기법과 유사하게 보입니다.
 

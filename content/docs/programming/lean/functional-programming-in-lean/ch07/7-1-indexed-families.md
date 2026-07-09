@@ -1,10 +1,10 @@
 ---
-title: "Indexed Families"
+title: "색인 패밀리 (Indexed Families)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Indexed Families"
+description: "색인 패밀리 (Indexed Families)"
 ---
 
 # 7.1. Indexed Families
@@ -25,16 +25,20 @@ The “hello world” of indexed families is a type of lists that contains the l
 생성자 선택에 따라 타입 인자가 변하는 inductive types을 *indexed families*라고 하며, 변하는 인자를 *indices*라고 합니다.
 Indexed families의 “hello world”는 항목 타입뿐만 아니라 리스트의 길이도 포함하는 리스트 타입으로, 관례적으로 “vectors”라고 불립니다:
 
-`inductive Vect (α : Type u) : Nat → Type u where
-| nil : Vect α 0
-| cons : α → Vect α n → Vect α (n + 1)`
+```lean
+inductive Vect (α : Type u) : Nat → Type u where
+  | nil : Vect α 0
+  | cons : α → Vect α n → Vect α (n + 1)
+```
 
 The type of a vector of three `String`s includes the fact that it contains three `String`s:
 
 세 개의 `String`의 vector 타입은 그것이 세 개의 `String`을 포함한다는 사실을 포함합니다:
 
-`example : Vect String 3 :=
-.cons "one" (.cons "two" (.cons "three" .nil))`
+```lean
+example : Vect String 3 :=
+  .cons "one" (.cons "two" (.cons "three" .nil))
+```
 
 Function declarations may take some arguments before the colon, indicating that they are available in the entire definition, and some arguments after, indicating a desire to pattern-match on them and define the function case by case.
 Inductive datatypes have a similar principle: the argument `α` is named at the top of the datatype declaration, prior to the colon, which indicates that it is a parameter that must be provided as the first argument in all occurrences of `Vect` in the definition, while the `Nat` argument occurs after the colon, indicating that it is an index that may vary.
@@ -50,12 +54,9 @@ This means that using `Vect.nil` in a context expecting a `Vect String 3` is a t
 `nil`의 선언은 그것이 `Vect α 0` 타입의 생성자임을 나타냅니다.
 이는 `Vect String 3`을 기대하는 문맥에서 `Vect.nil`을 사용하는 것이 타입 에러라는 의미이며, `List String`을 기대하는 문맥에서 `[1, 2, 3]`이 타입 에러인 것과 같습니다:
 
-`example : Vect String 3 := Type mismatch
-Vect.nil
-has type
-Vect ?m.3 0
-but is expected to have type
-Vect String 3Vect.nil`
+```lean
+example : Vect String 3 := Vect.nil
+```
 
 ```
 Type mismatch
@@ -86,12 +87,9 @@ Using `n` for the length allows neither `Vect.nil` nor `Vect.cons`, because ther
 Index가 아직 알려지지 않았다면 (예를 들어 변수이기 때문에), 그것이 알려질 때까지 어떤 생성자도 사용할 수 없습니다.
 길이에 `n`을 사용하면 `Vect.nil`과 `Vect.cons` 모두 허용되지 않습니다. 왜냐하면 변수 `n`이 `0`과 일치하는 `Nat`을 나타내야 하는지 `n + 1`을 나타내야 하는지 알 수 없기 때문입니다:
 
-`example : Vect String n := Type mismatch
-Vect.nil
-has type
-Vect ?m.2 0
-but is expected to have type
-Vect String nVect.nil`
+```lean
+example : Vect String n := Vect.nil
+```
 
 ```
 Type mismatch
@@ -102,12 +100,9 @@ but is expected to have type
   Vect String n
 ```
 
-`example : Vect String n := Type mismatch
-Vect.cons "Hello" (Vect.cons "world" Vect.nil)
-has type
-Vect String (0 + 1 + 1)
-but is expected to have type
-Vect String nVect.cons "Hello" (Vect.cons "world" Vect.nil)`
+```lean
+example : Vect String n := Vect.cons "Hello" (Vect.cons "world" Vect.nil)
+```
 
 ```
 Type mismatch
@@ -126,9 +121,9 @@ The type that says this precisely is:
 예를 들어, `Vect.replicate`는 주어진 값의 복사본 여러 개를 가진 `Vect`를 생성하는 함수입니다.
 이를 정확히 나타내는 타입은:
 
-`def Vect.replicate (n : Nat) (x : α) : Vect α n := don't know how to synthesize placeholder
-context:
-α:Type u_1n:Natx:α⊢ Vect α n_`
+```lean
+def Vect.replicate (n : Nat) (x : α) : Vect α n := _
+```
 
 The argument `n` appears as the length of the result.
 The message associated with the underscore placeholder describes the task at hand:
@@ -152,14 +147,12 @@ Indexed families를 다룰 때, 생성자는 Lean이 생성자의 index가 예�
 예제 타입 에러와 마찬가지로, 변수 `n`은 함수에 인자로 제공되는 `Nat`에 따라 둘 중 하나를 나타낼 수 있습니다.
 해결책은 패턴 매칭을 사용하여 가능한 두 경우를 모두 고려하는 것입니다:
 
-`def Vect.replicate (n : Nat) (x : α) : Vect α n :=
-match n with
-| 0 => don't know how to synthesize placeholder
-context:
-α:Type u_1n:Natx:α⊢ Vect α 0_
-| k + 1 => don't know how to synthesize placeholder
-context:
-α:Type u_1n:Natx:αk:Nat⊢ Vect α (k + 1)_`
+```lean
+def Vect.replicate (n : Nat) (x : α) : Vect α n :=
+  match n with
+  | 0 => _
+  | k + 1 => _
+```
 
 Because `n` occurs in the expected type, pattern matching on `n` *refines* the expected type in the two cases of the match.
 In the first underscore, the expected type has become `Vect α 0`:
@@ -190,14 +183,12 @@ When pattern matching refines the type of a program in addition to discovering t
 The refined type makes it possible to apply the constructors.
 The first underscore matches `Vect.nil`, and the second matches `Vect.cons`:
 
-`def Vect.replicate (n : Nat) (x : α) : Vect α n :=
-match n with
-| 0 => .nil
-| k + 1 => .cons don't know how to synthesize placeholder
-context:
-α:Type u_1n:Natx:αk:Nat⊢ α_ don't know how to synthesize placeholder
-context:
-α:Type u_1n:Natx:αk:Nat⊢ Vect α k_`
+```lean
+def Vect.replicate (n : Nat) (x : α) : Vect α n :=
+  match n with
+  | 0 => .nil
+  | k + 1 => .cons _ _
+```
 
 The first underscore under the `.cons` should have type `α`.
 There is an `α` available, namely `x`:
@@ -226,10 +217,12 @@ Refined type은 생성자를 적용할 수 있게 만듭니다.
 
 Here is the final definition of `replicate`:
 
-`def Vect.replicate (n : Nat) (x : α) : Vect α n :=
-match n with
-| 0 => .nil
-| k + 1 => .cons x (replicate k x)`
+```lean
+def Vect.replicate (n : Nat) (x : α) : Vect α n :=
+  match n with
+  | 0 => .nil
+  | k + 1 => .cons x (replicate k x)
+```
 
 In addition to providing assistance while writing the function, the informative type of `Vect.replicate` also allows client code to rule out a number of unexpected functions without having to read the source code.
 A version of `replicate` for lists could produce a list of the wrong length:
@@ -237,26 +230,23 @@ A version of `replicate` for lists could produce a list of the wrong length:
 함수를 작성하는 동안 도움을 제공하는 것 외에도, `Vect.replicate`의 정보적인 타입은 또한 클라이언트 코드가 소스 코드를 읽을 필요 없이 많은 예상치 못한 함수를 배제할 수 있게 합니다.
 리스트를 위한 `replicate` 버전은 잘못된 길이의 리스트를 생성할 수 있습니다:
 
-`def  (n : Nat) (x : α) : List α :=
-match n with
-| 0 => []
-| k + 1 => x :: x :: replicate k x`
+```lean
+def replicate (n : Nat) (x : α) : List α :=
+  match n with
+  | 0 => []
+  | k + 1 => x :: x :: replicate k x
+```
 
 However, making this mistake with `Vect.replicate` is a type error:
 
 그러나 `Vect.replicate`으로 이러한 실수를 하는 것은 타입 에러입니다:
 
-`def Vect.replicate (n : Nat) (x : α) : Vect α n :=
-match n with
-| 0 => .nil
-| k + 1 => .cons x Application type mismatch: The argument
-cons x (replicate k x)
-has type
-Vect α (k + 1)
-but is expected to have type
-Vect α k
-in the application
-cons x (cons x (replicate k x))(.cons x (replicate k x))`
+```lean
+def Vect.replicate (n : Nat) (x : α) : Vect α n :=
+  match n with
+  | 0 => .nil
+  | k + 1 => .cons x (.cons x (replicate k x))
+```
 
 ```
 Application type mismatch: The argument
@@ -275,17 +265,21 @@ The function `List.zip` combines two lists by pairing the first entry in the fir
 `List.zip` 함수는 첫 번째 리스트의 첫 번째 항목과 두 번째 리스트의 첫 번째 항목을 쌍으로 만들고, 첫 번째 리스트의 두 번째 항목과 두 번째 리스트의 두 번째 항목을 쌍으로 만드는 식으로 두 리스트를 결합합니다.
 `List.zip`은 미국 오리건 주의 가장 높은 세 개의 봉우리와 덴마크의 가장 높은 세 개의 봉우리를 쌍으로 만드는 데 사용할 수 있습니다:
 
-`["Mount Hood",
-"Mount Jefferson",
-"South Sister"].zip ["Møllehøj", "Yding Skovhøj", "Ejer Bavnehøj"]`
+```lean
+["Mount Hood",
+ "Mount Jefferson",
+ "South Sister"].zip ["Møllehøj", "Yding Skovhøj", "Ejer Bavnehøj"]
+```
 
 The result is a list of three pairs:
 
 결과는 세 개 쌍의 리스트입니다:
 
-`[("Mount Hood", "Møllehøj"),
-("Mount Jefferson", "Yding Skovhøj"),
-("South Sister", "Ejer Bavnehøj")]`
+```
+[("Mount Hood", "Møllehøj"),
+ ("Mount Jefferson", "Yding Skovhøj"),
+ ("South Sister", "Ejer Bavnehøj")]
+```
 
 It's somewhat unclear what should happen when the lists have different lengths.
 Like many languages, Lean chooses to ignore the extra entries in one of the lists.
@@ -297,13 +291,17 @@ In particular,
 예를 들어, 오리건 주의 가장 높은 5개 봉우리의 높이를 덴마크의 가장 높은 3개 봉우리의 높이와 결합하면 세 개의 쌍이 생깁니다.
 특히,
 
-`[3428.8, 3201, 3158.5, 3075, 3064].zip [170.86, 170.77, 170.35]`
+```lean
+[3428.8, 3201, 3158.5, 3075, 3064].zip [170.86, 170.77, 170.35]
+```
 
 evaluates to
 
 다음과 같이 계산됩니다
 
-`[(3428.8, 170.86), (3201, 170.77), (3158.5, 170.35)]`
+```lean
+[(3428.8, 170.86), (3201, 170.77), (3158.5, 170.35)]
+```
 
 While this approach is convenient because it always returns an answer, it runs the risk of throwing away data when the lists unintentionally have different lengths.
 F# takes a different approach: its version of `List.zip` throws an exception when the lengths don't match, as can be seen in this `fsi` session:
@@ -336,19 +334,21 @@ Using `Vect`, however, it is possible to write a version of `zip` with a type th
 
 그러나 `Vect`를 사용하면 두 인자가 같은 길이를 가져야 하는 타입의 `zip` 버전을 작성할 수 있습니다:
 
-`def Vect.zip : Vect α n → Vect β n → Vect (α × β) n
-| .nil, .nil => .nil
-| .cons x xs, .cons y ys => .cons (x, y) (zip xs ys)`
+```lean
+def Vect.zip : Vect α n → Vect β n → Vect (α × β) n
+  | .nil, .nil => .nil
+  | .cons x xs, .cons y ys => .cons (x, y) (zip xs ys)
+```
 
 This definition only has patterns for the cases where either both arguments are `Vect.nil` or both arguments are `Vect.cons`, and Lean accepts the definition without a “missing cases” error like the one that results from a similar definition for `List`:
 
 이 정의는 두 인자가 모두 `Vect.nil`이거나 두 인자가 모두 `Vect.cons`인 경우에만 패턴을 가지며, Lean은 `List`의 유사한 정의로 인한 “missing cases” 에러 없이 정의를 수락합니다:
 
-`def List.zip : List α → List β → List (α × β)
-Missing cases:
-(List.cons _ _), []
-[], (List.cons _ _)| [], [] => []
-| x :: xs, y :: ys => (x, y) :: zip xs ys`
+```lean
+def List.zip : List α → List β → List (α × β)
+  | [], [] => []
+  | x :: xs, y :: ys => (x, y) :: zip xs ys
+```
 
 ```
 Missing cases:
@@ -366,15 +366,12 @@ Indeed, adding a case that uses `nil` and `cons` together is a type error, becau
 마찬가지로, 첫 번째 패턴이 `cons`일 때, 타입 검사기는 길이가 어떤 `Nat` `k`에 대해 `k+1`이었음을 결정할 수 있으므로, 두 번째 패턴의 유일한 가능한 선택은 `cons`입니다.
 실제로, `nil`과 `cons`를 함께 사용하는 경우를 추가하는 것은 타입 에러입니다. 왜냐하면 길이가 일치하지 않기 때문입니다:
 
-`def Vect.zip : Vect α n → Vect β n → Vect (α × β) n
-| .nil, .nil => .nil
-| .nil, Type mismatch
-Vect.cons y ys
-has type
-Vect ?m.10 (?m.16 + 1)
-but is expected to have type
-Vect β 0.cons y ys => .nil
-| .cons x xs, .cons y ys => .cons (x, y) (zip xs ys)`
+```lean
+def Vect.zip : Vect α n → Vect β n → Vect (α × β) n
+  | .nil, .nil => .nil
+  | .nil, .cons y ys => .nil
+  | .cons x xs, .cons y ys => .cons (x, y) (zip xs ys)
+```
 
 ```
 Type mismatch
@@ -389,9 +386,11 @@ The refinement of the length can be observed by making `n` into an explicit argu
 
 길이의 refinement는 `n`을 명시적 인자로 만들어 관찰할 수 있습니다:
 
-`def Vect.zip : (n : Nat) → Vect α n → Vect β n → Vect (α × β) n
-| 0, .nil, .nil => .nil
-| k + 1, .cons x xs, .cons y ys => .cons (x, y) (zip k xs ys)`
+```lean
+def Vect.zip : (n : Nat) → Vect α n → Vect β n → Vect (α × β) n
+  | 0, .nil, .nil => .nil
+  | k + 1, .cons x xs, .cons y ys => .cons (x, y) (zip k xs ys)
+```
 
 ## 7.1.1. Exercises
 

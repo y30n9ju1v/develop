@@ -1,10 +1,10 @@
 ---
-title: "Worked Example: cat"
+title: "실습 예제: cat"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Worked Example: cat"
+description: "feline 프로그램을 통해 IO 스트림과 꼬리 재귀를 실습합니다"
 ---
 
 # Worked Example: cat
@@ -35,14 +35,16 @@ The end of the input is indicated by `read` returning an empty byte array:
 `feline`의 주요 작업은 `dump`에 의해 수행되며, 이는 입력의 끝에 도달할 때까지 한 번에 한 블록씩 입력을 읽고 결과를 표준 출력으로 출력합니다.
 입력의 끝은 `read`가 빈 바이트 배열을 반환함으로써 표시됩니다:
 
-`partial def dump (stream : IO.FS.Stream) : IO Unit := do
-let buf ← stream.read bufsize
-if buf.isEmpty then
-pure ()
-else
-let stdout ← IO.getStdout
-stdout.write buf
-dump stream`
+```lean
+partial def dump (stream : IO.FS.Stream) : IO Unit := do
+  let buf ← stream.read bufsize
+  if buf.isEmpty then
+    pure ()
+  else
+    let stdout ← IO.getStdout
+    stdout.write buf
+    dump stream
+```
 
 The `dump` function is declared `partial`, because it calls itself recursively on input that is not immediately smaller than an argument.
 When a function is declared to be partial, Lean does not require a proof that it terminates.
@@ -64,13 +66,15 @@ Each operation is represented as an IO action that provides the corresponding op
 내부적으로 각 POSIX 스트림 작업마다 하나의 필드를 가진 구조로 표현됩니다.
 각 작업은 해당 작업을 제공하는 IO 액션으로 표현됩니다:
 
-`structure Stream where
-flush : IO Unit
-read : USize → IO ByteArray
-write : ByteArray → IO Unit
-getLine : IO String
-putStr : String → IO Unit
-isTty : BaseIO Bool`
+```lean
+structure Stream where
+  flush : IO Unit
+  read : USize → IO ByteArray
+  write : ByteArray → IO Unit
+  getLine : IO String
+  putStr : String → IO Unit
+  isTty : BaseIO Bool
+```
 
 The type `BaseIO` is a variant of `IO` that rules out run-time errors.
 The Lean compiler contains `IO` actions (such as `IO.getStdout`, which is called in `dump`) to get streams that represent standard input, standard output, and standard error.
@@ -116,15 +120,17 @@ When the argument is not a file, `fileStream` emits an error and returns `none`.
 인수가 존재하는 파일의 이름이면 `fileStream`은 파일의 내용을 읽는 스트림을 반환합니다.
 인수가 파일이 아니면 `fileStream`은 오류를 내보내고 `none`을 반환합니다.
 
-`def fileStream (filename : System.FilePath) : IO (Option IO.FS.Stream) := do
-let fileExists ← filename.pathExists
-if not fileExists then
-let stderr ← IO.getStderr
-stderr.putStrLn s!"File not found: {filename}"
-pure none
-else
-let handle ← IO.FS.Handle.mk filename IO.FS.Mode.read
-pure (some (IO.FS.Stream.ofHandle handle))`
+```lean
+def fileStream (filename : System.FilePath) : IO (Option IO.FS.Stream) := do
+  let fileExists ← filename.pathExists
+  if not fileExists then
+    let stderr ← IO.getStderr
+    stderr.putStrLn s!"File not found: {filename}"
+    pure none
+  else
+    let handle ← IO.FS.Handle.mk filename IO.FS.Mode.read
+    pure (some (IO.FS.Stream.ofHandle handle))
+```
 
 Opening a file as a stream takes two steps.
 First, a file handle is created by opening the file in read mode.
@@ -148,21 +154,23 @@ Additionally, it takes a list of input files to be processed.
 입력 중 하나라도 읽을 수 없으면 0이 아닌 종료 코드를 반환하기 위해, `process`는 전체 프로그램의 현재 종료 코드를 나타내는 `exitCode` 인수를 받습니다.
 또한 처리할 입력 파일의 리스트를 받습니다.
 
-`def process (exitCode : UInt32) (args : List String) : IO UInt32 := do
-match args with
-| [] => pure exitCode
-| "-" :: args =>
-let stdin ← IO.getStdin
-dump stdin
-process exitCode args
-| filename :: args =>
-let stream ← fileStream ⟨filename⟩
-match stream with
-| none =>
-process 1 args
-| some stream =>
-dump stream
-process exitCode args`
+```lean
+def process (exitCode : UInt32) (args : List String) : IO UInt32 := do
+  match args with
+  | [] => pure exitCode
+  | "-" :: args =>
+    let stdin ← IO.getStdin
+    dump stdin
+    process exitCode args
+  | filename :: args =>
+    let stream ← fileStream ⟨filename⟩
+    match stream with
+    | none =>
+      process 1 args
+    | some stream =>
+      dump stream
+      process exitCode args
+```
 
 Just as with `if`, each branch of a `match` that is used as a statement in a `do` is implicitly provided with its own `do`.
 

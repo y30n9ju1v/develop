@@ -1,13 +1,13 @@
 ---
-title: "The Applicative Contract"
+title: "어플리커티브 계약"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "The Applicative Contract"
+description: "어플리커티브 계약"
 ---
 
-# 5.3. The Applicative Contract
+# 5.3. The Applicative Contract
 
 Just like `Functor`, `Monad`, and types that implement `BEq` and `Hashable`, `Applicative` has a set of rules that all instances should adhere to.
 
@@ -17,19 +17,19 @@ There are four rules that an applicative functor should follow:
 
 Applicative functor가 따라야 할 네 가지 규칙이 있습니다:
 
-1. It should respect identity, so `pure id <*> v = v`
+1. It should respect identity, so `pure id <*> v = v`.
 
    항등성을 존중해야 하므로 `pure id <*> v = v`입니다.
 
-2. It should respect function composition, so `pure (· ∘ ·) <*> u <*> v <*> w = u <*> (v <*> w)`
+2. It should respect function composition, so `pure (· ∘ ·) <*> u <*> v <*> w = u <*> (v <*> w)`.
 
    함수 합성을 존중해야 하므로 `pure (· ∘ ·) <*> u <*> v <*> w = u <*> (v <*> w)`입니다.
 
-3. Sequencing pure operations should be a no-op, so `pure f <*> pure x``=``pure (f x)`
+3. Sequencing pure operations should be a no-op, so `pure f <*> pure x = pure (f x)`.
 
    순수 연산의 순서 설정은 no-op이어야 하므로 `pure f <*> pure x = pure (f x)`입니다.
 
-4. The ordering of pure operations doesn't matter, so `u <*> pure x = pure (fun f => f x) <*> u`
+4. The ordering of pure operations doesn't matter, so `u <*> pure x = pure (fun f => f x) <*> u`.
 
    순수 연산의 순서는 중요하지 않으므로 `u <*> pure x = pure (fun f => f x) <*> u`입니다.
 
@@ -58,19 +58,23 @@ The third rule follows directly from the definition of `seq`:
 세 번째 규칙은 `seq`의 정의로부터 직접 도출됩니다.
 
 In the fourth case, assume that `u` is `some f`, because if it's `none`, both sides of the equation are `none`.
+
 `some f <*> some x` evaluates directly to `some (f x)`, as does `some (fun g => g x) <*> some f`.
 
 네 번째 경우에는 `u`가 `some f`라고 가정합니다. 왜냐하면 `none`이면 등식의 양쪽이 모두 `none`이기 때문입니다.
+
 `some f <*> some x`는 직접 `some (f x)`로 평가되며, `some (fun g => g x) <*> some f`도 마찬가지입니다.
 
-## 5.3.1. All Applicatives are Functors
+## 5.3.1. All Applicatives are Functors
 
 The two operators for `Applicative` are enough to define `map`:
 
 `Applicative`의 두 연산자는 `map`을 정의하기에 충분합니다:
 
-`def map [Applicative f] (g : α → β) (x : f α) : f β :=
-pure g <*> x`
+```lean
+def map [Applicative f] (g : α → β) (x : f α) : f β :=
+  pure g <*> x
+```
 
 This can only be used to implement `Functor` if the contract for `Applicative` guarantees the contract for `Functor`, however.
 The first rule of `Functor` is that `id <$> x = x`, which follows directly from the first rule for `Applicative`.
@@ -80,7 +84,9 @@ Using the rule that sequencing pure operations is a no-op, the left side can be 
 This is an instance of the rule that states that applicative functors respect function composition.
 
 이는 `Applicative`의 계약이 `Functor`의 계약을 보장할 때에만 `Functor`를 구현하는 데 사용될 수 있습니다.
+
 `Functor`의 첫 번째 규칙은 `id <$> x = x`이며, 이는 `Applicative`의 첫 번째 규칙으로부터 직접 도출됩니다.
+
 `Functor`의 두 번째 규칙은 `map (f ∘ g) x = map f (map g x)`입니다.
 여기서 `map`의 정의를 펼치면 `pure (f ∘ g) <*> x = pure f <*> (pure g <*> x)`를 얻습니다.
 순수 연산의 순서 설정이 no-op이라는 규칙을 사용하면, 좌변을 `pure (· ∘ ·) <*> pure f <*> pure g <*> x`로 다시 쓸 수 있습니다.
@@ -90,23 +96,28 @@ This justifies a definition of `Applicative` that extends `Functor`, with a defa
 
 이는 `Functor`를 확장하는 `Applicative`의 정의를 정당화하며, `pure`와 `seq`의 관점에서 `map`의 기본 정의를 제공합니다:
 
-`class Applicative (f : Type → Type) extends Functor f where
-pure : α → f α
-seq : f (α → β) → (Unit → f α) → f β
-map g x := seq (pure g) (fun () => x)`
+```lean
+class Applicative (f : Type → Type) extends Functor f where
+  pure : α → f α
+  seq : f (α → β) → (Unit → f α) → f β
+  map g x := seq (pure g) (fun () => x)
+```
 
-## 5.3.2. All Monads are Applicative Functors
+## 5.3.2. All Monads are Applicative Functors
 
 An instance of `Monad` already requires an implementation of `pure`.
 Together with `bind`, this is enough to define `seq`:
 
 `Monad`의 인스턴스는 이미 `pure`의 구현을 요구합니다.
-`bind`와 함께 이는 `seq`을 정의하기에 충분합니다:
 
-`def seq [Monad m] (f : m (α → β)) (x : Unit → m α) : m β := do
-let g ← f
-let y ← x ()
-pure (g y)`
+`bind`와 함께 이는 `seq`를 정의하기에 충분합니다:
+
+```lean
+def seq [Monad m] (f : m (α → β)) (x : Unit → m α) : m β := do
+  let g ← f
+  let y ← x ()
+  pure (g y)
+```
 
 Once again, checking that the `Monad` contract implies the `Applicative` contract will allow this to be used as a default definition for `seq` if `Monad` extends `Applicative`.
 
@@ -124,10 +135,12 @@ Replacing `do`-notation with explicit uses of `>>=` makes it easier to apply the
 
 `do`-표기법을 명시적인 `>>=` 사용으로 대체하면 `Monad` 규칙을 적용하기가 더 쉬워집니다:
 
-`def seq [Monad m] (f : m (α → β)) (x : Unit → m α) : m β := do
-f >>= fun g =>
-x () >>= fun y =>
-pure (g y)`
+```lean
+def seq [Monad m] (f : m (α → β)) (x : Unit → m α) : m β :=
+  f >>= fun g =>
+  x () >>= fun y =>
+  pure (g y)
+```
 
 To check that this definition respects identity, check that `seq (pure id) (fun () => v) = v`.
 The left hand side is equivalent to `pure id >>= fun g => (fun () => v) () >>= fun y => pure (g y)`.
@@ -138,20 +151,32 @@ Because `fun x => f x` is the same as `f`, this is the same as `v >>= pure`, and
 이 정의가 항등성을 존중하는지 확인하려면 `seq (pure id) (fun () => v) = v`를 확인합니다.
 좌변은 `pure id >>= fun g => (fun () => v) () >>= fun y => pure (g y)`와 동등합니다.
 중간의 unit 함수는 즉시 제거되어 `pure id >>= fun g => v >>= fun y => pure (g y)`를 얻습니다.
+
 `pure`가 `>>=`의 좌항등원이라는 사실을 사용하면, 이는 `v >>= fun y => pure (id y)`와 같으며, 이는 `v >>= fun y => pure y`입니다.
+
 `fun x => f x`가 `f`와 같으므로, 이는 `v >>= pure`와 같으며, `pure`가 `>>=`의 우항등원이라는 사실을 사용하여 `v`를 얻을 수 있습니다.
 
 This kind of informal reasoning can be made easier to read with a bit of reformatting.
-In the following chart, read “`EXPR1 ={ REASON }= EXPR2`” as “`EXPR1` is the same as `EXPR2` because `REASON`”:
+In the following chart, read "`EXPR1 ={ REASON }= EXPR2`" as "`EXPR1` is the same as `EXPR2` because `REASON`":
 
 이런 종류의 비형식적 추론은 약간의 재포맷으로 더 쉽게 읽을 수 있습니다.
-다음 차트에서 “`EXPR1 ={ REASON }= EXPR2`”를 “`EXPR1`은 `REASON` 때문에 `EXPR2`와 같습니다”로 읽으세요:
+다음 차트에서 "`EXPR1 ={ REASON }= EXPR2`"를 "`EXPR1`은 `REASON` 때문에 `EXPR2`와 같습니다"로 읽으세요:
 
-`pure` is a left identity of `>>=`
-
-`fun x => f x` is the same as `f`
-
-`pure` is a right identity of `>>=`
+```
+  seq (pure id) (fun () => v)
+={ evaluation }=
+  pure id >>= fun g => (fun () => v) () >>= fun y => pure (g y)
+={ evaluation }=
+  pure id >>= fun g => v >>= fun y => pure (g y)
+={ pure is a left identity of >>= }=
+  v >>= fun y => pure (id y)
+={ evaluation }=
+  v >>= fun y => pure y
+={ fun x => f x is the same as f }=
+  v >>= pure
+={ pure is a right identity of >>= }=
+  v
+```
 
 To check that it respects function composition, check that `pure (· ∘ ·) <*> u <*> v <*> w = u <*> (v <*> w)`.
 The first step is to replace `<*>` with this definition of `seq`.
@@ -161,157 +186,154 @@ After that, a (somewhat long) series of steps that use the identity and associat
 첫 번째 단계는 `<*>`를 이 `seq`의 정의로 대체하는 것입니다.
 그 후 `Monad` 계약의 항등성과 결합 규칙을 사용하는 (다소 긴) 일련의 단계로 한쪽에서 다른 쪽으로 갈 수 있습니다:
 
-`seq (seq (seq (pure (· ∘ ·)) (fun _ => u))
-(fun _ => v))
-(fun _ => w)`
-`((pure (· ∘ ·) >>= fun f =>
-u >>= fun x =>
-pure (f x)) >>= fun g =>
-v >>= fun y =>
-pure (g y)) >>= fun h =>
-w >>= fun z =>
-pure (h z)`
-
-`pure` is a left identity of `>>=`
-
-`((u >>= fun x =>
-pure (x ∘ ·)) >>= fun g =>
-v >>= fun y =>
-pure (g y)) >>= fun h =>
-w >>= fun z =>
-pure (h z)`
-
-Insertion of parentheses for clarity
-
-`((u >>= fun x =>
-pure (x ∘ ·)) >>= (fun g =>
-v >>= fun y =>
-pure (g y))) >>= fun h =>
-w >>= fun z =>
-pure (h z)`
-`(u >>= fun x =>
-pure (x ∘ ·) >>= fun g =>
-v >>= fun y => pure (g y)) >>= fun h =>
-w >>= fun z =>
-pure (h z)`
-
-`pure` is a left identity of `>>=`
-
-`(u >>= fun x =>
-v >>= fun y =>
-pure (x ∘ y)) >>= fun h =>
-w >>= fun z =>
-pure (h z)`
-`u >>= fun x =>
-v >>= fun y =>
-pure (x ∘ y) >>= fun h =>
-w >>= fun z =>
-pure (h z)`
-
-`pure` is a left identity of `>>=`
-
-`u >>= fun x =>
-v >>= fun y =>
-w >>= fun z =>
-pure ((x ∘ y) z)`
-
-Definition of function composition
-
-`u >>= fun x =>
-v >>= fun y =>
-w >>= fun z =>
-pure (x (y z))`
+```
+  seq (seq (seq (pure (· ∘ ·)) (fun _ => u))
+          (fun _ => v))
+      (fun _ => w)
+={ evaluation }=
+  ((pure (· ∘ ·) >>= fun f =>
+    u >>= fun x =>
+    pure (f x)) >>= fun g =>
+    v >>= fun y =>
+    pure (g y)) >>= fun h =>
+    w >>= fun z =>
+    pure (h z)
+={ pure is a left identity of >>= }=
+  ((u >>= fun x =>
+    pure (x ∘ ·)) >>= fun g =>
+    v >>= fun y =>
+    pure (g y)) >>= fun h =>
+    w >>= fun z =>
+    pure (h z)
+={ insertion of parentheses for clarity }=
+  ((u >>= fun x =>
+    pure (x ∘ ·)) >>= (fun g =>
+    v >>= fun y =>
+    pure (g y))) >>= fun h =>
+    w >>= fun z =>
+    pure (h z)
+={ associativity of >>= }=
+  (u >>= fun x =>
+    pure (x ∘ ·) >>= fun g =>
+    v >>= fun y => pure (g y)) >>= fun h =>
+    w >>= fun z =>
+    pure (h z)
+={ pure is a left identity of >>= }=
+  (u >>= fun x =>
+    v >>= fun y =>
+    pure (x ∘ y)) >>= fun h =>
+    w >>= fun z =>
+    pure (h z)
+={ associativity of >>= }=
+  u >>= fun x =>
+    v >>= fun y =>
+    pure (x ∘ y) >>= fun h =>
+    w >>= fun z =>
+    pure (h z)
+={ pure is a left identity of >>= }=
+  u >>= fun x =>
+    v >>= fun y =>
+    w >>= fun z =>
+    pure ((x ∘ y) z)
+={ definition of function composition }=
+  u >>= fun x =>
+    v >>= fun y =>
+    w >>= fun z =>
+    pure (x (y z))
+```
 
 Time to start moving backwards!
-`pure` is a left identity of `>>=`
 
-`u >>= fun x =>
-v >>= fun y =>
-w >>= fun z =>
-pure (y z) >>= fun q =>
-pure (x q)`
-`u >>= fun x =>
-v >>= fun y =>
-(w >>= fun p =>
-pure (y p)) >>= fun q =>
-pure (x q)`
-`u >>= fun x =>
-(v >>= fun y =>
-w >>= fun q =>
-pure (y q)) >>= fun z =>
-pure (x z)`
-
-This includes the definition of `seq`
-
-`u >>= fun x =>
-seq v (fun () => w) >>= fun q =>
-pure (x q)`
-
-This also includes the definition of `seq`
-
-`seq u (fun () => seq v (fun () => w))`
+```
+  u >>= fun x =>
+    v >>= fun y =>
+    w >>= fun z =>
+    pure (x (y z))
+={ pure is a left identity of >>= }=
+  u >>= fun x =>
+    v >>= fun y =>
+    w >>= fun z =>
+    pure (y z) >>= fun q =>
+    pure (x q)
+={ associativity of >>= }=
+  u >>= fun x =>
+    v >>= fun y =>
+    (w >>= fun p =>
+    pure (y p)) >>= fun q =>
+    pure (x q)
+={ associativity of >>= }=
+  u >>= fun x =>
+    (v >>= fun y =>
+    w >>= fun q =>
+    pure (y q)) >>= fun z =>
+    pure (x z)
+={ this includes the definition of seq }=
+  u >>= fun x =>
+    seq v (fun () => w) >>= fun q =>
+    pure (x q)
+={ this also includes the definition of seq }=
+  seq u (fun () => seq v (fun () => w))
+```
 
 To check that sequencing pure operations is a no-op:
 
 순수 연산의 순서 설정이 no-op인지 확인:
 
-`seq (pure f) (fun () => pure x)`
-
-Replacing `seq` with its definition
-
-`pure f >>= fun g =>
-pure x >>= fun y =>
-pure (g y)`
-
-`pure` is a left identity of `>>=`
-
-`pure f >>= fun g =>
-pure (g x)`
-
-`pure` is a left identity of `>>=`
+```
+  seq (pure f) (fun () => pure x)
+={ replacing seq with its definition }=
+  pure f >>= fun g =>
+    pure x >>= fun y =>
+    pure (g y)
+={ pure is a left identity of >>= }=
+  pure f >>= fun g =>
+    pure (g x)
+={ pure is a left identity of >>= }=
+  pure (f x)
+```
 
 And finally, to check that the ordering of pure operations doesn't matter:
 
 그리고 마지막으로 순수 연산의 순서가 중요하지 않은지 확인:
 
-`seq u (fun () => pure x)`
-`u >>= fun f =>
-pure x >>= fun y =>
-pure (f y)`
-
-`pure` is a left identity of `>>=`
-
-`u >>= fun f =>
-pure (f x)`
-
-Clever replacement of one expression by an equivalent one that makes the rule match
-
-`u >>= fun f =>
-pure ((fun g => g x) f)`
-
-`pure` is a left identity of `>>=`
-
-`pure (fun g => g x) >>= fun h =>
-u >>= fun f =>
-pure (h f)`
-`seq (pure (fun f => f x)) (fun () => u)`
+```
+  seq u (fun () => pure x)
+={ replacing seq with its definition }=
+  u >>= fun f =>
+    pure x >>= fun y =>
+    pure (f y)
+={ pure is a left identity of >>= }=
+  u >>= fun f =>
+    pure (f x)
+={ clever replacement of one expression by an equivalent one that makes the rule match }=
+  u >>= fun f =>
+    pure ((fun g => g x) f)
+={ pure is a left identity of >>= }=
+  pure (fun g => g x) >>= fun h =>
+    u >>= fun f =>
+    pure (h f)
+={ definition of seq }=
+  seq (pure (fun f => f x)) (fun () => u)
+```
 
 This justifies a definition of `Monad` that extends `Applicative`, with a default definition of `seq`:
 
-`class Monad (m : Type → Type) extends Applicative m where
-bind : m α → (α → m β) → m β
-seq f x :=
-bind f fun g =>
-bind (x ()) fun y =>
-pure (g y)`
-
 이는 `Applicative`를 확장하는 `Monad`의 정의를 정당화하며, `seq`의 기본 정의를 제공합니다.
+
+```lean
+class Monad (m : Type → Type) extends Applicative m where
+  bind : m α → (α → m β) → m β
+  seq f x :=
+    bind f fun g =>
+    bind (x ()) fun y =>
+    pure (g y)
+```
 
 `Applicative`'s own default definition of `map` means that every `Monad` instance automatically generates `Applicative` and `Functor` instances as well.
 
 `Applicative`의 자체 기본 `map` 정의는 모든 `Monad` 인스턴스가 자동으로 `Applicative` 및 `Functor` 인스턴스도 생성함을 의미합니다.
 
-## 5.3.3. Additional Stipulations
+## 5.3.3. Additional Stipulations
 
 In addition to adhering to the individual contracts associated with each type class, combined implementations `Functor`, `Applicative` and `Monad` should work equivalently to these default implementations.
 In other words, a type that provides both `Applicative` and `Monad` instances should not have an implementation of `seq` that works differently from the version that the `Monad` instance generates as a default implementation.
@@ -335,10 +357,12 @@ Start with an example of a case where two errors should be returned, one from va
 어디서 차이가 나는지 보려면, 둘 다 오류를 반환하는 두 계산의 예를 들어보세요.
 두 개의 오류가 반환되어야 하는 경우의 예부터 시작하세요. 하나는 함수를 검증할 때(함수의 이전 인수로부터 야기될 수 있음), 하나는 인수를 검증할 때:
 
-`def notFun : Validate String (Nat → String) :=
-.errors { head := "First error", tail := [] }
+```lean
+def notFun : Validate String (Nat → String) :=
+  .errors { head := "First error", tail := [] }
 def notArg : Validate String Nat :=
-.errors { head := "Second error", tail := [] }`
+  .errors { head := "Second error", tail := [] }
+```
 
 Combining them with the version of `<*>` from `Validate`'s `Applicative` instance results in both errors being reported to the user:
 

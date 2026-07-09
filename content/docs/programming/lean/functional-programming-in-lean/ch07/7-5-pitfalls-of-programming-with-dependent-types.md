@@ -1,10 +1,10 @@
 ---
-title: "Pitfalls of Programming with Dependent Types"
+title: "의존 타입 프로그래밍의 함정 (Pitfalls of Programming with Dependent Types)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Pitfalls of Programming with Dependent Types"
+description: "의존 타입 프로그래밍의 함정 (Pitfalls of Programming with Dependent Types)"
 ---
 
 # 7.5. Pitfalls of Programming with Dependent Types
@@ -27,17 +27,21 @@ As an example, take the following two implementations of addition on `Nat`.
 
 예를 들어, `Nat`에 대한 다음 두 덧셈 구현을 생각해봅시다. `Nat.plusL`은 첫 번째 인자에 대해 재귀적입니다:
 
-`def Nat.plusL : Nat → Nat → Nat
-| 0, k => k
-| n + 1, k => plusL n k + 1`
+```lean
+def Nat.plusL : Nat → Nat → Nat
+  | 0, k => k
+  | n + 1, k => plusL n k + 1
+```
 
 `Nat.plusR`, on the other hand, is recursive on its second argument:
 
 반면 `Nat.plusR`은 두 번째 인자에 대해 재귀적입니다:
 
-`def Nat.plusR : Nat → Nat → Nat
-| n, 0 => n
-| n, k + 1 => plusR n k + 1`
+```lean
+def Nat.plusR : Nat → Nat → Nat
+  | n, 0 => n
+  | n, k + 1 => plusR n k + 1
+```
 
 Both implementations of addition are faithful to the underlying mathematical concept, and they thus return the same result when given the same arguments.
 
@@ -53,13 +57,11 @@ Starting with a type signature and initial pattern match pointing at placeholder
 
 예를 들어, 두 개의 `Vect`을 연결하는 함수를 생각해봅시다. 이 함수는 길이가 인자들의 길이의 합인 `Vect`을 반환해야 합니다. `Vect`는 기본적으로 더 유익한 타입을 가진 `List`이므로, `List.append`처럼 함수를 작성하는 것이 합리적입니다. 즉, 첫 번째 인자에 대한 패턴 매칭과 재귀를 사용합니다. 타입 서명과 초기 패턴 매치를 플레이스홀더를 가리키도록 시작하면 두 개의 메시지가 나옵니다:
 
-`def appendL : Vect α n → Vect α k → Vect α (n.plusL k)
-| .nil, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natys:Vect α k⊢ Vect α (Nat.plusL 0 k)_
-| .cons x xs, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1n k n✝:Natx:αxs:Vect α n✝ys:Vect α k⊢ Vect α ((n✝ + 1).plusL k)_`
+```lean
+def appendL : Vect α n → Vect α k → Vect α (n.plusL k)
+  | .nil, ys => _
+  | .cons x xs, ys => _
+```
 
 The first message, in the `nil` case, states that the placeholder should be replaced by a `Vect` with length `plusL 0 k`:
 
@@ -100,13 +102,11 @@ To expose what is going on behind the scenes, the first step is to write the `Na
 
 뒤에서 일어나는 일을 드러내기 위해 첫 번째 단계는 `Nat` 인자들을 명시적으로 작성하는 것입니다. 이렇게 하면 이름들이 이제 프로그램에서 명시적으로 작성되기 때문에 dagger 없는 에러 메시지도 생깁니다:
 
-`def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
-| 0, k, .nil, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1k:Natys:Vect α k⊢ Vect α (Nat.plusL 0 k)_
-| n + 1, k, .cons x xs, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natx:αxs:Vect α nys:Vect α k⊢ Vect α ((n + 1).plusL k)_`
+```lean
+def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
+  | 0, k, .nil, ys => _
+  | n + 1, k, .cons x xs, ys => _
+```
 
 ```
 don't know how to synthesize placeholder
@@ -124,13 +124,11 @@ Annotating the underscores with the simplified versions of the types does not in
 
 언더스코어에 단순화된 버전의 타입으로 주석을 달면 타입 에러가 발생하지 않습니다. 이는 프로그램에서 작성된 타입들이 Lean이 자체적으로 찾은 타입들과 동등하다는 의미입니다:
 
-`def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
-| 0, k, .nil, ys => (don't know how to synthesize placeholder
-context:
-α:Type u_1k:Natys:Vect α k⊢ Vect α k_ : Vect α k)
-| n + 1, k, .cons x xs, ys => (don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natx:αxs:Vect α nys:Vect α k⊢ Vect α (n.plusL k + 1)_ : Vect α (n.plusL k + 1))`
+```lean
+def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
+  | 0, k, .nil, ys => (_ : Vect α k)
+  | n + 1, k, .cons x xs, ys => (_ : Vect α (n.plusL k + 1))
+```
 
 ```
 don't know how to synthesize placeholder
@@ -150,11 +148,11 @@ Refining the definition with `ys` instead of the first underscore yields a progr
 
 첫 번째 경우는 `Vect α k`를 요구하며, `ys`가 그 타입을 가집니다. 이는 빈 리스트를 다른 리스트에 추가하면 그 다른 리스트를 반환하는 방식과 유사합니다. 첫 번째 언더스코어 대신 `ys`로 정의를 정제하면 채워야 할 언더스코어가 하나만 남는 프로그램이 나옵니다:
 
-`def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
-| 0, k, .nil, ys => ys
-| n + 1, k, .cons x xs, ys => (don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natx:αxs:Vect α nys:Vect α k⊢ Vect α (n.plusL k + 1)_ : Vect α (n.plusL k + 1))`
+```lean
+def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
+  | 0, k, .nil, ys => ys
+  | n + 1, k, .cons x xs, ys => (_ : Vect α (n.plusL k + 1))
+```
 
 Something very important has happened here.
 In a context where Lean expected a `Vect α (Nat.plusL 0 k)`, it received a `Vect α k`.
@@ -224,11 +222,11 @@ The `+ 1` in the index suggests that the next step is to use `Vect.cons`:
 
 `appendL`의 누락된 경우는 `Vect α (Nat.plusL n k + 1)`을 요구합니다. 인덱스의 `+ 1`은 다음 단계가 `Vect.cons`를 사용하는 것임을 시사합니다:
 
-`def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
-| 0, k, .nil, ys => ys
-| n + 1, k, .cons x xs, ys => .cons x (don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natx:αxs:Vect α nys:Vect α k⊢ Vect α (n.plusL k)_ : Vect α (n.plusL k))`
+```lean
+def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
+  | 0, k, .nil, ys => ys
+  | n + 1, k, .cons x xs, ys => .cons x (_ : Vect α (n.plusL k))
+```
 
 ```
 don't know how to synthesize placeholder
@@ -240,17 +238,21 @@ A recursive call to `appendL` can construct a `Vect` with the desired length:
 
 `appendL`에 대한 재귀 호출은 원하는 길이를 가진 `Vect`을 구성할 수 있습니다:
 
-`def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
-| 0, k, .nil, ys => ys
-| n + 1, k, .cons x xs, ys => .cons x (appendL n k xs ys)`
+```lean
+def appendL : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusL k)
+  | 0, k, .nil, ys => ys
+  | n + 1, k, .cons x xs, ys => .cons x (appendL n k xs ys)
+```
 
 Now that the program is finished, removing the explicit matching on `n` and `k` makes it easier to read and easier to call the function:
 
 프로그램이 완료되었으므로, `n`과 `k`에 대한 명시적 매칭을 제거하면 읽기 쉽고 함수를 호출하기 쉬워집니다:
 
-`def appendL : Vect α n → Vect α k → Vect α (n.plusL k)
-| .nil, ys => ys
-| .cons x xs, ys => .cons x (appendL xs ys)`
+```lean
+def appendL : Vect α n → Vect α k → Vect α (n.plusL k)
+  | .nil, ys => ys
+  | .cons x xs, ys => .cons x (appendL xs ys)
+```
 
 Comparing types using definitional equality means that everything involved in definitional equality, including the internals of function definitions, becomes part of the *interface* of programs that use dependent types and indexed families.
 Exposing the internals of a function in a type means that refactoring the exposed program may cause programs that use it to no longer type check.
@@ -265,13 +267,11 @@ Beginning in the same way, with explicit lengths and placeholder underscores in 
 
 만약 append가 대신 `plusR`로 정의된다면 어떤 일이 일어날까요? 같은 방식으로 시작하여, 각 경우에 명시적 길이와 플레이스홀더 언더스코어를 사용하면 다음의 유용한 에러 메시지들이 드러납니다:
 
-`def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
-| 0, k, .nil, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1k:Natys:Vect α k⊢ Vect α (Nat.plusR 0 k)_
-| n + 1, k, .cons x xs, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natx:αxs:Vect α nys:Vect α k⊢ Vect α ((n + 1).plusR k)_`
+```lean
+def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
+  | 0, k, .nil, ys => _
+  | n + 1, k, .cons x xs, ys => _
+```
 
 ```
 don't know how to synthesize placeholder
@@ -289,14 +289,11 @@ However, attempting to place a `Vect α k` type annotation around the first plac
 
 그러나 첫 번째 플레이스홀더 주위에 `Vect α k` 타입 주석을 배치하려고 시도하면 타입 불일치 에러가 발생합니다:
 
-`def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
-Type mismatch
-?m.11
-has type
-Vect α k
-but is expected to have type
-Vect α (Nat.plusR 0 k)| 0, k, .nil, ys => (_ : Vect α k)
-| n + 1, k, .cons x xs, ys => _`
+```lean
+def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
+  | 0, k, .nil, ys => (_ : Vect α k)
+  | n + 1, k, .cons x xs, ys => _
+```
 
 ```
 Type mismatch
@@ -324,14 +321,11 @@ Its pattern matching occurs on the *second* argument, not the first argument, wh
 
 그것의 패턴 매칭은 첫 번째 인자가 아닌 *두 번째* 인자에 대해 발생합니다. 즉, 그 위치에 변수 `k`가 있으면 축약되는 것을 막습니다. Lean의 표준 라이브러리의 `Nat.add`는 `plusL`이 아닌 `plusR`과 동등하므로, 이 정의에서 사용하려고 시도하면 정확히 동일한 어려움이 발생합니다:
 
-`def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n + k)
-Type mismatch
-?m.15
-has type
-Vect α k
-but is expected to have type
-Vect α (0 + k)| 0, k, .nil, ys => (_ : Vect α k)
-| n + 1, k, .cons x xs, ys => _`
+```lean
+def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n + k)
+  | 0, k, .nil, ys => (_ : Vect α k)
+  | n + 1, k, .cons x xs, ys => _
+```
 
 ```
 Type mismatch
@@ -383,11 +377,11 @@ This means that the goal could also be written `k + 1 = Nat.plusR 0 k + 1`:
 
 두 번째 플레이스홀더는 조금 더 까다롭습니다. 표현식 `Nat.plusR 0 k + 1`은 `Nat.plusR 0 (k + 1)`과 정의적으로 동등합니다. 이는 목표를 `k + 1 = Nat.plusR 0 k + 1`로도 작성할 수 있다는 의미입니다:
 
-`def plusR_zero_left : (k : Nat) → k = Nat.plusR 0 k
-| 0 =>⊢ 0 = Nat.plusR 0 0 by⊢ 0 = Nat.plusR 0 0 rflAll goals completed! 🐙
-| k + 1 => (don't know how to synthesize placeholder
-context:
-k:Nat⊢ k + 1 = Nat.plusR 0 k + 1_ : k + 1 = Nat.plusR 0 k + 1)`
+```lean
+def plusR_zero_left : (k : Nat) → k = Nat.plusR 0 k
+  | 0 => by rfl
+  | k + 1 => (_ : k + 1 = Nat.plusR 0 k + 1)
+```
 
 ```
 don't know how to synthesize placeholder
@@ -401,13 +395,11 @@ In other words, the following definition contains no type errors:
 
 명제적 동등성들은 오른쪽 삼각형 연산자 `▸`를 사용하여 프로그램에 배포될 수 있습니다. 첫 번째 인자로 동등성 증명과 두 번째로 다른 표현식이 주어지면, 이 연산자는 두 번째 인자의 타입에서 동등성의 한쪽 인스턴스를 다른 쪽으로 바꿉니다. 다시 말해, 다음 정의는 타입 에러를 포함하지 않습니다:
 
-`def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
-| 0, k, .nil, ys => plusR_zero_left k ▸ (don't know how to synthesize placeholder
-context:
-α:Type u_1k:Natys:Vect α k⊢ Vect α k_ : Vect α k)
-| n + 1, k, .cons x xs, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natx:αxs:Vect α nys:Vect α k⊢ Vect α ((n + 1).plusR k)_`
+```lean
+def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
+  | 0, k, .nil, ys => plusR_zero_left k ▸ (_ : Vect α k)
+  | n + 1, k, .cons x xs, ys => _
+```
 
 The first placeholder has the expected type:
 
@@ -419,11 +411,11 @@ It can now be filled in with `ys`:
 
 `def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
 | 0, k, .nil, ys => plusR_zero_left k ▸ ys
-| n + 1, k, .cons x xs, ys => don't know how to synthesize placeholder
-context:
-α:Type u_1n k:Natx:αxs:Vect α nys:Vect α k⊢ Vect α ((n + 1).plusR k)_`
-
-Filling in the remaining placeholder requires unsticking another instance of addition:
+```lean
+def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
+  | 0, k, .nil, ys => plusR_zero_left k ▸ ys
+  | n + 1, k, .cons x xs, ys => _
+```
 
 남은 플레이스홀더를 채우는 것은 덧셈의 다른 인스턴스를 해제해야 합니다.
 
@@ -437,12 +429,12 @@ The skeleton of the proof is very similar to that of `plusR_zero_left`:
 
 증명은 `plusR`의 두 번째 인자인 `k`에 대해 패턴 매칭하는 재귀 함수입니다. 이것은 `plusR` 자체가 그 두 번째 인자에 대해 패턴 매칭하기 때문입니다. 따라서 증명은 패턴 매칭을 통해 그것을 “해제”할 수 있으므로, 계산 동작을 드러냅니다. 증명의 골격은 `plusR_zero_left`의 것과 매우 유사합니다:
 
-`theorem plusR_succ_left (n : Nat) :
-(k : Nat) → Nat.plusR (n + 1) k = Nat.plusR n k + 1
-| 0 =>n:Nat⊢ (n + 1).plusR 0 = n.plusR 0 + 1 byn:Nat⊢ (n + 1).plusR 0 = n.plusR 0 + 1 rflAll goals completed! 🐙
-| k + 1 => don't know how to synthesize placeholder
-context:
-n k:Nat⊢ (n + 1).plusR (k + 1) = n.plusR (k + 1) + 1_`
+```lean
+theorem plusR_succ_left (n : Nat) :
+    (k : Nat) → Nat.plusR (n + 1) k = Nat.plusR n k + 1
+  | 0 => by rfl
+  | k + 1 => _
+```
 
 The remaining case's type is definitionally equal to `Nat.plusR (n + 1) k + 1 = Nat.plusR n (k + 1) + 1`, so it can be solved with `congrArg`, just as in `plusR_zero_left`:
 
@@ -458,20 +450,24 @@ This results in a finished proof:
 
 이는 완료된 증명이 됩니다:
 
-`theorem plusR_succ_left (n : Nat) :
-(k : Nat) → Nat.plusR (n + 1) k = Nat.plusR n k + 1
-| 0 =>n:Nat⊢ (n + 1).plusR 0 = n.plusR 0 + 1 byn:Nat⊢ (n + 1).plusR 0 = n.plusR 0 + 1 rflAll goals completed! 🐙
-| k + 1 => congrArg (· + 1) (plusR_succ_left n k)`
+```lean
+theorem plusR_succ_left (n : Nat) :
+    (k : Nat) → Nat.plusR (n + 1) k = Nat.plusR n k + 1
+  | 0 => by rfl
+  | k + 1 => congrArg (· + 1) (plusR_succ_left n k)
+```
 
 The finished proof can be used to unstick the second case in `appendR`:
 
 완료된 증명은 `appendR`의 두 번째 경우를 해제하는 데 사용될 수 있습니다:
 
-`def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
-| 0, k, .nil, ys =>
-plusR_zero_left k ▸ ys
-| n + 1, k, .cons x xs, ys =>
-plusR_succ_left n k ▸ .cons x (appendR n k xs ys)`
+```lean
+def appendR : (n k : Nat) → Vect α n → Vect α k → Vect α (n.plusR k)
+  | 0, k, .nil, ys =>
+    plusR_zero_left k ▸ ys
+  | n + 1, k, .cons x xs, ys =>
+    plusR_succ_left n k ▸ .cons x (appendR n k xs ys)
+```
 
 When making the length arguments to `appendR` implicit again, they are no longer explicitly named to be appealed to in the proofs.
 However, Lean's type checker has enough information to fill them in automatically behind the scenes, because no other values would allow the types to match:

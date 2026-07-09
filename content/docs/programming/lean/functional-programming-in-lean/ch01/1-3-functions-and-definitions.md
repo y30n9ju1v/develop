@@ -1,10 +1,10 @@
 ---
-title: "Functions and Definitions"
+title: "함수와 정의"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Functions and Definitions"
+description: "함수와 정의"
 ---
 
 # 1.3. Functions and Definitions
@@ -12,7 +12,9 @@ description: "Functions and Definitions"
 In Lean, definitions are introduced using the `def` keyword.
 For instance, to define the name `hello` to refer to the string `"Hello"`, write:
 
-`def hello := "Hello"`
+```lean
+def hello := "Hello"
+```
 
 In Lean, new names are defined using the colon-equal operator `:=` rather than `=`.
 This is because `=` is used to describe equalities between existing expressions, and using two different operators helps prevent confusion.
@@ -27,11 +29,15 @@ In the definition of `hello`, the expression `"Hello"` is simple enough that Lea
 However, most definitions are not so simple, so it will usually be necessary to add a type.
 This is done using a colon after the name being defined:
 
-`def lean : String := "Lean"`
+```lean
+def lean : String := "Lean"
+```
 
 Now that the names have been defined, they can be used, so
 
-`"Hello Lean"#eval String.append hello (String.append " " lean)`
+```lean
+#eval String.append hello (String.append " " lean)
+```
 
 outputs
 
@@ -61,23 +67,35 @@ Lean에서 함수는 다른 값과 같은 `def` 키워드를 사용하여 정의
 
 There are a variety of ways to define functions in Lean. The simplest is to place the function's arguments before the definition's type, separated by spaces. For instance, a function that adds one to its argument can be written:
 
-`def add1 (n : Nat) : Nat := n + 1`
+```lean
+def add1 (n : Nat) : Nat := n + 1
+```
 
 Testing this function with `#eval` gives `8`, as expected:
 
-`8#eval add1 7`
+```lean
+#eval add1 7
+```
+
+```
+8
+```
 
 Just as functions are applied to multiple arguments by writing spaces between each argument, functions that accept multiple arguments are defined with spaces between the arguments' names and types. The function `maximum`, whose result is equal to the greatest of its two arguments, takes two `Nat` arguments `n` and `k` and returns a `Nat`.
 
-`def maximum (n : Nat) (k : Nat) : Nat :=
-if n < k then
-k
-else n`
+```lean
+def maximum (n : Nat) (k : Nat) : Nat :=
+  if n < k then
+    k
+  else n
+```
 
 Similarly, the function `spaceBetween` joins two strings with a space between them.
 
-`def spaceBetween (before : String) (after : String) : String :=
-String.append before (String.append " " after)`
+```lean
+def spaceBetween (before : String) (after : String) : String :=
+  String.append before (String.append " " after)
+```
 
 Lean에서 함수를 정의하는 다양한 방법이 있습니다. 가장 간단한 방법은 함수의 인수를 정의의 타입 앞에 공백으로 구분하여 배치하는 것입니다. 예를 들어, 인수에 1을 더하는 함수는 다음과 같이 작성할 수 있습니다.
 
@@ -89,7 +107,12 @@ Lean에서 함수를 정의하는 다양한 방법이 있습니다. 가장 간�
 
 When a defined function like `maximum` has been provided with its arguments, the result is determined by first replacing the argument names with the provided values in the body, and then evaluating the resulting body. For example:
 
-`maximum (5 + 8) (2 * 7)``maximum 13 14``if 13 < 14 then 14 else 13``14`
+```
+maximum (5 + 8) (2 * 7)
+maximum 13 14
+if 13 < 14 then 14 else 13
+14
+```
 
 Expressions that evaluate to natural numbers, integers, and strings have types that say this (`Nat`, `Int`, and `String`, respectively).
 This is also true of functions.
@@ -143,11 +166,15 @@ This means that definitions can refer to types just as well as they can refer to
 
 For example, if `String` is too much to type, a shorter abbreviation `Str` can be defined:
 
-`def Str : Type := String`
+```lean
+def Str : Type := String
+```
 
 It is then possible to use `Str` as a definition's type instead of `String`:
 
-`def aStr : Str := "This is a string."`
+```lean
+def aStr : Str := "This is a string."
+```
 
 The reason this works is that types follow the same rules as the rest of Lean.
 Types are expressions, and in an expression, a defined name can be replaced with its definition.
@@ -155,7 +182,7 @@ Because `Str` has been defined to mean `String`, the definition of `aStr` makes 
 
 대부분의 타입 프로그래밍 언어는 C의 `typedef`와 같이 타입에 대한 별칭을 정의하는 일부 수단을 가지고 있습니다.
 그러나 Lean에서는 타입이 언어의 일급 부분입니다. 즉, 다른 표현식처럼 표현식입니다.
-즉, 정의가 다른 값을 참조할 수 있을 뿐만 아니라 타입을 참조할 수 있음입니다.
+즉, 정의가 다른 값을 참조할 수 있는 것처럼 타입도 참조할 수 있습니다.
 
 예를 들어, `String`을 입력하기에 너무 길면, 더 짧은 약자 `Str`을 정의할 수 있습니다.
 
@@ -170,18 +197,16 @@ Because `Str` has been defined to mean `String`, the definition of `aStr` makes 
 Experimenting with using definitions for types is made more complicated by the way that Lean supports overloaded integer literals.
 If `Nat` is too short, a longer name `NaturalNumber` can be defined:
 
-`def NaturalNumber : Type := Nat`
+```lean
+def NaturalNumber : Type := Nat
+```
 
 However, using `NaturalNumber` as a definition's type instead of `Nat` does not have the expected effect.
 In particular, the definition:
 
-`` def thirtyEight : NaturalNumber := failed to synthesize
-OfNat NaturalNumber 38
-numerals are polymorphic in Lean, but the numeral `38` cannot be used in a context where the expected type is
-NaturalNumber
-due to the absence of the instance above
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.38 ``
+```lean
+def thirtyEight : NaturalNumber := 38
+```
 
 results in the following error:
 
@@ -206,13 +231,21 @@ The specific feature that allows this overloading does not replace all defined n
 하지만 `Nat` 대신 `NaturalNumber`를 정의의 타입으로 사용하는 것은 예상된 효과를 갖지 않습니다.
 특히, 정의:
 
-`` def thirtyEight : NaturalNumber := failed to synthesize
-OfNat NaturalNumber 38
+```lean
+def thirtyEight : NaturalNumber := 38
+```
+
+는 다음 오류를 초래합니다.
+
+```
+failed to synthesize
+  OfNat NaturalNumber 38
 numerals are polymorphic in Lean, but the numeral `38` cannot be used in a context where the expected type is
-NaturalNumber
+  NaturalNumber
 due to the absence of the instance above
 
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.38 ``
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+```
 
 이 오류는 Lean이 숫자 리터럴을 *오버로드*할 수 있기 때문에 발생합니다.
 적절할 때, 자연수 리터럴을 새로운 타입에 사용할 수 있으며, 마치 그 타입이 시스템에 내장된 것처럼입니다.
@@ -221,7 +254,9 @@ Hint: Additional diagnostic information may be available using the `set_option d
 
 One way to work around this limitation is by providing the type `Nat` on the right-hand side of the definition, causing `Nat`'s overloading rules to be used for `38`:
 
-`def thirtyEight : NaturalNumber := (38 : Nat)`
+```lean
+def thirtyEight : NaturalNumber := (38 : Nat)
+```
 
 The definition is still type-correct because `NaturalNumber` is the same type as `Nat`—by definition!
 
@@ -232,11 +267,15 @@ Finally, defining the new name for `Nat` using `abbrev` instead of `def` allows 
 Definitions written using `abbrev` are always unfolded.
 For instance,
 
-`abbrev N : Type := Nat`
+```lean
+abbrev N : Type := Nat
+```
 
 and
 
-`def thirtyNine : N := 39`
+```lean
+def thirtyNine : N := 39
+```
 
 are accepted without issue.
 
@@ -254,7 +293,19 @@ Definitions produced with `abbrev` are marked as reducible.
 
 마지막으로, `def` 대신 `abbrev`를 사용하여 `Nat`의 새로운 이름을 정의하면 오버로딩 해결이 정의된 이름을 그 정의로 대체할 수 있습니다.
 `abbrev`를 사용하여 작성된 정의는 항상 전개됩니다.
-예를 들어, 그리고
+예를 들어,
+
+```lean
+abbrev N : Type := Nat
+```
+
+그리고
+
+```lean
+def thirtyNine : N := 39
+```
+
+는 문제없이 허용됩니다.
 
 뒤에서, 일부 정의는 오버로드 해결 중에 전개 가능한 것으로 내부적으로 표시되고, 다른 것은 그렇지 않습니다.
 전개될 정의를 *축약 가능(reducible)*이라고 합니다.

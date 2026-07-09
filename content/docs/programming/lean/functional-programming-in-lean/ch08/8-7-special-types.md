@@ -1,10 +1,10 @@
 ---
-title: "Special Types"
+title: "특수 타입 (Special Types)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Special Types"
+description: "특수 타입 (Special Types)"
 ---
 
 # 8.7. Special Types

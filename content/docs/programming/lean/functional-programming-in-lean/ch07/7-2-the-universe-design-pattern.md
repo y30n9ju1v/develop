@@ -1,10 +1,10 @@
 ---
-title: "The Universe Design Pattern"
+title: "유니버스 디자인 패턴 (The Universe Design Pattern)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "The Universe Design Pattern"
+description: "유니버스 디자인 패턴 (The Universe Design Pattern)"
 ---
 
 # 7.2. The Universe Design Pattern
@@ -39,12 +39,14 @@ One example of a custom universe has the codes `nat`, standing for `Nat`, and `b
 타입 모음이 닫혀 있기 때문에, codes에 대한 재귀는 프로그램이 universe의 *any* 타입에 대해 작동하도록 합니다.
 커스텀 universe의 한 예는 `Nat`을 나타내는 `nat` 및 `Bool`을 나타내는 `bool` codes를 가집니다:
 
-`inductive NatOrBool where
-| nat | bool
+```lean
+inductive NatOrBool where
+  | nat | bool
 abbrev NatOrBool.asType (code : NatOrBool) : Type :=
-match code with
-| .nat => Nat
-| .bool => Bool`
+  match code with
+  | .nat => Nat
+  | .bool => Bool
+```
 
 Pattern matching on a code allows the type to be refined, just as pattern matching on the constructors of `Vect` allows the expected length to be refined.
 For instance, a program that deserializes the types in this universe from a string can be written as follows:
@@ -52,14 +54,16 @@ For instance, a program that deserializes the types in this universe from a stri
 Code에 대한 패턴 매칭은 `Vect`의 생성자에 대한 패턴 매칭이 예상 길이를 refine하는 것처럼 타입을 refine할 수 있게 합니다.
 예를 들어, 이 universe의 타입을 문자열에서 역직렬화하는 프로그램은 다음과 같이 작성할 수 있습니다:
 
-`def decode (t : NatOrBool) (input : String) : Option t.asType :=
-match t with
-| .nat => input.toNat?
-| .bool =>
-match input with
-| "true" => some true
-| "false" => some false
-| _ => none`
+```lean
+def decode (t : NatOrBool) (input : String) : Option t.asType :=
+  match t with
+  | .nat => input.toNat?
+  | .bool =>
+    match input with
+    | "true" => some true
+    | "false" => some false
+    | _ => none
+```
 
 Dependent pattern matching on `t` allows the expected result type `t.asType` to be respectively refined to `NatOrBool.nat.asType` and `NatOrBool.bool.asType`, and these compute to the actual types `Nat` and `Bool`.
 
@@ -71,12 +75,14 @@ The type `NestedPairs` codes for any possible nesting of the pair and natural nu
 다른 데이터처럼, codes도 재귀적일 수 있습니다.
 타입 `NestedPairs`는 쌍과 자연수 타입의 모든 가능한 중첩을 위한 codes입니다:
 
-`inductive NestedPairs where
-| nat : NestedPairs
-| pair : NestedPairs → NestedPairs → NestedPairs
+```lean
+inductive NestedPairs where
+  | nat : NestedPairs
+  | pair : NestedPairs → NestedPairs → NestedPairs
 abbrev NestedPairs.asType : NestedPairs → Type
-| .nat => Nat
-| .pair t1 t2 => asType t1 × asType t2`
+  | .nat => Nat
+  | .pair t1 t2 => asType t1 × asType t2
+```
 
 In this case, the interpretation function `NestedPairs.asType` is recursive.
 This means that recursion over codes is required in order to implement `BEq` for the universe:
@@ -84,12 +90,14 @@ This means that recursion over codes is required in order to implement `BEq` for
 이 경우, 해석 함수 `NestedPairs.asType`은 재귀적입니다.
 이는 universe에 대해 `BEq`을 구현하기 위해 codes에 대한 재귀가 필요함을 의미합니다:
 
-`def NestedPairs.beq (t : NestedPairs) (x y : t.asType) : Bool :=
+```lean
+def NestedPairs.beq (t : NestedPairs) (x y : t.asType) : Bool :=
 match t with
 | .nat => x == y
 | .pair t1 t2 => beq t1 x.fst y.fst && beq t2 x.snd y.snd
 instance {t : NestedPairs} : BEq t.asType where
-beq x y := t.beq x y`
+beq x y := t.beq x y
+```
 
 Even though every type in the `NestedPairs` universe already has a `BEq` instance, type class search does not automatically check every possible case of a datatype in an instance declaration, because there might be infinitely many such cases, as with `NestedPairs`.
 Attempting to appeal directly to the `BEq` instances rather than explaining to Lean how to find them by recursion on the codes results in an error:
@@ -97,11 +105,10 @@ Attempting to appeal directly to the `BEq` instances rather than explaining to L
 `NestedPairs` universe의 모든 타입이 이미 `BEq` instance를 가지고 있더라도, 타입 클래스 검색은 instance 선언에서 datatype의 모든 가능한 경우를 자동으로 검사하지 않습니다. `NestedPairs`의 경우처럼 무한히 많은 경우가 있을 수 있기 때문입니다.
 Codes에 대한 재귀로 그들을 찾는 방법을 Lean에 설명하지 않고 `BEq` instances에 직접 호소하려는 시도는 에러를 초래합니다:
 
-`` instance {t : NestedPairs} : BEq t.asType where
-beq x y := failed to synthesize
-BEq t.asType
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.x == y ``
+```lean
+instance {t : NestedPairs} : BEq t.asType where
+beq x y := x == y
+```
 
 ```
 failed to synthesize
@@ -169,7 +176,8 @@ One way to represent finite types is by a universe:
 
 유한 타입을 나타내는 한 가지 방법은 universe를 사용하는 것입니다:
 
-`inductive Finite where
+```lean
+inductive Finite where
 | unit : Finite
 | bool : Finite
 | pair : Finite → Finite → Finite
@@ -178,7 +186,8 @@ abbrev Finite.asType : Finite → Type
 | .unit => Unit
 | .bool => Bool
 | .pair t1 t2 => asType t1 × asType t2
-| .arr dom cod => asType dom → asType cod`
+| .arr dom cod => asType dom → asType cod
+```
 
 In this universe, the constructor `arr` stands for the function type, which is written with an `arr`ow.
 
@@ -190,13 +199,15 @@ The only important difference is the addition of the case for `arr`, which uses 
 이 universe의 두 값을 동등성에 대해 비교하는 것은 `NestedPairs` universe의 경우와 거의 동일합니다.
 유일한 중요한 차이는 `arr`의 경우 추가입니다. 이는 `Finite.enumerate`라는 helper를 사용하여 `dom`으로 코딩된 타입으로부터 모든 값을 생성하고, 두 함수가 모든 가능한 입력에 대해 같은 결과를 반환하는지 확인합니다:
 
-`def Finite.beq (t : Finite) (x y : t.asType) : Bool :=
+```lean
+def Finite.beq (t : Finite) (x y : t.asType) : Bool :=
 match t with
 | .unit => true
 | .bool => x == y
 | .pair t1 t2 => beq t1 x.fst y.fst && beq t2 x.snd y.snd
 | .arr dom cod =>
-dom.enumerate.all fun arg => beq cod (x arg) (y arg)`
+dom.enumerate.all fun arg => beq cod (x arg) (y arg)
+```
 
 The standard library function `List.all` checks that the provided function returns `true` on every entry of a list.
 This function can be used to compare functions on the Booleans for equality:
@@ -204,7 +215,9 @@ This function can be used to compare functions on the Booleans for equality:
 표준 라이브러리 함수 `List.all`은 제공된 함수가 리스트의 모든 항목에서 `true`를 반환하는지 확인합니다.
 이 함수는 Booleans의 함수를 동등성에 대해 비교하는 데 사용할 수 있습니다:
 
-`true#eval Finite.beq (.arr .bool .bool) (fun _ => true) (fun b => b == b)`
+```lean
+#eval Finite.beq (.arr .bool .bool) (fun _ => true) (fun b => b == b)
+```
 
 ```
 true
@@ -214,7 +227,9 @@ It can also be used to compare functions from the standard library:
 
 이는 또한 표준 라이브러리의 함수를 비교하는 데 사용할 수 있습니다:
 
-`false#eval Finite.beq (.arr .bool .bool) (fun _ => true) not`
+```lean
+#eval Finite.beq (.arr .bool .bool) (fun _ => true) not
+```
 
 ```
 false
@@ -224,7 +239,13 @@ It can even compare functions built using tools such as function composition:
 
 이는 함수 합성 같은 도구를 사용하여 구축한 함수를 비교할 수도 있습니다:
 
-`true#eval Finite.beq (.arr .bool .bool) id (not ∘ not)`
+```lean
+#eval Finite.beq (.arr .bool .bool) id (not ∘ not)
+```
+
+```
+true
+```
 
 This is because the `Finite` universe codes for Lean's *actual* function type, not a special analogue created by the library.
 
@@ -234,12 +255,14 @@ The implementation of `enumerate` is also by recursion on the codes from `Finite
 
 `enumerate`의 구현은 또한 `Finite`의 codes에 대한 재귀입니다.
 
-`def Finite.enumerate (t : Finite) : List t.asType :=
+```lean
+def Finite.enumerate (t : Finite) : List t.asType :=
 match t with
 | .unit => [()]
 | .bool => [true, false]
 | .pair t1 t2 => t1.enumerate.product t2.enumerate
-| .arr dom cod => dom.functions cod.enumerate`
+| .arr dom cod => dom.functions cod.enumerate
+```
 
 In the case for `Unit`, there is only a single value.
 In the case for `Bool`, there are two values to return (`true` and `false`).
@@ -253,12 +276,14 @@ The helper function `List.product` can certainly be written with an ordinary rec
 다시 말해, `dom`의 모든 값은 `cod`의 모든 값과 쌍을 이루어야 합니다.
 Helper 함수 `List.product`는 확실히 일반적인 재귀 함수로 작성할 수 있지만, 여기서는 identity monad에서 `for`를 사용하여 정의됩니다:
 
-`def List.product (xs : List α) (ys : List β) : List (α × β) := Id.run do
+```lean
+def List.product (xs : List α) (ys : List β) : List (α × β) := Id.run do
 let mut out : List (α × β) := []
 for x in xs do
 for y in ys do
 out := (x, y) :: out
-pure out.reverse`
+pure out.reverse
+```
 
 Finally, the case of `Finite.enumerate` for functions delegates to a helper called `Finite.functions` that takes a list of all of the return values to target as an argument.
 
@@ -276,10 +301,12 @@ Once again, generating the functions from a finite type to some list of values i
 
 다시 한 번, 유한 타입에서 어떤 값의 리스트로의 함수를 생성하는 것은 유한 타입을 설명하는 code에 대한 재귀입니다:
 
-`def Finite.functions
+```lean
+def Finite.functions
 (t : Finite)
 (results : List α) : List (t.asType → α) :=
-match t with`
+match t with
+```
 
 The table for functions from `Unit` contains one row, because the function can't pick different results based on which input it is provided.
 This means that one function is generated for each potential input.
@@ -287,19 +314,23 @@ This means that one function is generated for each potential input.
 `Unit`으로부터의 함수의 테이블은 한 개의 행을 포함합니다. 왜냐하면 함수가 제공되는 입력에 따라 다른 결과를 선택할 수 없기 때문입니다.
 이는 각 잠재적 입력에 대해 한 개의 함수가 생성된다는 의미입니다.
 
-`| .unit =>
+```lean
+| .unit =>
 results.map fun r =>
-fun () => r`
+fun () => r
+```
 
 There are `n^2` functions from `Bool` when there are `n` result values, because each individual function of type `Bool → α` uses the `Bool` to select between two particular `α`s:
 
 결과 값이 `n`개 있을 때 `Bool`으로부터의 함수는 `n^2`개이며, 이는 `Bool → α` 타입의 각 개별 함수가 `Bool`을 사용하여 두 개의 특정 `α` 중 하나를 선택하기 때문입니다:
 
-`| .bool =>
+```lean
+| .bool =>
 (results.product results).map fun (r1, r2) =>
 fun
 | true => r1
-| false => r2`
+| false => r2
+```
 
 Generating the functions from pairs can be achieved by taking advantage of currying.
 A function from a pair can be transformed into a function that takes the first element of the pair and returns a function that's waiting for the second element of the pair.
@@ -309,11 +340,13 @@ Doing this allows `Finite.functions` to be used recursively in this case:
 쌍으로부터의 함수는 쌍의 첫 번째 요소를 취하고 쌍의 두 번째 요소를 기다리는 함수를 반환하는 함수로 변환될 수 있습니다.
 이를 하면 이 경우에 `Finite.functions`을 재귀적으로 사용할 수 있습니다:
 
-`| .pair t1 t2 =>
+```lean
+| .pair t1 t2 =>
 let f1s := t1.functions <| t2.functions results
 f1s.map fun f =>
 fun (x, y) =>
-f x y`
+f x y
+```
 
 Generating higher-order functions is a bit of a brain bender.
 Each higher-order function takes a function as its argument.
@@ -347,21 +380,29 @@ It then analyzes the list, essentially replacing each `::` in the list with a ca
 Right fold은 세 가지 인자를 취합니다: 리스트의 head를 재귀의 결과와 결합하는 step 함수, 리스트가 비어있을 때 반환할 기본값, 그리고 처리 중인 리스트입니다.
 그런 다음 리스트를 분석하여 본질적으로 리스트의 각 `::`을 step 함수에 대한 호출로 바꾸고 `[]`을 기본값으로 바꿉니다:
 
-`def  (f : α → β → β) (default : β) : List α → β
+```lean
+def foldr (f : α → β → β) (default : β) : List α → β
 | [] => default
-| a :: l => f a (foldr f default l)`
+| a :: l => f a (foldr f default l)
+```
 
 Finding the sum of the `Nat`s in a list can be done with `foldr`:
 
 리스트의 `Nat`들의 합을 찾는 것은 `foldr`로 수행할 수 있습니다:
 
-`[1, 2, 3, 4, 5].foldr (· + ·) 0``(1 :: 2 :: 3 :: 4 :: 5 :: []).foldr (· + ·) 0``(1 + 2 + 3 + 4 + 5 + 0)``15`
+```lean
+[1, 2, 3, 4, 5].foldr (· + ·) 0
+(1 :: 2 :: 3 :: 4 :: 5 :: []).foldr (· + ·) 0
+(1 + 2 + 3 + 4 + 5 + 0)
+15
+```
 
 With `foldr`, the higher-order functions can be created as follows:
 
 `foldr`을 사용하면, 고차 함수를 다음과 같이 생성할 수 있습니다:
 
-`| .arr t1 t2 =>
+```lean
+| .arr t1 t2 =>
 let args := t1.enumerate
 let base :=
 results.map fun r =>
@@ -370,13 +411,15 @@ args.foldr
 (fun arg rest =>
 (t2.functions rest).map fun more =>
 fun f => more (f arg) f)
-base`
+base
+```
 
 The complete definition of `Finite.functions` is:
 
 `Finite.functions`의 완전한 정의는:
 
-`def Finite.functions
+```lean
+def Finite.functions
 (t : Finite)
 (results : List α) : List (t.asType → α) :=
 match t with
@@ -402,7 +445,8 @@ args.foldr
 (fun arg rest =>
 (t2.functions rest).map fun more =>
 fun f => more (f arg) f)
-base`
+base
+```
 
 Because `Finite.enumerate` and `Finite.functions` call each other, they must be defined in a `mutual` block.
 In other words, right before the definition of `Finite.enumerate` is the `mutual` keyword:
@@ -410,15 +454,18 @@ In other words, right before the definition of `Finite.enumerate` is the `mutual
 `Finite.enumerate`과 `Finite.functions`가 서로 호출하기 때문에, 그들은 `mutual` 블록에서 정의되어야 합니다.
 다시 말해, `Finite.enumerate` 정의 바로 앞에 `mutual` 키워드가 있습니다:
 
-`mutual
+```lean
+mutual
 def Finite.enumerate (t : Finite) : List t.asType :=
-match t with`
+match t with
+```
 
 and right after the definition of `Finite.functions` is the `end` keyword:
 
 그리고 `Finite.functions` 정의 바로 뒤에 `end` 키워드가 있습니다:
 
-`| .arr t1 t2 =>
+```lean
+| .arr t1 t2 =>
 let args := t1.enumerate
 let base :=
 results.map fun r =>
@@ -428,7 +475,8 @@ args.foldr
 (t2.functions rest).map fun more =>
 fun f => more (f arg) f)
 base
-end`
+end
+```
 
 This algorithm for comparing functions is not particularly practical.
 The number of cases to check grows exponentially; even a simple type like `((Bool × Bool) → Bool) → Bool` describes 65536 distinct functions.
@@ -440,7 +488,9 @@ is
 which is
 `2^{2^{\left| \mathtt{Bool} \times \mathtt{Bool} \right| }},`
 which is
-`2^{2^4}`
+```lean
+2^{2^4}
+```
 or 65536.
 Nested exponentials grow quickly, and there are many higher-order functions.
 

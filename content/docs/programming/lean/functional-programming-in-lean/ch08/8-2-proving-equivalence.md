@@ -1,10 +1,10 @@
 ---
-title: "Proving Equivalence"
+title: "동치 증명하기 (Proving Equivalence)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Proving Equivalence"
+description: "동치 증명하기 (Proving Equivalence)"
 ---
 
 # Proving Equivalence
@@ -23,9 +23,10 @@ To prove that both versions of `sum` are equal, begin by writing the theorem sta
 
 두 버전의 `sum`이 동등함을 증명하려면, 스텁 증명(stub proof)과 함께 정리(theorem) 명제문을 작성하여 시작합니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := unsolved goals
-⊢ NonTail.sum = Tail.sumby⊢ NonTail.sum = Tail.sum
-skip⊢ NonTail.sum = Tail.sum`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  skip
+```
 
 As expected, Lean describes an unsolved goal:
 
@@ -62,9 +63,10 @@ The arbitrary argument is added as an assumption to the context, and the goal ch
 
 임의 인수가 컨텍스트에 가정으로 추가되고, 목표는 이 인수에 적용된 함수들이 같음을 증명하도록 변경됩니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := unsolved goals
-hxs:List Nat⊢ NonTail.sum xs = Tail.sum xsby⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+```
 
 ```
 unsolved goals
@@ -84,13 +86,13 @@ Invoking the `induction` tactic results in two goals:
 
 `induction` tactic을 호출하면 두 개의 목표가 생성됩니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-induction xs with
-| nil unsolved goals
-h.nil⊢ NonTail.sum [] = Tail.sum []=> skiph.nil⊢ NonTail.sum [] = Tail.sum []
-| cons y ys ih unsolved goals
-h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ NonTail.sum (y :: ys) = Tail.sum (y :: ys)=> skiph.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ NonTail.sum (y :: ys) = Tail.sum (y :: ys)`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  induction xs with
+  | nil => skip
+  | cons y ys ih => skip
+```
 
 ```
 unsolved goals
@@ -106,24 +108,26 @@ The base case for `nil` can be solved using `rfl`, because both functions return
 
 `nil`에 대한 기저 사례는 `rfl`을 사용하여 해결할 수 있습니다. 왜냐하면 두 함수 모두 빈 목록을 전달받으면 `0`을 반환하기 때문입니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-induction xs with
-| nil =>h.nil⊢ NonTail.sum [] = Tail.sum [] rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ NonTail.sum (y :: ys) = Tail.sum (y :: ys)=> skiph.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ NonTail.sum (y :: ys) = Tail.sum (y :: ys)`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  induction xs with
+  | nil => rfl
+  | cons y ys ih => skip
+```
 
 The first step in solving the induction step is to simplify the goal, asking `simp` to unfold `NonTail.sum` and `Tail.sum`:
 
 귀납 단계를 해결하는 첫 번째 단계는 목표를 단순화하여 `simp`에게 `NonTail.sum`과 `Tail.sum`을 전개하도록 요청하는 것입니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-induction xs with
-| nil =>h.nil⊢ NonTail.sum [] = Tail.sum [] rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ y + NonTail.sum ys = Tail.sumHelper 0 (y :: ys)=>
-simp [NonTail.sum, Tail.sum]h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ y + NonTail.sum ys = Tail.sumHelper 0 (y :: ys)h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ NonTail.sum (y :: ys) = Tail.sum (y :: ys)`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  induction xs with
+  | nil => rfl
+  | cons y ys ih =>
+    simp [NonTail.sum, Tail.sum]
+```
 
 ```
 unsolved goals
@@ -134,13 +138,14 @@ Unfolding `Tail.sum` revealed that it immediately delegates to `Tail.sumHelper`,
 
 `Tail.sum`을 전개하면 이것이 즉시 `Tail.sumHelper`에 위임함이 드러나며, 이것도 단순화되어야 합니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-induction xs with
-| nil =>h.nil⊢ NonTail.sum [] = Tail.sum [] rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ y + NonTail.sum ys = Tail.sumHelper y ys=>
-simp [NonTail.sum, Tail.sum, Tail.sumHelper]h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ y + NonTail.sum ys = Tail.sumHelper y ysh.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ NonTail.sum (y :: ys) = Tail.sum (y :: ys)`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  induction xs with
+  | nil => rfl
+  | cons y ys ih =>
+    simp [NonTail.sum, Tail.sum, Tail.sumHelper]
+```
 
 In the resulting goal, `sumHelper` has taken a step of computation and added `y` to the accumulator:
 
@@ -155,14 +160,15 @@ Rewriting with the induction hypothesis removes all mentions of `NonTail.sum` fr
 
 귀납 가설(induction hypothesis)을 사용하여 다시 쓰면 목표에서 `NonTail.sum`의 모든 언급이 제거됩니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-induction xs with
-| nil =>h.nil⊢ NonTail.sum [] = Tail.sum [] rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ y + Tail.sum ys = Tail.sumHelper y ys=>
-simp [NonTail.sum, Tail.sum, Tail.sumHelper]h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ y + NonTail.sum ys = Tail.sumHelper y ys
-rw [ih]h.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ y + Tail.sum ys = Tail.sumHelper y ysh.consy:Natys:List Natih:NonTail.sum ys = Tail.sum ys⊢ NonTail.sum (y :: ys) = Tail.sum (y :: ys)`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  induction xs with
+  | nil => rfl
+  | cons y ys ih =>
+    simp [NonTail.sum, Tail.sum, Tail.sumHelper]
+    rw [ih]
+```
 
 ```
 unsolved goals
@@ -173,15 +179,15 @@ This new goal states that adding some number to the sum of a list is the same as
 
 이 새 목표는 리스트의 합에 어떤 숫자를 더하는 것이 그 숫자를 `sumHelper`의 초기 누적자로 사용하는 것과 같음을 나타냅니다.
 
-이 새 목표는 리스트의 합에 어떤 숫자를 더하는 것이 그 숫자를 `sumHelper`의 초기 누적자로 사용하는 것과 같음을 나타냅니다.
 For the sake of clarity, this new goal can be proved as a separate theorem:
 
 명확성을 위해 이 새 목표는 별도의 정리로 증명될 수 있습니다:
 
-`theorem helper_add_sum_accum (xs : List Nat) (n : Nat) :
-n + Tail.sum xs = Tail.sumHelper n xs := unsolved goals
-xs:List Natn:Nat⊢ n + Tail.sum xs = Tail.sumHelper n xsbyxs:List Natn:Nat⊢ n + Tail.sum xs = Tail.sumHelper n xs
-skipxs:List Natn:Nat⊢ n + Tail.sum xs = Tail.sumHelper n xs`
+```lean
+theorem helper_add_sum_accum (xs : List Nat) (n : Nat) :
+    n + Tail.sum xs = Tail.sumHelper n xs := by
+  skip
+```
 
 ```
 unsolved goals
@@ -192,12 +198,13 @@ Once again, this is a proof by induction where the base case uses `rfl`:
 
 다시 한 번, 이것은 기저 사례가 `rfl`을 사용하는 귀납법에 의한 증명입니다:
 
-`theorem helper_add_sum_accum (xs : List Nat) (n : Nat) :
-n + Tail.sum xs = Tail.sumHelper n xs := byxs:List Natn:Nat⊢ n + Tail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>niln:Nat⊢ n + Tail.sum [] = Tail.sumHelper n [] rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consn y:Natys:List Natih:n + Tail.sum ys = Tail.sumHelper n ys⊢ n + Tail.sum (y :: ys) = Tail.sumHelper n (y :: ys)=> skipconsn:Naty:Natys:List Natih:n + Tail.sum ys = Tail.sumHelper n ys⊢ n + Tail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem helper_add_sum_accum (xs : List Nat) (n : Nat) :
+    n + Tail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil => rfl
+  | cons y ys ih => skip
+```
 
 ```
 unsolved goals
@@ -211,13 +218,14 @@ Simplifying, using the definitions of `Tail.sum` and `Tail.sumHelper`, results i
 
 `Tail.sum`과 `Tail.sumHelper`의 정의를 사용하여 단순화하면 다음과 같은 결과가 나옵니다:
 
-`theorem helper_add_sum_accum (xs : List Nat) (n : Nat) :
-n + Tail.sum xs = Tail.sumHelper n xs := byxs:List Natn:Nat⊢ n + Tail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>niln:Nat⊢ n + Tail.sum [] = Tail.sumHelper n [] rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consn y:Natys:List Natih:n + Tail.sum ys = Tail.sumHelper n ys⊢ n + Tail.sumHelper y ys = Tail.sumHelper (y + n) ys=>
-simp [Tail.sum, Tail.sumHelper]consn:Naty:Natys:List Natih:n + Tail.sum ys = Tail.sumHelper n ys⊢ n + Tail.sumHelper y ys = Tail.sumHelper (y + n) ysconsn:Naty:Natys:List Natih:n + Tail.sum ys = Tail.sumHelper n ys⊢ n + Tail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem helper_add_sum_accum (xs : List Nat) (n : Nat) :
+    n + Tail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil => rfl
+  | cons y ys ih =>
+    simp [Tail.sum, Tail.sumHelper]
+```
 
 ```
 unsolved goals
@@ -255,10 +263,11 @@ Discarding the prior attempt, the insight can be encoded as the following statem
 
 이전 시도를 버리고, 이 통찰력을 다음 명제로 인코딩할 수 있습니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := unsolved goals
-xs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xsbyxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-skipxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  skip
+```
 
 In this statement, it's very important that `n` is part of the type that's after the colon.
 
@@ -272,13 +281,13 @@ xs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
 
 Using the induction tactic results in goals that include this “for all” statement:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil unsolved goals
-nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []=> skipnil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)=> skipconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil => skip
+  | cons y ys ih => skip
+```
 
 In the `nil` case, the goal is:
 
@@ -317,13 +326,13 @@ Using the `intro` tactic in the `nil` case removes the `∀ (n : Nat),` from the
 
 `nil` 경우에서 `intro` tactic을 사용하면 목표에서 `∀ (n : Nat),`이 제거되고 가정 `n : Nat`이 추가됩니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil unsolved goals
-niln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []=> intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)=> skipconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil => intro n
+  | cons y ys ih => skip
+```
 
 ```
 unsolved goals
@@ -334,14 +343,15 @@ Both sides of this propositional equality are definitionally equal to `n`, so `r
 
 이 명제 동등성의 양쪽은 정의상 `n`과 같으므로 `rfl`만으로 충분합니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []
-rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)=> skipconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil =>
+    intro n
+    rfl
+  | cons y ys ih => skip
+```
 
 The `cons` goal also contains a “for all”:
 
@@ -349,15 +359,16 @@ This suggests the use of `intro`.
 
 이는 `intro`의 사용을 제안합니다.
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []
-rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)=>
-intro nconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil =>
+    intro n
+    rfl
+  | cons y ys ih =>
+    intro n
+```
 
 ```
 unsolved goals
@@ -371,16 +382,17 @@ The simplifier can make the next step more clear:
 
 단순화기(simplifier)는 다음 단계를 더 명확하게 할 수 있습니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []
-rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + (y + NonTail.sum ys) = Tail.sumHelper (y + n) ys=>
-intro nconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)
-simp [NonTail.sum, Tail.sumHelper]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + (y + NonTail.sum ys) = Tail.sumHelper (y + n) ysconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil =>
+    intro n
+    rfl
+  | cons y ys ih =>
+    intro n
+    simp [NonTail.sum, Tail.sumHelper]
+```
 
 ```
 unsolved goals
@@ -415,17 +427,18 @@ There is only one opportunity to apply associativity, though the direction of th
 
 결합 법칙을 적용할 기회는 단 한 번이지만, `(n + m) + k = n + (m + k)`의 동등성에서 오른쪽이 증명 목표와 일치하므로 다시 쓰는 방향을 반대로 해야 합니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []
-rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (y + n) ys=>
-intro nconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)
-simp [NonTail.sum, Tail.sumHelper]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + (y + NonTail.sum ys) = Tail.sumHelper (y + n) ys
-rw [←Nat.add_assoc]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (y + n) ysconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil =>
+    intro n
+    rfl
+  | cons y ys ih =>
+    intro n
+    simp [NonTail.sum, Tail.sumHelper]
+    rw [←Nat.add_assoc]
+```
 
 ```
 unsolved goals
@@ -439,18 +452,19 @@ The `rw` tactic guesses the wrong location for the rewrite, leading to an uninte
 
 `rw` tactic은 다시 쓰기 위치를 잘못 추측하여 의도하지 않은 목표를 만듭니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []
-rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ NonTail.sum ys + (n + y) = Tail.sumHelper (y + n) ys=>
-intro nconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)
-simp [NonTail.sum, Tail.sumHelper]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + (y + NonTail.sum ys) = Tail.sumHelper (y + n) ys
-rw [←Nat.add_assoc]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (y + n) ys
-rw [Nat.add_comm]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ NonTail.sum ys + (n + y) = Tail.sumHelper (y + n) ysconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil =>
+    intro n
+    rfl
+  | cons y ys ih =>
+    intro n
+    simp [NonTail.sum, Tail.sumHelper]
+    rw [←Nat.add_assoc]
+    rw [Nat.add_comm]
+```
 
 ```
 unsolved goals
@@ -461,18 +475,19 @@ This can be fixed by explicitly providing `y` and `n` as arguments to `Nat.add_c
 
 이는 `y`와 `n`을 `Nat.add_comm`의 인수로 명시적으로 제공하여 수정할 수 있습니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n []
-intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []
-rflAll goals completed! 🐙
-| cons y ys ih unsolved goals
-consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (n + y) ys=>
-intro nconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)
-simp [NonTail.sum, Tail.sumHelper]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + (y + NonTail.sum ys) = Tail.sumHelper (y + n) ys
-rw [←Nat.add_assoc]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (y + n) ys
-rw [Nat.add_comm y n]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (n + y) ysconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil =>
+    intro n
+    rfl
+  | cons y ys ih =>
+    intro n
+    simp [NonTail.sum, Tail.sumHelper]
+    rw [←Nat.add_assoc]
+    rw [Nat.add_comm y n]
+```
 
 ```
 unsolved goals
@@ -492,16 +507,20 @@ The `exact` tactic completes a proof goal if its argument has exactly the desire
 
 `exact` tactic은 인수가 정확히 원하는 타입을 가지면 증명 목표를 완료합니다:
 
-`theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
-(n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := byxs:List Nat⊢ ∀ (n : Nat), n + NonTail.sum xs = Tail.sumHelper n xs
-induction xs with
-| nil =>nil⊢ ∀ (n : Nat), n + NonTail.sum [] = Tail.sumHelper n [] intro nniln:Nat⊢ n + NonTail.sum [] = Tail.sumHelper n []; rflAll goals completed! 🐙
-| cons y ys ih =>consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ys⊢ ∀ (n : Nat), n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)
-intro nconsy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + NonTail.sum (y :: ys) = Tail.sumHelper n (y :: ys)
-simp [NonTail.sum, Tail.sumHelper]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + (y + NonTail.sum ys) = Tail.sumHelper (y + n) ys
-rw [←Nat.add_assoc]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (y + n) ys
-rw [Nat.add_comm y n]consy:Natys:List Natih:∀ (n : Nat), n + NonTail.sum ys = Tail.sumHelper n ysn:Nat⊢ n + y + NonTail.sum ys = Tail.sumHelper (n + y) ys
-exact ih (n + y)All goals completed! 🐙`
+```lean
+theorem non_tail_sum_eq_helper_accum (xs : List Nat) :
+    (n : Nat) → n + NonTail.sum xs = Tail.sumHelper n xs := by
+  induction xs with
+  | nil =>
+    intro n
+    rfl
+  | cons y ys ih =>
+    intro n
+    simp [NonTail.sum, Tail.sumHelper]
+    rw [←Nat.add_assoc]
+    rw [Nat.add_comm y n]
+    exact ih (n + y)
+```
 
 The actual proof requires only a little additional work to get the goal to match the helper's type.
 
@@ -510,18 +529,20 @@ The first step is still to invoke function extensionality:
 
 첫 번째 단계는 여전히 function extensionality를 호출하는 것입니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := unsolved goals
-hxs:List Nat⊢ NonTail.sum xs = Tail.sum xsby⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+```
 
 The next step is unfold `Tail.sum`, exposing `Tail.sumHelper`:
 
 다음 단계는 `Tail.sum`을 전개하여 `Tail.sumHelper`를 노출합니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := unsolved goals
-hxs:List Nat⊢ NonTail.sum xs = Tail.sumHelper 0 xsby⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-simp [Tail.sum]hxs:List Nat⊢ NonTail.sum xs = Tail.sumHelper 0 xs`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  simp [Tail.sum]
+```
 
 ```
 unsolved goals
@@ -544,11 +565,12 @@ Applying this function to `NonTail.sum xs` results in an expression with type `0
 
 이 함수를 `NonTail.sum xs`에 적용하면 타입 `0 + NonTail.sum xs = NonTail.sum xs`를 가진 표현식이 생성되므로, 오른쪽에서 왼쪽으로 다시 쓰면 원하는 목표가 됩니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := unsolved goals
-hxs:List Nat⊢ 0 + NonTail.sum xs = Tail.sumHelper 0 xsby⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-simp [Tail.sum]hxs:List Nat⊢ NonTail.sum xs = Tail.sumHelper 0 xs
-rw [←Nat.zero_add (NonTail.sum xs)]hxs:List Nat⊢ 0 + NonTail.sum xs = Tail.sumHelper 0 xs`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  simp [Tail.sum]
+  rw [←Nat.zero_add (NonTail.sum xs)]
+```
 
 ```
 unsolved goals
@@ -559,11 +581,13 @@ Finally, the helper can be used to complete the proof:
 
 마지막으로 helper를 사용하여 증명을 완료할 수 있습니다:
 
-`theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by⊢ NonTail.sum = Tail.sum
-funext xshxs:List Nat⊢ NonTail.sum xs = Tail.sum xs
-simp [Tail.sum]hxs:List Nat⊢ NonTail.sum xs = Tail.sumHelper 0 xs
-rw [←Nat.zero_add (NonTail.sum xs)]hxs:List Nat⊢ 0 + NonTail.sum xs = Tail.sumHelper 0 xs
-exact non_tail_sum_eq_helper_accum xs 0All goals completed! 🐙`
+```lean
+theorem non_tail_sum_eq_tail_sum : NonTail.sum = Tail.sum := by
+  funext xs
+  simp [Tail.sum]
+  rw [←Nat.zero_add (NonTail.sum xs)]
+  exact non_tail_sum_eq_helper_accum xs 0
+```
 
 This proof demonstrates a general pattern that can be used when proving that an accumulator-passing tail-recursive function is equal to the non-tail-recursive version.
 

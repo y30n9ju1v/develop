@@ -1,10 +1,10 @@
 ---
-title: "Starting a Project"
+title: "프로젝트 시작하기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Starting a Project"
+description: "Lake를 사용하여 Lean 프로젝트를 생성하고 빌드하는 방법"
 ---
 
 # 2.3. Starting a Project
@@ -51,25 +51,42 @@ By default, the library file `Greeting/Basic.lean` contains a single definition:
 
 기본적으로 라이브러리 파일 `Greeting/Basic.lean`은 단일 정의를 포함합니다.
 
-File: `Greeting/Basic.lean``def hello := "world"`
+File: `Greeting/Basic.lean`
+
+```lean
+def hello := "world"
+```
 
 The library file `Greeting.lean` imports `Greeting/Basic.lean`:
 
 라이브러리 파일 `Greeting.lean`은 `Greeting/Basic.lean`을 import합니다.
 
-File: `Greeting.lean``` -- This module serves as the root of the `Greeting` library. ```-- Import modules here that should be built as part of the library.``import Greeting.Basic`
+File: `Greeting.lean`
+
+```lean
+-- This module serves as the root of the `Greeting` library.
+-- Import modules here that should be built as part of the library.
+import Greeting.Basic
+```
 
 This means that everything defined in `Greeting/Basic.lean` is also available to files that import `Greeting.lean`.
 In `import` statements, dots are interpreted as directories on disk.
 
-즉, `Greeting/Basic.lean`에서 정의된 모든 것이 `Greeting.lean`을 import하는 파일에도 사용 가능함입니다.
+즉, `Greeting/Basic.lean`에서 정의된 모든 것이 `Greeting.lean`을 import하는 파일에도 사용 가능합니다.
 `import` 문에서 점은 디스크의 디렉토리로 해석됩니다.
 
 The executable source `Main.lean` contains:
 
 실행 파일 소스 `Main.lean`은 다음을 포함합니다.
 
-File: `Main.lean``import Greeting``def main : IO Unit :=` `IO.println s!"Hello, {hello}!"`
+File: `Main.lean`
+
+```lean
+import Greeting
+
+def main : IO Unit :=
+  IO.println s!"Hello, {hello}!"
+```
 
 Because `Main.lean` imports `Greeting.lean` and `Greeting.lean` imports `Greeting/Basic.lean`, the definition of `hello` is available in `main`.
 
@@ -99,7 +116,20 @@ The generated `lakefile.toml` contains the following:
 [Lake 문서](https://lean-lang.org/doc/reference/latest/find/?domain=Verso.Genre.Manual.section&name=lake-config-toml)는 Lake 구성에서 사용 가능한 옵션을 설명합니다.
 생성된 `lakefile.toml`은 다음을 포함합니다.
 
-File: `lakefile.toml``name = "greeting"``version = "0.1.0"``defaultTargets = ["greeting"]``[[lean_lib]]``name = "Greeting"``[[lean_exe]]``name = "greeting"``root = "Main"`
+File: `lakefile.toml`
+
+```toml
+name = "greeting"
+version = "0.1.0"
+defaultTargets = ["greeting"]
+
+[[lean_lib]]
+name = "Greeting"
+
+[[lean_exe]]
+name = "greeting"
+root = "Main"
+```
 
 This initial Lake configuration consists of three items:
 
@@ -151,21 +181,49 @@ Additional module files may be added to the library by creating a directory call
 These names can be imported by replacing the directory separator with a dot.
 For instance, creating the file `Greeting/Smile.lean` with the contents:
 
-File: `Greeting/Smile.lean``def Expression.happy : String := "a big smile"`
+File: `Greeting/Smile.lean`
+
+```lean
+def Expression.happy : String := "a big smile"
+```
 
 means that `Main.lean` can use the definition as follows:
 
-File: `Main.lean``import Greeting``import Greeting.Smile``open Expression``def main : IO Unit :=` `IO.println s!"Hello, {hello}, with {happy}!"`
+File: `Main.lean`
+
+```lean
+import Greeting
+import Greeting.Smile
+
+open Expression
+
+def main : IO Unit :=
+  IO.println s!"Hello, {hello}, with {happy}!"
+```
 
 추가 모듈 파일은 `Greeting`이라는 디렉토리를 만들고 그 안에 배치하여 라이브러리에 추가할 수 있습니다.
 이 이름들은 디렉토리 구분자를 점으로 바꾸어 import할 수 있습니다.
 예를 들어, 다음 내용으로 `Greeting/Smile.lean` 파일을 만드는 경우.
 
-File: `Greeting/Smile.lean``def Expression.happy : String := "a big smile"`
+File: `Greeting/Smile.lean`
+
+```lean
+def Expression.happy : String := "a big smile"
+```
 
 `Main.lean`이 다음과 같이 정의를 사용할 수 있음을 의미합니다.
 
-File: `Main.lean``import Greeting``import Greeting.Smile``open Expression``def main : IO Unit :=` `IO.println s!"Hello, {hello}, with {happy}!"`
+File: `Main.lean`
+
+```lean
+import Greeting
+import Greeting.Smile
+
+open Expression
+
+def main : IO Unit :=
+  IO.println s!"Hello, {hello}, with {happy}!"
+```
 
 The module name hierarchy is decoupled from the namespace hierarchy.
 In Lean, modules are units of code distribution, while namespaces are units of code organization.

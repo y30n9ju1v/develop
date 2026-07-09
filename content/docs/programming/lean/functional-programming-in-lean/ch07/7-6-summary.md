@@ -1,10 +1,10 @@
 ---
-title: "Summary"
+title: "요약 (Summary)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Summary"
+description: "요약 (Summary)"
 ---
 
 # 7.6. Summary

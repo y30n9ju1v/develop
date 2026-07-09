@@ -1,10 +1,10 @@
 ---
-title: "Coercions"
+title: "강제 변환(Coercion)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Coercions"
+description: "타입 클래스 인스턴스로 확장 가능한 암묵적 타입 변환 메커니즘"
 ---
 
 # 3.6. Coercions
@@ -35,9 +35,11 @@ The function `Pos.toNat` that was defined earlier converts a `Pos` to the corres
 모든 양수는 자연수에 대응됩니다.
 앞서 정의된 함수 `Pos.toNat`은 `Pos`를 대응하는 `Nat`로 변환합니다:
 
-`def Pos.toNat : Pos → Nat
-| Pos.one => 1
-| Pos.succ n => n.toNat + 1`
+```lean
+def Pos.toNat : Pos → Nat
+  | Pos.one => 1
+  | Pos.succ n => n.toNat + 1
+```
 
 The function `List.drop`, with type `{α : Type} → Nat → List α → List α`, removes a prefix of a list.
 Applying `List.drop` to a `Pos`, however, leads to a type error:
@@ -45,7 +47,9 @@ Applying `List.drop` to a `Pos`, however, leads to a type error:
 타입이 `{α : Type} → Nat → List α → List α`인 함수 `List.drop`은 리스트의 접두사를 제거합니다.
 그러나 `List.drop`을 `Pos`에 적용하면 타입 오류가 발생합니다:
 
-`[1, 2, 3, 4].drop (2 : Pos)`
+```lean
+[1, 2, 3, 4].drop (2 : Pos)
+```
 
 ```
 Application type mismatch: The argument
@@ -66,15 +70,23 @@ The type class `Coe` describes overloaded ways of coercing from one type to anot
 
 Type class `Coe`는 한 타입에서 다른 타입으로 강제 변환하는 오버로드된 방법들을 설명합니다:
 
-`class Coe (α : Type) (β : Type) where
-coe : α → β`
+```lean
+class Coe (α : Type) (β : Type) where
+  coe : α → β
+```
 
 An instance of `Coe Pos Nat` is enough to allow the prior code to work:
 
 `Coe Pos Nat`의 인스턴스 하나로 앞의 코드가 작동하도록 충분합니다:
 
-`instance : Coe Pos Nat where
-coe x := x.toNat``[3, 4]#eval [1, 2, 3, 4].drop (2 : Pos)`
+```lean
+instance : Coe Pos Nat where
+  coe x := x.toNat
+```
+
+```lean
+#eval [1, 2, 3, 4].drop (2 : Pos)
+```
 
 ```
 [3, 4]
@@ -84,7 +96,9 @@ Using `#check` shows the result of the instance search that was used behind the 
 
 `#check`를 사용하면 백그라운드에서 사용된 인스턴스 검색의 결과를 보여줍니다:
 
-`List.drop (Pos.toNat 2) [1, 2, 3, 4] : List Nat#check [1, 2, 3, 4].drop (2 : Pos)`
+```lean
+#check [1, 2, 3, 4].drop (2 : Pos)
+```
 
 ```
 List.drop (Pos.toNat 2) [1, 2, 3, 4] : List Nat
@@ -100,7 +114,9 @@ Coercion을 검색할 때, Lean은 더 작은 coercion들의 체인으로부터 
 예를 들어, `Nat`에서 `Int`로의 coercion이 이미 존재합니다.
 그 인스턴스가 `Coe Pos Nat` 인스턴스와 결합되어, 다음 코드가 수락됩니다:
 
-`def oneInt : Int := Pos.one`
+```lean
+def oneInt : Int := Pos.one
+```
 
 This definition uses two coercions: from `Pos` to `Nat`, and then from `Nat` to `Int`.
 
@@ -112,17 +128,19 @@ For example, even if two types `A` and `B` can be coerced to one another, their 
 Lean 컴파일러는 순환 coercion이 있어도 멈추지 않습니다.
 예를 들어, 두 타입 `A`와 `B`가 서로 강제 변환될 수 있더라도, 그들의 상호 coercion이 경로를 찾는 데 사용될 수 있습니다:
 
-`inductive A where
-| a
+```lean
+inductive A where
+  | a
 inductive B where
-| b
+  | b
 instance : Coe A B where
-coe _ := B.b
+  coe _ := B.b
 instance : Coe B A where
-coe _ := A.a
+  coe _ := A.a
 instance : Coe Unit A where
-coe _ := A.a
-def coercedToB : B := ()`
+  coe _ := A.a
+def coercedToB : B := ()
+```
 
 Remember: the double parentheses `()` is short for the constructor `Unit.unit`.
 After deriving a `Repr B` instance with `deriving instance Repr for B`,
@@ -130,7 +148,9 @@ After deriving a `Repr B` instance with `deriving instance Repr for B`,
 기억하세요: 이중 괄호 `()`는 생성자 `Unit.unit`의 축약형입니다.
 `deriving instance Repr for B`로 `Repr B` 인스턴스를 유도한 후,
 
-`B.b#eval coercedToB`
+```lean
+#eval coercedToB
+```
 
 results in:
 
@@ -148,10 +168,12 @@ Lean 표준 라이브러리는 모든 타입 `α`에서 `Option α`로의 coerci
 이는 option 타입을 nullable 타입과 더욱 유사한 방식으로 사용할 수 있게 하며, `some`을 생략할 수 있기 때문입니다.
 예를 들어, 리스트의 마지막 항목을 찾는 함수 `List.last?`는 반환 값 `x` 주변에 `some` 없이 작성될 수 있습니다:
 
-`def List.last? : List α → Option α
-| [] => none
-| [x] => x
-| _ :: x :: xs => last? (x :: xs)`
+```lean
+def List.last? : List α → Option α
+  | [] => none
+  | [x] => x
+  | _ :: x :: xs => last? (x :: xs)
+```
 
 Instance search finds the coercion, and inserts a call to `coe`, which wraps the argument in `some`.
 These coercions can be chained, so that nested uses of `Option` don't require nested `some` constructors:
@@ -159,8 +181,10 @@ These coercions can be chained, so that nested uses of `Option` don't require ne
 인스턴스 검색이 coercion을 찾고, `coe` 호출을 삽입하며, 이는 인자를 `some`으로 감싸줍니다.
 이러한 coercion들은 체인될 수 있어서, `Option`의 중첩된 사용이 중첩된 `some` 생성자를 필요로 하지 않습니다:
 
-`def perhapsPerhapsPerhaps : Option (Option (Option String)) :=
-"Please don't tell me"`
+```lean
+def perhapsPerhapsPerhaps : Option (Option (Option String)) :=
+  "Please don't tell me"
+```
 
 Coercions are only activated automatically when Lean encounters a mismatch between an inferred type and a type that is imposed from the rest of the program.
 In cases with other errors, coercions are not activated.
@@ -170,14 +194,10 @@ Coercion은 Lean이 추론된 타입과 프로그램의 나머지 부분에서 �
 다른 오류가 있는 경우, coercion은 활성화되지 않습니다.
 예를 들어, 오류가 인스턴스 누락인 경우, coercion은 사용되지 않습니다:
 
-`` def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
-failed to synthesize
-OfNat (Option (Option (Option Nat))) 392
-numerals are polymorphic in Lean, but the numeral `392` cannot be used in a context where the expected type is
-Option (Option (Option Nat))
-due to the absence of the instance above
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.392 ``
+```lean
+def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
+  392
+```
 
 ```
 failed to synthesize
@@ -193,15 +213,19 @@ This can be worked around by manually indicating the desired type to be used for
 
 이는 `OfNat`에 사용할 원하는 타입을 수동으로 지정함으로써 해결할 수 있습니다:
 
-`def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
-(392 : Nat)`
+```lean
+def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
+  (392 : Nat)
+```
 
 Additionally, coercions can be manually inserted using an up arrow:
 
 또한, coercion은 위쪽 화살표를 사용하여 수동으로 삽입할 수 있습니다:
 
-`def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
-↑(392 : Nat)`
+```lean
+def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
+  ↑(392 : Nat)
+```
 
 In some cases, this can be used to ensure that Lean finds the right instances.
 It can also make the programmer's intentions more clear.
@@ -219,9 +243,11 @@ Similarly, a coercion from non-empty lists to ordinary lists makes sense because
 `Nat`에서 `Int`로의 coercion은 의미가 있습니다. 왜냐하면 타입 `Int`가 모든 자연수를 포함하기 때문입니다. 하지만 `Int`에서 `Nat`로의 coercion은 좋지 않습니다. `Nat`가 음수를 포함하지 않기 때문입니다.
 유사하게, 빈 리스트가 아닌 리스트에서 일반 리스트로의 coercion은 의미가 있습니다. `List` 타입이 모든 빈 리스트가 아닌 리스트를 나타낼 수 있기 때문입니다:
 
-`instance : Coe (NonEmptyList α) (List α) where
-coe
-| { head := x, tail := xs } => x :: xs`
+```lean
+instance : Coe (NonEmptyList α) (List α) where
+  coe
+    | { head := x, tail := xs } => x :: xs
+```
 
 This allows non-empty lists to be used with the entire `List` API.
 
@@ -237,8 +263,10 @@ Just as the `OfNat` type class takes the particular `Nat` being overloaded as a 
 Dependent coercion은 한 타입에서 다른 타입으로의 coercion 능력이 강제 변환되는 특정 값에 따라 달라질 때 사용될 수 있습니다.
 `OfNat` type class가 오버로드되는 특정 `Nat`을 매개변수로 취하는 것처럼, dependent coercion은 강제 변환되는 값을 매개변수로 취합니다:
 
-`class CoeDep (α : Type) (x : α) (β : Type) where
-coe : β`
+```lean
+class CoeDep (α : Type) (x : α) (β : Type) where
+  coe : β
+```
 
 This is a chance to select only certain values, either by imposing further type class constraints on the value or by writing certain constructors directly.
 For example, any `List` that is not actually empty can be coerced to a `NonEmptyList`:
@@ -246,8 +274,10 @@ For example, any `List` that is not actually empty can be coerced to a `NonEmpty
 이는 값에 더 이상의 type class 제약을 부과하거나 특정 생성자를 직접 작성하여 특정 값만 선택할 수 있는 기회입니다.
 예를 들어, 실제로 비어있지 않은 모든 `List`는 `NonEmptyList`로 강제 변환될 수 있습니다:
 
-`instance : CoeDep (List α) (x :: xs) (NonEmptyList α) where
-coe := { head := x, tail := xs }`
+```lean
+instance : CoeDep (List α) (x :: xs) (NonEmptyList α) where
+  coe := { head := x, tail := xs }
+```
 
 ## 3.6.5. Coercing to Types
 
@@ -265,18 +295,20 @@ Monoids are also widely used in functional programming: lists, the empty list, a
 유사하게, 1과 곱셈을 갖는 자연수도 monoid를 형성합니다.
 Monoid는 함수형 프로그래밍에서도 광범위하게 사용됩니다: 리스트, 빈 리스트, append 연산자는 monoid를 형성하며, 문자열, 빈 문자열, 문자열 append도 마찬가지입니다:
 
-`structure Monoid where
-Carrier : Type
-neutral : Carrier
-op : Carrier → Carrier → Carrier
+```lean
+structure Monoid where
+  Carrier : Type
+  neutral : Carrier
+  op : Carrier → Carrier → Carrier
 def natMulMonoid : Monoid :=
-{ Carrier := Nat, neutral := 1, op := (· * ·) }
+  { Carrier := Nat, neutral := 1, op := (· * ·) }
 def natAddMonoid : Monoid :=
-{ Carrier := Nat, neutral := 0, op := (· + ·) }
+  { Carrier := Nat, neutral := 0, op := (· + ·) }
 def stringMonoid : Monoid :=
-{ Carrier := String, neutral := "", op := String.append }
+  { Carrier := String, neutral := "", op := String.append }
 def listMonoid (α : Type) : Monoid :=
-{ Carrier := List α, neutral := [], op := List.append }`
+  { Carrier := List α, neutral := [], op := List.append }
+```
 
 Given a monoid, it is possible to write the `foldMap` function that, in a single pass, transforms the entries in a list into a monoid's carrier set and then combines them using the monoid's operator.
 Because monoids have a neutral element, there is a natural result to return when the list is empty, and because the operator is associative, clients of the function don't have to care whether the recursive function combines elements from left to right or from right to left.
@@ -284,11 +316,13 @@ Because monoids have a neutral element, there is a natural result to return when
 Monoid가 주어지면, 한 번의 패스에서 리스트의 항목들을 monoid의 carrier set으로 변환한 다음 monoid의 연산자를 사용하여 결합하는 `foldMap` 함수를 작성할 수 있습니다.
 Monoid는 중립 원소를 가지기 때문에, 리스트가 비어있을 때 반환할 자연스러운 결과가 있으며, 연산자가 결합적이기 때문에 함수의 사용자는 재귀 함수가 좌에서 우로 결합하는지 우에서 좌로 결합하는지 신경 쓸 필요가 없습니다.
 
-`def foldMap (M : Monoid) (f : α → M.Carrier) (xs : List α) : M.Carrier :=
-let rec go (soFar : M.Carrier) : List α → M.Carrier
-| [] => soFar
-| y :: ys => go (M.op soFar (f y)) ys
-go M.neutral xs`
+```lean
+def foldMap (M : Monoid) (f : α → M.Carrier) (xs : List α) : M.Carrier :=
+  let rec go (soFar : M.Carrier) : List α → M.Carrier
+    | [] => soFar
+    | y :: ys => go (M.op soFar (f y)) ys
+  go M.neutral xs
+```
 
 Even though a monoid consists of three separate pieces of information, it is common to just refer to the monoid's name in order to refer to its set.
 Instead of saying “Let A be a monoid and let *x* and *y* be elements of its carrier set”, it is common to say “Let *A* be a monoid and let *x* and *y* be elements of *A*”.
@@ -310,18 +344,22 @@ The coercion from a monoid into its carrier set extracts the carrier:
 
 Monoid에서 그 carrier set으로의 coercion은 carrier를 추출합니다:
 
-`instance : CoeSort Monoid Type where
-coe m := m.Carrier`
+```lean
+instance : CoeSort Monoid Type where
+  coe m := m.Carrier
+```
 
 With this coercion, the type signatures become less bureaucratic:
 
 이 coercion으로, 타입 시그니처는 덜 복잡해집니다:
 
-`def foldMap (M : Monoid) (f : α → M) (xs : List α) : M :=
-let rec go (soFar : M) : List α → M
-| [] => soFar
-| y :: ys => go (M.op soFar (f y)) ys
-go M.neutral xs`
+```lean
+def foldMap (M : Monoid) (f : α → M) (xs : List α) : M :=
+  let rec go (soFar : M) : List α → M
+    | [] => soFar
+    | y :: ys => go (M.op soFar (f y)) ys
+  go M.neutral xs
+```
 
 Another useful example of `CoeSort` is used to bridge the gap between `Bool` and `Prop`.
 As discussed in [the section on ordering and equality](../ch03/), Lean's `if` expression expects the condition to be a decidable proposition rather than a `Bool`.
@@ -333,8 +371,10 @@ Rather than have two kinds of `if` expression, the Lean standard library defines
 그러나 프로그램은 일반적으로 부울 값을 기반으로 분기할 수 있어야 합니다.
 두 종류의 `if` 식을 갖는 대신에, Lean 표준 라이브러리는 `Bool`에서 해당 `Bool`이 `true`와 같다는 명제로의 coercion을 정의합니다:
 
-`instance : CoeSort Bool Prop where
-coe b := b = true`
+```lean
+instance : CoeSort Bool Prop where
+  coe b := b = true
+```
 
 In this case, the sort in question is `Prop` rather than `Type`.
 
@@ -360,8 +400,10 @@ A type class called `CoeFun` can transform values from non-function types to fun
 `CoeFun`이라는 type class는 non-function 타입의 값을 함수 타입으로 변환할 수 있습니다.
 `CoeFun`은 두 개의 매개변수를 가집니다: 첫 번째는 값이 함수로 변환되어야 하는 타입이고, 두 번째는 정확히 어떤 함수 타입을 대상으로 하는지 결정하는 출력 매개변수입니다.
 
-`class CoeFun (α : Type) (makeFunctionType : outParam (α → Type)) where
-coe : (x : α) → makeFunctionType x`
+```lean
+class CoeFun (α : Type) (makeFunctionType : outParam (α → Type)) where
+  coe : (x : α) → makeFunctionType x
+```
 
 The second parameter is itself a function that computes a type.
 In Lean, types are first-class and can be passed to functions or returned from them, just like anything else.
@@ -373,26 +415,26 @@ For example, a function that adds a constant amount to its argument can be repre
 
 예를 들어, 인자에 일정한 양을 더하는 함수는 실제 함수를 정의하는 것이 아니라 추가할 양을 둘러싼 래퍼로 표현될 수 있습니다:
 
-`structure Adder where
-howMuch : Nat`
+```lean
+structure Adder where
+  howMuch : Nat
+```
 
 A function that adds five to its argument has a `5` in the `howMuch` field:
 
 인자에 5를 더하는 함수는 `howMuch` 필드에 `5`를 가지고 있습니다:
 
-`def add5 : Adder := ⟨5⟩`
+```lean
+def add5 : Adder := ⟨5⟩
+```
 
 This `Adder` type is not a function, and applying it to an argument results in an error:
 
 이 `Adder` 타입은 함수가 아니며, 인자에 적용하면 오류가 발생합니다:
 
-`#eval Function expected at
-add5
-but this term has type
-Adder
-
-Note: Expected a function because this term is being applied to the argument
-3add5 3`
+```lean
+#eval add5 3
+```
 
 ```
 Function expected at
@@ -408,8 +450,14 @@ Defining a `CoeFun` instance causes Lean to transform the adder into a function 
 
 `CoeFun` 인스턴스를 정의하면 Lean은 adder를 `Nat → Nat` 타입의 함수로 변환합니다:
 
-`instance : CoeFun Adder (fun _ => Nat → Nat) where
-coe a := (· + a.howMuch)``8#eval add5 3`
+```lean
+instance : CoeFun Adder (fun _ => Nat → Nat) where
+  coe a := (· + a.howMuch)
+```
+
+```lean
+#eval add5 3
+```
 
 ```
 8
@@ -425,59 +473,68 @@ For example, given the following representation of JSON values:
 값 자체가 올바른 함수 타입을 결정하는 데 필요할 때, `CoeFun`의 두 번째 매개변수는 더 이상 무시되지 않습니다.
 예를 들어, JSON 값의 다음 표현이 주어진 경우:
 
-`inductive JSON where
-| true : JSON
-| false : JSON
-| null : JSON
-| string : String → JSON
-| number : Float → JSON
-| object : List (String × JSON) → JSON
-| array : List JSON → JSON`
+```lean
+inductive JSON where
+  | true : JSON
+  | false : JSON
+  | null : JSON
+  | string : String → JSON
+  | number : Float → JSON
+  | object : List (String × JSON) → JSON
+  | array : List JSON → JSON
+```
 
 a JSON serializer is a structure that tracks the type it knows how to serialize along with the serialization code itself:
 
 JSON serializer는 serialize하는 방법을 알고 있는 타입을 serialization 코드 자체와 함께 추적하는 구조입니다:
 
-`structure Serializer where
-Contents : Type
-serialize : Contents → JSON`
+```lean
+structure Serializer where
+  Contents : Type
+  serialize : Contents → JSON
+```
 
 A serializer for strings need only wrap the provided string in the `JSON.string` constructor:
 
 문자열용 serializer는 제공된 문자열을 `JSON.string` 생성자로 감싸기만 하면 됩니다:
 
-`def Str : Serializer :=
-{ Contents := String,
-serialize := JSON.string
-}`
+```lean
+def Str : Serializer :=
+  { Contents := String,
+    serialize := JSON.string
+  }
+```
 
 Viewing JSON serializers as functions that serialize their argument requires extracting the inner type of serializable data:
 
 JSON serializer를 인자를 serialize하는 함수로 보기 위해서는 serialize 가능한 데이터의 내부 타입을 추출해야 합니다:
 
-`instance : CoeFun Serializer (fun s => s.Contents → JSON) where
-coe s := s.serialize`
+```lean
+instance : CoeFun Serializer (fun s => s.Contents → JSON) where
+  coe s := s.serialize
+```
 
 Given this instance, a serializer can be applied directly to an argument:
 
 이 인스턴스가 주어지면, serializer를 인자에 직접 적용할 수 있습니다:
 
-`def buildResponse (title : String) (R : Serializer)
-(record : R.Contents) : JSON :=
-JSON.object [
-("title", JSON.string title),
-("status", JSON.number 200),
-("record", R record)
-]`
+```lean
+def buildResponse (title : String) (R : Serializer)
+    (record : R.Contents) : JSON :=
+  JSON.object [
+    ("title", JSON.string title),
+    ("status", JSON.number 200),
+    ("record", R record)
+  ]
+```
 
 The serializer can be passed directly to `buildResponse`:
 
 Serializer는 `buildResponse`에 직접 전달될 수 있습니다:
 
-`JSON.object
-[("title", JSON.string "Functional Programming in Lean"),
-("status", JSON.number 200.000000),
-("record", JSON.string "Programming is fun!")]#eval buildResponse "Functional Programming in Lean" Str "Programming is fun!"`
+```lean
+#eval buildResponse "Functional Programming in Lean" Str "Programming is fun!"
+```
 
 ```
 JSON.object
@@ -500,7 +557,9 @@ JSON이 Lean 객체로 인코딩될 때 이해하기가 조금 어려울 수 있
 `JSON`은 정수와 부동 소수점 숫자를 구분하지 않으며, `Float` 타입은 둘 다를 나타내기 위해 사용됩니다.
 Lean에서 `Float.toString`은 여러 개의 후행 영(trailing zero)을 포함합니다:
 
-`"5.000000"#eval (5 : Float).toString`
+```lean
+#eval (5 : Float).toString
+```
 
 ```
 "5.000000"
@@ -510,11 +569,13 @@ The solution is to write a little function that cleans up the presentation by dr
 
 해결책은 모든 후행 영을 삭제하고 후행 소수점을 제거하여 표시를 정리하는 작은 함수를 작성하는 것입니다:
 
-`def dropDecimals (numString : String) : String :=
-if numString.contains '.' then
-let noTrailingZeros := numString.dropRightWhile (· == '0')
-noTrailingZeros.dropRightWhile (· == '.')
-else numString`
+```lean
+def dropDecimals (numString : String) : String :=
+  if numString.contains '.' then
+    let noTrailingZeros := numString.dropRightWhile (· == '0')
+    noTrailingZeros.dropRightWhile (· == '.')
+  else numString
+```
 
 With this definition, `dropDecimals (5 : Float).toString` yields `5`, and `dropDecimals (5.2 : Float).toString` yields `5.2`.
 
@@ -524,10 +585,12 @@ The next step is to define a helper function to append a list of strings with a 
 
 다음 단계는 그들 사이에 구분 기호가 있는 문자열 목록을 추가하는 도우미 함수를 정의하는 것입니다:
 
-`def String.separate (sep : String) (strings : List String) : String :=
-match strings with
-| [] => ""
-| x :: xs => String.join (x :: xs.map (sep ++ ·))`
+```lean
+def String.separate (sep : String) (strings : List String) : String :=
+  match strings with
+  | [] => ""
+  | x :: xs => String.join (x :: xs.map (sep ++ ·))
+```
 
 This function is useful to account for comma-separated elements in JSON arrays and objects.
 `", ".separate ["1", "2"]` yields `"1, 2"`, `", ".separate ["1"]` yields `"1"`, and `", ".separate []` yields `""`.
@@ -553,25 +616,29 @@ In an application that just needs to produce JSON strings and doesn't need to ma
 이는 `asString`에 대한 재귀 호출이 `List.map`으로 적용되는 함수에서 발생하고, 이러한 재귀 패턴이 복잡하여 Lean이 재귀 호출이 실제로 더 작은 값에서 수행되는 것을 볼 수 없기 때문입니다.
 JSON 문자열을 생성하기만 하면 되고 프로세스에 대해 수학적으로 추론할 필요가 없는 응용 프로그램에서는 함수가 `partial`인 것이 문제를 일으킬 가능성이 낮습니다.
 
-`partial def JSON.asString (val : JSON) : String :=
-match val with
-| true => "true"
-| false => "false"
-| null => "null"
-| string s => "\"" ++ Lean.Json.escape s ++ "\""
-| number n => dropDecimals n.toString
-| object members =>
-let memberToString mem :=
-"\"" ++ Lean.Json.escape mem.fst ++ "\": " ++ asString mem.snd
-"{" ++ ", ".separate (members.map memberToString) ++ "}"
-| array elements =>
-"[" ++ ", ".separate (elements.map asString) ++ "]"`
+```lean
+partial def JSON.asString (val : JSON) : String :=
+  match val with
+  | true => "true"
+  | false => "false"
+  | null => "null"
+  | string s => "\"" ++ Lean.Json.escape s ++ "\""
+  | number n => dropDecimals n.toString
+  | object members =>
+    let memberToString mem :=
+      "\"" ++ Lean.Json.escape mem.fst ++ "\": " ++ asString mem.snd
+    "{" ++ ", ".separate (members.map memberToString) ++ "}"
+  | array elements =>
+    "[" ++ ", ".separate (elements.map asString) ++ "]"
+```
 
 With this definition, the output of serialization is easier to read:
 
 이 정의를 사용하면 serialization의 출력을 더 쉽게 읽을 수 있습니다:
 
-`"{\"title\": \"Functional Programming in Lean\", \"status\": 200, \"record\": \"Programming is fun!\"}"#eval (buildResponse "Functional Programming in Lean" Str "Programming is fun!").asString`
+```lean
+#eval (buildResponse "Functional Programming in Lean" Str "Programming is fun!").asString
+```
 
 ```
 "{\"title\": \"Functional Programming in Lean\", \"status\": 200, \"record\": \"Programming is fun!\"}"
@@ -585,14 +652,20 @@ Because coercions fire in cases where types don't match, rather than in cases of
 자연수 리터럴은 `OfNat` type class로 오버로드됩니다.
 Coercion은 인스턴스가 누락된 경우가 아닌 타입이 일치하지 않는 경우에 발생하기 때문에, 타입에 대한 누락된 `OfNat` 인스턴스는 `Nat`에서의 coercion이 적용되게 하지 않습니다:
 
-`` def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
+```lean
+def perhapsPerhapsPerhapsNat : Option (Option (Option Nat)) :=
+  392
+```
+
+```
 failed to synthesize
-OfNat (Option (Option (Option Nat))) 392
+  OfNat (Option (Option (Option Nat))) 392
 numerals are polymorphic in Lean, but the numeral `392` cannot be used in a context where the expected type is
-Option (Option (Option Nat))
+  Option (Option (Option Nat))
 due to the absence of the instance above
 
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.392 ``
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+```
 
 ## 3.6.8. Design Considerations
 
@@ -619,25 +692,22 @@ Coercion을 현명하게 사용하면 도메인 전문가와의 의사소통의 
 First off, coercions are only applied in contexts where enough type information is available for Lean to know all of the types involved, because there are no output parameters in the coercion type classes. This means that a return type annotation on a function can be the difference between a type error and a successfully applied coercion.
 For example, the coercion from non-empty lists to lists makes the following program work:
 
-첫째, coercion은 coercion type class에 출력 매개변수가 없기 때문에 Lean이 관련된 모든 타입을 알기에 충분한 타입 정보가 있는 맥락에서만 적용됩니다. 즉, 함수의 반환 타입 주석이 타입 오류와 성공적으로 적용된 coercion 사이의 차이가 될 수 있음입니다.
+첫째, coercion은 coercion type class에 출력 매개변수가 없기 때문에 Lean이 관련된 모든 타입을 알기에 충분한 타입 정보가 있는 맥락에서만 적용됩니다. 즉, 함수의 반환 타입 주석이 타입 오류와 성공적으로 적용된 coercion 사이의 차이를 만들 수 있습니다.
 예를 들어, 빈 리스트가 아닌 리스트에서 리스트로의 coercion은 다음 프로그램을 작동하게 합니다:
 
-`def lastSpider : Option String :=
-List.getLast? idahoSpiders`
+```lean
+def lastSpider : Option String :=
+  List.getLast? idahoSpiders
+```
 
 On the other hand, if the type annotation is omitted, then the result type is unknown, so Lean is unable to find the coercion:
 
 반면에 타입 주석을 생략하면 결과 타입이 알려지지 않아 Lean이 coercion을 찾을 수 없습니다:
 
-`def lastSpider :=
-List.getLast? Application type mismatch: The argument
-idahoSpiders
-has type
-NonEmptyList String
-but is expected to have type
-List ?m.3
-in the application
-List.getLast? idahoSpidersidahoSpiders`
+```lean
+def lastSpider :=
+  List.getLast? idahoSpiders
+```
 
 ```
 Application type mismatch: The argument

@@ -1,10 +1,10 @@
 ---
-title: "Type Classes and Polymorphism"
+title: "타입 클래스와 다형성"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Type Classes and Polymorphism"
+description: "타입 클래스와 다형성을 이용한 함수 정의"
 ---
 
 # 3.2. Type Classes and Polymorphism
@@ -29,7 +29,9 @@ Simply writing
 암묵적 인자를 받거나 type class를 사용하는 함수의 타입을 확인하려면 추가 구문이 필요합니다.
 단순히 작성하면
 
-`IO.println : ?m.1 → IO Unit#check (IO.println)`
+```lean
+#check (IO.println)
+```
 
 yields a type with metavariables:
 
@@ -43,7 +45,9 @@ To understand the signature of a function, this feature can be suppressed with a
 이는 Lean이 암묵적 인자를 발견하려고 최선을 다하기 때문이며, metavariable의 존재는 충분한 타입 정보를 아직 발견하지 못했음을 나타냅니다.
 함수의 시그니처를 이해하려면 함수 이름 앞에 at-sign (`@`)을 사용하여 이 기능을 억제할 수 있습니다:
 
-`@IO.println : {α : Type u_1} → [ToString α] → α → IO Unit#check @IO.println`
+```lean
+#check @IO.println
+```
 
 ```
 @IO.println : {α : Type u_1} → [ToString α] → α → IO Unit
@@ -61,9 +65,11 @@ A function that sums all entries in a list needs two instances: `Add` allows the
 
 리스트의 모든 항목을 합산하는 함수는 두 개의 instance가 필요합니다: `Add`는 항목들을 더할 수 있게 하고, `0`에 대한 `OfNat` instance는 빈 리스트에 반환할 적절한 값을 제공합니다:
 
-`def List.sumOfContents [Add α] [OfNat α 0] : List α → α
-| [] => 0
-| x :: xs => x + xs.sumOfContents`
+```lean
+def List.sumOfContents [Add α] [OfNat α 0] : List α → α
+  | [] => 0
+  | x :: xs => x + xs.sumOfContents
+```
 
 This function can be also defined with a `Zero α` requirement instead of `OfNat α 0`.
 Both are equivalent, but `Zero α` can be easier to read:
@@ -71,15 +77,20 @@ Both are equivalent, but `Zero α` can be easier to read:
 이 함수는 `OfNat α 0` 대신 `Zero α` 요구사항으로도 정의될 수 있습니다.
 둘 다 동등하지만, `Zero α`가 더 읽기 쉬울 수 있습니다:
 
-`def List.sumOfContents [Add α] [Zero α] : List α → α
-| [] => 0
-| x :: xs => x + xs.sumOfContents`
+```lean
+def List.sumOfContents [Add α] [Zero α] : List α → α
+  | [] => 0
+  | x :: xs => x + xs.sumOfContents
+```
 
 This function can be used for a list of `Nat`s:
 
 이 함수는 `Nat`의 리스트에 사용될 수 있습니다:
 
-`def fourNats : List Nat := [1, 2, 3, 4]``10#eval fourNats.sumOfContents`
+```lean
+def fourNats : List Nat := [1, 2, 3, 4]
+#eval fourNats.sumOfContents
+```
 
 ```
 10
@@ -89,10 +100,10 @@ but not for a list of `Pos` numbers:
 
 하지만 `Pos` 숫자의 리스트에는 사용할 수 없습니다:
 
-`def fourPos : List Pos := [1, 2, 3, 4]``` #eval failed to synthesize
-Zero Pos
-
-Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.fourPos.sumOfContents ``
+```lean
+def fourPos : List Pos := [1, 2, 3, 4]
+#eval fourPos.sumOfContents
+```
 
 ```
 failed to synthesize
@@ -129,9 +140,11 @@ The [section on polymorphism](../ch01/) presented a polymorphic point type:
 `Pos`의 `OfNat` instance가 자연수 `n`을 자동 암묵적 인자로 취한 것처럼, instance도 instance implicit 인자를 가질 수 있습니다.
 [polymorphism에 대한 섹션](../ch01/)은 다형적 point 타입을 제시했습니다:
 
-`structure PPoint (α : Type) where
-x : α
-y : α`
+```lean
+structure PPoint (α : Type) where
+  x : α
+  y : α
+```
 
 Addition of points should add the underlying `x` and `y` fields.
 Thus, an `Add` instance for `PPoint` requires an `Add` instance for whatever type these fields have.
@@ -141,8 +154,10 @@ In other words, the `Add` instance for `PPoint` requires a further `Add` instanc
 따라서 `PPoint`의 `Add` instance는 이 필드들이 가진 모든 타입에 대해 `Add` instance가 필요합니다.
 다시 말해, `PPoint`의 `Add` instance는 `α`에 대한 추가 `Add` instance가 필요합니다:
 
-`instance [Add α] : Add (PPoint α) where
-add p1 p2 := { x := p1.x + p2.x, y := p1.y + p2.y }`
+```lean
+instance [Add α] : Add (PPoint α) where
+  add p1 p2 := { x := p1.x + p2.x, y := p1.y + p2.y }
+```
 
 When Lean encounters an addition of two points, it searches for and finds this instance.
 It then performs a further search for the `Add α` instance.

@@ -1,10 +1,10 @@
 ---
-title: "Standard Classes"
+title: "표준 Class들"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Standard Classes"
+description: "산술, 비교, 해싱, functor 등 Lean의 표준 type class 오버로딩"
 ---
 
 # 3.5. Standard Classes
@@ -114,7 +114,9 @@ For example, `2 < 4` is a proposition:
 Lean에서 `if`는 decidable proposition과 함께 작동합니다.
 예를 들어, `2 < 4`는 proposition입니다:
 
-`2 < 4 : Prop#check 2 < 4`
+```lean
+#check 2 < 4
+```
 
 ```
 2 < 4 : Prop
@@ -157,9 +159,12 @@ However, they can be defined in terms of existing instances.
 그러나 이들은 기존 instance 측면에서 정의될 수 있습니다.
 `Pos`에 대한 `LT`와 `LE` instance는 `Nat`에 대한 기존 instance를 사용할 수 있습니다:
 
-`instance : LT Pos where
-lt x y := LT.lt x.toNat y.toNat``instance : LE Pos where
-le x y := LE.le x.toNat y.toNat`
+```lean
+instance : LT Pos where
+  lt x y := LT.lt x.toNat y.toNat
+instance : LE Pos where
+  le x y := LE.le x.toNat y.toNat
+```
 
 These propositions are not decidable by default because Lean doesn't unfold the definitions of propositions while synthesizing an instance.
 This can be bridged using the `inferInstanceAs` operator, which finds an instance for a given class if it exists:
@@ -167,10 +172,12 @@ This can be bridged using the `inferInstanceAs` operator, which finds an instanc
 이러한 proposition들은 기본적으로 decidable하지 않습니다. Lean이 instance를 합성할 때 proposition의 정의를 펼치지(unfold) 않기 때문입니다.
 이는 주어진 class에 대한 instance를 찾는 `inferInstanceAs` operator를 사용하여 해결할 수 있습니다:
 
-`instance {x : Pos} {y : Pos} : Decidable (x < y) :=
-inferInstanceAs (Decidable (x.toNat < y.toNat))
+```lean
+instance {x : Pos} {y : Pos} : Decidable (x < y) :=
+  inferInstanceAs (Decidable (x.toNat < y.toNat))
 instance {x : Pos} {y : Pos} : Decidable (x ≤ y) :=
-inferInstanceAs (Decidable (x.toNat ≤ y.toNat))`
+  inferInstanceAs (Decidable (x.toNat ≤ y.toNat))
+```
 
 The type checker confirms that the definitions of the propositions match.
 Confusing them results in an error:
@@ -178,13 +185,10 @@ Confusing them results in an error:
 Type checker는 proposition의 정의가 일치하는지 확인합니다.
 이들을 혼동하면 에러가 발생합니다:
 
-`instance {x : Pos} {y : Pos} : Decidable (x ≤ y) :=
-Type mismatch
-inferInstanceAs (Decidable (x.toNat < y.toNat))
-has type
-Decidable (x.toNat < y.toNat)
-but is expected to have type
-Decidable (x ≤ y)inferInstanceAs (Decidable (x.toNat < y.toNat))`
+```lean
+instance {x : Pos} {y : Pos} : Decidable (x ≤ y) :=
+  inferInstanceAs (Decidable (x.toNat < y.toNat))
+```
 
 ```
 Type mismatch
@@ -207,10 +211,12 @@ Rather than overloading the meaning of integers, Lean has a built-in inductive t
 이 메서드들은 receiver가 argument보다 작으면 음수, 같으면 0, 크면 양수를 반환합니다.
 정수의 의미를 오버로드하는 대신, Lean은 이 세 가지 가능성을 설명하는 built-in inductive 타입을 가집니다:
 
-`inductive Ordering where
-| lt
-| eq
-| gt`
+```lean
+inductive Ordering where
+  | lt
+  | eq
+  | gt
+```
 
 The `Ord` type class can be overloaded to produce these comparisons.
 For `Pos`, an implementation can be:
@@ -218,13 +224,15 @@ For `Pos`, an implementation can be:
 `Ord` type class는 이러한 비교들을 생성하도록 오버로드될 수 있습니다.
 `Pos`에 대해, 구현은 다음과 같을 수 있습니다:
 
-`def Pos.comp : Pos → Pos → Ordering
-| Pos.one, Pos.one => Ordering.eq
-| Pos.one, Pos.succ _ => Ordering.lt
-| Pos.succ _, Pos.one => Ordering.gt
-| Pos.succ n, Pos.succ k => comp n k
+```lean
+def Pos.comp : Pos → Pos → Ordering
+  | Pos.one, Pos.one => Ordering.eq
+  | Pos.one, Pos.succ _ => Ordering.lt
+  | Pos.succ _, Pos.one => Ordering.gt
+  | Pos.succ n, Pos.succ k => comp n k
 instance : Ord Pos where
-compare := Pos.comp`
+  compare := Pos.comp
+```
 
 In situations where `compareTo` would be the right approach in Java, use `Ord.compare` in Lean.
 
@@ -238,8 +246,10 @@ The Lean equivalent is a type class called `Hashable`:
 Java와 C#은 각각 `hashCode`와 `GetHashCode` 메서드를 가지고 있으며, 이들은 해시 테이블과 같은 데이터 구조에서 사용하기 위해 값의 해시를 계산합니다.
 Lean의 동등 개념은 `Hashable`이라는 type class입니다:
 
-`class Hashable (α : Type) where
-hash : α → UInt64`
+```lean
+class Hashable (α : Type) where
+  hash : α → UInt64
+```
 
 If two values are considered equal according to a `BEq` instance for their type, then they should have the same hashes.
 In other words, if `x == y` then `hash x == hash y`.
@@ -259,11 +269,13 @@ For example, a `Hashable` instance for `Pos` can be written:
 Inductive datatype에 대한 합리적인 해시 함수는 각 constructor에 고유한 번호를 할당한 다음 그 번호를 각 필드의 해시와 혼합하여 작성할 수 있습니다.
 예를 들어, `Pos`에 대한 `Hashable` instance는 다음과 같이 작성할 수 있습니다:
 
-`def hashPos : Pos → UInt64
-| Pos.one => 0
-| Pos.succ n => mixHash 1 (hashPos n)
+```lean
+def hashPos : Pos → UInt64
+  | Pos.one => 0
+  | Pos.succ n => mixHash 1 (hashPos n)
 instance : Hashable Pos where
-hash := hashPos`
+  hash := hashPos
+```
 
 ## 3.5.5. Deriving Standard Classes
 
@@ -279,20 +291,22 @@ Instances can be derived in two ways.
 The first can be used when defining a structure or inductive type.
 In this case, add `deriving` to the end of the type declaration followed by the names of the classes for which instances should be derived.
 For a type that is already defined, a standalone `deriving` command can be used.
-Write `deriving instance``C1, C2, ...` `for``T` to derive instances of `C1, C2, ...` for the type `T` after the fact.
+Write `deriving instance C1, C2, ... for T` to derive instances of `C1, C2, ...` for the type `T` after the fact.
 
 Instance는 두 가지 방법으로 derive될 수 있습니다.
 첫 번째는 structure 또는 inductive 타입을 정의할 때 사용할 수 있습니다.
 이 경우, 타입 선언의 끝에 `deriving`을 추가하고 instance가 derive될 class들의 이름을 따릅니다.
 이미 정의된 타입의 경우, 독립적인 `deriving` 명령을 사용할 수 있습니다.
-`deriving instance` `C1, C2, ...` `for` `T`를 작성하여 타입 `T`에 대해 `C1, C2, ...`의 instance를 나중에 derive합니다.
+`deriving instance C1, C2, ... for T`를 작성하여 타입 `T`에 대해 `C1, C2, ...`의 instance를 나중에 derive합니다.
 
 `BEq` and `Hashable` instances can be derived for `Pos` and `NonEmptyList` using a very small amount of code:
 
 `BEq`와 `Hashable` instance는 매우 적은 양의 코드를 사용하여 `Pos`와 `NonEmptyList`에 대해 derive될 수 있습니다:
 
-`deriving instance BEq, Hashable for Pos
-deriving instance BEq, Hashable for NonEmptyList`
+```lean
+deriving instance BEq, Hashable for Pos
+deriving instance BEq, Hashable for NonEmptyList
+```
 
 Instances can be derived for at least the following classes:
 
@@ -320,8 +334,10 @@ In Lean, appending two values is overloaded with the type class `HAppend`, which
 많은 데이터타입은 어떤 종류의 append 연산자를 가지고 있습니다.
 Lean에서, 두 값을 append하는 것은 arithmetic 연산에 사용되는 것과 같은 heterogeneous 연산인 type class `HAppend`로 오버로드됩니다:
 
-`class HAppend (α : Type) (β : Type) (γ : outParam Type) where
-hAppend : α → β → γ`
+```lean
+class HAppend (α : Type) (β : Type) (γ : outParam Type) where
+  hAppend : α → β → γ
+```
 
 The syntax `xs ++ ys` desugars to `HAppend.hAppend xs ys`.
 For homogeneous cases, it's enough to implement an instance of `Append`, which follows the usual pattern:
@@ -329,24 +345,19 @@ For homogeneous cases, it's enough to implement an instance of `Append`, which f
 문법 `xs ++ ys`는 `HAppend.hAppend xs ys`로 desugars됩니다.
 Homogeneous 경우에는 일반적인 패턴을 따르는 `Append`의 instance를 구현하면 충분합니다:
 
-`instance : Append (NonEmptyList α) where
-append xs ys :=
-{ head := xs.head, tail := xs.tail ++ ys.head :: ys.tail }`
+```lean
+instance : Append (NonEmptyList α) where
+  append xs ys :=
+    { head := xs.head, tail := xs.tail ++ ys.head :: ys.tail }
+```
 
 After defining the above instance,
 
 위의 instance를 정의한 후,
 
-`{ head := "Banded Garden Spider",
-tail := ["Long-legged Sac Spider",
-"Wolf Spider",
-"Hobo Spider",
-"Cat-faced Spider",
-"Banded Garden Spider",
-"Long-legged Sac Spider",
-"Wolf Spider",
-"Hobo Spider",
-"Cat-faced Spider"] }#eval idahoSpiders ++ idahoSpiders`
+```lean
+#eval idahoSpiders ++ idahoSpiders
+```
 
 has the following output:
 
@@ -369,16 +380,19 @@ Similarly, a definition of `HAppend` allows non-empty lists to be appended to or
 
 마찬가지로, `HAppend`의 정의는 non-empty list들이 ordinary list에 append될 수 있게 합니다:
 
-`instance : HAppend (NonEmptyList α) (List α) (NonEmptyList α) where
-hAppend xs ys :=
-{ head := xs.head, tail := xs.tail ++ ys }`
+```lean
+instance : HAppend (NonEmptyList α) (List α) (NonEmptyList α) where
+  hAppend xs ys :=
+    { head := xs.head, tail := xs.tail ++ ys }
+```
 
 With this instance available,
 
 이 instance가 사용 가능하면,
 
-`{ head := "Banded Garden Spider",
-tail := ["Long-legged Sac Spider", "Wolf Spider", "Hobo Spider", "Cat-faced Spider", "Trapdoor Spider"] }#eval idahoSpiders ++ ["Trapdoor Spider"]`
+```lean
+#eval idahoSpiders ++ ["Trapdoor Spider"]
+```
 
 results in
 
@@ -423,8 +437,10 @@ An instance of `Functor` for `NonEmptyList` requires specifying the `map` functi
 
 `NonEmptyList`에 대한 `Functor`의 instance는 `map` 함수를 지정해야 합니다.
 
-`instance : Functor NonEmptyList where
-map f xs := { head := f xs.head, tail := f <$> xs.tail }`
+```lean
+instance : Functor NonEmptyList where
+  map f xs := { head := f xs.head, tail := f <$> xs.tail }
+```
 
 Here, `map` uses the `Functor` instance for `List` to map the function over the tail.
 This instance is defined for `NonEmptyList` rather than for `NonEmptyList α` because the argument type `α` plays no role in resolving the type class.
@@ -440,8 +456,10 @@ Here is an instance of `Functor` for `PPoint`:
 
 다음은 `PPoint`에 대한 `Functor`의 instance입니다:
 
-`instance : Functor PPoint where
-map f p := { x := f p.x, y := f p.y }`
+```lean
+instance : Functor PPoint where
+  map f p := { x := f p.x, y := f p.y }
+```
 
 In this case, `f` has been applied to both `x` and `y`.
 
@@ -461,11 +479,13 @@ For example, the function `concat` can concatenate any non-empty list whose entr
 일반적으로, class는 함께 의미를 이루는 일부 최소한의 오버로드 가능한 연산들을 지정하고, 그 다음 오버로드된 연산을 기반으로 더 큰 기능 라이브러리를 제공하는 instance implicit argument를 가진 polymorphic 함수를 사용합니다.
 예를 들어, `concat` 함수는 항목이 appendable한 모든 non-empty list를 연결할 수 있습니다:
 
-`def concat [Append α] (xs : NonEmptyList α) : α :=
-let rec catList (start : α) : List α → α
-| [] => start
-| (z :: zs) => catList (start ++ z) zs
-catList xs.head xs.tail`
+```lean
+def concat [Append α] (xs : NonEmptyList α) : α :=
+  let rec catList (start : α) : List α → α
+    | [] => start
+    | (z :: zs) => catList (start ++ z) zs
+  catList xs.head xs.tail
+```
 
 However, for some classes, there are operations that can be more efficiently implemented with knowledge of the internals of a datatype.
 
@@ -489,10 +509,12 @@ Here is the definition of `Functor`, in which `mapConst` has a default implement
 인자를 무시하는 함수들은 항상 같은 값을 반환하기 때문에 *constant function*라고 합니다.
 다음은 `mapConst`가 기본 구현을 가지는 `Functor`의 정의입니다:
 
-`class Functor (f : Type → Type) where
-map : {α β : Type} → (α → β) → f α → f β
-mapConst {α β : Type} (x : α) (coll : f β) : f α :=
-map (fun _ => x) coll`
+```lean
+class Functor (f : Type → Type) where
+  map : {α β : Type} → (α → β) → f α → f β
+  mapConst {α β : Type} (x : α) (coll : f β) : f α :=
+    map (fun _ => x) coll
+```
 
 Just as a `Hashable` instance that doesn't respect `BEq` is buggy, a `Functor` instance that moves around the data as it maps the function is also buggy.
 For example, a buggy `Functor` instance for `List` might throw away its argument and always return the empty list, or it might reverse the list.
@@ -525,7 +547,9 @@ These rules prevent implementations of `map` that move the data around or delete
 Lean is not able to derive instances for all classes.
 For example, the code
 
-`` deriving instance No deriving handlers have been implemented for class `ToString`ToString for NonEmptyList ``
+```lean
+deriving instance ToString for NonEmptyList
+```
 
 results in the following error:
 

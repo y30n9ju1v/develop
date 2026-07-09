@@ -1,10 +1,10 @@
 ---
-title: "Datatypes and Patterns"
+title: "데이터타입과 패턴"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Datatypes and Patterns"
+description: "데이터타입과 패턴"
 ---
 
 # Datatypes and Patterns
@@ -48,9 +48,11 @@ When programming, inductive datatypes are consumed through pattern matching and 
 Many of the built-in types are actually inductive datatypes in the standard library.
 For instance, `Bool` is an inductive datatype:
 
-`inductive Bool where
+```lean
+inductive Bool where
 | false : Bool
-| true : Bool`
+| true : Bool
+```
 
 This definition has two main parts.
 The first line provides the name of the new type (`Bool`), while the remaining lines each describe a constructor.
@@ -89,9 +91,11 @@ C# 또는 Java와 같은 언어에서는 `Bool`의 유사한 정의를 작성할
 
 The type `Nat` of non-negative integers is an inductive datatype:
 
-`inductive Nat where
+```lean
+inductive Nat where
 | zero : Nat
-| succ (n : Nat) : Nat`
+| succ (n : Nat) : Nat
+```
 
 Here, `zero` represents 0, while `succ` represents the successor of some other number.
 The `Nat` mentioned in `succ`'s declaration is the very type `Nat` that is in the process of being defined.
@@ -177,10 +181,12 @@ Lean에서, 이 두 가지 목적은 모두 *패턴 매칭(pattern matching)*에
 
 An example of a function that uses pattern matching is `isZero`, which is a function that returns `true` when its argument is `Nat.zero`, or false otherwise.
 
-`def isZero (n : Nat) : Bool :=
+```lean
+def isZero (n : Nat) : Bool :=
 match n with
 | Nat.zero => true
-| Nat.succ k => false`
+| Nat.succ k => false
+```
 
 The `match` expression is provided the function's argument `n` for destructuring.
 If `n` was constructed by `Nat.zero`, then the first branch of the pattern match is taken, and the result is `true`.
@@ -207,13 +213,17 @@ That smaller number can then be used to compute the final result of the expressi
 Just as the successor of some number `n` is one greater than `n` (that is, `n + 1`), the predecessor of a number is one less than it.
 If `pred` is a function that finds the predecessor of a `Nat`, then it should be the case that the following examples find the expected result:
 
-`4#eval pred 5`
+```lean
+#eval pred 5
+```
 
 ```
 4
 ```
 
-`838#eval pred 839`
+```lean
+#eval pred 839
+```
 
 ```
 838
@@ -222,7 +232,9 @@ If `pred` is a function that finds the predecessor of a `Nat`, then it should be
 Because `Nat` cannot represent negative numbers, `Nat.zero` is a bit of a conundrum.
 Usually, when working with `Nat`, operators that would ordinarily produce a negative number are redefined to produce `zero` itself:
 
-`0#eval pred 0`
+```lean
+#eval pred 0
+```
 
 ```
 0
@@ -233,10 +245,12 @@ If it was `Nat.zero`, then the result is `Nat.zero`.
 If it was `Nat.succ`, then the name `k` is used to refer to the `Nat` underneath it.
 And this `Nat` is the desired predecessor, so the result of the `Nat.succ` branch is `k`.
 
-`def pred (n : Nat) : Nat :=
+```lean
+def pred (n : Nat) : Nat :=
 match n with
 | Nat.zero => Nat.zero
-| Nat.succ k => k`
+| Nat.succ k => k
+```
 
 `isZero`의 패턴의 두 번째 분기의 `k`는 장식이 아닙니다.
 `Nat.succ`의 인수인 `Nat`을 제공된 이름으로 표시합니다.
@@ -260,9 +274,11 @@ Applying this function to `5` yields the following steps:
 Pattern matching can be used with structures as well as with sum types.
 For instance, a function that extracts the third dimension from a `Point3D` can be written as follows:
 
-`def depth (p : Point3D) : Float :=
+```lean
+def depth (p : Point3D) : Float :=
 match p with
-| { x:= h, y := w, z := d } => d`
+| { x:= h, y := w, z := d } => d
+```
 
 In this case, it would have been much simpler to just use the `Point3D.z` accessor, but structure patterns are occasionally the simplest way to write a function.
 
@@ -285,10 +301,12 @@ Non-recursive branches of the code like this one are called *base cases*.
 The successor of an odd number is even, and the successor of an even number is odd.
 This means that a number built with `Nat.succ` is even if and only if its argument is not even.
 
-`def even (n : Nat) : Bool :=
+```lean
+def even (n : Nat) : Bool :=
 match n with
 | Nat.zero => true
-| Nat.succ k => not (even k)`
+| Nat.succ k => not (even k)
+```
 
 This pattern of thought is typical for writing recursive functions on `Nat`.
 First, identify what to do for `Nat.zero`.
@@ -322,18 +340,24 @@ A consequence of this is that Lean will not accept a version of `even` that atte
 하지만 이 기능은 무한 루프가 주요 어려움을 초래하는 정리를 증명할 때 특히 중요합니다.
 이것의 결과는 Lean이 원본 수에서 자신을 재귀적으로 호출하려고 시도하는 `even`의 버전을 허용하지 않는다는 것입니다:
 
-`` def fail to show termination for
-evenLoops
+```lean
+def evenLoops (n : Nat) : Bool :=
+match n with
+| Nat.zero => true
+| Nat.succ k => not (evenLoops n)
+```
+
+```
+fail to show termination for
+  evenLoops
 with errors
 failed to infer structural recursion:
 Not considering parameter n of evenLoops:
-it is unchanged in the recursive calls
+  it is unchanged in the recursive calls
 no parameters suitable for structural recursion
 
-well-founded recursion cannot be used, `evenLoops` does not take any (non-fixed) argumentsevenLoops (n : Nat) : Bool :=
-match n with
-| Nat.zero => true
-| Nat.succ k => not (evenLoops n) ``
+well-founded recursion cannot be used, `evenLoops` does not take any (non-fixed) arguments
+```
 
 The important part of the error message is that Lean could not determine that the recursive function always reaches a base case (because it doesn't).
 
@@ -355,10 +379,12 @@ Even though addition takes two arguments, only one of them needs to be inspected
 To add zero to a number `n`, just return `n`.
 To add the successor of `k` to `n`, take the successor of the result of adding `k` to `n`.
 
-`def plus (n : Nat) (k : Nat) : Nat :=
+```lean
+def plus (n : Nat) (k : Nat) : Nat :=
 match k with
 | Nat.zero => n
-| Nat.succ k' => Nat.succ (plus n k')`
+| Nat.succ k' => Nat.succ (plus n k')
+```
 
 In the definition of `plus`, the name `k'` is chosen to indicate that it is connected to, but not identical with, the argument `k`.
 For instance, walking through the evaluation of `plus 3 2` yields the following steps:
@@ -380,24 +406,30 @@ Otherwise, the result is the successor of dividing the numerator minus the divis
 이 경우, 피제수가 제수보다 작으면, 결과는 0입니다.
 그렇지 않으면, 결과는 피제수 빼기 제수를 제수로 나눈 결과의 후자입니다.
 
-`` def fail to show termination for
-div
+```lean
+def div (n : Nat) (k : Nat) : Nat :=
+if n < k then
+0
+else Nat.succ (div (n - k) k)
+```
+
+```
+fail to show termination for
+  div
 with errors
 failed to infer structural recursion:
 Not considering parameter k of div:
-it is unchanged in the recursive calls
+  it is unchanged in the recursive calls
 Cannot use parameter k:
-failed to eliminate recursive application
-div (n - k) k
+  failed to eliminate recursive application
+    div (n - k) k
 
 failed to prove termination, possible solutions:
- - Use `have`-expressions to prove the remaining goals
- - Use `termination_by` to specify a different well-founded relation
- - Use `decreasing_by` to specify your own tactic for discharging this kind of goal
-k n:Nath✝:¬n < k⊢ n - k < ndiv (n : Nat) (k : Nat) : Nat :=
-if n < k then
-0
-else Nat.succ (div (n - k) k) ``
+  - Use `have`-expressions to prove the remaining goals
+  - Use `termination_by` to specify a different well-founded relation
+  - Use `decreasing_by` to specify your own tactic for discharging this kind of goal
+k n:Nat h✝:¬n < k ⊢ n - k < n
+```
 
 As long as the second argument is not `0`, this program terminates, as it always makes progress towards the base case.
 However, it is not structurally recursive, because it doesn't follow the pattern of finding a result for zero and transforming a result for a smaller `Nat` into a result for its successor.

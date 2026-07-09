@@ -1,10 +1,10 @@
 ---
-title: "Controlling Instance Search"
+title: "Instance Search 제어하기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Controlling Instance Search"
+description: "output parameter와 default instance로 instance search 제어하기"
 ---
 
 # 3.3. Controlling Instance Search
@@ -17,12 +17,14 @@ For example, adding a `Nat` to a `Pos` or a `Pos` to a `Nat` will always yield a
 그러나 많은 경우에 더 유연하게 하고, 인자들이 다른 타입을 가질 수 있는 *heterogeneous* operator overloading을 허용하는 것이 유용할 수 있습니다.
 예를 들어, `Nat`를 `Pos`에 더하거나 `Pos`를 `Nat`에 더하면 항상 `Pos`를 생성합니다:
 
-`def addNatPos : Nat → Pos → Pos
-| 0, p => p
-| n + 1, p => Pos.succ (addNatPos n p)
+```lean
+def addNatPos : Nat → Pos → Pos
+  | 0, p => p
+  | n + 1, p => Pos.succ (addNatPos n p)
 def addPosNat : Pos → Nat → Pos
-| p, 0 => p
-| p, n + 1 => Pos.succ (addPosNat p n)`
+  | p, 0 => p
+  | p, n + 1 => Pos.succ (addPosNat p n)
+```
 
 These functions allow natural numbers to be added to positive numbers, but they cannot be used with the `Add` type class, which expects both arguments to `add` to have the same type.
 
@@ -38,30 +40,43 @@ Instances of `HAdd Nat Pos Pos` and `HAdd Pos Nat Pos` allow ordinary addition n
 `HAdd` 클래스는 세 개의 type parameter를 가집니다: 두 개의 인자 타입과 반환 타입입니다.
 `HAdd Nat Pos Pos`와 `HAdd Pos Nat Pos`의 instance들은 보통의 덧셈 표기법을 사용하여 타입들을 섞을 수 있게 합니다:
 
-`instance : HAdd Nat Pos Pos where
-hAdd := addNatPos
+```lean
+instance : HAdd Nat Pos Pos where
+  hAdd := addNatPos
 instance : HAdd Pos Nat Pos where
-hAdd := addPosNat`
+  hAdd := addPosNat
+```
 
 Given the above two instances, the following examples work:
 
-`8#eval (3 : Pos) + (5 : Nat)`
+```lean
+#eval (3 : Pos) + (5 : Nat)
+```
 
 ```
 8
 ```
 
-`8#eval (3 : Nat) + (5 : Pos)`
+```lean
+#eval (3 : Nat) + (5 : Pos)
+```
+
+```
+8
+```
 
 The definition of the `HAdd` type class is very much like the following definition of `HPlus` with the corresponding instances:
 
 `HAdd` type class의 정의는 다음의 해당 instance들을 포함한 `HPlus`의 정의와 매우 유사합니다:
 
-`class HPlus (α : Type) (β : Type) (γ : Type) where
-hPlus : α → β → γ``instance : HPlus Nat Pos Pos where
-hPlus := addNatPos
+```lean
+class HPlus (α : Type) (β : Type) (γ : Type) where
+  hPlus : α → β → γ
+instance : HPlus Nat Pos Pos where
+  hPlus := addNatPos
 instance : HPlus Pos Nat Pos where
-hPlus := addPosNat`
+  hPlus := addPosNat
+```
 
 However, instances of `HPlus` are significantly less useful than instances of `HAdd`.
 When attempting to use these instances with `#eval`, an error occurs:
@@ -69,12 +84,9 @@ When attempting to use these instances with `#eval`, an error occurs:
 그러나 `HPlus`의 instance들은 `HAdd`의 instance들보다 훨씬 덜 유용합니다.
 이 instance들을 `#eval`과 함께 사용하려고 할 때, 오류가 발생합니다:
 
-`` #eval toString (typeclass instance problem is stuck
-HPlus Pos Nat ?m.6
-
-Note: Lean will not try to resolve this typeclass instance problem because the third type argument to `HPlus` is a metavariable. This argument must be fully determined before Lean will try to resolve the typeclass.
-
-Hint: Adding type annotations and supplying implicit arguments to functions can give Lean more information for typeclass resolution. For example, if you have a variable `x` that you intend to be a `Nat`, but Lean reports it as having an unresolved type like `?m`, replacing `x` with `(x : Nat)` can get typeclass resolution un-stuck.HPlus.hPlus (3 : Pos) (5 : Nat)) ``
+```lean
+#eval toString (HPlus.hPlus (3 : Pos) (5 : Nat))
+```
 
 ```
 typeclass instance problem is stuck
@@ -105,7 +117,13 @@ One solution to the problem is to ensure that all three types are available by a
 
 이 문제의 한 해결책은 전체 식에 type annotation을 추가하여 세 가지 타입 모두가 이용 가능하도록 하는 것입니다:
 
-`8#eval (HPlus.hPlus (3 : Pos) (5 : Nat) : Pos)`
+```lean
+#eval (HPlus.hPlus (3 : Pos) (5 : Nat) : Pos)
+```
+
+```
+8
+```
 
 However, this solution is not very convenient for users of the positive number library.
 
@@ -125,8 +143,10 @@ The parameters that aren't needed to start instance search are outputs of the pr
 그러나 어떤 경우에는, 일부 type parameter들이 아직 알려지지 않았을 때에도 search process를 시작하는 것이 편할 수 있고, search에서 발견된 instance들을 사용하여 metavariable들의 값을 결정할 수 있습니다.
 instance search를 시작하는 데 필요하지 않은 parameter들은 process의 출력이며, `outParam` modifier로 선언됩니다:
 
-`class HPlus (α : Type) (β : Type) (γ : outParam Type) where
-hPlus : α → β → γ`
+```lean
+class HPlus (α : Type) (β : Type) (γ : outParam Type) where
+  hPlus : α → β → γ
+```
 
 With this output parameter, type class instance search is able to select an instance without knowing `γ` in advance.
 For instance:
@@ -134,7 +154,13 @@ For instance:
 이 output parameter를 사용하면, type class instance search는 미리 `γ`를 알지 못한 채 instance를 선택할 수 있습니다.
 예를 들어:
 
-`8#eval HPlus.hPlus (3 : Pos) (5 : Nat)`
+```lean
+#eval HPlus.hPlus (3 : Pos) (5 : Nat)
+```
+
+```
+8
+```
 
 It might be helpful to think of output parameters as defining a kind of function.
 Any given instance of a type class that has one or more output parameters provides Lean with instructions for determining the outputs from the inputs.
@@ -180,14 +206,22 @@ default instance들이 유용할 수 있는 한 가지 예는 `Add` instance에�
 다시 말해, 보통의 덧셈은 세 가지 타입이 모두 같은 heterogeneous addition의 특수한 경우입니다.
 이는 다음 instance를 사용하여 구현될 수 있습니다:
 
-`instance [Add α] : HPlus α α α where
-hPlus := Add.add`
+```lean
+instance [Add α] : HPlus α α α where
+  hPlus := Add.add
+```
 
 With this instance, `hPlus` can be used for any addable type, like `Nat`:
 
 이 instance를 사용하면, `hPlus`는 `Nat`처럼 addable인 모든 타입에 사용될 수 있습니다:
 
-`8#eval HPlus.hPlus (3 : Nat) (5 : Nat)`
+```lean
+#eval HPlus.hPlus (3 : Nat) (5 : Nat)
+```
+
+```
+8
+```
 
 However, this instance will only be used in situations where the types of both arguments are known.
 For example,
@@ -195,7 +229,9 @@ For example,
 그러나 이 instance는 두 인자의 타입이 모두 알려진 상황에서만 사용됩니다.
 예를 들어,
 
-`HPlus.hPlus 5 3 : Nat#check HPlus.hPlus (5 : Nat) (3 : Nat)`
+```lean
+#check HPlus.hPlus (5 : Nat) (3 : Nat)
+```
 
 yields the type
 
@@ -205,7 +241,9 @@ HPlus.hPlus 5 3 : Nat
 
 as expected, but
 
-`HPlus.hPlus 5 : ?m.2 → ?m.3#check HPlus.hPlus (5 : Nat)`
+```lean
+#check HPlus.hPlus (5 : Nat)
+```
 
 yields a type that contains two metavariables, one for the remaining argument and one for the return type:
 
@@ -219,15 +257,19 @@ To make this instance into a default instance, apply the `default_instance` attr
 대부분의 경우, 누군가 덧셈에 한 인자를 제공할 때, 다른 인자는 같은 타입을 가질 것입니다.
 이 instance를 default instance로 만들려면, `default_instance` attribute를 적용하세요:
 
-`@[default_instance]
+```lean
+@[default_instance]
 instance [Add α] : HPlus α α α where
-hPlus := Add.add`
+  hPlus := Add.add
+```
 
 With this default instance, the example has a more useful type:
 
 이 default instance를 사용하면, 예시는 더 유용한 타입을 가집니다:
 
-`HPlus.hPlus 5 : Nat → Nat#check HPlus.hPlus (5 : Nat)`
+```lean
+#check HPlus.hPlus (5 : Nat)
+```
 
 yields
 
@@ -263,7 +305,9 @@ For example,
 `Mul α` instance가 있는 모든 타입 `α`에 대해 작동해야 합니다.
 예를 들어,
 
-`{ x := 5.000000, y := 7.400000 }#eval {x := 2.5, y := 3.7 : PPoint Float} * 2.0`
+```lean
+#eval {x := 2.5, y := 3.7 : PPoint Float} * 2.0
+```
 
 should yield
 

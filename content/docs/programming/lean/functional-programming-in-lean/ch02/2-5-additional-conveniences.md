@@ -1,10 +1,10 @@
 ---
-title: "Additional Conveniences"
+title: "추가 편의 기능"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Additional Conveniences"
+description: "nested action, do 표기법의 유연한 레이아웃, #eval을 이용한 IO action 실행 등 Lean의 추가 편의 기능 소개"
 ---
 
 # Additional Conveniences
@@ -17,26 +17,32 @@ For instance, in `dump`:
 `feline`의 많은 함수들은 `IO` action의 결과에 이름을 부여한 후 즉시 한 번만 사용하는 반복적인 패턴을 보여줍니다.
 예를 들어, `dump`에서:
 
-`partial def dump (stream : IO.FS.Stream) : IO Unit := do
-let buf ← stream.read bufsize
-if buf.isEmpty then
-pure ()
-else
-let stdout ← IO.getStdout
-stdout.write buf
-dump stream`
+```lean
+partial def dump (stream : IO.FS.Stream) : IO Unit := do
+  let buf ← stream.read bufsize
+  if buf.isEmpty then
+    pure ()
+  else
+    let stdout ← IO.getStdout
+    stdout.write buf
+    dump stream
+```
 
 the pattern occurs for `stdout`:
 
-`let stdout ← IO.getStdout
-stdout.write buf`
+```lean
+let stdout ← IO.getStdout
+stdout.write buf
+```
 
 이 패턴은 `stdout`에서 나타납니다.
 
 Similarly, `fileStream` contains the following snippet:
 
-`let fileExists ← filename.pathExists
-if not fileExists then`
+```lean
+let fileExists ← filename.pathExists
+if not fileExists then
+```
 
 마찬가지로, `fileStream`은 다음 코드 조각을 포함합니다.
 
@@ -48,13 +54,15 @@ Lean이 `do` 블록을 컴파일할 때, 괄호 바로 아래에 있는 left arr
 이 고유한 이름은 원래 표현식을 대체합니다.
 이는 `dump`을 다음과 같이 작성할 수도 있다는 의미입니다:
 
-`partial def dump (stream : IO.FS.Stream) : IO Unit := do
-let buf ← stream.read bufsize
-if buf.isEmpty then
-pure ()
-else
-(← IO.getStdout).write buf
-dump stream`
+```lean
+partial def dump (stream : IO.FS.Stream) : IO Unit := do
+  let buf ← stream.read bufsize
+  if buf.isEmpty then
+    pure ()
+  else
+    (← IO.getStdout).write buf
+    dump stream
+```
 
 This version of `dump` avoids introducing names that are used only once, which can greatly simplify a program.
 `IO` actions that Lean lifts from a nested expression context are called *nested actions*.
@@ -74,11 +82,15 @@ For an example of where this might be confusing, consider the following helper d
 
 이것이 혼동될 수 있는 곳의 예를 들기 위해, 다음 helper 정의들을 고려해보세요. 이 함수들은 실행되었다는 것을 세상에 알린 후 데이터를 반환합니다:
 
-`def getNumA : IO Nat := do
-(← IO.getStdout).putStrLn "A"
-pure 5``def getNumB : IO Nat := do
-(← IO.getStdout).putStrLn "B"
-pure 7`
+```lean
+def getNumA : IO Nat := do
+  (← IO.getStdout).putStrLn "A"
+  pure 5
+
+def getNumB : IO Nat := do
+  (← IO.getStdout).putStrLn "B"
+  pure 7
+```
 
 These definitions are intended to stand in for more complicated `IO` code that might validate user input, read a database, or open a file.
 
@@ -88,17 +100,21 @@ A program that prints `0` when number A is five, or number B otherwise, might be
 
 숫자 A가 5일 때 `0`을 출력하고, 그렇지 않으면 숫자 B를 출력하는 프로그램은 다음과 같이 작성될 수 있습니다:
 
-`` def test : IO Unit := do
-let a : Nat := if (← getNumA) == 5 then 0 else (invalid use of `(<- ...)`, must be nested inside a 'do' expression← getNumB)
-(← IO.getStdout).putStrLn s!"The answer is {a}" ``
+```lean
+def test : IO Unit := do
+  let a : Nat := if (← getNumA) == 5 then 0 else (← getNumB)
+  (← IO.getStdout).putStrLn s!"The answer is {a}"
+```
 
 This program would be equivalent to:
 
-`def test : IO Unit := do
-let x ← getNumA
-let y ← getNumB
-let a : Nat := if x == 5 then 0 else y
-(← IO.getStdout).putStrLn s!"The answer is {a}"`
+```lean
+def test : IO Unit := do
+  let x ← getNumA
+  let y ← getNumB
+  let a : Nat := if x == 5 then 0 else y
+  (← IO.getStdout).putStrLn s!"The answer is {a}"
+```
 
 이 프로그램은 다음과 같은 의미를 갖습니다.
 
@@ -130,25 +146,35 @@ For instance, all of the following programs are equivalent:
 
 예를 들어, 다음의 모든 프로그램은 동등합니다:
 
-`-- This version uses only whitespace-sensitive layout
+```lean
+-- This version uses only whitespace-sensitive layout
 def main : IO Unit := do
-let stdin ← IO.getStdin
-let stdout ← IO.getStdout
-stdout.putStrLn "How would you like to be addressed?"
-let name := (← stdin.getLine).trim
-stdout.putStrLn s!"Hello, {name}!"``-- This version is as explicit as possible
+  let stdin ← IO.getStdin
+  let stdout ← IO.getStdout
+  stdout.putStrLn "How would you like to be addressed?"
+  let name := (← stdin.getLine).trim
+  stdout.putStrLn s!"Hello, {name}!"
+```
+
+```lean
+-- This version is as explicit as possible
 def main : IO Unit := do {
-let stdin ← IO.getStdin;
-let stdout ← IO.getStdout;
-stdout.putStrLn "How would you like to be addressed?";
-let name := (← stdin.getLine).trim;
-stdout.putStrLn s!"Hello, {name}!"
-}``-- This version uses a semicolon to put two actions on the same line
+  let stdin ← IO.getStdin;
+  let stdout ← IO.getStdout;
+  stdout.putStrLn "How would you like to be addressed?";
+  let name := (← stdin.getLine).trim;
+  stdout.putStrLn s!"Hello, {name}!"
+}
+```
+
+```lean
+-- This version uses a semicolon to put two actions on the same line
 def main : IO Unit := do
-let stdin ← IO.getStdin; let stdout ← IO.getStdout
-stdout.putStrLn "How would you like to be addressed?"
-let name := (← stdin.getLine).trim
-stdout.putStrLn s!"Hello, {name}!"`
+  let stdin ← IO.getStdin; let stdout ← IO.getStdout
+  stdout.putStrLn "How would you like to be addressed?"
+  let name := (← stdin.getLine).trim
+  stdout.putStrLn s!"Hello, {name}!"
+```
 
 Idiomatic Lean code uses curly braces with `do` very rarely.
 
@@ -168,11 +194,9 @@ Lean의 `#eval` 명령은 단순히 평가하는 것이 아니라 `IO` action을
 
 This means that, given the prior definitions of `countdown` and `runActions`,
 
-`3
-2
-1
-Blast off!
-#eval runActions (countdown 3)`
+```lean
+#eval runActions (countdown 3)
+```
 
 displays
 
@@ -183,7 +207,20 @@ displays
 Blast off!
 ```
 
-즉, `countdown`과 `runActions`의 이전 정의가 주어진 경우입니다.
+즉, `countdown`과 `runActions`의 이전 정의가 주어진 경우, 다음은
+
+```lean
+#eval runActions (countdown 3)
+```
+
+를 실행하면 다음이 표시됩니다.
+
+```
+3
+2
+1
+Blast off!
+```
 
 This is the output produced by running the `IO` action, rather than some opaque representation of the action itself.
 In other words, for `IO` actions, `#eval` both *evaluates* the provided expression and *executes* the resulting action value.

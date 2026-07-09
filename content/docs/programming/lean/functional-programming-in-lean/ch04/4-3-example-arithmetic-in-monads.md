@@ -1,10 +1,10 @@
 ---
-title: "Example: Arithmetic in Monads"
+title: "예제: Monad에서의 산술 연산"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Example: Arithmetic in Monads"
+description: "산술 식 평가기를 여러 Monad(Id, Many, Reader)에 걸쳐 다형적으로 작성하기"
 ---
 
 # Example: Arithmetic in Monads
@@ -26,13 +26,15 @@ The first step is an additional refactoring, extracting division from the dataty
 
 첫 번째 단계는 추가 리팩토링으로 기본 datatype에서 나눗셈을 추출하는 것입니다:
 
-`inductive Prim (special : Type) where
-| plus
-| minus
-| times
-| other : special → Prim special
+```lean
+inductive Prim (special : Type) where
+  | plus
+  | minus
+  | times
+  | other : special → Prim special
 inductive CanFail where
-| div`
+  | div
+```
 
 The name `CanFail` suggests that the effect introduced by division is potential failure.
 
@@ -42,28 +44,30 @@ The second step is to broaden the scope of the division handler argument to `eva
 
 두 번째 단계는 `evaluateM`의 나눗셈 핸들러 인자의 범위를 확장하여 모든 특수 연산자를 처리할 수 있도록 하는 것입니다:
 
-`def divOption : CanFail → Int → Int → Option Int
-| CanFail.div, x, y => if y == 0 then none else pure (x / y)
+```lean
+def divOption : CanFail → Int → Int → Option Int
+  | CanFail.div, x, y => if y == 0 then none else pure (x / y)
 def divExcept : CanFail → Int → Int → Except String Int
-| CanFail.div, x, y =>
-if y == 0 then
-Except.error s!"Tried to divide {x} by zero"
-else pure (x / y)
+  | CanFail.div, x, y =>
+    if y == 0 then
+      Except.error s!"Tried to divide {x} by zero"
+    else pure (x / y)
 def applyPrim [Monad m]
-(applySpecial : special → Int → Int → m Int) :
-Prim special → Int → Int → m Int
-| Prim.plus, x, y => pure (x + y)
-| Prim.minus, x, y => pure (x - y)
-| Prim.times, x, y => pure (x * y)
-| Prim.other op, x, y => applySpecial op x y
+    (applySpecial : special → Int → Int → m Int) :
+    Prim special → Int → Int → m Int
+  | Prim.plus, x, y => pure (x + y)
+  | Prim.minus, x, y => pure (x - y)
+  | Prim.times, x, y => pure (x * y)
+  | Prim.other op, x, y => applySpecial op x y
 def evaluateM [Monad m]
-(applySpecial : special → Int → Int → m Int) :
-Expr (Prim special) → m Int
-| Expr.const i => pure i
-| Expr.prim p e1 e2 =>
-evaluateM applySpecial e1 >>= fun v1 =>
-evaluateM applySpecial e2 >>= fun v2 =>
-applyPrim applySpecial p v1 v2`
+    (applySpecial : special → Int → Int → m Int) :
+    Expr (Prim special) → m Int
+  | Expr.const i => pure i
+  | Expr.prim p e1 e2 =>
+    evaluateM applySpecial e1 >>= fun v1 =>
+    evaluateM applySpecial e2 >>= fun v2 =>
+    applyPrim applySpecial p v1 v2
+```
 
 ### 4.3.3.1. No Effects
 
@@ -81,15 +85,19 @@ Thus, it can be used in *any* monad:
 
 `Empty`를 `Prim`의 매개변수로 사용하면 `Prim.other` 생성자에 놓을 `Empty` 타입의 값을 만들 수 없기 때문에 `Prim.plus`, `Prim.minus`, `Prim.times` 외에 추가 경우가 없음을 나타냅니다. `Empty` 타입의 연산자를 두 정수에 적용하는 함수는 절대 호출될 수 없으므로 결과를 반환할 필요가 없습니다. 따라서 *어떤* monad에서도 사용할 수 있습니다:
 
-`def applyEmpty [Monad m] (op : Empty) (_ : Int) (_ : Int) : m Int :=
-nomatch op`
+```lean
+def applyEmpty [Monad m] (op : Empty) (_ : Int) (_ : Int) : m Int :=
+  nomatch op
+```
 
 This can be used together with `Id`, the identity monad, to evaluate expressions that have no effects whatsoever:
 
 이는 항등원 monad인 `Id`와 함께 사용하여 효과가 전혀 없는 식을 평가할 수 있습니다:
 
-`open Expr Prim in
--9#eval evaluateM (m := Id) applyEmpty (prim plus (const 5) (const (-14)))`
+```lean
+open Expr Prim in
+#eval evaluateM (m := Id) applyEmpty (prim plus (const 5) (const (-14)))
+```
 
 ```
 -9
@@ -123,9 +131,11 @@ A monad that represents this non-deterministic effect must be able to represent 
 
 이 비결정적 효과를 나타내는 monad는 답이 없는 상황과 적어도 하나의 답이 있는 상황과 남은 답들을 함께 나타낼 수 있어야 합니다:
 
-`inductive Many (α : Type) where
-| none : Many α
-| more : α → (Unit → Many α) → Many α`
+```lean
+inductive Many (α : Type) where
+  | none : Many α
+  | more : α → (Unit → Many α) → Many α
+```
 
 This datatype looks very much like `List`.
 The difference is that where `List.cons` stores the rest of the list, `more` stores a function that should compute the remaining values on demand.
@@ -137,7 +147,9 @@ A single result is represented by a `more` constructor that returns no further r
 
 단일 결과는 더 이상의 결과를 반환하지 않는 `more` 생성자로 표현됩니다:
 
-`def Many.one (x : α) : Many α := Many.more x (fun () => Many.none)`
+```lean
+def Many.one (x : α) : Many α := Many.more x (fun () => Many.none)
+```
 
 The union of two multisets of results can be computed by checking whether the first multiset is empty.
 If so, the second multiset is the union.
@@ -145,30 +157,36 @@ If not, the union consists of the first element of the first multiset followed b
 
 두 다중집합의 합집합은 첫 번째 다중집합이 비어 있는지 확인하여 계산할 수 있습니다. 그렇다면 두 번째 다중집합이 합집합입니다. 그렇지 않으면 합집합은 첫 번째 다중집합의 첫 번째 요소 다음에 첫 번째 다중집합의 나머지와 두 번째 다중집합의 합집합으로 구성됩니다:
 
-`def Many.union : Many α → Many α → Many α
-| Many.none, ys => ys
-| Many.more x xs, ys => Many.more x (fun () => union (xs ()) ys)`
+```lean
+def Many.union : Many α → Many α → Many α
+  | Many.none, ys => ys
+  | Many.more x xs, ys => Many.more x (fun () => union (xs ()) ys)
+```
 
 It can be convenient to start a search process with a list of values.
 `Many.fromList` converts a list into a multiset of results:
 
 검색 프로세스를 값의 리스트로 시작하는 것이 편할 수 있습니다. `Many.fromList`는 리스트를 다중집합 결과로 변환합니다:
 
-`def Many.fromList : List α → Many α
-| [] => Many.none
-| x :: xs => Many.more x (fun () => fromList xs)`
+```lean
+def Many.fromList : List α → Many α
+  | [] => Many.none
+  | x :: xs => Many.more x (fun () => fromList xs)
+```
 
 Similarly, once a search has been specified, it can be convenient to extract either a number of values, or all the values:
 
 마찬가지로, 검색이 명시된 후에는 일정 수의 값들이나 모든 값들을 추출하는 것이 편할 수 있습니다:
 
-`def Many.take : Nat → Many α → List α
-| 0, _ => []
-| _ + 1, Many.none => []
-| n + 1, Many.more x xs => x :: (xs ()).take n
+```lean
+def Many.take : Nat → Many α → List α
+  | 0, _ => []
+  | _ + 1, Many.none => []
+  | n + 1, Many.more x xs => x :: (xs ()).take n
 def Many.takeAll : Many α → List α
-| Many.none => []
-| Many.more x xs => x :: (xs ()).takeAll`
+  | Many.none => []
+  | Many.more x xs => x :: (xs ()).takeAll
+```
 
 A `Monad Many` instance requires a `bind` operator.
 In a nondeterministic search, sequencing two operations consists of taking all possibilities from the first step and running the rest of the program on each of them, taking the union of the results.
@@ -177,11 +195,13 @@ Because the second step can return any number of answers for each input, taking 
 
 `Monad Many` 인스턴스는 `bind` 연산자를 필요로 합니다. 비결정적 검색에서 두 작업의 시퀀싱은 첫 번째 단계에서 모든 가능성을 취하고 각각에 대해 프로그램의 나머지를 실행하며 결과의 합집합을 취하는 것으로 구성됩니다. 즉, 첫 번째 단계가 3개의 가능한 답을 반환하면 두 번째 단계를 모두 3개에 대해 시도해야 합니다. 두 번째 단계는 각 입력에 대해 임의의 수의 답을 반환할 수 있으므로, 이들의 합집합을 취하는 것은 전체 검색 공간을 나타냅니다.
 
-`def Many.bind : Many α → (α → Many β) → Many β
-| Many.none, _ =>
-Many.none
-| Many.more x xs, f =>
-(f x).union (bind (xs ()) f)`
+```lean
+def Many.bind : Many α → (α → Many β) → Many β
+  | Many.none, _ =>
+    Many.none
+  | Many.more x xs, f =>
+    (f x).union (bind (xs ()) f)
+```
 
 `Many.one` and `Many.bind` obey the monad contract.
 To check that `Many.bind (Many.one v) f` is the same as `f v`, start by evaluating the expression as far as possible:
@@ -199,27 +219,37 @@ If `v` has the form `{v₁, v₂, v₃, …, vₙ}`, then:
 
 마지막으로 `Many.bind`가 결합적인지 확인하려면 `Many.bind (Many.bind v f) g`이 `Many.bind v (fun x => Many.bind (f x) g)`과 같은지 확인합니다. `v`가 `{v₁, v₂, v₃, …, vₙ}` 형태를 가지면:
 
-`Many.bind v f``f v₁ ∪ f v₂ ∪ f v₃ ∪ … ∪ f vₙ`
+```
+Many.bind v f
+= f v₁ ∪ f v₂ ∪ f v₃ ∪ … ∪ f vₙ
+```
 
 which means that
 
-`Many.bind (Many.bind v f) g``Many.bind (f v₁) g ∪
-Many.bind (f v₂) g ∪
-Many.bind (f v₃) g ∪
-… ∪
-Many.bind (f vₙ) g`
+```
+Many.bind (Many.bind v f) g
+= Many.bind (f v₁) g ∪
+  Many.bind (f v₂) g ∪
+  Many.bind (f v₃) g ∪
+  … ∪
+  Many.bind (f vₙ) g
+```
 
 Similarly,
 
-`Many.bind v (fun x => Many.bind (f x) g)``(fun x => Many.bind (f x) g) v₁ ∪
-(fun x => Many.bind (f x) g) v₂ ∪
-(fun x => Many.bind (f x) g) v₃ ∪
-… ∪
-(fun x => Many.bind (f x) g) vₙ``Many.bind (f v₁) g ∪
-Many.bind (f v₂) g ∪
-Many.bind (f v₃) g ∪
-… ∪
-Many.bind (f vₙ) g`
+```
+Many.bind v (fun x => Many.bind (f x) g)
+= (fun x => Many.bind (f x) g) v₁ ∪
+  (fun x => Many.bind (f x) g) v₂ ∪
+  (fun x => Many.bind (f x) g) v₃ ∪
+  … ∪
+  (fun x => Many.bind (f x) g) vₙ
+= Many.bind (f v₁) g ∪
+  Many.bind (f v₂) g ∪
+  Many.bind (f v₃) g ∪
+  … ∪
+  Many.bind (f vₙ) g
+```
 
 Thus, both sides are equal, so `Many.bind` is associative.
 
@@ -229,27 +259,31 @@ The resulting monad instance is:
 
 결과적인 monad 인스턴스는:
 
-`instance : Monad Many where
-pure := Many.one
-bind := Many.bind`
+```lean
+instance : Monad Many where
+  pure := Many.one
+  bind := Many.bind
+```
 
 An example search using this monad finds all the combinations of numbers in a list that add to 15:
 
 이 monad를 사용한 검색 예제는 리스트의 모든 수의 조합이 15를 더하는 것을 찾습니다:
 
-`def addsTo (goal : Nat) : List Nat → Many (List Nat)
-| [] =>
-if goal == 0 then
-pure []
-else
-Many.none
-| x :: xs =>
-if x > goal then
-addsTo goal xs
-else
-(addsTo goal xs).union
-(addsTo (goal - x) xs >>= fun answer =>
-pure (x :: answer))`
+```lean
+def addsTo (goal : Nat) : List Nat → Many (List Nat)
+  | [] =>
+    if goal == 0 then
+      pure []
+    else
+      Many.none
+  | x :: xs =>
+    if x > goal then
+      addsTo goal xs
+    else
+      (addsTo goal xs).union
+        (addsTo (goal - x) xs >>= fun answer =>
+          pure (x :: answer))
+```
 
 The search process is recursive over the list.
 The empty list is a successful search when the goal is `0`; otherwise, it fails.
@@ -264,31 +298,17 @@ The helper `printList` ensures that one result is displayed per line:
 
 헬퍼 `printList`는 한 결과가 한 줄에 표시되도록 보장합니다:
 
-`def printList [ToString α] : List α → IO Unit
-| [] => pure ()
-| x :: xs => do
-IO.println x
-printList xs``[7, 8]
-[6, 9]
-[5, 10]
-[4, 5, 6]
-[3, 5, 7]
-[3, 4, 8]
-[2, 6, 7]
-[2, 5, 8]
-[2, 4, 9]
-[2, 3, 10]
-[2, 3, 4, 6]
-[1, 6, 8]
-[1, 5, 9]
-[1, 4, 10]
-[1, 3, 5, 6]
-[1, 3, 4, 7]
-[1, 2, 5, 7]
-[1, 2, 4, 8]
-[1, 2, 3, 9]
-[1, 2, 3, 4, 5]
-#eval printList (addsTo 15 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).takeAll`
+```lean
+def printList [ToString α] : List α → IO Unit
+  | [] => pure ()
+  | x :: xs => do
+    IO.println x
+    printList xs
+```
+
+```lean
+#eval printList (addsTo 15 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]).takeAll
+```
 
 ```
 [7, 8]
@@ -311,22 +331,27 @@ printList xs``[7, 8]
 [1, 2, 4, 8]
 [1, 2, 3, 9]
 [1, 2, 3, 4, 5]
+[1, 2, 4, 8]
+[1, 2, 3, 9]
+[1, 2, 3, 4, 5]
 ```
 
 Returning to the arithmetic evaluator that produces multisets of results, the `choose` operator can be used to nondeterministically select a value, with division by zero rendering prior selections invalid.
 
 다중집합 결과를 생성하는 산술 평가기로 돌아가면, `choose` 연산자를 사용하여 값을 비결정적으로 선택할 수 있으며, 영으로 나누기는 이전 선택을 무효화합니다.
 
-`inductive NeedsSearch
-| div
-| choose
+```lean
+inductive NeedsSearch
+  | div
+  | choose
 def applySearch : NeedsSearch → Int → Int → Many Int
-| NeedsSearch.choose, x, y =>
-Many.fromList [x, y]
-| NeedsSearch.div, x, y =>
-if y == 0 then
-Many.none
-else Many.one (x / y)`
+  | NeedsSearch.choose, x, y =>
+    Many.fromList [x, y]
+  | NeedsSearch.div, x, y =>
+    if y == 0 then
+      Many.none
+    else Many.one (x / y)
+```
 
 ### 4.3.3.3. Custom Environments
 
@@ -350,19 +375,23 @@ When evaluating expressions in the reader monad, the following rules are used:
 * Constants `n` evaluate to constant functions `λ e . n`,
 * Arithmetic operators evaluate to functions that pass their arguments on, so `f + g` evaluates to `λ e . f(e) + g(e)`, and
 * Custom operators evaluate to the result of applying the custom operator to the arguments, so `f \ \mathrm{OP}\ g` evaluates to
-  `λ e .
-  \begin{cases}
-  h(f(e), g(e)) & \mathrm{if}\ e\ \mathrm{contains}\ (\mathrm{OP}, h) \\
-  0 & \mathrm{otherwise}
-  \end{cases}`
+  ```
+  λ e .
+    \begin{cases}
+    h(f(e), g(e)) & \mathrm{if}\ e\ \mathrm{contains}\ (\mathrm{OP}, h) \\
+    0 & \mathrm{otherwise}
+    \end{cases}
+  ```
   with `0` serving as a fallback in case an unknown operator is applied.
 
 To define the reader monad in Lean, the first step is to define the `Reader` type and the effect that allows users to get ahold of the environment:
 
 Lean에서 reader monad를 정의하기 위해 첫 번째 단계는 `Reader` 타입과 사용자가 환경을 얻을 수 있게 해주는 효과를 정의하는 것입니다:
 
-`def Reader (ρ : Type) (α : Type) : Type := ρ → α
-def read : Reader ρ ρ := fun env => env`
+```lean
+def Reader (ρ : Type) (α : Type) : Type := ρ → α
+def read : Reader ρ ρ := fun env => env
+```
 
 By convention, the Greek letter `ρ`, which is pronounced “rho”, is used for environments.
 
@@ -372,7 +401,9 @@ The fact that constants in arithmetic expressions evaluate to constant functions
 
 산술 식의 상수가 상수 함수로 평가된다는 사실은 `Reader`에 대한 `pure`의 적절한 정의가 상수 함수임을 시사합니다:
 
-`def Reader.pure (x : α) : Reader ρ α := fun _ => x`
+```lean
+def Reader.pure (x : α) : Reader ρ α := fun _ => x
+```
 
 On the other hand, `bind` is a bit tricker.
 Its type is `Reader ρ α → (α → Reader ρ β) → Reader ρ β`.
@@ -387,11 +418,11 @@ The first step is to write down the arguments and return type, being very explic
 
 이 함수를 작성하는 데 도움을 얻기 위해 Lean을 대화형으로 사용할 수 있습니다. 첫 번째 단계는 인자와 반환 타입을 작성하고, 가능한 한 많은 도움을 얻기 위해 매우 명확하게 하며, 정의의 본문에는 언더스코어를 사용하는 것입니다:
 
-`def Reader.bind {ρ : Type} {α : Type} {β : Type}
-(result : ρ → α) (next : α → ρ → β) : ρ → β :=
-don't know how to synthesize placeholder
-context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → β⊢ ρ → β_`
+```lean
+def Reader.bind {ρ : Type} {α : Type} {β : Type}
+    (result : ρ → α) (next : α → ρ → β) : ρ → β :=
+  _
+```
 
 Lean provides a message that describes which variables are available in scope, and the type that's expected for the result.
 The `⊢` symbol, called a *turnstile* due to its resemblance to subway entrances, separates the local variables from the desired type, which is `ρ → β` in this message:
@@ -401,18 +432,21 @@ Lean은 범위에서 사용 가능한 변수들을 설명하고 결과에 대해
 ```
 don't know how to synthesize placeholder
 context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → β⊢ ρ → β
+ρ α β : Type
+result : ρ → α
+next : α → ρ → β
+⊢ ρ → β
 ```
 
 Because the return type is a function, a good first step is to wrap a `fun` around the underscore:
 
 반환 타입이 함수이기 때문에 좋은 첫 번째 단계는 언더스코어 주위에 `fun`을 감싸는 것입니다:
 
-`def Reader.bind {ρ : Type} {α : Type} {β : Type}
-(result : ρ → α) (next : α → ρ → β) : ρ → β :=
-fun env => don't know how to synthesize placeholder
-context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ β_`
+```lean
+def Reader.bind {ρ : Type} {α : Type} {β : Type}
+    (result : ρ → α) (next : α → ρ → β) : ρ → β :=
+  fun env => _
+```
 
 The resulting message now shows the function's argument as a local variable:
 
@@ -421,7 +455,11 @@ The resulting message now shows the function's argument as a local variable:
 ```
 don't know how to synthesize placeholder
 context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ β
+ρ α β : Type
+result : ρ → α
+next : α → ρ → β
+env : ρ
+⊢ β
 ```
 
 The only thing in the context that can produce a `β` is `next`, and it will require two arguments to do so.
@@ -429,13 +467,11 @@ Each argument can itself be an underscore:
 
 맥락에서 `β`를 생성할 수 있는 유일한 것은 `next`이고, 그렇게 하려면 두 인자를 필요로 할 것입니다. 각 인자는 그 자체로 언더스코어일 수 있습니다:
 
-`def Reader.bind {ρ : Type} {α : Type} {β : Type}
-(result : ρ → α) (next : α → ρ → β) : ρ → β :=
-fun env => next don't know how to synthesize placeholder
-context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ α_ don't know how to synthesize placeholder
-context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ ρ_`
+```lean
+def Reader.bind {ρ : Type} {α : Type} {β : Type}
+    (result : ρ → α) (next : α → ρ → β) : ρ → β :=
+  fun env => next _ _
+```
 
 The two underscores have the following respective messages associated with them:
 
@@ -444,26 +480,32 @@ The two underscores have the following respective messages associated with them:
 ```
 don't know how to synthesize placeholder
 context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ α
+ρ α β : Type
+result : ρ → α
+next : α → ρ → β
+env : ρ
+⊢ α
 ```
 
 ```
 don't know how to synthesize placeholder
 context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ ρ
+ρ α β : Type
+result : ρ → α
+next : α → ρ → β
+env : ρ
+⊢ ρ
 ```
 
 Attacking the first underscore, only one thing in the context can produce an `α`, namely `result`:
 
 첫 번째 언더스코어를 공격하면, 맥락에서 `α`를 생성할 수 있는 유일한 것은 `result`입니다:
 
-`def Reader.bind {ρ : Type} {α : Type} {β : Type}
-(result : ρ → α) (next : α → ρ → β) : ρ → β :=
-fun env => next (result don't know how to synthesize placeholder
-context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ ρ_) don't know how to synthesize placeholder
-context:
-ρ α β:Typeresult:ρ → αnext:α → ρ → βenv:ρ⊢ ρ_`
+```lean
+def Reader.bind {ρ : Type} {α : Type} {β : Type}
+    (result : ρ → α) (next : α → ρ → β) : ρ → β :=
+  fun env => next (result _) _
+```
 
 Now, both underscores have the same error message:
 
@@ -473,18 +515,22 @@ Happily, both underscores can be replaced by `env`, yielding:
 
 다행스럽게도, 두 언더스코어는 `env`로 바뀔 수 있으며, 다음을 생성합니다:
 
-`def Reader.bind {ρ : Type} {α : Type} {β : Type}
-(result : ρ → α) (next : α → ρ → β) : ρ → β :=
-fun env => next (result env) env`
+```lean
+def Reader.bind {ρ : Type} {α : Type} {β : Type}
+    (result : ρ → α) (next : α → ρ → β) : ρ → β :=
+  fun env => next (result env) env
+```
 
 The final version can be obtained by undoing the unfolding of `Reader` and cleaning up the explicit details:
 
 최종 버전은 `Reader`의 펼침을 취소하고 명시적인 세부사항을 정리함으로써 얻을 수 있습니다:
 
-`def Reader.bind
-(result : Reader ρ α)
-(next : α → Reader ρ β) : Reader ρ β :=
-fun env => next (result env) env`
+```lean
+def Reader.bind
+    (result : Reader ρ α)
+    (next : α → Reader ρ β) : Reader ρ β :=
+  fun env => next (result env) env
+```
 
 It's not always possible to write correct functions by simply “following the types”, and it carries the risk of not understanding the resulting program.
 However, it can also be easier to understand a program that has been written than one that has not, and the process of filling in the underscores can bring insights.
@@ -497,70 +543,102 @@ To check that `Reader.bind (Reader.pure v) f` is the same as `f v`, it's enough 
 
 `Reader.pure`(상수 함수를 생성하는)와 `Reader.bind`는 monad 계약을 따릅니다. `Reader.bind (Reader.pure v) f`이 `f v`와 같은지 확인하려면 마지막 단계까지 정의를 바꾸면 충분합니다:
 
-`Reader.bind (Reader.pure v) f``fun env => f ((Reader.pure v) env) env``fun env => f ((fun _ => v) env) env``fun env => f v env``f v`
+```
+Reader.bind (Reader.pure v) f
+= fun env => f ((Reader.pure v) env) env
+= fun env => f ((fun _ => v) env) env
+= fun env => f v env
+= f v
+```
 
 For every function `f`, `fun x => f x` is the same as `f`, so the first part of the contract is satisfied.
 To check that `Reader.bind r Reader.pure` is the same as `r`, a similar technique works:
 
 모든 함수 `f`에 대해 `fun x => f x`는 `f`와 같으므로 계약의 첫 번째 부분이 만족됩니다. `Reader.bind r Reader.pure`이 `r`과 같은지 확인하려면 유사한 기법이 작동합니다:
 
-`Reader.bind r Reader.pure``fun env => Reader.pure (r env) env``fun env => (fun _ => (r env)) env``fun env => r env`
+```
+Reader.bind r Reader.pure
+= fun env => Reader.pure (r env) env
+= fun env => (fun _ => (r env)) env
+= fun env => r env
+```
 
 Because reader actions `r` are themselves functions, this is the same as `r`.
 To check associativity, the same thing can be done for both `Reader.bind (Reader.bind r f) g` and `Reader.bind r (fun x => Reader.bind (f x) g)`:
 
 reader 액션 `r`은 그 자체로 함수이기 때문에, 이는 `r`과 같습니다. 결합성을 확인하려면, `Reader.bind (Reader.bind r f) g`과 `Reader.bind r (fun x => Reader.bind (f x) g)` 모두에 대해 같은 일을 할 수 있습니다:
 
-`Reader.bind (Reader.bind r f) g``fun env => g ((Reader.bind r f) env) env``fun env => g ((fun env' => f (r env') env') env) env``fun env => g (f (r env) env) env`
+```
+Reader.bind (Reader.bind r f) g
+= fun env => g ((Reader.bind r f) env) env
+= fun env => g ((fun env' => f (r env') env') env) env
+= fun env => g (f (r env) env) env
+```
 
 `Reader.bind r (fun x => Reader.bind (f x) g)` reduces to the same expression:
 
 `Reader.bind r (fun x => Reader.bind (f x) g)`은 같은 식으로 감소합니다:
 
-`Reader.bind r (fun x => Reader.bind (f x) g)``Reader.bind r (fun x => fun env => g (f x env) env)``fun env => (fun x => fun env' => g (f x env') env') (r env) env``fun env => (fun env' => g (f (r env) env') env') env``fun env => g (f (r env) env) env`
+```
+Reader.bind r (fun x => Reader.bind (f x) g)
+= Reader.bind r (fun x => fun env => g (f x env) env)
+= fun env => (fun x => fun env' => g (f x env') env') (r env) env
+= fun env => (fun env' => g (f (r env) env') env') env
+= fun env => g (f (r env) env) env
+```
 
 Thus, a `Monad (Reader ρ)` instance is justified:
 
 따라서 `Monad (Reader ρ)` 인스턴스가 정당화됩니다:
 
-`instance : Monad (Reader ρ) where
-pure x := fun _ => x
-bind x f := fun env => f (x env) env`
+```lean
+instance : Monad (Reader ρ) where
+  pure x := fun _ => x
+  bind x f := fun env => f (x env) env
+```
 
 The custom environments that will be passed to the expression evaluator can be represented as lists of pairs:
 
 식 평가기에 전달될 사용자 정의 환경은 쌍의 리스트로 표현될 수 있습니다:
 
-`abbrev Env : Type := List (String × (Int → Int → Int))`
+```lean
+abbrev Env : Type := List (String × (Int → Int → Int))
+```
 
 For instance, `exampleEnv` contains maximum and modulus functions:
 
 예를 들어, `exampleEnv`는 최댓값과 나머지 함수를 포함합니다:
 
-`def exampleEnv : Env := [("max", max), ("mod", (· % ·))]`
+```lean
+def exampleEnv : Env := [("max", max), ("mod", (· % ·))]
+```
 
 Lean already has a function `List.lookup` that finds the value associated with a key in a list of pairs, so `applyPrimReader` needs only check whether the custom function is present in the environment. It returns `0` if the function is unknown:
 
 Lean은 이미 쌍 리스트에서 키와 관련된 값을 찾는 `List.lookup` 함수를 가지고 있으므로, `applyPrimReader`는 사용자 정의 함수가 환경에 있는지만 확인하면 됩니다. 함수를 알 수 없으면 `0`을 반환합니다:
 
-`def applyPrimReader (op : String) (x : Int) (y : Int) : Reader Env Int :=
-read >>= fun env =>
-match env.lookup op with
-| none => pure 0
-| some f => pure (f x y)`
+```lean
+def applyPrimReader (op : String) (x : Int) (y : Int) : Reader Env Int :=
+  read >>= fun env =>
+  match env.lookup op with
+  | none => pure 0
+  | some f => pure (f x y)
+```
 
 Using `evaluateM` with `applyPrimReader` and an expression results in a function that expects an environment.
 Luckily, `exampleEnv` is available:
 
 `evaluateM`을 `applyPrimReader`와 식으로 사용하면 환경을 기대하는 함수가 생성됩니다. 다행히 `exampleEnv`를 사용할 수 있습니다:
 
-`open Expr Prim in
-9#eval
-evaluateM applyPrimReader
-(prim (other "max") (prim plus (const 5) (const 4))
-(prim times (const 3)
-(const 2)))
-exampleEnv`
+```lean
+open Expr Prim in
+#eval
+  evaluateM applyPrimReader
+    (prim (other "max") (prim plus (const 5) (const 4))
+      (prim times (const 3)
+        (const 2)))
+    exampleEnv
+```
 
 ```
 9
@@ -588,8 +666,10 @@ In other words, given these definitions:
 
 reader monad 예제를 적응하여 사용자 정의 연산자가 정의되지 않았을 때 단순히 영을 반환하는 대신 실패를 나타낼 수 있도록 합니다. 즉, 이러한 정의들이 주어졌을 때:
 
-`def ReaderOption (ρ : Type) (α : Type) : Type := ρ → Option α
-def ReaderExcept (ε : Type) (ρ : Type) (α : Type) : Type := ρ → Except ε α`
+```lean
+def ReaderOption (ρ : Type) (α : Type) : Type := ρ → Option α
+def ReaderExcept (ε : Type) (ρ : Type) (α : Type) : Type := ρ → Except ε α
+```
 
 do the following:
 
@@ -612,8 +692,10 @@ In particular, the type `ToTrace` can serve as a signal to trace a given operato
 
 `WithLog` 타입을 평가기와 함께 사용하여 일부 작업의 선택적 추적을 추가할 수 있습니다. 특히 `ToTrace` 타입은 주어진 연산자를 추적하는 신호로 작용할 수 있습니다:
 
-`inductive ToTrace (α : Type) : Type where
-| trace : α → ToTrace α`
+```lean
+inductive ToTrace (α : Type) : Type where
+  | trace : α → ToTrace α
+```
 
 For the tracing evaluator, expressions should have type `Expr (Prim (ToTrace (Prim Empty)))`.
 This says that the operators in the expression consist of addition, subtraction, and multiplication, augmented with traced versions of each. The innermost argument is `Empty` to signal that there are no further special operators inside of `trace`, only the three basic ones.
@@ -634,14 +716,16 @@ If the exercise has been completed correctly, then
 
 연습이 올바르게 완료되면,
 
-`open Expr Prim ToTrace in
-{ log := [(Prim.plus, 1, 2), (Prim.minus, 3, 4), (Prim.times, 3, -1)], val := -3 }#eval
-evaluateM applyTraced
-(prim (other (trace times))
-(prim (other (trace plus)) (const 1)
-(const 2))
-(prim (other (trace minus)) (const 3)
-(const 4)))`
+```lean
+open Expr Prim ToTrace in
+#eval
+  evaluateM applyTraced
+    (prim (other (trace times))
+      (prim (other (trace plus)) (const 1)
+        (const 2))
+      (prim (other (trace minus)) (const 3)
+        (const 4)))
+```
 
 should result in
 
@@ -655,6 +739,8 @@ Hint: values of type `Prim Empty` will appear in the resulting log. In order to 
 
 힌트: `Prim Empty` 타입의 값이 결과 로그에 나타납니다. `#eval`의 결과로 표시하려면 다음 인스턴스가 필요합니다:
 
-`deriving instance Repr for WithLog
+```lean
+deriving instance Repr for WithLog
 deriving instance Repr for Empty
-deriving instance Repr for Prim`
+deriving instance Repr for Prim
+```

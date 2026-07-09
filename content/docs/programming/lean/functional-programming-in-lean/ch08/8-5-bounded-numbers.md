@@ -1,10 +1,10 @@
 ---
-title: "Bounded Numbers"
+title: "유계 숫자 (Bounded Numbers)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Bounded Numbers"
+description: "유계 숫자 (Bounded Numbers)"
 ---
 
 # 8.5. Bounded Numbers
@@ -27,9 +27,11 @@ The definition of `Fin` resembles `Subtype`, as a `Fin n` is a structure that co
 즉, `Fin 3`은 `0`, `1`, `2`를 나타내고, `Fin 0`은 어떤 값도 가지지 않습니다.
 `Fin`의 정의는 `Subtype`과 유사합니다. `Fin n`은 `Nat`과 그것이 `n`보다 작다는 증명을 포함하는 구조체입니다:
 
-`structure Fin (n : Nat) where
-val : Nat
-isLt : LT.lt val n`
+```lean
+structure Fin (n : Nat) where
+  val : Nat
+  isLt : LT.lt val n
+```
 
 Lean includes instances of `ToString` and `OfNat` that allow `Fin` values to be conveniently used as numbers.
 In other words, the output of `#eval (5 : Fin 8)` is `5`, rather than something like `{val := 5, isLt := _}`.
@@ -51,12 +53,16 @@ A more specific type results in a value that can be used without making the prog
 [이전 섹션](Programming___-Proving___-and-Performance/Arrays-and-Termination/#proving-termination)의 `Array.find`는 호출자가 배열을 검색하는 데 즉시 사용할 수 없는 인덱스를 반환합니다. 왜냐하면 유효성에 대한 정보가 손실되었기 때문입니다.
 더 구체적인 타입은 프로그램을 상당히 복잡하게 하지 않고도 사용할 수 있는 값을 만듭니다:
 
-`def findHelper (arr : Array α) (p : α → Bool) (i : Nat) :
-Option (Fin arr.size × α) :=
-if h : i < arr.size then
-let x := arr[i]
-if p x then
-some (⟨i, h⟩, x)
-else findHelper arr p (i + 1)
-else none``def Array.find (arr : Array α) (p : α → Bool) : Option (Fin arr.size × α) :=
-findHelper arr p 0`
+```lean
+def findHelper (arr : Array α) (p : α → Bool) (i : Nat) :
+    Option (Fin arr.size × α) :=
+  if h : i < arr.size then
+    let x := arr[i]
+    if p x then
+      some (⟨i, h⟩, x)
+    else findHelper arr p (i + 1)
+  else none
+
+def Array.find (arr : Array α) (p : α → Bool) : Option (Fin arr.size × α) :=
+  findHelper arr p 0
+```

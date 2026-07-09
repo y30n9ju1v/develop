@@ -1,10 +1,10 @@
 ---
-title: "Insertion Sort and Array Mutation"
+title: "삽입 정렬과 배열 변경 (Insertion Sort and Array Mutation)"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Insertion Sort and Array Mutation"
+description: "삽입 정렬과 배열 변경 (Insertion Sort and Array Mutation)"
 ---
 
 # 8.6. Insertion Sort and Array Mutation
@@ -85,7 +85,9 @@ Lean provides a built-in function called `dbgTraceIfShared` with the following s
 그러나 두 번째는 이를 테스트할 수단이 필요합니다.
 Lean은 다음 서명을 가진 `dbgTraceIfShared`라는 내장 함수를 제공합니다:
 
-`dbgTraceIfShared.{u} {α : Type u} (s : String) (a : α) : α#check dbgTraceIfShared`
+```lean
+#check dbgTraceIfShared
+```
 
 ```
 dbgTraceIfShared.{u} {α : Type u} (s : String) (a : α) : α
@@ -125,16 +127,18 @@ The inner loop of insertion sort can be implemented as a tail-recursive function
 The element being inserted is repeatedly swapped with the element to its left until either the element to the left is smaller or the beginning of the array is reached.
 The inner loop is structurally recursive on the `Nat` that is inside the `Fin` used to index into the array:
 
-`def insertSorted [Ord α] (arr : Array α) (i : Fin arr.size) : Array α :=
-match i with
-| ⟨0, _⟩ => arr
-| ⟨i' + 1, _⟩ =>
-have : i' < arr.size := byα:Type ?u.64534inst✝:Ord αarr:Array αi:Fin arr.sizei':NatisLt✝:i' + 1 < arr.size⊢ i' < arr.size
-grindAll goals completed! 🐙
-match Ord.compare arr[i'] arr[i] with
-| .lt | .eq => arr
-| .gt =>
-insertSorted (arr.swap i' i) ⟨i', byα:Type ?u.64534inst✝:Ord αarr:Array αi:Fin arr.sizei':NatisLt✝:i' + 1 < arr.sizethis:i' < arr.size := insertSorted._proof_2 arr i' isLt✝⊢ i' < (arr.swap i' (↑i) this ⋯).size simp [*]All goals completed! 🐙⟩`
+```lean
+def insertSorted [Ord α] (arr : Array α) (i : Fin arr.size) : Array α :=
+  match i with
+  | ⟨0, _⟩ => arr
+  | ⟨i' + 1, _⟩ =>
+    have : i' < arr.size := by
+      grind
+    match Ord.compare arr[i'] arr[i] with
+    | .lt | .eq => arr
+    | .gt =>
+      insertSorted (arr.swap i' i) ⟨i', by simp [*]⟩
+```
 
 If the index `i` is `0`, then the element being inserted into the sorted region has reached the beginning of the region and is the smallest.
 If the index is `i' + 1`, then the element at `i'` should be compared to the element at `i`.
@@ -160,31 +164,13 @@ unsolved goals
 The outer loop of insertion sort moves the pointer from left to right, invoking `insertSorted` at each iteration to insert the element at the pointer into the correct position in the array.
 The basic form of the loop resembles the implementation of `Array.map`:
 
-`` def fail to show termination for
-insertionSortLoop
-with errors
-failed to infer structural recursion:
-Not considering parameter α of insertionSortLoop:
-it is unchanged in the recursive calls
-Not considering parameter #2 of insertionSortLoop:
-it is unchanged in the recursive calls
-Cannot use parameter arr:
-the type Array α does not have a `.brecOn` recursor
-Cannot use parameter i:
-failed to eliminate recursive application
-insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
-
-Could not find a decreasing measure.
-The basic measures relate at each recursive call as follows:
-(<, ≤, =: relation proved, ? all proofs failed, _: no proof attempted)
-arr i #1
-1) 324:4-55 ? ? ?
-#1: arr.size - i
-Please use `termination_by` to specify a decreasing measure.insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
-if h : i < arr.size then
-insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
-else
-arr ``
+```lean
+def insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
+  if h : i < arr.size then
+    insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
+  else
+    arr
+```
 
 An error occurs because there is no argument that decreases at every recursive call:
 
@@ -224,17 +210,25 @@ Lean은 각 반복에서 상수 한계로 증가하는 `Nat`이 종료하는 함
 
 종료 증명을 구성하기 전에, `partial` 수정자를 사용하여 정의를 테스트하여 예상된 답을 반환하는지 확인하는 것이 편리합니다:
 
-`partial def insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
-if h : i < arr.size then
-insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
-else
-arr``#[3, 5, 8, 17]#eval insertionSortLoop #[5, 17, 3, 8] 0`
+```lean
+partial def insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
+  if h : i < arr.size then
+    insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
+  else
+    arr
+```
+
+```lean
+#eval insertionSortLoop #[5, 17, 3, 8] 0
+```
 
 ```
 #[3, 5, 8, 17]
 ```
 
-`#["igneous", "metamorphic", "sedimentary"]#eval insertionSortLoop #["metamorphic", "igneous", "sedimentary"] 0`
+```lean
+#eval insertionSortLoop #["metamorphic", "igneous", "sedimentary"] 0
+```
 
 ```
 #["igneous", "metamorphic", "sedimentary"]
@@ -248,16 +242,14 @@ This time, however, Lean does not accept the `termination_by`:
 다시 말해, 함수는 처리되는 배열의 크기와 인덱스 간의 차이가 각 재귀 호출에서 감소하기 때문에 종료됩니다.
 하지만 이번에는 Lean이 `termination_by`를 수용하지 않습니다:
 
-`` def insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
-if h : i < arr.size then
-failed to prove termination, possible solutions:
- - Use `have`-expressions to prove the remaining goals
- - Use `termination_by` to specify a different well-founded relation
- - Use `decreasing_by` to specify your own tactic for discharging this kind of goal
-α:Type u_1inst✝:Ord αarr:Array αi:Nath:i < arr.size⊢ (insertSorted arr ⟨i, h⟩).size - (i + 1) < arr.size - iinsertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
-else
-arr
-termination_by arr.size - i ``
+```lean
+def insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
+  if h : i < arr.size then
+    insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
+  else
+    arr
+termination_by arr.size - i
+```
 
 ```
 failed to prove termination, possible solutions:
@@ -275,14 +267,16 @@ Copying the unproved termination condition from the error message to the functio
 `insertionSortLoop`가 종료된다는 것을 증명하기 위해, 먼저 `insertSorted`가 배열의 크기를 변경하지 않는다는 것을 증명해야 합니다.
 오류 메시지에서 증명되지 않은 종료 조건을 함수에 복사하고 `sorry`로 “증명”하면 함수를 임시로 수용할 수 있습니다:
 
-`declaration uses 'sorry'def declaration uses 'sorry'declaration uses 'sorry'declaration uses 'sorry'declaration uses 'sorry'insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
-if h : i < arr.size then
-have : (insertSorted arr ⟨i, h⟩).size - (i + 1) < arr.size - i := byα:Type ?u.317372inst✝:Ord αarr:Array αi:Nath:i < arr.size⊢ (insertSorted arr ⟨i, h⟩).size - (i + 1) < arr.size - i
-sorryAll goals completed! 🐙
-insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
-else
-arr
-termination_by arr.size - i`
+```lean
+def insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
+  if h : i < arr.size then
+    have : (insertSorted arr ⟨i, h⟩).size - (i + 1) < arr.size - i := by
+      sorry
+    insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
+  else
+    arr
+termination_by arr.size - i
+```
 
 ```
 declaration uses 'sorry'
@@ -306,23 +300,16 @@ Translating this English-language theorem statement to Lean and proceeding using
 
 이 영어 정리문을 Lean으로 변환하고 이 장의 기법을 사용하여 진행하는 것만으로도 기본 경우를 증명하고 귀납적 단계에서 진행할 수 있습니다:
 
-`theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
-(insertSorted arr i).size = arr.size := byα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.size⊢ (insertSorted arr i).size = arr.size
-match i with
-| ⟨j, isLt⟩ =>α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej:NatisLt:j < arr.size⊢ (insertSorted arr ⟨j, isLt⟩).size = arr.size
-induction j with
-| zero =>zeroα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizeisLt:0 < arr.size⊢ (insertSorted arr ⟨0, isLt⟩).size = arr.size simp [insertSorted]All goals completed! 🐙
-| succ j' ih unsolved goals
-succα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.size⊢ (match compare arr[j'] arr[j' + 1] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size =
-arr.size=>
-simp [insertSorted]succα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.size⊢ (match compare arr[j'] arr[j' + 1] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size =
-arr.sizesuccα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.size⊢ (insertSorted arr ⟨j' + 1, isLt⟩).size = arr.size`
+```lean
+theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
+    (insertSorted arr i).size = arr.size := by
+  match i with
+  | ⟨j, isLt⟩ =>
+    induction j with
+    | zero => simp [insertSorted]
+    | succ j' ih =>
+      simp [insertSorted]
+```
 
 The simplification using `insertSorted` in the inductive step revealed the pattern match in `insertSorted`:
 
@@ -341,24 +328,17 @@ When faced with a goal that includes `if` or `match`, the `split` tactic (not to
 
 `if` 또는 `match`를 포함하는 목표에 직면했을 때, `split` 전술(병합 정렬 정의에 사용되는 `splitList` 함수와 혼동하지 않음)은 목표를 제어 흐름의 각 경로에 대한 하나의 새로운 목표로 바꿉니다:
 
-`theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
-(insertSorted arr i).size = arr.size := byα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.size⊢ (insertSorted arr i).size = arr.size
-match i with
-| ⟨j, isLt⟩ =>α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej:NatisLt:j < arr.size⊢ (insertSorted arr ⟨j, isLt⟩).size = arr.size
-induction j with
-| zero =>zeroα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizeisLt:0 < arr.size⊢ (insertSorted arr ⟨0, isLt⟩).size = arr.size simp [insertSorted]All goals completed! 🐙
-| succ j' ih unsolved goals
-h_1α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.lt⊢ arr.size = arr.size
-
-h_2α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.eq⊢ arr.size = arr.size
-
-h_3α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.size=>
-simp [insertSorted]succα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.size⊢ (match compare arr[j'] arr[j' + 1] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size =
-arr.size
-splith_1α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.lt⊢ arr.size = arr.sizeh_2α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.eq⊢ arr.size = arr.sizeh_3α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.sizesuccα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.size⊢ (insertSorted arr ⟨j' + 1, isLt⟩).size = arr.size`
+```lean
+theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
+    (insertSorted arr i).size = arr.size := by
+  match i with
+  | ⟨j, isLt⟩ =>
+    induction j with
+    | zero => simp [insertSorted]
+    | succ j' ih =>
+      simp [insertSorted]
+      split
+```
 
 Because it typically doesn't matter *how* a statement was proved, but only *that* it was proved, proofs in Lean's output are typically replaced by `⋯`.
 Additionally, each new goal has an assumption that indicates which branch led to that goal, named `heq✝` in this case:
@@ -379,20 +359,17 @@ Rather than write proofs for both simple cases, adding `<;> try rfl` after `spli
 
 두 단순한 경우 모두에 대한 증명을 작성하는 대신, `split` 후에 `<;> try rfl`을 추가하면 두 직선적 경우가 즉시 사라지고 하나의 목표만 남습니다:
 
-`theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
-(insertSorted arr i).size = arr.size := byα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.size⊢ (insertSorted arr i).size = arr.size
-match i with
-| ⟨j, isLt⟩ =>α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej:NatisLt:j < arr.size⊢ (insertSorted arr ⟨j, isLt⟩).size = arr.size
-induction j with
-| zero =>zeroα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizeisLt:0 < arr.size⊢ (insertSorted arr ⟨0, isLt⟩).size = arr.size simp [insertSorted]All goals completed! 🐙
-| succ j' ih unsolved goals
-h_3α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.size=>
-simp [insertSorted]succα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.size⊢ (match compare arr[j'] arr[j' + 1] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size =
-arr.size
-splith_1α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.lt⊢ arr.size = arr.sizeh_2α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.eq⊢ arr.size = arr.sizeh_3α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.size <;>h_1α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.lt⊢ arr.size = arr.sizeh_2α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.eq⊢ arr.size = arr.sizeh_3α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.size try rflh_3α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.sizesuccα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej':Natih:∀ (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizeisLt:j' + 1 < arr.size⊢ (insertSorted arr ⟨j' + 1, isLt⟩).size = arr.size`
+```lean
+theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
+    (insertSorted arr i).size = arr.size := by
+  match i with
+  | ⟨j, isLt⟩ =>
+    induction j with
+    | zero => simp [insertSorted]
+    | succ j' ih =>
+      simp [insertSorted]
+      split <;> try rfl
+```
 
 ```
 unsolved goals
@@ -407,20 +384,17 @@ It is possible to get a strong induction hypothesis by using the `generalizing` 
 This option brings additional assumptions from the context into the statement that's used to generate the base case, the induction hypothesis, and the goal to be shown in the inductive step.
 Generalizing over `arr` leads to a stronger hypothesis:
 
-`theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
-(insertSorted arr i).size = arr.size := byα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.size⊢ (insertSorted arr i).size = arr.size
-match i with
-| ⟨j, isLt⟩ =>α:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizej:NatisLt:j < arr.size⊢ (insertSorted arr ⟨j, isLt⟩).size = arr.size
-induction j generalizing arr with
-| zero =>zeroα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.sizeisLt:0 < arr.size⊢ (insertSorted arr ⟨0, isLt⟩).size = arr.size simp [insertSorted]All goals completed! 🐙
-| succ j' ih unsolved goals
-h_3α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.size=>
-simp [insertSorted]succα:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.size⊢ (match compare arr[j'] arr[j' + 1] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size =
-arr.size
-splith_1α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.lt⊢ arr.size = arr.sizeh_2α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.eq⊢ arr.size = arr.sizeh_3α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.size <;>h_1α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.lt⊢ arr.size = arr.sizeh_2α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.eq⊢ arr.size = arr.sizeh_3α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.size try rflh_3α:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.sizex✝:Orderingheq✝:compare arr[j'] arr[j' + 1] = Ordering.gt⊢ (insertSorted (arr.swap j' (j' + 1) ⋯ ⋯) ⟨j', ⋯⟩).size = arr.sizesuccα:Type u_1inst✝:Ord αj':Natih:∀ (arr : Array α) (i : Fin arr.size) (isLt : j' < arr.size), (insertSorted arr ⟨j', isLt⟩).size = arr.sizearr:Array αi:Fin arr.sizeisLt:j' + 1 < arr.size⊢ (insertSorted arr ⟨j' + 1, isLt⟩).size = arr.size`
+```lean
+theorem insert_sorted_size_eq [Ord α] (arr : Array α) (i : Fin arr.size) :
+    (insertSorted arr i).size = arr.size := by
+  match i with
+  | ⟨j, isLt⟩ =>
+    induction j generalizing arr with
+    | zero => simp [insertSorted]
+    | succ j' ih =>
+      simp [insertSorted]
+      split <;> try rfl
+```
 
 In the resulting goal, `arr` is now part of a “for all” statement in the inductive hypothesis:
 
@@ -434,42 +408,16 @@ The next step would be to introduce a variable standing for the length of the re
 These equality statements can then be chained together to prove the goal.
 It's much easier, however, to use functional induction:
 
-`theorem insert_sorted_size_eq [Ord α]
-(arr : Array α) (i : Fin arr.size) :
-(insertSorted arr i).size = arr.size := byα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.size⊢ (insertSorted arr i).size = arr.size
-fun_induction insertSorted with
-| case1 arr isLt unsolved goals
-case1α:Type u_1inst✝:Ord αarr✝ arr:Array αisLt:0 < arr.size⊢ arr.size = arr.size=> skipcase1α:Type u_1inst✝:Ord αarr✝:Array αarr:Array αisLt:0 < arr.size⊢ arr.size = arr.size
-| case2 arr i isLt this isLt unsolved goals
-case2α:Type u_1inst✝:Ord αarr✝ arr:Array αi:NatisLt✝:i + 1 < arr.sizethis:i < arr.sizeisLt:compare arr[i] arr[⟨i.succ, isLt✝⟩] = Ordering.lt⊢ (match compare arr[i] arr[⟨i.succ, isLt✝⟩] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap i (↑⟨i.succ, isLt✝⟩) this ⋯) ⟨i, ⋯⟩).size =
-arr.size=> skipcase2α:Type u_1inst✝:Ord αarr✝:Array αarr:Array αi:NatisLt✝:i + 1 < arr.sizethis:i < arr.sizeisLt:compare arr[i] arr[⟨i.succ, isLt✝⟩] = Ordering.lt⊢ (match compare arr[i] arr[⟨i.succ, isLt✝⟩] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap i (↑⟨i.succ, isLt✝⟩) this ⋯) ⟨i, ⋯⟩).size =
-arr.size
-| case3 arr i isLt this isEq unsolved goals
-case3α:Type u_1inst✝:Ord αarr✝ arr:Array αi:NatisLt:i + 1 < arr.sizethis:i < arr.sizeisEq:compare arr[i] arr[⟨i.succ, isLt⟩] = Ordering.eq⊢ (match compare arr[i] arr[⟨i.succ, isLt⟩] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯) ⟨i, ⋯⟩).size =
-arr.size=> skipcase3α:Type u_1inst✝:Ord αarr✝:Array αarr:Array αi:NatisLt:i + 1 < arr.sizethis:i < arr.sizeisEq:compare arr[i] arr[⟨i.succ, isLt⟩] = Ordering.eq⊢ (match compare arr[i] arr[⟨i.succ, isLt⟩] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯) ⟨i, ⋯⟩).size =
-arr.size
-| case4 arr i isLt this isGt ih unsolved goals
-case4α:Type u_1inst✝:Ord αarr✝ arr:Array αi:NatisLt:i + 1 < arr.sizethis:i < arr.sizeisGt:compare arr[i] arr[⟨i.succ, isLt⟩] = Ordering.gtih:(insertSorted (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯) ⟨i, ⋯⟩).size = (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯).size⊢ (match compare arr[i] arr[⟨i.succ, isLt⟩] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯) ⟨i, ⋯⟩).size =
-arr.size=> skipcase4α:Type u_1inst✝:Ord αarr✝:Array αarr:Array αi:NatisLt:i + 1 < arr.sizethis:i < arr.sizeisGt:compare arr[i] arr[⟨i.succ, isLt⟩] = Ordering.gtih:(insertSorted (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯) ⟨i, ⋯⟩).size = (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯).size⊢ (match compare arr[i] arr[⟨i.succ, isLt⟩] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap i (↑⟨i.succ, isLt⟩) this ⋯) ⟨i, ⋯⟩).size =
-arr.size`
+```lean
+theorem insert_sorted_size_eq [Ord α]
+    (arr : Array α) (i : Fin arr.size) :
+    (insertSorted arr i).size = arr.size := by
+  fun_induction insertSorted with
+  | case1 arr isLt => skip
+  | case2 arr i isLt this isLt => skip
+  | case3 arr i isLt this isEq => skip
+  | case4 arr i isLt this isGt ih => skip
+```
 
 The first goal is the case for index `0`.
 Here, the array is not modified, so proving that its size is unmodified will not require any complicated steps:
@@ -515,53 +463,35 @@ case4α:Type u_1inst✝:Ord αarr✝ arr:Array αi:NatisLt:i + 1 < arr.sizethis
 The Lean library includes the theorem `Array.size_swap`, which states that swapping two elements of an array doesn't change its size.
 By default, `grind` doesn't use this fact, but once instructed to do so, it can take care of all four cases:
 
-`theorem insert_sorted_size_eq [Ord α]
-(arr : Array α) (i : Fin arr.size) :
-(insertSorted arr i).size = arr.size := byα:Type u_1inst✝:Ord αarr:Array αi:Fin arr.size⊢ (insertSorted arr i).size = arr.size
-fun_induction insertSortedcase1α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αisLt✝:0 < arr✝.size⊢ arr✝.size = arr✝.sizecase2α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αi'✝:NatisLt✝:i'✝ + 1 < arr✝.sizethis✝:i'✝ < arr✝.sizex✝:compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] = Ordering.lt⊢ (match compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] with
-| Ordering.lt => arr✝
-| Ordering.eq => arr✝
-| Ordering.gt => insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-arr✝.sizecase3α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αi'✝:NatisLt✝:i'✝ + 1 < arr✝.sizethis✝:i'✝ < arr✝.sizex✝:compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] = Ordering.eq⊢ (match compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] with
-| Ordering.lt => arr✝
-| Ordering.eq => arr✝
-| Ordering.gt => insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-arr✝.sizecase4α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αi'✝:NatisLt✝:i'✝ + 1 < arr✝.sizethis✝:i'✝ < arr✝.sizex✝:compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] = Ordering.gtih1✝:(insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-(arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯).size⊢ (match compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] with
-| Ordering.lt => arr✝
-| Ordering.eq => arr✝
-| Ordering.gt => insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-arr✝.size <;>case1α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αisLt✝:0 < arr✝.size⊢ arr✝.size = arr✝.sizecase2α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αi'✝:NatisLt✝:i'✝ + 1 < arr✝.sizethis✝:i'✝ < arr✝.sizex✝:compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] = Ordering.lt⊢ (match compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] with
-| Ordering.lt => arr✝
-| Ordering.eq => arr✝
-| Ordering.gt => insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-arr✝.sizecase3α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αi'✝:NatisLt✝:i'✝ + 1 < arr✝.sizethis✝:i'✝ < arr✝.sizex✝:compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] = Ordering.eq⊢ (match compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] with
-| Ordering.lt => arr✝
-| Ordering.eq => arr✝
-| Ordering.gt => insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-arr✝.sizecase4α:Type u_1inst✝:Ord αarr:Array αarr✝:Array αi'✝:NatisLt✝:i'✝ + 1 < arr✝.sizethis✝:i'✝ < arr✝.sizex✝:compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] = Ordering.gtih1✝:(insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-(arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯).size⊢ (match compare arr✝[i'✝] arr✝[⟨i'✝.succ, isLt✝⟩] with
-| Ordering.lt => arr✝
-| Ordering.eq => arr✝
-| Ordering.gt => insertSorted (arr✝.swap i'✝ (↑⟨i'✝.succ, isLt✝⟩) this✝ ⋯) ⟨i'✝, ⋯⟩).size =
-arr✝.size grind [Array.size_swap]All goals completed! 🐙`
+```lean
+theorem insert_sorted_size_eq [Ord α]
+    (arr : Array α) (i : Fin arr.size) :
+    (insertSorted arr i).size = arr.size := by
+  fun_induction insertSorted <;> grind [Array.size_swap]
+```
 
 ## 8.6.3. The Driver Function
 
 Insertion sort itself calls `insertionSortLoop`, initializing the index that demarcates the sorted region of the array from the unsorted region to `0`:
 
-`def insertionSort [Ord α] (arr : Array α) : Array α :=
-insertionSortLoop arr 0`
+```lean
+def insertionSort [Ord α] (arr : Array α) : Array α :=
+  insertionSortLoop arr 0
+```
 
 A few quick tests show the function is at least not blatantly wrong:
 
-`#[1, 3, 4, 7]#eval insertionSort #[3, 1, 7, 4]`
+```lean
+#eval insertionSort #[3, 1, 7, 4]
+```
 
 ```
 #[1, 3, 4, 7]
 ```
 
-`#["granite", "hematite", "marble", "quartz"]#eval insertionSort #[ "quartz", "marble", "granite", "hematite"]`
+```lean
+#eval insertionSort #["quartz", "marble", "granite", "hematite"]
+```
 
 ```
 #["granite", "hematite", "marble", "quartz"]
@@ -591,46 +521,47 @@ Adding a local assumption that `dbgTraceIfShared` preserves the length of its ar
 
 The complete instrumented code for insertion sort is:
 
-`def insertSorted [Ord α] (arr : Array α) (i : Fin arr.size) : Array α :=
-match i with
-| ⟨0, _⟩ => arr
-| ⟨i' + 1, _⟩ =>
-have : i' < arr.size := byα:Type ?u.142inst✝:Ord αarr:Array αi:Fin arr.sizei':NatisLt✝:i' + 1 < arr.size⊢ i' < arr.size
-omegaAll goals completed! 🐙
-match Ord.compare arr[i'] arr[i] with
-| .lt | .eq => arr
-| .gt =>
-have : (dbgTraceIfShared "array to swap" arr).size = arr.size := byα:Type ?u.142inst✝:Ord αarr:Array αi:Fin arr.sizei':NatisLt✝:i' + 1 < arr.sizethis:i' < arr.size := Decidable.byContradiction fun a => insertSorted._proof_2 arr i' isLt✝ a⊢ (dbgTraceIfShared "array to swap" arr).size = arr.size
-simp [dbgTraceIfShared]All goals completed! 🐙
-insertSorted
-((dbgTraceIfShared "array to swap" arr).swap i' i)
-⟨i', byα:Type ?u.142inst✝:Ord αarr:Array αi:Fin arr.sizei':NatisLt✝:i' + 1 < arr.sizethis✝:i' < arr.size := Decidable.byContradiction fun a => insertSorted._proof_2 arr i' isLt✝ athis:(dbgTraceIfShared "array to swap" arr).size = arr.size := of_eq_true (eq_self arr.size)⊢ i' < ((dbgTraceIfShared "array to swap" arr).swap i' (↑i) this✝ ⋯).size simp [*]All goals completed! 🐙⟩
+```lean
+def insertSorted [Ord α] (arr : Array α) (i : Fin arr.size) : Array α :=
+  match i with
+  | ⟨0, _⟩ => arr
+  | ⟨i' + 1, _⟩ =>
+    have : i' < arr.size := by
+      omega
+    match Ord.compare arr[i'] arr[i] with
+    | .lt | .eq => arr
+    | .gt =>
+      have : (dbgTraceIfShared "array to swap" arr).size = arr.size := by
+        simp [dbgTraceIfShared]
+      insertSorted
+        ((dbgTraceIfShared "array to swap" arr).swap i' i)
+        ⟨i', by simp [*]⟩
+
 theorem insert_sorted_size_eq [Ord α] (len : Nat) (i : Nat) :
-(arr : Array α) → (isLt : i < arr.size) → (arr.size = len) →
-(insertSorted arr ⟨i, isLt⟩).size = len := byα:Type u_1inst✝:Ord αlen:Nati:Nat⊢ ∀ (arr : Array α) (isLt : i < arr.size), arr.size = len → (insertSorted arr ⟨i, isLt⟩).size = len
-induction i with
-| zero =>zeroα:Type u_1inst✝:Ord αlen:Nat⊢ ∀ (arr : Array α) (isLt : 0 < arr.size), arr.size = len → (insertSorted arr ⟨0, isLt⟩).size = len
-intro arr isLtzeroα:Type u_1inst✝:Ord αlen:Natarr:Array αisLt:0 < arr.size⊢ arr.size = len → (insertSorted arr ⟨0, isLt⟩).size = len hLenzeroα:Type u_1inst✝:Ord αlen:Natarr:Array αisLt:0 < arr.sizehLen:arr.size = len⊢ (insertSorted arr ⟨0, isLt⟩).size = len
-simp [insertSorted, *]All goals completed! 🐙
-| succ i' ih =>succα:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = len⊢ ∀ (arr : Array α) (isLt : i' + 1 < arr.size), arr.size = len → (insertSorted arr ⟨i' + 1, isLt⟩).size = len
-intro arr isLtsuccα:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.size⊢ arr.size = len → (insertSorted arr ⟨i' + 1, isLt⟩).size = len hLensuccα:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = len⊢ (insertSorted arr ⟨i' + 1, isLt⟩).size = len
-simp [insertSorted, dbgTraceIfShared]succα:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = len⊢ (match compare arr[i'] arr[i' + 1] with
-| Ordering.lt => arr
-| Ordering.eq => arr
-| Ordering.gt => insertSorted (arr.swap i' (i' + 1) ⋯ ⋯) ⟨i', ⋯⟩).size =
-len
-splith_1α:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = lenx✝:Orderingheq✝:compare arr[i'] arr[i' + 1] = Ordering.lt⊢ arr.size = lenh_2α:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = lenx✝:Orderingheq✝:compare arr[i'] arr[i' + 1] = Ordering.eq⊢ arr.size = lenh_3α:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = lenx✝:Orderingheq✝:compare arr[i'] arr[i' + 1] = Ordering.gt⊢ (insertSorted (arr.swap i' (i' + 1) ⋯ ⋯) ⟨i', ⋯⟩).size = len <;>h_1α:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = lenx✝:Orderingheq✝:compare arr[i'] arr[i' + 1] = Ordering.lt⊢ arr.size = lenh_2α:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = lenx✝:Orderingheq✝:compare arr[i'] arr[i' + 1] = Ordering.eq⊢ arr.size = lenh_3α:Type u_1inst✝:Ord αlen:Nati':Natih:∀ (arr : Array α) (isLt : i' < arr.size), arr.size = len → (insertSorted arr ⟨i', isLt⟩).size = lenarr:Array αisLt:i' + 1 < arr.sizehLen:arr.size = lenx✝:Orderingheq✝:compare arr[i'] arr[i' + 1] = Ordering.gt⊢ (insertSorted (arr.swap i' (i' + 1) ⋯ ⋯) ⟨i', ⋯⟩).size = len simp [*]All goals completed! 🐙
+    (arr : Array α) → (isLt : i < arr.size) → (arr.size = len) →
+    (insertSorted arr ⟨i, isLt⟩).size = len := by
+  induction i with
+  | zero =>
+    intro arr isLt hLen
+    simp [insertSorted, *]
+  | succ i' ih =>
+    intro arr isLt hLen
+    simp [insertSorted, dbgTraceIfShared]
+    split <;> simp [*]
+
 def insertionSortLoop [Ord α] (arr : Array α) (i : Nat) : Array α :=
-if h : i < arr.size then
-have : (insertSorted arr ⟨i, h⟩).size - (i + 1) < arr.size - i := byα:Type ?u.48398inst✝:Ord αarr:Array αi:Nath:i < arr.size⊢ (insertSorted arr ⟨i, h⟩).size - (i + 1) < arr.size - i
-rw [insert_sorted_size_eq arr.size i arr h rfl]α:Type ?u.48398inst✝:Ord αarr:Array αi:Nath:i < arr.size⊢ arr.size - (i + 1) < arr.size - i
-omegaAll goals completed! 🐙
-insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
-else
-arr
+  if h : i < arr.size then
+    have : (insertSorted arr ⟨i, h⟩).size - (i + 1) < arr.size - i := by
+      rw [insert_sorted_size_eq arr.size i arr h rfl]
+      omega
+    insertionSortLoop (insertSorted arr ⟨i, h⟩) (i + 1)
+  else
+    arr
 termination_by arr.size - i
+
 def insertionSort [Ord α] (arr : Array α) : Array α :=
-insertionSortLoop arr 0`
+  insertionSortLoop arr 0
+```
 
 A bit of cleverness is required to check whether the instrumentation actually works.
 First off, the Lean compiler aggressively optimizes function calls away when all their arguments are known at compile time.
@@ -642,15 +573,17 @@ To ensure that the extra reference is not eliminated entirely, it's important to
 
 The first step in testing the instrumentation is to write `getLines`, which reads an array of lines from standard input:
 
-`def getLines : IO (Array String) := do
-let stdin ← IO.getStdin
-let mut lines : Array String := #[]
-let mut currLine ← stdin.getLine
-while !currLine.isEmpty do
--- Drop trailing newline:
-lines := lines.push (currLine.dropRight 1)
-currLine ← stdin.getLine
-pure lines`
+```lean
+def getLines : IO (Array String) := do
+  let stdin ← IO.getStdin
+  let mut lines : Array String := #[]
+  let mut currLine ← stdin.getLine
+  while !currLine.isEmpty do
+    -- Drop trailing newline:
+    lines := lines.push (currLine.dropRight 1)
+    currLine ← stdin.getLine
+  pure lines
+```
 
 `IO.FS.Stream.getLine` returns a complete line of text, including the trailing newline.
 It returns `""` when the end-of-file marker has been reached.
@@ -661,53 +594,62 @@ Both then print to the console, ensuring that the calls to `insertionSort` won't
 One of them prints only the sorted array, while the other prints both the sorted array and the original array.
 The second function should trigger a warning that `Array.swap` had to allocate a new array:
 
-`def mainUnique : IO Unit := do
-let lines ← getLines
-for line in insertionSort lines do
-IO.println line
+```lean
+def mainUnique : IO Unit := do
+  let lines ← getLines
+  for line in insertionSort lines do
+    IO.println line
+
 def mainShared : IO Unit := do
-let lines ← getLines
-IO.println "--- Sorted lines: ---"
-for line in insertionSort lines do
-IO.println line
-IO.println ""
-IO.println "--- Original data: ---"
-for line in lines do
-IO.println line`
+  let lines ← getLines
+  IO.println "--- Sorted lines: ---"
+  for line in insertionSort lines do
+    IO.println line
+  IO.println ""
+  IO.println "--- Original data: ---"
+  for line in lines do
+    IO.println line
+```
 
 The actual `main` simply selects one of the two main actions based on the provided command-line arguments:
 
-`def main (args : List String) : IO UInt32 := do
-match args with
-| ["--shared"] => mainShared; pure 0
-| ["--unique"] => mainUnique; pure 0
-| _ =>
-IO.println "Expected single argument, either \"--shared\" or \"--unique\""
-pure 1`
+```lean
+def main (args : List String) : IO UInt32 := do
+  match args with
+  | ["--shared"] => mainShared; pure 0
+  | ["--unique"] => mainUnique; pure 0
+  | _ =>
+    IO.println "Expected single argument, either \"--shared\" or \"--unique\""
+    pure 1
+```
 
 Running it with no arguments produces the expected usage information:
 
-`sort``Expected single argument, either "--shared" or "--unique"`
+```bash
+$ sort
+Expected single argument, either "--shared" or "--unique"
+```
 
 The file `test-data` contains the following rocks:
 
-File: `test-data``schist``feldspar``diorite``pumice``obsidian``shale``gneiss``marble``flint`
+File: `test-data`
+
+```
+schist
+feldspar
+diorite
+pumice
+obsidian
+shale
+gneiss
+marble
+flint
+```
 
 Using the instrumented insertion sort on these rocks results them being printed in alphabetical order:
 
-`sort --unique < test-data``diorite
-feldspar
-flint
-gneiss
-marble
-obsidian
-pumice
-schist
-shale`
-
-However, the version in which a reference is retained to the original array results in a notification on `stderr` (namely, `shared RC array to swap`) from the first call to `Array.swap`:
-
-`sort --shared < test-data``--- Sorted lines: ---
+```bash
+$ sort --unique < test-data
 diorite
 feldspar
 flint
@@ -717,6 +659,23 @@ obsidian
 pumice
 schist
 shale
+```
+
+However, the version in which a reference is retained to the original array results in a notification on `stderr` (namely, `shared RC array to swap`) from the first call to `Array.swap`:
+
+```bash
+$ sort --shared < test-data
+--- Sorted lines: ---
+diorite
+feldspar
+flint
+gneiss
+marble
+obsidian
+pumice
+schist
+shale
+
 --- Original data: ---
 schist
 feldspar
@@ -726,7 +685,9 @@ obsidian
 shale
 gneiss
 marble
-flint``shared RC array to swap`
+flint
+shared RC array to swap
+```
 
 The fact that only a single `shared RC` notification appears means that the array is copied only once.
 This is because the copy that results from the call to `Array.swap` is itself unique, so no further copies need to be made.

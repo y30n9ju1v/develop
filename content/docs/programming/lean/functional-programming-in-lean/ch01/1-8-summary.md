@@ -1,10 +1,10 @@
 ---
-title: "Summary"
+title: "요약"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Summary"
+description: "1장에서 다룬 표현식 평가, 함수, 타입, 데이터타입, 재귀 개념 요약"
 ---
 
 # 1.8. Summary

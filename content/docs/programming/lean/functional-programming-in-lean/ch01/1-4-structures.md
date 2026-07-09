@@ -1,10 +1,10 @@
 ---
-title: "Structures"
+title: "구조체"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Structures"
+description: "구조체"
 ---
 
 # 1.4. Structures
@@ -31,19 +31,25 @@ Defining separate structures prevents API clients from confusing one for another
 
 Lean's floating-point number type is called `Float`, and floating-point numbers are written in the usual notation.
 
-`#check 1.2`
+```lean
+#check 1.2
+```
 
 ```
 1.2 : Float
 ```
 
-`#check -454.2123215`
+```lean
+#check -454.2123215
+```
 
 ```
 -454.2123215 : Float
 ```
 
-`#check 0.0`
+```lean
+#check 0.0
+```
 
 ```
 0.0 : Float
@@ -51,13 +57,17 @@ Lean's floating-point number type is called `Float`, and floating-point numbers 
 
 When floating point numbers are written with the decimal point, Lean will infer the type `Float`. If they are written without it, then a type annotation may be necessary.
 
-`#check 0`
+```lean
+#check 0
+```
 
 ```
 0 : Nat
 ```
 
-`#check (0 : Float)`
+```lean
+#check (0 : Float)
+```
 
 ```
 0 : Float
@@ -70,15 +80,19 @@ Lean의 부동 소수점 수 타입은 `Float`이라고 하며, 부동 소수점
 A Cartesian point is a structure with two `Float` fields, called `x` and `y`.
 This is declared using the `structure` keyword.
 
-`structure Point where
-x : Float
-y : Float`
+```lean
+structure Point where
+  x : Float
+  y : Float
+```
 
 After this declaration, `Point` is a new structure type.
 The typical way to create a value of a structure type is to provide values for all of its fields inside of curly braces.
 The origin of a Cartesian plane is where `x` and `y` are both zero:
 
-`def origin : Point := { x := 0.0, y := 0.0 }`
+```lean
+def origin : Point := { x := 0.0, y := 0.0 }
+```
 
 The result of `#eval origin` looks very much like the definition of `origin`.
 
@@ -89,13 +103,17 @@ The result of `#eval origin` looks very much like the definition of `origin`.
 Because structures exist to “bundle up” a collection of data, naming it and treating it as a single unit, it is also important to be able to extract the individual fields of a structure.
 This is done using dot notation, as in C, Python, Rust, or JavaScript.
 
-`#eval origin.x`
+```lean
+#eval origin.x
+```
 
 ```
 0.000000
 ```
 
-`#eval origin.y`
+```lean
+#eval origin.y
+```
 
 데카르트 점은 `x`와 `y`라는 두 개의 `Float` 필드를 가진 구조체입니다.
 이는 `structure` 키워드를 사용하여 선언됩니다.
@@ -113,7 +131,9 @@ This can be used to define functions that take structures as arguments.
 For instance, addition of points is performed by adding the underlying coordinate values.
 It should be the case that
 
-`#eval addPoints { x := 1.5, y := 32 } { x := -8, y := 0.2 }`
+```lean
+#eval addPoints { x := 1.5, y := 32 } { x := -8, y := 0.2 }
+```
 
 yields
 
@@ -124,17 +144,23 @@ yields
 The function itself takes two `Point`s as arguments, called `p1` and `p2`.
 The resulting point is based on the `x` and `y` fields of both `p1` and `p2`:
 
-`def addPoints (p1 : Point) (p2 : Point) : Point :=
-{ x := p1.x + p2.x, y := p1.y + p2.y }`
+```lean
+def addPoints (p1 : Point) (p2 : Point) : Point :=
+  { x := p1.x + p2.x, y := p1.y + p2.y }
+```
 
 Similarly, the distance between two points, which is the square root of the sum of the squares of the differences in their `x` and `y` components, can be written:
 
-`def distance (p1 : Point) (p2 : Point) : Float :=
-Float.sqrt (((p2.x - p1.x) ^ 2.0) + ((p2.y - p1.y) ^ 2.0))`
+```lean
+def distance (p1 : Point) (p2 : Point) : Float :=
+  Float.sqrt (((p2.x - p1.x) ^ 2.0) + ((p2.y - p1.y) ^ 2.0))
+```
 
 For example, the distance between `(1, 2)` and `(5, -1)` is `5`:
 
-`#eval distance { x := 1.0, y := 2.0 } { x := 5.0, y := -1.0 }`
+```lean
+#eval distance { x := 1.0, y := 2.0 } { x := 5.0, y := -1.0 }
+```
 
 ```
 5.000000
@@ -154,16 +180,24 @@ For example, the distance between `(1, 2)` and `(5, -1)` is `5`:
 Multiple structures may have fields with the same names.
 A three-dimensional point datatype may share the fields `x` and `y`, and be instantiated with the same field names:
 
-`structure Point3D where
-x : Float
-y : Float
-z : Float``def origin3D : Point3D := { x := 0.0, y := 0.0, z := 0.0 }`
+```lean
+structure Point3D where
+  x : Float
+  y : Float
+  z : Float
+```
+
+```lean
+def origin3D : Point3D := { x := 0.0, y := 0.0, z := 0.0 }
+```
 
 This means that the structure's expected type must be known in order to use the curly-brace syntax.
 If the type is not known, Lean will not be able to instantiate the structure.
 For example,
 
-`#check { x := 0.0, y := 0.0 }`
+```lean
+#check { x := 0.0, y := 0.0 }
+```
 
 leads to the error
 
@@ -173,7 +207,9 @@ invalid {...} notation, expected type is not known
 
 As usual, the situation can be remedied by providing a type annotation.
 
-`#check ({ x := 0.0, y := 0.0 } : Point)`
+```lean
+#check ({ x := 0.0, y := 0.0 } : Point)
+```
 
 ```
 { x := 0.0, y := 0.0 } : Point
@@ -181,7 +217,9 @@ As usual, the situation can be remedied by providing a type annotation.
 
 To make programs more concise, Lean also allows the structure type annotation inside the curly braces.
 
-`#check { x := 0.0, y := 0.0 : Point}`
+```lean
+#check { x := 0.0, y := 0.0 : Point}
+```
 
 여러 구조체는 같은 이름의 필드를 가질 수 있습니다.
 3차원 점 데이터타입은 `x`과 `y` 필드를 공유할 수 있고, 같은 필드 이름으로 인스턴스화될 수 있습니다.
@@ -202,8 +240,10 @@ However, Lean is a functional programming language.
 In functional programming communities, what is almost always meant by this kind of statement is that a fresh `Point` is allocated with the `x` field pointing to the new value, and all other fields pointing to the original values from the input.
 One way to write `zeroX` is to follow this description literally, filling out the new value for `x` and manually transferring `y`:
 
-`def zeroX (p : Point) : Point :=
-{ x := 0, y := p.y }`
+```lean
+def zeroX (p : Point) : Point :=
+  { x := 0, y := p.y }
+```
 
 This style of programming has drawbacks, however.
 First off, if a new field is added to a structure, then every site that updates any field at all must be updated, causing maintenance difficulties.
@@ -215,30 +255,40 @@ This is done by using the `with` keyword in a structure initialization.
 The source of unchanged fields occurs before the `with`, and the new fields occur after.
 For example, `zeroX` can be written with only the new `x` value:
 
-`def zeroX (p : Point) : Point :=
-{ p with x := 0 }`
+```lean
+def zeroX (p : Point) : Point :=
+  { p with x := 0 }
+```
 
 Remember that this structure update syntax does not modify existing values—it creates new values that share some fields with old values.
 Given the point `fourAndThree`:
 
-`def fourAndThree : Point :=
-{ x := 4.3, y := 3.4 }`
+```lean
+def fourAndThree : Point :=
+  { x := 4.3, y := 3.4 }
+```
 
 evaluating it, then evaluating an update of it using `zeroX`, then evaluating it again yields the original value:
 
-`#eval fourAndThree`
+```lean
+#eval fourAndThree
+```
 
 ```
 { x := 4.300000, y := 3.400000 }
 ```
 
-`#eval zeroX fourAndThree`
+```lean
+#eval zeroX fourAndThree
+```
 
 ```
 { x := 0.000000, y := 3.400000 }
 ```
 
-`#eval fourAndThree`
+```lean
+#eval fourAndThree
+```
 
 One consequence of the fact that structure updates do not modify the original structure is that it becomes easier to reason about cases where the new value is computed from the old one.
 All references to the old structure continue to refer to the same field values in all of the new values provided.
@@ -280,7 +330,9 @@ By default, the constructor for a structure named `S` is named `S.mk`.
 Here, `S` is a namespace qualifier, and `mk` is the name of the constructor itself.
 Instead of using curly-brace initialization syntax, the constructor can also be applied directly.
 
-`#check Point.mk 1.5 2.8`
+```lean
+#check Point.mk 1.5 2.8
+```
 
 However, this is not generally considered to be good Lean style, and Lean even returns its feedback using the standard structure initializer syntax.
 
@@ -291,7 +343,9 @@ However, this is not generally considered to be good Lean style, and Lean even r
 Constructors have function types, which means they can be used anywhere that a function is expected.
 For instance, `Point.mk` is a function that accepts two `Float`s (respectively `x` and `y`) and returns a new `Point`.
 
-`#check (Point.mk)`
+```lean
+#check (Point.mk)
+```
 
 ```
 Point.mk : Float → Float → Point
@@ -316,22 +370,28 @@ Java 또는 Python 같은 언어의 생성자와 달리, Lean의 생성자는 �
 To override a structure's constructor name, write it with two colons at the beginning.
 For instance, to use `Point.point` instead of `Point.mk`, write:
 
-`structure Point where
-point ::
-x : Float
-y : Float`
+```lean
+structure Point where
+  point ::
+  x : Float
+  y : Float
+```
 
 In addition to the constructor, an accessor function is defined for each field of a structure.
 These have the same name as the field, in the structure's namespace.
 For `Point`, accessor functions `Point.x` and `Point.y` are generated.
 
-`#check (Point.x)`
+```lean
+#check (Point.x)
+```
 
 ```
 Point.x : Point → Float
 ```
 
-`#check (Point.y)`
+```lean
+#check (Point.y)
+```
 
 ```
 Point.y : Point → Float
@@ -351,7 +411,9 @@ If `TARGET` has type `T`, the function named `T.f` is called.
 `TARGET` becomes its leftmost argument of type `T`, which is often but not always the first one, and `ARG1 ARG2 ...` are provided in order as the remaining arguments.
 For instance, `String.append` can be invoked from a string with accessor notation, even though `String` is not a structure with an `append` field.
 
-`#eval "one string".append " and another"`
+```lean
+#eval "one string".append " and another"
+```
 
 ```
 "one string and another"
@@ -380,12 +442,16 @@ In that example, `TARGET` represents `"one string"` and `ARG1` represents `" and
 
 The function `Point.modifyBoth` (that is, `modifyBoth` defined in the `Point` namespace) applies a function to both fields in a `Point`:
 
-`def Point.modifyBoth (f : Float → Float) (p : Point) : Point :=
-{ x := f p.x, y := f p.y }`
+```lean
+def Point.modifyBoth (f : Float → Float) (p : Point) : Point :=
+  { x := f p.x, y := f p.y }
+```
 
 Even though the `Point` argument comes after the function argument, it can be used with dot notation as well:
 
-`#eval fourAndThree.modifyBoth Float.floor`
+```lean
+#eval fourAndThree.modifyBoth Float.floor
+```
 
 ```
 { x := 4.000000, y := 3.000000 }
@@ -409,13 +475,19 @@ This is because the target of the accessor notation is used as the first argumen
 * Which names are introduced by the declaration of `RectangularPrism`?
 * Which names are introduced by the following declarations of `Hamster` and `Book`? What are their types?
 
-  `structure Hamster where
-  name : String
-  fluffy : Bool``structure Book where
-  makeBook ::
-  title : String
-  author : String
-  price : Float`
+  ```lean
+  structure Hamster where
+    name : String
+    fluffy : Bool
+  ```
+
+  ```lean
+  structure Book where
+    makeBook ::
+    title : String
+    author : String
+    price : Float
+  ```
 
 ## 1.4.3. 연습문제
 
@@ -425,10 +497,16 @@ This is because the target of the accessor notation is used as the first argumen
 * `RectangularPrism` 선언으로 도입되는 이름들은 무엇입니까?
 * 다음 `Hamster`와 `Book` 선언으로 도입되는 이름들은 무엇입니까? 각각의 타입은 무엇입니까?
 
-  `structure Hamster where
-  name : String
-  fluffy : Bool``structure Book where
-  makeBook ::
-  title : String
-  author : String
-  price : Float`
+  ```lean
+  structure Hamster where
+    name : String
+    fluffy : Bool
+  ```
+
+  ```lean
+  structure Book where
+    makeBook ::
+    title : String
+    author : String
+    price : Float
+  ```

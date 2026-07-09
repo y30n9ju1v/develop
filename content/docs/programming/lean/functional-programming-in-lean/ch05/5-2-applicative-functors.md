@@ -1,10 +1,10 @@
 ---
-title: "Applicative Functors"
+title: "어플리커티브 펑터"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Applicative Functors"
+description: "어플리커티브 펑터"
 ---
 
 # 5.2. Applicative Functors
@@ -25,12 +25,14 @@ The second argument has a type that begins with `Unit →` to allow the definiti
 
 The value of this short-circuiting behavior can be seen in the instance of `Applicative Option`:
 
-`instance : Applicative Option where
-pure x := .some x
-seq f x :=
-match f with
-| none => none
-| some g => g <$> x ()`
+```lean
+instance : Applicative Option where
+  pure x := .some x
+  seq f x :=
+    match f with
+    | none => none
+    | some g => g <$> x ()
+```
 
 이 단락 회로 동작의 가치는 `Applicative Option`의 인스턴스에서 볼 수 있습니다.
 
@@ -40,12 +42,14 @@ The same consideration informs the instance of `Applicative` for `Except`:
 이 경우, `seq`가 적용할 함수가 없으면 인수를 계산할 필요가 없으므로 `x`는 절대 호출되지 않습니다.
 동일한 고려사항이 `Except`에 대한 `Applicative` 인스턴스를 안내합니다:
 
-`instance : Applicative (Except ε) where
-pure x := .ok x
-seq f x :=
-match f with
-| .error e => .error e
-| .ok g => g <$> x ()`
+```lean
+instance : Applicative (Except ε) where
+  pure x := .ok x
+  seq f x :=
+    match f with
+    | .error e => .error e
+    | .ok g => g <$> x ()
+```
 
 이 단락 회로 동작은 함수 자체가 아니라 함수를 *감싸는* `Option` 또는 `Except` 구조에만 의존합니다.
 
@@ -96,9 +100,11 @@ This can itself be used with `seq`, so `some Plus.plus <*> some 4 <*> some 7` ha
 Not every functor is applicative.
 `Pair` is like the built-in product type `Prod`:
 
-`structure Pair (α β : Type) : Type where
-first : α
-second : β`
+```lean
+structure Pair (α β : Type) : Type where
+  first : α
+  second : β
+```
 
 모든 functor가 applicative는 아닙니다.
 `Pair`는 내장된 곱 타입 `Prod`와 같습니다.
@@ -109,28 +115,30 @@ This means that `Pair α` has type `Type → Type`, and a `Functor` instance is 
 `Except`처럼, `Pair`는 `Type → Type → Type` 타입을 가집니다.
 이는 `Pair α`가 `Type → Type` 타입을 가지며, `Functor` 인스턴스가 가능하다는 의미입니다:
 
-`instance : Functor (Pair α) where
-map f x := ⟨x.first, f x.second⟩`
+```lean
+instance : Functor (Pair α) where
+  map f x := ⟨x.first, f x.second⟩
+```
 
 이 인스턴스는 `Functor` 계약을 따릅니다.
 
 This instance obeys the `Functor` contract.
 
-확인할 두 가지 속성은 `id <$> Pair.mk x y``=` `Pair.mk x y`이고 `f <$> g <$> Pair.mk x y``=` `(f ∘ g) <$> Pair.mk x y`라는 것입니다.
+확인할 두 가지 속성은 `id <$> Pair.mk x y` `=` `Pair.mk x y`이고 `f <$> g <$> Pair.mk x y` `=` `(f ∘ g) <$> Pair.mk x y`라는 것입니다.
 첫 번째 속성은 왼쪽의 평가 과정을 단계적으로 따라가서 오른쪽으로 평가되는 것을 확인하면 됩니다.
 
-The two properties to check are that `id <$> Pair.mk x y``=` `Pair.mk x y` and that `f <$> g <$> Pair.mk x y``=` `(f ∘ g) <$> Pair.mk x y`.
+The two properties to check are that `id <$> Pair.mk x y` `=` `Pair.mk x y` and that `f <$> g <$> Pair.mk x y` `=` `(f ∘ g) <$> Pair.mk x y`.
 The first property can be checked by just stepping through the evaluation of the left side, and noticing that it evaluates to the right side:
 
-`id <$> Pair.mk x y``Pair.mk x (id y)``Pair.mk x y`
+`id <$> Pair.mk x y` → `Pair.mk x (id y)` → `Pair.mk x y`
 
 두 번째는 양쪽을 단계적으로 따라가서 동일한 결과를 얻는지 확인합니다.
 
 The second can be checked by stepping through both sides, and noting that they yield the same result:
 
-`f <$> g <$> Pair.mk x y``f <$> Pair.mk x (g y)``Pair.mk x (f (g y))`
+`f <$> g <$> Pair.mk x y` → `f <$> Pair.mk x (g y)` → `Pair.mk x (f (g y))`
 
-`(f ∘ g) <$> Pair.mk x y``Pair.mk x ((f ∘ g) y)``Pair.mk x (f (g y))`
+`(f ∘ g) <$> Pair.mk x y` → `Pair.mk x ((f ∘ g) y)` → `Pair.mk x (f (g y))`
 
 그러나 `Applicative` 인스턴스를 정의하려는 시도는 그리 잘 작동하지 않습니다.
 `pure`의 정의가 필요합니다.
@@ -138,26 +146,30 @@ The second can be checked by stepping through both sides, and noting that they y
 Attempting to define an `Applicative` instance, however, does not work so well.
 It will require a definition of `pure`:
 
-`def Pair.pure (x : β) : Pair α β := don't know how to synthesize placeholder
-context:
-β α:Typex:β⊢ Pair α β_`
+```lean
+def Pair.pure (x : β) : Pair α β := _
+```
 
 ```
 don't know how to synthesize placeholder
 context:
-β α:Typex:β⊢ Pair α β
+β α : Type
+x : β
+⊢ Pair α β
 ```
 
 There is a value with type `β` in scope (namely `x`), and the error message from the underscore suggests that the next step is to use the constructor `Pair.mk`:
 
-`` def Pair.pure (x : β) : Pair α β := Pair.mk don't know how to synthesize placeholder for argument `first`
-context:
-β α:Typex:β⊢ α_ x ``
+```lean
+def Pair.pure (x : β) : Pair α β := Pair.mk _ x
+```
 
 ```
 don't know how to synthesize placeholder for argument `first`
 context:
-β α:Typex:β⊢ α
+β α : Type
+x : β
+⊢ α
 ```
 
 Unfortunately, there is no `α` available.
@@ -206,9 +218,11 @@ Unlike `Except`, it allows multiple errors to be accumulated, without a risk of 
 
 As an example of user input, take the following structure:
 
-`structure RawInput where
-name : String
-birthYear : String`
+```lean
+structure RawInput where
+  name : String
+  birthYear : String
+```
 
 사용자 입력의 예로, 다음 구조를 고려하세요.
 
@@ -234,9 +248,11 @@ With this tool in hand, a validation framework can be written that uses an appli
 
 Representing these conditions is easiest with one additional Lean type, called `Subtype`:
 
-`structure Subtype {α : Type} (p : α → Prop) where
-val : α
-property : p val`
+```lean
+structure Subtype {α : Type} (p : α → Prop) where
+  val : α
+  property : p val
+```
 
 이 조건들을 표현하는 것은 `Subtype`이라는 하나의 추가 Lean 타입으로 가장 쉽습니다.
 
@@ -266,13 +282,23 @@ However, a subtype of `Nat` that restricts it to non-zero numbers allows the new
 추가 사용자 정의 타입의 경우는 그렇지 않습니다.
 그러나 0이 아닌 숫자로 제한하는 `Nat`의 서브타입은 새로운 타입이 컴파일 시간에 0을 배제하면서도 효율적인 표현을 사용할 수 있게 합니다:
 
-`def FastPos : Type := {x : Nat // x > 0}`
+```lean
+def FastPos : Type := {x : Nat // x > 0}
+```
 
 가장 작은 빠른 양수는 여전히 1입니다.
 이제 귀납적 타입의 생성자가 아니라 꺾인 괄호로 구성된 구조의 인스턴스입니다.
 첫 번째 인수는 기본 `Nat`이고, 두 번째 인수는 해당 `Nat`이 0보다 크다는 증거입니다:
 
-`def one : FastPos := ⟨1, by⊢ 1 > 0 decideAll goals completed! 🐙⟩`
+```lean
+def one : FastPos := ⟨1, by decide⟩
+```
+
+```
+⊢ 1 > 0
+decide
+All goals completed! 🐙
+```
 
 명제 `1 > 0`는 결정 가능하므로 `decide` 타틱은 필요한 증거를 생성합니다.
 `OfNat` 인스턴스는 `Pos`에 대한 것과 매우 유사하지만, `n + 1 > 0`이라는 증거를 제공하기 위해 짧은 타틱 증명을 사용합니다.
@@ -280,8 +306,17 @@ However, a subtype of `Nat` that restricts it to non-zero numbers allows the new
 The proposition `1 > 0` is decidable, so the `decide` tactic produces the necessary evidence.
 The `OfNat` instance is very much like that for `Pos`, except it uses a short tactic proof to provide evidence that `n + 1 > 0`:
 
-`instance : OfNat FastPos (n + 1) where
-ofNat := ⟨n + 1, byn:Nat⊢ n + 1 > 0 simpAll goals completed! 🐙⟩`
+```lean
+instance : OfNat FastPos (n + 1) where
+  ofNat := ⟨n + 1, by simp⟩
+```
+
+```
+n : Nat
+⊢ n + 1 > 0
+simp
+All goals completed! 🐙
+```
 
 여기서 `simp`는 `decide`가 구체적인 값을 필요로 하지만 문제의 명제가 `n + 1 > 0`이기 때문에 필요합니다.
 
@@ -307,10 +342,12 @@ This comes in handy when checking whether a given `Nat` is positive:
 `then` 분기에서 이름은 명제가 참이라는 증거에 바인딩되고, `else` 분기에서는 명제가 거짓이라는 증거에 바인딩됩니다.
 이는 주어진 `Nat`이 양수인지 확인할 때 편리합니다:
 
-`def Nat.asFastPos? (n : Nat) : Option FastPos :=
-if h : n > 0 then
-some ⟨n, h⟩
-else none`
+```lean
+def Nat.asFastPos? (n : Nat) : Option FastPos :=
+  if h : n > 0 then
+    some ⟨n, h⟩
+  else none
+```
 
 `then` 분기에서 `h`는 `n > 0`이라는 증거에 바인딩되며, 이 증거는 `Subtype`의 생성자에 두 번째 인수로 사용될 수 있습니다.
 
@@ -330,9 +367,11 @@ The validated user input is a structure that expresses the business logic using 
 * 출생 연도는 `String`이 아닌 `Nat`로 표현됩니다
 * Subtype은 이름 및 출생 연도 필드에서 허용되는 값을 제한하는 데 사용됩니다
 
-`structure CheckedInput (thisYear : Nat) : Type where
-name : {n : String // n ≠ ""}
-birthYear : {y : Nat // y > 1900 ∧ y ≤ thisYear}`
+```lean
+structure CheckedInput (thisYear : Nat) : Type where
+  name : {n : String // n ≠ ""}
+  birthYear : {y : Nat // y > 1900 ∧ y ≤ thisYear}
+```
 
 입력 검증자는 현재 연도와 `RawInput`을 인수로 취하여 검증된 입력 또는 최소 하나의 검증 실패를 반환해야 합니다.
 이는 `Validate` 타입으로 표현됩니다.
@@ -340,9 +379,11 @@ birthYear : {y : Nat // y > 1900 ∧ y ≤ thisYear}`
 An input validator should take the current year and a `RawInput` as arguments, returning either a checked input or at least one validation failure.
 This is represented by the `Validate` type:
 
-`inductive Validate (ε α : Type) : Type where
-| ok : α → Validate ε α
-| errors : NonEmptyList ε → Validate ε α`
+```lean
+inductive Validate (ε α : Type) : Type where
+  | ok : α → Validate ε α
+  | errors : NonEmptyList ε → Validate ε α
+```
 
 `Except`와 매우 유사해 보입니다.
 유일한 차이점은 `errors` 생성자가 하나 이상의 실패를 포함할 수 있다는 것입니다.
@@ -353,10 +394,12 @@ The only difference is that the `errors` constructor may contain more than one f
 `Validate` is a functor.
 Mapping a function over it transforms any successful value that might be present, just as in the `Functor` instance for `Except`:
 
-`instance : Functor (Validate ε) where
-map f
-| .ok x => .ok (f x)
-| .errors errs => .errors errs`
+```lean
+instance : Functor (Validate ε) where
+  map f
+    | .ok x => .ok (f x)
+    | .errors errs => .errors errs
+```
 
 `Validate`는 functor입니다.
 함수를 매핑하면 `Except`의 `Functor` 인스턴스와 마찬가지로 있을 수 있는 모든 성공 값이 변환됩니다.
@@ -365,15 +408,17 @@ The `Applicative` instance for `Validate` has an important difference from the i
 
 `Validate`의 `Applicative` 인스턴스는 `Except`의 인스턴스와 중요한 차이점이 있습니다: `Except`의 인스턴스는 첫 번째 오류에서 종료되지만, `Validate`의 인스턴스는 함수 및 인수 분기 *모두*에서 모든 오류를 누적하도록 주의합니다:
 
-`instance : Applicative (Validate ε) where
-pure := .ok
-seq f x :=
-match f with
-| .ok g => g <$> (x ())
-| .errors errs =>
-match x () with
-| .ok _ => .errors errs
-| .errors errs' => .errors (errs ++ errs')`
+```lean
+instance : Applicative (Validate ε) where
+  pure := .ok
+  seq f x :=
+    match f with
+    | .ok g => g <$> (x ())
+    | .errors errs =>
+      match x () with
+      | .ok _ => .errors errs
+      | .errors errs' => .errors (errs ++ errs')
+```
 
 `.errors`를 `NonEmptyList`의 생성자와 함께 사용하는 것은 약간 장황합니다.
 `reportError`와 같은 도우미는 코드를 더 읽기 쉽게 만듭니다.
@@ -383,8 +428,12 @@ Using `.errors` together with the constructor for `NonEmptyList` is a bit verbos
 Helpers like `reportError` make code more readable.
 In this application, error reports will consist of field names paired with messages:
 
-`def Field := String``def reportError (f : Field) (msg : String) : Validate (Field × String) α :=
-.errors { head := (f, msg), tail := [] }`
+```lean
+def Field := String
+
+def reportError (f : Field) (msg : String) : Validate (Field × String) α :=
+  .errors { head := (f, msg), tail := [] }
+```
 
 `Validate`의 `Applicative` 인스턴스는 각 필드의 검사 절차를 독립적으로 작성한 다음 구성할 수 있게 합니다.
 이름을 확인하는 것은 문자열이 비어있지 않음을 보장한 다음 이 사실을 `Subtype` 형식의 증거로 반환하는 것으로 구성됩니다.
@@ -394,11 +443,13 @@ The `Applicative` instance for `Validate` allows the checking procedures for eac
 Checking a name consists of ensuring that a string is non-empty, then returning evidence of this fact in the form of a `Subtype`.
 This uses the evidence-binding version of `if`:
 
-`def checkName (name : String) :
-Validate (Field × String) {n : String // n ≠ ""} :=
-if h : name = "" then
-reportError "name" "Required"
-else pure ⟨name, h⟩`
+```lean
+def checkName (name : String) :
+    Validate (Field × String) {n : String // n ≠ ""} :=
+  if h : name = "" then
+    reportError "name" "Required"
+  else pure ⟨name, h⟩
+```
 
 `then` 분기에서 `h`는 `name = ""`이라는 증거에 바인딩되고, `else` 분기에서는 `¬name = ""`이라는 증거에 바인딩됩니다.
 
@@ -414,11 +465,13 @@ This can be expressed using the function `andThen`:
 숫자의 허용 범위를 확인하는 것은 필드가 실제로 숫자를 포함하는지 확인한 후에만 의미가 있습니다.
 이는 `andThen` 함수를 사용하여 표현할 수 있습니다:
 
-`def Validate.andThen (val : Validate ε α)
-(next : α → Validate ε β) : Validate ε β :=
-match val with
-| .errors errs => .errors errs
-| .ok x => next x`
+```lean
+def Validate.andThen (val : Validate ε α)
+    (next : α → Validate ε β) : Validate ε β :=
+  match val with
+  | .errors errs => .errors errs
+  | .ok x => next x
+```
 
 이 함수의 타입 시그니처는 `Monad` 인스턴스에서 `bind`로 사용하기에 적합하지만, 그렇게 하지 않을 좋은 이유가 있습니다.
 [`Applicative` 계약을 설명하는 섹션](Functors___-Applicative-Functors___-and-Monads/The-Applicative-Contract/#additional-stipulations)에서 설명합니다.
@@ -429,10 +482,12 @@ They are described [in the section that describes the `Applicative` contract](Fu
 To check that the birth year is a number, a built-in function called `String.toNat? : String → Option Nat` is useful.
 It's most user-friendly to eliminate leading and trailing whitespace first using `String.trim`:
 
-`def checkYearIsNat (year : String) : Validate (Field × String) Nat :=
-match year.trim.toNat? with
-| none => reportError "birth year" "Must be digits"
-| some n => pure n`
+```lean
+def checkYearIsNat (year : String) : Validate (Field × String) Nat :=
+  match year.trim.toNat? with
+  | none => reportError "birth year" "Must be digits"
+  | some n => pure n
+```
 
 출생 연도가 숫자인지 확인하기 위해 `String.toNat? : String → Option Nat`이라고 불리는 내장 함수가 유용합니다.
 가장 사용자 친화적인 방법은 먼저 `String.trim`을 사용하여 앞뒤의 공백을 제거하는 것입니다.
@@ -441,19 +496,25 @@ Testing `checkInput` shows that it can indeed return multiple pieces of feedback
 
 `checkInput`을 테스트하면 실제로 여러 피드백을 반환할 수 있음을 알 수 있습니다:
 
-`Validate.ok { name := "David", birthYear := 1984 }#eval checkInput 2023 {name := "David", birthYear := "1984"}`
+```lean
+#eval checkInput 2023 {name := "David", birthYear := "1984"}
+```
 
 ```
 Validate.ok { name := "David", birthYear := 1984 }
 ```
 
-`Validate.errors { head := ("name", "Required"), tail := [("birth year", "Must be no later than 2023")] }#eval checkInput 2023 {name := "", birthYear := "2045"}`
+```lean
+#eval checkInput 2023 {name := "", birthYear := "2045"}
+```
 
 ```
 Validate.errors { head := ("name", "Required"), tail := [("birth year", "Must be no later than 2023")] }
 ```
 
-`Validate.errors { head := ("birth year", "Must be digits"), tail := [] }#eval checkInput 2023 {name := "David", birthYear := "syzygy"}`
+```lean
+#eval checkInput 2023 {name := "David", birthYear := "syzygy"}
+```
 
 ```
 Validate.errors { head := ("birth year", "Must be digits"), tail := [] }

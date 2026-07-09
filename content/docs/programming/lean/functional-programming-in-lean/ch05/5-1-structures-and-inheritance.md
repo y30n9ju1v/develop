@@ -1,10 +1,10 @@
 ---
-title: "Structures and Inheritance"
+title: "구조체와 상속"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Structures and Inheritance"
+description: "구조체와 상속"
 ---
 
 # 5.1. Structures and Inheritance
@@ -21,15 +21,19 @@ Structure inheritance를 사용하면 하나의 structure 타입이 다른 struc
 예를 들어, 신화 속의 생물들을 모델링한다고 가정해봅시다.
 그들 중 일부는 크고, 일부는 작습니다:
 
-`structure MythicalCreature where
-large : Bool
-deriving Repr`
+```lean
+structure MythicalCreature where
+  large : Bool
+deriving Repr
+```
 
 Behind the scenes, defining the `MythicalCreature` structure creates an inductive type with a single constructor called `mk`:
 
 내부적으로 `MythicalCreature` structure를 정의하면 `mk`라는 단일 constructor를 가진 inductive type이 생성됩니다:
 
-`MythicalCreature.mk (large : Bool) : MythicalCreature#check MythicalCreature.mk`
+```lean
+#check MythicalCreature.mk
+```
 
 ```
 MythicalCreature.mk (large : Bool) : MythicalCreature
@@ -39,7 +43,9 @@ Similarly, a function `MythicalCreature.large` is created that actually extracts
 
 마찬가지로 constructor에서 필드를 추출하는 `MythicalCreature.large` 함수가 생성됩니다:
 
-`MythicalCreature.large (self : MythicalCreature) : Bool#check MythicalCreature.large`
+```lean
+#check MythicalCreature.large
+```
 
 ```
 MythicalCreature.large (self : MythicalCreature) : Bool
@@ -51,9 +57,11 @@ A description of a monster should include this information, along with whether i
 대부분의 옛날 이야기에서 각 괴물은 어떤 방식으로든 격퇴될 수 있습니다.
 괴물의 설명에는 이 정보와 함께 그것이 큰지 여부도 포함되어야 합니다:
 
-`structure Monster extends MythicalCreature where
-vulnerability : String
-deriving Repr`
+```lean
+structure Monster extends MythicalCreature where
+  vulnerability : String
+deriving Repr
+```
 
 The `extends MythicalCreature` in the heading states that every monster is also mythical.
 To define a `Monster`, both the fields from `MythicalCreature` and the fields from `Monster` should be provided.
@@ -63,9 +71,11 @@ A troll is a large monster that is vulnerable to sunlight:
 `Monster`를 정의하려면 `MythicalCreature`의 필드와 `Monster`의 필드를 모두 제공해야 합니다.
 트롤은 햇빛에 취약한 대형 괴물입니다:
 
-`def troll : Monster where
-large := true
-vulnerability := "sunlight"`
+```lean
+def troll : Monster where
+  large := true
+  vulnerability := "sunlight"
+```
 
 Behind the scenes, inheritance is implemented using composition.
 The constructor `Monster.mk` takes a `MythicalCreature` as its argument:
@@ -73,7 +83,9 @@ The constructor `Monster.mk` takes a `MythicalCreature` as its argument:
 내부적으로 inheritance는 composition을 사용하여 구현됩니다.
 `Monster.mk` constructor는 `MythicalCreature`를 인자로 받습니다:
 
-`Monster.mk (toMythicalCreature : MythicalCreature) (vulnerability : String) : Monster#check Monster.mk`
+```lean
+#check Monster.mk
+```
 
 ```
 Monster.mk (toMythicalCreature : MythicalCreature) (vulnerability : String) : Monster
@@ -95,7 +107,9 @@ Upcast 연산자는 파생 클래스의 값을 부모 클래스의 인스턴스�
 하지만 Lean에서는 inheritance 계층을 올라가는 것이 실제로 기본 정보를 지우는 것입니다.
 이를 실제로 보기 위해 `troll.toMythicalCreature`를 평가한 결과를 생각해봅시다:
 
-`{ large := true }#eval troll.toMythicalCreature`
+```lean
+#eval troll.toMythicalCreature
+```
 
 ```
 { large := true }
@@ -109,20 +123,17 @@ Just like the `where` syntax, curly-brace notation with field names also works w
 
 `where` 문법처럼, 필드명이 있는 중괄호 표기법도 structure inheritance와 함께 작동합니다:
 
-`def troll : Monster := {large := true, vulnerability := "sunlight"}`
+```lean
+def troll : Monster := {large := true, vulnerability := "sunlight"}
+```
 
 However, the anonymous angle-bracket notation that delegates to the underlying constructor reveals the internal details:
 
 하지만 기본 constructor로 위임하는 익명의 angle-bracket 표기법은 내부 세부 사항을 드러냅니다:
 
-`def troll : Monster := ⟨Application type mismatch: The argument
-true
-has type
-Bool
-but is expected to have type
-MythicalCreature
-in the application
-Monster.mk truetrue, "sunlight"⟩`
+```lean
+def troll : Monster := ⟨true, "sunlight"⟩
+```
 
 ```
 Application type mismatch: The argument
@@ -139,7 +150,9 @@ An extra set of angle brackets is required, which invokes `MythicalCreature.mk` 
 
 추가 angle brackets 세트가 필요하며, 이는 `true`에 대해 `MythicalCreature.mk`를 호출합니다:
 
-`def troll : Monster := ⟨⟨true⟩, "sunlight"⟩`
+```lean
+def troll : Monster := ⟨⟨true⟩, "sunlight"⟩
+```
 
 Lean's dot notation is capable of taking inheritance into account.
 In other words, the existing `MythicalCreature.large` can be used with a `Monster`, and Lean automatically inserts the call to `Monster.toMythicalCreature` before the call to `MythicalCreature.large`.
@@ -149,14 +162,9 @@ Lean의 dot notation은 inheritance를 고려할 수 있습니다.
 다시 말해, 기존의 `MythicalCreature.large`를 `Monster`와 함께 사용할 수 있으며, Lean은 `MythicalCreature.large` 호출 전에 자동으로 `Monster.toMythicalCreature` 호출을 삽입합니다.
 하지만 이는 dot notation을 사용할 때만 발생하며, 일반 함수 호출 문법을 사용하여 필드 조회 함수를 적용하면 타입 오류가 발생합니다:
 
-`#eval MythicalCreature.large Application type mismatch: The argument
-troll
-has type
-Monster
-but is expected to have type
-MythicalCreature
-in the application
-MythicalCreature.large trolltroll`
+```lean
+#eval MythicalCreature.large troll
+```
 
 ```
 Application type mismatch: The argument
@@ -175,7 +183,9 @@ A small creature is one that is not large:
 Dot notation은 사용자 정의 함수에 대해서도 inheritance를 고려할 수 있습니다.
 작은 생물은 크지 않은 생물입니다:
 
-`def MythicalCreature.small (c : MythicalCreature) : Bool := !c.large`
+```lean
+def MythicalCreature.small (c : MythicalCreature) : Bool := !c.large
+```
 
 Evaluating `troll.small` yields `false`, while attempting to evaluate `MythicalCreature.small troll` results in:
 
@@ -198,19 +208,23 @@ A helper is a mythical creature that can provide assistance when given the corre
 
 도우미는 올바른 보상을 받으면 도움을 제공할 수 있는 신화 속의 생물입니다:
 
-`structure Helper extends MythicalCreature where
-assistance : String
-payment : String
-deriving Repr`
+```lean
+structure Helper extends MythicalCreature where
+  assistance : String
+  payment : String
+deriving Repr
+```
 
 For example, a *nisse* is a kind of small elf that's known to help around the house when provided with tasty porridge:
 
 예를 들어, *nisse*는 맛있는 죽을 받으면 집 주변을 돕는 것으로 알려진 작은 요정의 일종입니다:
 
-`def nisse : Helper where
-large := false
-assistance := "household tasks"
-payment := "porridge"`
+```lean
+def nisse : Helper where
+  large := false
+  assistance := "household tasks"
+  payment := "porridge"
+```
 
 If domesticated, trolls make excellent helpers.
 They are strong enough to plow a whole field in a single night, though they require model goats to keep them satisfied with their lot in life.
@@ -220,18 +234,22 @@ A monstrous assistant is a monster that is also a helper:
 그들은 한 밤 안에 온 들판을 갈 수 있을 정도로 강하지만, 자신의 상황에 만족하게 유지하기 위해 장난감 염소가 필요합니다.
 흉한 도우미는 괴물이면서 동시에 도우미입니다:
 
-`structure MonstrousAssistant extends Monster, Helper where
-deriving Repr`
+```lean
+structure MonstrousAssistant extends Monster, Helper where
+deriving Repr
+```
 
 A value of this structure type must fill in all of the fields from both parent structures:
 
 이 structure 타입의 값은 두 부모 structure의 모든 필드를 채워야 합니다:
 
-`def domesticatedTroll : MonstrousAssistant where
-large := true
-assistance := "heavy labor"
-payment := "toy goats"
-vulnerability := "sunlight"`
+```lean
+def domesticatedTroll : MonstrousAssistant where
+  large := true
+  assistance := "heavy labor"
+  payment := "toy goats"
+  vulnerability := "sunlight"
+```
 
 Both of the parent structure types extend `MythicalCreature`.
 If multiple inheritance were implemented naïvely, then this could lead to a “diamond problem”, where it would be unclear which path to `large` should be taken from a given `MonstrousAssistant`.
@@ -247,7 +265,9 @@ This can be seen by examining the signature of the constructor for `MonstrousAss
 
 이는 `MonstrousAssistant`의 constructor 시그니처를 검토하면 알 수 있습니다:
 
-`MonstrousAssistant.mk (toMonster : Monster) (assistance payment : String) : MonstrousAssistant#check MonstrousAssistant.mk`
+```lean
+#check MonstrousAssistant.mk
+```
 
 ```
 MonstrousAssistant.mk (toMonster : Monster) (assistance payment : String) : MonstrousAssistant
@@ -261,8 +281,9 @@ The `#print` command exposes its implementation:
 마찬가지로, `MonstrousAssistant.toMonster`는 단순히 constructor에서 `Monster`를 추출하지만, `MonstrousAssistant.toHelper`는 추출할 `Helper`가 없습니다.
 `#print` 명령은 그 구현을 드러냅니다:
 
-`@[reducible] def MonstrousAssistant.toHelper : MonstrousAssistant → Helper :=
-fun self => { toMythicalCreature := self.toMythicalCreature, assistance := self.assistance, payment := self.payment }#print MonstrousAssistant.toHelper`
+```lean
+#print MonstrousAssistant.toHelper
+```
 
 ```
 @[reducible] def MonstrousAssistant.toHelper : MonstrousAssistant → Helper :=
@@ -283,14 +304,17 @@ If more size specificity is required than whether a creature is large or not, a 
 한 structure이 다른 structure으로부터 상속될 때, 기본 필드 정의를 사용하여 자식 structure의 필드를 기반으로 부모 structure의 필드를 인스턴스화할 수 있습니다.
 생물이 크기가 크거나 작은 것보다 더 많은 크기 구체성이 필요한 경우, 크기를 설명하는 전용 datatype을 inheritance와 함께 사용할 수 있으며, 이는 `large` 필드가 `size` 필드의 내용으로부터 계산되는 structure를 생성합니다:
 
-`inductive Size where
-| small
-| medium
-| large
+```lean
+inductive Size where
+  | small
+  | medium
+  | large
 deriving BEq
+
 structure SizedCreature extends MythicalCreature where
-size : Size
-large := size == Size.large`
+  size : Size
+  large := size == Size.large
+```
 
 This default definition is only a default definition, however.
 Unlike property inheritance in a language like C# or Scala, the definitions in the child structure are only used when no specific value for `large` is provided, and nonsensical results can occur:
@@ -298,9 +322,11 @@ Unlike property inheritance in a language like C# or Scala, the definitions in t
 하지만 이 기본 정의는 기본 정의일 뿐입니다.
 C# 또는 Scala와 같은 언어의 property inheritance와 달리, 자식 structure의 정의는 `large`에 대한 특정 값이 제공되지 않을 때만 사용되며, 말이 안 되는 결과가 발생할 수 있습니다:
 
-`def nonsenseCreature : SizedCreature where
-large := false
-size := .large`
+```lean
+def nonsenseCreature : SizedCreature where
+  large := false
+  size := .large
+```
 
 If the child structure should not deviate from the parent structure, there are a few options:
 
@@ -318,8 +344,10 @@ The second option could look like this:
 
 두 번째 옵션은 다음과 같이 보일 수 있습니다:
 
-`abbrev SizesMatch (sc : SizedCreature) : Prop :=
-sc.large = (sc.size == Size.large)`
+```lean
+abbrev SizesMatch (sc : SizedCreature) : Prop :=
+  sc.large = (sc.size == Size.large)
+```
 
 Note that a single equality sign is used to indicate the equality *proposition*, while a double equality sign is used to indicate a function that checks equality and returns a `Bool`.
 `SizesMatch` is defined as an `abbrev` because it should automatically be unfolded in proofs, so that `decide` can see the equality that should be proven.
@@ -333,10 +361,17 @@ The two sized fields on `huldre` match one another:
 *huldre*는 중간 크기의 신화 속의 생물입니다. 사실 그들은 인간과 같은 크기입니다.
 `huldre`의 두 개의 크기 필드는 서로 일치합니다:
 
-`def huldre : SizedCreature where
-size := .medium
-example : SizesMatch huldre := by⊢ SizesMatch huldre
-decideAll goals completed! 🐙`
+```lean
+def huldre : SizedCreature where
+  size := .medium
+
+example : SizesMatch huldre := by
+  decide
+```
+
+```
+All goals completed! 🐙
+```
 
 ### 5.1.1.2. Type Class Inheritance
 

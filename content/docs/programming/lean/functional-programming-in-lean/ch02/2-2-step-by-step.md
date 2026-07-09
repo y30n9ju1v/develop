@@ -1,10 +1,10 @@
 ---
-title: "Step By Step"
+title: "단계별로 살펴보기"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "functional-programming"]
 categories: ["programming"]
-description: "Step By Step"
+description: "Lean 프로그램이 컴파일되고 실행되는 과정을 단계별로 살펴보기"
 ---
 
 # Step By Step
@@ -39,10 +39,12 @@ Now that `stdin` and `stdout` have been found, the remainder of the block consis
 
 이제 `stdin`과 `stdout`을 찾았으므로, 블록의 나머지는 질문과 답으로 구성됩니다:
 
-`stdout.putStrLn "How would you like to be addressed?"
+```lean
+stdout.putStrLn "How would you like to be addressed?"
 let input ← stdin.getLine
 let name := input.dropRightWhile Char.isWhitespace
-stdout.putStrLn s!"Hello, {name}!"`
+stdout.putStrLn s!"Hello, {name}!"
+```
 
 The first statement in the block, `stdout.putStrLn "How would you like to be addressed?"`, consists of an expression.
 To execute an expression, it is first evaluated.
@@ -78,8 +80,10 @@ The resulting line (`”David\n”`) is associated with `input`, where the escap
 사용자가 “`David`”를 입력한다고 가정합니다.
 결과 라인(`”David\n”`)은 `input`과 연결되며, 여기서 이스케이프 시퀀스 `\n`은 줄 바꿈 문자를 나타냅니다.
 
-`let name := input.dropRightWhile Char.isWhitespace
-stdout.putStrLn s!"Hello, {name}!"`
+```lean
+let name := input.dropRightWhile Char.isWhitespace
+stdout.putStrLn s!"Hello, {name}!"
+```
 
 The next line, `let name := input.dropRightWhile Char.isWhitespace`, is a `let` statement.
 Unlike the other `let` statements in this program, it uses `:=` instead of `←`.
@@ -93,7 +97,9 @@ For example,
 이 경우 `String.dropRightWhile`은 문자열과 문자에 대한 술어를 받아 문자열의 끝에서 술어를 만족하는 모든 문자가 제거된 새 문자열을 반환합니다.
 예를 들어,
 
-`#eval "Hello!!!".dropRightWhile (· == '!')`
+```lean
+#eval "Hello!!!".dropRightWhile (· == '!')
+```
 
 yields
 
@@ -103,9 +109,15 @@ yields
 
 and
 
-`#eval "Hello... ".dropRightWhile (fun c => not (c.isAlphanum))`
+```lean
+#eval "Hello... ".dropRightWhile (fun c => not (c.isAlphanum))
+```
 
 yields
+
+```
+"Hello"
+```
 
 in which all non-alphanumeric characters have been removed from the right side of the string.
 In the current line of the program, whitespace characters (including the newline) are removed from the right side of the input string, resulting in `"David"`, which is associated with `name` for the remainder of the block.
@@ -117,7 +129,9 @@ In the current line of the program, whitespace characters (including the newline
 
 All that remains to be executed in the `do` block is a single statement:
 
-`stdout.putStrLn s!"Hello, {name}!"`
+```lean
+stdout.putStrLn s!"Hello, {name}!"
+```
 
 The string argument to `putStrLn` is constructed via string interpolation, yielding the string `"Hello, David!"`.
 Because this statement is an expression, it is evaluated to yield an `IO` action that will print this string with a newline to standard output.
@@ -155,13 +169,17 @@ For example, the function `twice` takes an `IO` action as its argument, returnin
 
 예를 들어, `twice` 함수는 `IO` 액션을 인수로 받아 인수 액션을 두 번 실행할 새로운 액션을 반환합니다.
 
-`def twice (action : IO Unit) : IO Unit := do
-action
-action`
+```lean
+def twice (action : IO Unit) : IO Unit := do
+  action
+  action
+```
 
 Executing
 
-`twice (IO.println "shy")`
+```lean
+twice (IO.println "shy")
+```
 
 results in
 
@@ -175,20 +193,19 @@ This can be generalized to a version that runs the underlying action any number 
 
 이는 기본 액션을 여러 번 실행하는 버전으로 일반화될 수 있습니다:
 
-`def nTimes (action : IO Unit) : Nat → IO Unit
-| 0 => pure ()
-| n + 1 => do
-action
-nTimes action n`
+```lean
+def nTimes (action : IO Unit) : Nat → IO Unit
+  | 0 => pure ()
+  | n + 1 => do
+    action
+    nTimes action n
+```
 
 In the base case for `Nat.zero`, the result is `pure ()`.
 The function `pure` creates an `IO` action that has no side effects, but returns `pure`'s argument, which in this case is the constructor for `Unit`.
 As an action that does nothing and returns nothing interesting, `pure ()` is at the same time utterly boring and very useful.
 In the recursive step, a `do` block is used to create an action that first executes `action` and then executes the result of the recursive call.
-Executing `Hello
-Hello
-Hello
-#eval nTimes (IO.println "Hello") 3` causes the following output:
+Executing `#eval nTimes (IO.println "Hello") 3` causes the following output:
 
 `Nat.zero`의 기본 경우에서 결과는 `pure ()`입니다.
 `pure` 함수는 부작용이 없지만 `pure`의 인수(이 경우 `Unit`의 생성자)를 반환하는 `IO` 액션을 생성합니다.
@@ -208,14 +225,18 @@ For instance, the function `countdown` takes a `Nat` and returns a list of unexe
 함수를 제어 구조로 사용하는 것 외에도, `IO` 액션이 1급 값이라는 사실은 나중에 실행하기 위해 데이터 구조에 저장될 수 있음을 의미합니다.
 예를 들어, `countdown` 함수는 `Nat`을 받아 각 `Nat`마다 하나씩 실행되지 않은 `IO` 액션의 리스트를 반환합니다:
 
-`def countdown : Nat → List (IO Unit)
-| 0 => [IO.println "Blast off!"]
-| n + 1 => IO.println s!"{n + 1}" :: countdown n`
+```lean
+def countdown : Nat → List (IO Unit)
+  | 0 => [IO.println "Blast off!"]
+  | n + 1 => IO.println s!"{n + 1}" :: countdown n
+```
 
 This function has no side effects, and does not print anything.
 For example, it can be applied to an argument, and the length of the resulting list of actions can be checked:
 
-`def from5 : List (IO Unit) := countdown 5`
+```lean
+def from5 : List (IO Unit) := countdown 5
+```
 
 This list contains six elements (one for each number, plus a `"Blast off!"` action for zero):
 
@@ -224,7 +245,9 @@ This list contains six elements (one for each number, plus a `"Blast off!"` acti
 
 이 리스트는 여섯 개의 요소(각 숫자마다 하나씩, 그리고 0에 대한 `"Blast off!"` 액션)를 포함합니다:
 
-`#eval from5.length`
+```lean
+#eval from5.length
+```
 
 ```
 6
@@ -232,11 +255,13 @@ This list contains six elements (one for each number, plus a `"Blast off!"` acti
 
 The function `runActions` takes a list of actions and constructs a single action that runs them all in order:
 
-`def runActions : List (IO Unit) → IO Unit
-| [] => pure ()
-| act :: actions => do
-act
-runActions actions`
+```lean
+def runActions : List (IO Unit) → IO Unit
+  | [] => pure ()
+  | act :: actions => do
+    act
+    runActions actions
+```
 
 Its structure is essentially the same as that of `nTimes`, except instead of having one action that is executed for each `Nat.succ`, the action under each `List.cons` is to be executed.
 Similarly, `runActions` does not itself run the actions.
@@ -248,16 +273,20 @@ It creates a new action that will run them, and that action must be placed in a 
 마찬가지로, `runActions`는 자체적으로 액션을 실행하지 않습니다.
 그것들을 실행할 새로운 액션을 만들고, 그 액션은 `main`의 일부로 실행될 위치에 배치되어야 합니다:
 
-`def main : IO Unit := runActions from5`
+```lean
+def main : IO Unit := runActions from5
+```
 
 Running this program results in the following output:
 
-`countdown``5
+```
+5
 4
 3
 2
 1
-Blast off!`
+Blast off!
+```
 
 What happens when this program is run?
 The first step is to evaluate `main`. That occurs as follows:
