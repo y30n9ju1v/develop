@@ -1,0 +1,246 @@
+---
+title: "4.1. 메타순환 평가기 (The Metacircular Evaluator)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "interpreters", "metacircular-evaluator"]
+categories: ["programming"]
+description: "SICP 4장 1절의 아이디어(eval/apply, 추상 구문, 환경 연산, 전역 환경, 데이터로서의 프로그램)를 Lean 4의 귀납 타입과 IO.Ref 환경으로 다시 짜 봅니다."
+---
+
+Every post so far has used Lean to *implement* some idea from SICP. This one is different: we use Lean to implement an *interpreter for a Lisp-like language*, and the interpreter is written in the same style of language it interprets — an evaluator whose own evaluation rules are visible as ordinary code, evaluating expressions built from the same kind of pieces the evaluator itself is built from. SICP calls this *metacircular*, and the payoff is that once we've built `eval` and `apply`, we have a working, inspectable model of what "evaluating a program" actually means.
+
+지금까지 모든 글은 Lean으로 SICP의 아이디어를 *구현*했습니다. 이번 글은 다릅니다 — Lean으로 *Lisp과 비슷한 언어의 인터프리터*를 구현하는데, 그 인터프리터는 자신이 해석하는 것과 같은 스타일의 언어로 쓰입니다 — 평가 규칙 자체가 평범한 코드로 눈에 보이고, 그 평가기 자신을 이루는 것과 같은 종류의 조각들로 만들어진 표현식을 평가합니다. SICP는 이를 *메타순환적(metacircular)*이라 부르고, 그 대가로 `eval`과 `apply`를 만들고 나면 "프로그램을 평가한다는 것"이 실제로 무엇을 의미하는지에 대한, 직접 실행하고 들여다볼 수 있는 모델을 갖게 됩니다.
+
+---
+
+## 4.1.1. 평가기의 핵심: `eval`과 `apply`
+
+Every expression falls into one of a small number of syntactic categories, and evaluating a compound expression reduces, recursively, to evaluating its pieces and combining the results according to which category it belongs to. SICP represents every expression as an untyped list and writes a predicate (`self-evaluating?`, `quoted?`, `assignment?`, …) plus a handful of selectors for each category, so that `eval`'s `cond` can dispatch on expression shape without committing to how that shape is actually stored.
+
+모든 표현식은 몇 안 되는 구문 범주 중 하나에 속하고, 복합 표현식을 평가하는 것은 재귀적으로 그 조각들을 평가하고 어느 범주에 속하는지에 따라 결과를 결합하는 것으로 환원됩니다. SICP는 모든 표현식을 타입 없는 리스트로 표현하고, 각 범주마다 술어(`self-evaluating?`, `quoted?`, `assignment?`, …)와 몇 개의 선택자를 작성해서, `eval`의 `cond`가 표현식의 모양이 실제로 어떻게 저장되어 있는지에 매이지 않고 그 모양에 따라 분기할 수 있게 합니다.
+
+Lean gives us the categories and the dispatch mechanism in a single declaration. An `inductive Expr` with one constructor per syntactic form *is* SICP's abstract syntax — each constructor is simultaneously a predicate (which constructor was used) and a selector (its fields), and Lean's `match` exhaustiveness check plays the role `else (error "Unknown expression type: EVAL" exp)` plays in Scheme, except enforced before the program ever runs:
+
+Lean은 범주와 디스패치 메커니즘을 하나의 선언으로 줍니다. 구문 형식마다 생성자 하나씩을 가진 `inductive Expr`가 곧 SICP의 추상 구문입니다 — 각 생성자는 동시에 술어(어느 생성자가 쓰였는지)이자 선택자(그 필드들)이고, Lean의 `match` 전수성 검사가 Scheme에서 `else (error "Unknown expression type: EVAL" exp)`가 하는 역할을 대신합니다. 다만 프로그램이 실행되기 전에 강제된다는 점이 다릅니다.
+
+```lean
+inductive Expr where
+  | num : Int → Expr
+  | bool : Bool → Expr
+  | var : String → Expr
+  | quote : Expr → Expr
+  | ifE : Expr → Expr → Expr → Expr
+  | assign : String → Expr → Expr
+  | defineE : String → Expr → Expr
+  | lambdaE : List String → List Expr → Expr
+  | beginE : List Expr → Expr
+  | app : Expr → List Expr → Expr
+  deriving Repr
+```
+
+Values need their own type, since evaluating an `Expr` doesn't produce another `Expr` in general — a `lambdaE` evaluates to a *closure*, which packages its parameters, body, and the environment it was created in, exactly as SICP's `make-procedure` does. Because a closure has to carry an environment, and an environment has to hold values (so that a `set!` inside a closure's body can mutate a binding the closure captured), `Value` and `Env` are defined together in a `mutual` block, with each variable binding living behind its own `IO.Ref` so that assignment is genuine in-place mutation, the same commitment [3.1](../3-1-assignment-and-local-state/)–[3.3절](../3-3-modeling-with-mutable-data/)이 계속 지켜온 것입니다:
+
+값은 자기만의 타입이 필요합니다 — `Expr`를 평가한다고 일반적으로 또 다른 `Expr`가 나오는 게 아니기 때문입니다. `lambdaE`는 *클로저*로 평가되는데, 이는 SICP의 `make-procedure`가 하듯 매개변수·본문·생성될 때의 환경을 함께 묶습니다. 클로저가 환경을 지녀야 하고, 환경은 값을 담아야 하므로(클로저 본문 안의 `set!`이 클로저가 포획한 바인딩을 변경할 수 있도록), `Value`와 `Env`는 `mutual` 블록으로 함께 정의되며, 각 변수 바인딩은 자기만의 `IO.Ref` 뒤에 살아서 배정이 진짜 제자리 변경이 되게 합니다 — [3.1](../3-1-assignment-and-local-state/)~[3.3절](../3-3-modeling-with-mutable-data/)이 계속 지켜온 것과 같은 다짐입니다.
+
+```lean
+mutual
+inductive Value where
+  | num : Int → Value
+  | bool : Bool → Value
+  | sym : String → Value
+  | nil : Value
+  | pair : Value → Value → Value
+  | closure : List String → List Expr → Env → Value
+  | primitive : String → (List Value → Except String Value) → Value
+
+inductive Env where
+  | empty : Env
+  | frame : IO.Ref (List (String × Value)) → Env → Env
+end
+```
+
+(`Value`/`Env`가 서로를 참조하는 `mutual inductive` 블록과, 그 안에 `IO.Ref`를 담는 구성은 이 시리즈의 다른 스니펫보다 복잡한 구석이 있어, 직접 컴파일해서 확인하지는 않았습니다 — 다만 [3.3절](../3-3-modeling-with-mutable-data/)의 `Cell`/`IO.Ref Cell` 패턴과 같은 종류의 자기 참조이므로 형태 자체는 낯설지 않습니다.)
+
+With those two types in hand, `eval` and `apply` are close to a direct transcription of SICP's `cond`-based dispatch, now as a Lean `match`:
+
+이 두 타입이 갖춰지면, `eval`과 `apply`는 SICP의 `cond` 기반 디스패치를 이제 Lean `match`로 거의 그대로 옮긴 것에 가깝습니다.
+
+```lean
+mutual
+partial def eval (e : Expr) (env : Env) : IO Value := do
+  match e with
+  | .num n => pure (.num n)
+  | .bool b => pure (.bool b)
+  | .var x => lookupVariable x env
+  | .quote q => pure (exprToValue q)
+  | .assign x v => do
+      let val ← eval v env
+      setVariable x val env
+      pure (.sym "ok")
+  | .defineE x v => do
+      let val ← eval v env
+      defineVariable x val env
+      pure (.sym "ok")
+  | .ifE p c a => do
+      match ← eval p env with
+      | .bool false => eval a env
+      | _ => eval c env
+  | .lambdaE params body => pure (.closure params body env)
+  | .beginE exprs => evalSequence exprs env
+  | .app op args => do
+      let f ← eval op env
+      let argVals ← args.mapM (eval · env)
+      apply f argVals
+
+partial def apply (f : Value) (args : List Value) : IO Value := do
+  match f with
+  | .primitive _ impl => IO.ofExcept (impl args)
+  | .closure params body clEnv => do
+      let newEnv ← extendEnvironment params args clEnv
+      evalSequence body newEnv
+  | _ => throw (IO.userError "Unknown procedure type: APPLY")
+
+partial def evalSequence (exprs : List Expr) (env : Env) : IO Value :=
+  match exprs with
+  | [] => pure (.bool false)
+  | [e] => eval e env
+  | e :: rest => do
+      let _ ← eval e env
+      evalSequence rest env
+end
+```
+
+Two differences from SICP are worth calling out. First, `eval-if`'s job of translating "the implemented language's notion of true" into "the implementation language's notion of true" (SICP's `true?`) collapses to a single pattern — `.bool false` is the only false value, matched directly, with no separate translation procedure needed, because `Value` already has exactly the cases Lean itself would check. Second, `list-of-values` becomes `args.mapM (eval · env)` — [Exercise 4.1](#)이 다루는 "왼쪽에서 오른쪽으로 평가하는지, 오른쪽에서 왼쪽으로 평가하는지 알 수 없다"는 문제 자체가 사라집니다. `List.mapM`의 평가 순서는 Lean 표준 라이브러리 문서에 명시되어 있고(왼쪽에서 오른쪽), 근본 Lisp 구현의 `cons` 인자 평가 순서에 우연히 기대는 게 아니기 때문입니다.
+
+SICP와 다른 두 지점을 짚을 만합니다. 첫째, "해석되는 언어에서의 참"을 "구현 언어에서의 참"으로 번역하는 `eval-if`의 일(SICP의 `true?`)이 하나의 패턴으로 뭉개집니다 — `.bool false`만이 유일한 거짓 값이고 직접 매치되며, 별도의 번역 절차가 필요 없습니다. `Value`가 이미 Lean 자신이 검사할 바로 그 경우들을 갖고 있기 때문입니다. 둘째, `list-of-values`는 `args.mapM (eval · env)`가 됩니다 — 연습문제 4.1이 다루는 "왼쪽에서 오른쪽으로 평가하는지, 오른쪽에서 오른쪽으로 평가하는지 알 수 없다"는 문제 자체가 사라집니다. `List.mapM`의 평가 순서는 Lean 표준 라이브러리에 명시되어 있고(왼쪽에서 오른쪽), 근본 Lisp 구현의 `cons` 인자 평가 순서에 우연히 기대는 게 아니기 때문입니다.
+
+---
+
+## 4.1.2. 표현식 표현하기: 추상 구문이 타입이 될 때
+
+SICP spends most of 4.1.2 writing predicates like `assignment?`/`definition?`/`if?` and selectors like `assignment-variable`/`if-predicate` — the connective tissue that lets `eval`'s `cond` treat "a list starting with the symbol `set!`" as a distinct syntactic category without committing to that representation elsewhere. Every one of those procedures is already implied by the `Expr` constructors above: `.assign x v`'s pattern match *is* both `assignment?` and `assignment-variable`/`assignment-value` at once. What SICP has to build by hand — an abstract syntax layer decoupled from the concrete list representation — Lean's inductive types give for free, at the cost of fixing the AST's shape once, in one declaration, rather than one predicate-and-selector pair per form scattered through the file.
+
+SICP는 4.1.2절 대부분을 `assignment?`/`definition?`/`if?` 같은 술어와 `assignment-variable`/`if-predicate` 같은 선택자를 작성하는 데 씁니다 — `eval`의 `cond`가 "`set!` 심볼로 시작하는 리스트"를 다른 곳에서의 표현 방식에 매이지 않고 독립된 구문 범주로 다룰 수 있게 해주는 연결 조직입니다. 그 절차들 하나하나는 이미 위의 `Expr` 생성자들이 함축하고 있습니다 — `.assign x v`의 패턴 매치가 곧 `assignment?`이자 동시에 `assignment-variable`/`assignment-value`입니다. SICP가 손으로 만들어야 하는 것 — 구체적인 리스트 표현과 분리된 추상 구문 계층 — 을 Lean의 귀납 타입은 공짜로 줍니다. 대가는 파일 곳곳에 흩어진 형식별 술어-선택자 쌍 대신, AST의 모양을 하나의 선언에서 한 번에 고정해야 한다는 것입니다.
+
+The one place this costs us something SICP gets for free is *derived expressions* like `cond` and `let`, which SICP implements as a syntactic rewrite (`cond->if`) into expressions the evaluator already understands, without touching `eval` itself. Since our `Expr` is a closed inductive type, we could add a `condE` constructor directly and give `eval` a new case — but that's precisely the `eval`-touching cost data-directed dispatch and derived expressions both exist to avoid. The alternative that stays true to SICP's spirit is a preprocessing pass, `Expr → Expr`, that expands `cond` into nested `.ifE`s *before* `eval` ever sees it — a transformation over the same closed type, rather than a new case inside `eval`:
+
+SICP가 공짜로 얻지만 여기서는 대가를 치르는 지점이 하나 있습니다 — `cond`나 `let` 같은 *파생 표현식(derived expression)*입니다. SICP는 이를 평가기가 이미 이해하는 표현식으로의 구문적 재작성(`cond->if`)으로 구현하고, `eval` 자체는 건드리지 않습니다. 우리의 `Expr`는 닫힌 귀납 타입이므로, `condE` 생성자를 직접 추가하고 `eval`에 새 분기를 줄 수도 있습니다 — 하지만 그건 정확히 데이터 지향 디스패치와 파생 표현식이 둘 다 피하려는, `eval`을 건드리는 대가입니다. SICP의 정신에 충실한 대안은 전처리 패스 `Expr → Expr`입니다 — `eval`이 보기 전에 `cond`를 중첩된 `.ifE`로 펼쳐두는 것으로, `eval` 안의 새 경우가 아니라 같은 닫힌 타입 위의 변환입니다.
+
+```lean
+def condToIf (clauses : List (Expr × List Expr)) : Expr :=
+  match clauses with
+  | [] => .bool false
+  | (.var "else", actions) :: _ => .beginE actions
+  | (pred, actions) :: rest => .ifE pred (.beginE actions) (condToIf rest)
+```
+
+(여기서는 `else` 절을 `.var "else"`라는 관례로 표시했습니다 — 진짜 파서가 있었다면 별도의 마커 타입을 뒀겠지만, 이 글에는 파서가 없으므로 관례로 대신합니다.)
+
+---
+
+## 4.1.3. 평가기의 자료구조: 환경
+
+An environment is a chain of frames, each a mutable table of bindings; looking up a variable scans the current frame and, on failure, moves to the enclosing one, exactly matching the frame-chain walk from [3.2절](../3-2-environment-model-of-evaluation/)의 환경 모델입니다. Our `Env.frame` constructor already *is* that chain — each frame wraps an `IO.Ref (List (String × Value))`, and `Env.empty` is the base case that signals an unbound variable:
+
+환경은 프레임의 사슬이고, 각 프레임은 가변적인 바인딩 표입니다. 변수 조회는 현재 프레임을 훑고, 실패하면 감싸는 프레임으로 옮겨갑니다 — [3.2절](../3-2-environment-model-of-evaluation/)의 환경 모델에서 다룬 프레임 사슬 걷기와 정확히 같습니다. 우리의 `Env.frame` 생성자가 이미 그 사슬입니다 — 각 프레임은 `IO.Ref (List (String × Value))`를 감싸고, `Env.empty`가 언바운드 변수를 알리는 기저 사례입니다.
+
+```lean
+partial def lookupVariable (x : String) : Env → IO Value
+  | .empty => throw (IO.userError s!"Unbound variable: {x}")
+  | .frame ref rest => do
+      match (← ref.get).find? (·.1 == x) with
+      | some (_, v) => pure v
+      | none => lookupVariable x rest
+
+partial def setVariable (x : String) (v : Value) : Env → IO Unit
+  | .empty => throw (IO.userError s!"Unbound variable: SET! {x}")
+  | .frame ref rest => do
+      let bindings ← ref.get
+      if bindings.any (·.1 == x) then
+        ref.set (bindings.map fun (k, old) => if k == x then (k, v) else (k, old))
+      else
+        setVariable x v rest
+
+def defineVariable (x : String) (v : Value) : Env → IO Unit
+  | .empty => pure ()
+  | .frame ref _ => ref.modify fun bindings =>
+      if bindings.any (·.1 == x) then
+        bindings.map fun (k, old) => if k == x then (k, v) else (k, old)
+      else
+        (x, v) :: bindings
+
+def extendEnvironment (params : List String) (args : List Value) (base : Env) : IO Env := do
+  let ref ← IO.mkRef (params.zip args)
+  pure (.frame ref base)
+```
+
+SICP splits `lookup-variable-value` into an outer `env-loop` and an inner `scan`, because Scheme represents a frame as two parallel lists (variables, values) that have to be walked in lockstep. Representing a frame directly as `List (String × Value)` collapses that inner scan into `List.find?`, and the loop over frames is the only recursion left — a smaller version of the same simplification `Expr` gave `eval`: fixing a concrete-enough representation up front removes a layer of hand-written traversal.
+
+SICP는 `lookup-variable-value`를 바깥쪽 `env-loop`와 안쪽 `scan`으로 나누는데, Scheme이 프레임을 (변수 리스트, 값 리스트) 두 개의 병렬 리스트로 표현해서 발맞춰 훑어야 하기 때문입니다. 프레임을 `List (String × Value)`로 곧바로 표현하면 그 안쪽 스캔이 `List.find?` 하나로 뭉개지고, 남는 재귀는 프레임을 넘나드는 바깥 루프뿐입니다 — `Expr`가 `eval`에게 줬던 것과 같은 종류의 더 작은 단순화입니다. 미리 충분히 구체적인 표현을 고정하면 손으로 짠 순회의 한 겹이 사라집니다.
+
+(SICP's frame is literally a pair of lists mutated with `set-car!`/`set-cdr!`, which our single-`IO.Ref` frame simplifies away — a reasonable simplification for this post, though it means our frames don't preserve the exact "add a binding without touching existing bindings' storage" property SICP's `add-binding-to-frame!` has. 전체 논의를 흐리지 않기 위한 의도적 단순화입니다.)
+
+---
+
+## 4.1.4~4.1.5. 평가기를 프로그램으로 돌리기, 그리고 데이터로서의 프로그램
+
+To actually run anything, `eval`/`apply` need a global environment stocked with primitives — `car`, `cdr`, `cons`, `+`, and so on — each wrapped as a `Value.primitive` that calls straight into Lean:
+
+실제로 뭔가를 돌리려면, `eval`/`apply`에는 `car`, `cdr`, `cons`, `+` 등의 원시 연산이 채워진 전역 환경이 필요합니다 — 각각 Lean으로 곧장 호출하는 `Value.primitive`로 감싸집니다.
+
+```lean
+def numPrim (f : Int → Int → Int) : List Value → Except String Value
+  | [.num a, .num b] => .ok (.num (f a b))
+  | _ => .error "type error"
+
+def setupGlobalEnv : IO Env := do
+  let ref ← IO.mkRef [
+    ("+", Value.primitive "+" (numPrim (· + ·))),
+    ("-", Value.primitive "-" (numPrim (· - ·))),
+    ("*", Value.primitive "*" (numPrim (· * ·))),
+    ("=", Value.primitive "=" (fun
+      | [.num a, .num b] => .ok (.bool (a == b))
+      | _ => .error "type error"))
+  ]
+  pure (.frame ref .empty)
+```
+
+SICP's `driver-loop` reads text with `read`, evaluates it, and prints the result — a real reader for S-expression syntax is out of scope here, so where SICP types `(factorial 5)` at a prompt, we build the equivalent `Expr` directly with constructors and hand it to `eval`, using `#eval` in place of the interactive loop, as this whole series has throughout:
+
+SICP의 `driver-loop`는 `read`로 텍스트를 읽고, 평가하고, 결과를 출력합니다 — S-표현식 구문을 위한 진짜 리더는 이 글의 범위 밖이므로, SICP가 프롬프트에 `(factorial 5)`라고 타이핑하는 자리에서 우리는 그에 대응하는 `Expr`를 생성자로 직접 만들어 `eval`에 건네고, 대화형 루프 대신 이 시리즈 전체에서 그래왔듯 `#eval`을 씁니다.
+
+```lean
+def factorialExpr : Expr :=
+  .defineE "factorial"
+    (.lambdaE ["n"]
+      [.ifE (.app (.var "=") [.var "n", .num 1])
+            (.num 1)
+            (.app (.var "*") [.var "n", .app (.var "factorial") [.app (.var "-") [.var "n", .num 1]]])])
+
+#eval show IO Unit from do
+  let globalEnv ← setupGlobalEnv
+  let _ ← eval factorialExpr globalEnv
+  let result ← eval (.app (.var "factorial") [.num 5]) globalEnv
+  IO.println (repr result)
+-- Value.num 120
+```
+
+SICP closes this section with the observation that the evaluator is a *universal machine* — a program that, given the description of another machine (as Lisp code), configures itself to behave like it. `eval`/`apply` above make that concrete in the most literal way this series has offered: they're ordinary Lean functions, running on Lean's own runtime, that just finished emulating a small Lisp. The recursion goes one level further than SICP's Scheme-in-Scheme story, too — Lean's own elaborator, the thing that made sense of every `def`, `structure`, and `inductive` in every post of this series, is itself written in Lean, compiled by an earlier version of itself. The metacircular evaluator we just built is a small, hand-rolled instance of the same idea that makes the language we've been using to build it possible in the first place.
+
+SICP는 이 절을 평가기가 *보편 기계(universal machine)*라는 관찰로 마칩니다 — 다른 기계의 기술(Lisp 코드로서)이 주어지면, 스스로를 그 기계처럼 동작하도록 구성하는 프로그램입니다. 위의 `eval`/`apply`는 이를 이 시리즈가 제공한 것 중 가장 문자 그대로의 방식으로 구체화합니다 — 그것들은 평범한 Lean 함수이고, Lean 자신의 런타임 위에서 실행되며, 방금 작은 Lisp 하나를 흉내 내는 걸 마쳤습니다. 재귀는 SICP의 "Scheme으로 쓰인 Scheme" 이야기보다 한 겹 더 나아가기도 합니다 — 이 시리즈의 모든 글에서 `def`, `structure`, `inductive` 하나하나를 이해해준 Lean 자신의 elaborator도 Lean으로 쓰여 있고, 이전 버전의 자기 자신으로 컴파일됩니다. 방금 만든 메타순환 평가기는, 우리가 그것을 만드는 데 썼던 바로 그 언어를 애초에 가능하게 만드는 것과 같은 아이디어의 작고 손으로 만든 사례입니다.
+
+---
+
+## 정리
+
+| SICP 개념 | Scheme | Lean 4 |
+|---|---|---|
+| 추상 구문 | 술어(`assignment?`) + 선택자(`assignment-variable`) 쌍 | `inductive Expr`의 생성자 하나로 통합 |
+| 알 수 없는 표현식 | 런타임 `error` | 컴파일 시점 `match` 전수성 |
+| `true?` 변환 | 별도 절차 | `.bool false` 패턴 하나로 흡수 |
+| 인자 평가 순서 | 밑바탕 Lisp의 `cons` 평가 순서에 좌우됨(연습문제 4.1) | `List.mapM`의 명시된 왼쪽-오른쪽 순서 |
+| 파생 표현식(`cond`) | `eval`을 안 건드리는 구문적 재작성 | `Expr → Expr` 전처리 패스로 동일하게 유지 |
+| 환경 | 프레임(변수 리스트·값 리스트 쌍)의 사슬 | `Env.frame`이 감싼 `IO.Ref (List (String × Value))`의 사슬 |
+| 원시 절차 | 밑바탕 Lisp 절차를 감싼 태그 리스트 | `Value.primitive`가 감싼 Lean 함수 |
+
+메타순환 평가기가 SICP 전체에서 하는 역할은, 그동안 산문으로 설명해온 "평가란 무엇인가"를 실행 가능한 코드로 만드는 것입니다. Lean에서는 `Expr`라는 귀납 타입 하나가 SICP의 흩어진 술어-선택자 쌍들을 흡수하고, `mutual` 블록과 `IO.Ref`가 SICP의 손으로 짠 프레임 조작을 대신합니다. 다음 글에서는 4.2절 — 지연 평가를 언어의 기본 평가 전략으로 바꾸는 것과, 비결정적 계산(nondeterministic computing)을 위한 `amb` 평가기 — 를 다룹니다.
