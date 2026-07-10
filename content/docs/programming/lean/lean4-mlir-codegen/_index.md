@@ -17,3 +17,4 @@ Lean4의 타입 시스템과 elaboration으로 안전성이 증명된 내부 IR�
 4. **[MLIR 파이프라인과의 접합](04-mlir-pipeline-integration/)** — dialect conversion, EmitC, 그리고 Lean4와 MLIR C++ 인프라 사이의 신뢰 경계
 5. **[번역 검증: 방출 코드 자체를 어떻게 믿을 것인가](05-translation-validation/)** — 번역 검증, 증명 운반 코드(PCC), 차등 테스트로 TCB로 지목된 attribute 방출 코드의 신뢰성을 실질적으로 좁히는 방법
 6. **[같은 프론트엔드, 다른 타겟: CIRCT로 SystemVerilog 만들기](06-circt-systemverilog/)** — C 대신 하드웨어를 타겟으로 삼을 때 실행 모델이 어떻게 바뀌는지, CIRCT의 hw/comb/seq/sv dialect 스택과 안전성 증명이 멀티플렉서 최적화·래치 추론 회피로 형태를 바꾸는 원리
+7. **[실습: 실제로 돌아가는 최소 파이프라인으로 C 찍어보기](07-hands-on-c-emission/)** — MLIR/CIRCT 툴체인 설치 없이 Lean4 코드만으로 MLIR 텍스트와 C 소스를 실제로 찍어내고, 독립 검사기로 방출 코드의 버그를 잡아내는 최소 구현을 직접 돌려봅니다
