@@ -199,12 +199,12 @@ This seeming discrepancy is because declaring a type class really results in the
 * A namespace with the same name as the class
 * For each method, a function in the class's namespace that retrieves its implementation from an instance
 
-This is analogous to the way that declaring a new structure also declares accessor functions.
-The primary difference is that a structure's accessors take the structure value as an explicit parameter, while the type class methods take the instance value as an instance implicit to be found automatically by Lean.
-
 * 각 오버로딩된 연산의 구현을 포함할 구조 타입
 * 클래스와 동일한 이름의 namespace
 * 각 메서드에 대해, instance에서 구현을 검색하는 클래스의 namespace의 함수
+
+This is analogous to the way that declaring a new structure also declares accessor functions.
+The primary difference is that a structure's accessors take the structure value as an explicit parameter, while the type class methods take the instance value as an instance implicit to be found automatically by Lean.
 
 이는 새로운 구조를 선언하면 accessor 함수도 선언되는 방식과 유사합니다.
 주요 차이점은 구조의 accessor는 구조 값을 명시적 매개변수로 취하는 반면, type class 메서드는 instance 값을 Lean이 자동으로 찾을 instance implicit으로 취한다는 것입니다.

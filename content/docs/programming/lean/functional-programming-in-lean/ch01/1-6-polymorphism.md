@@ -14,15 +14,15 @@ For instance, the type `List Nat` describes lists of natural numbers, `List Stri
 This is very similar to `List<Nat>`, `List<String>`, or `List<List<Point>>` in a language like C# or Java.
 Just as Lean uses a space to pass an argument to a function, it uses a space to pass an argument to a type.
 
-In functional programming, the term *polymorphism* typically refers to datatypes and definitions that take types as arguments.
-This is different from the object-oriented programming community, where the term typically refers to subclasses that may override some behavior of their superclass.
-In this book, “polymorphism” always refers to the first sense of the word.
-These type arguments can be used in the datatype or definition, which allows the same datatype or definition to be used with any type that results from replacing the arguments' names with some other types.
-
 대부분의 언어에서와 마찬가지로, Lean의 타입도 인수를 받을 수 있습니다.
 예를 들어, 타입 `List Nat`은 자연수 리스트를 설명하고, `List String`은 문자열 리스트를 설명하며, `List (List Point)`는 점 리스트의 리스트를 설명합니다.
 이는 C# 또는 Java와 같은 언어의 `List<Nat>`, `List<String>`, 또는 `List<List<Point>>`과 매우 유사합니다.
 Lean이 공백을 사용하여 함수에 인수를 전달하는 것처럼, 타입에 인수를 전달하기 위해 공백을 사용합니다.
+
+In functional programming, the term *polymorphism* typically refers to datatypes and definitions that take types as arguments.
+This is different from the object-oriented programming community, where the term typically refers to subclasses that may override some behavior of their superclass.
+In this book, “polymorphism” always refers to the first sense of the word.
+These type arguments can be used in the datatype or definition, which allows the same datatype or definition to be used with any type that results from replacing the arguments' names with some other types.
 
 함수형 프로그래밍에서 *다형성(polymorphism)*이라는 용어는 일반적으로 타입을 인수로 받는 데이터타입과 정의를 의미합니다.
 즉, 객체 지향 프로그래밍 커뮤니티와 다르며, 여기서 이 용어는 일반적으로 슈퍼클래스의 일부 동작을 재정의할 수 있는 하위 클래스입니다.
@@ -33,16 +33,6 @@ The `Point` structure requires that both the `x` and `y` fields are `Float`s.
 There is, however, nothing about points that require a specific representation for each coordinate.
 A polymorphic version of `Point`, called `PPoint`, can take a type as an argument, and then use that type for both fields:
 
-```lean
-structure PPoint (α : Type) where
-x : α
-y : α
-```
-
-Just as a function definition's arguments are written immediately after the name being defined, a structure's arguments are written immediately after the structure's name.
-It is customary to use Greek letters to name type arguments in Lean when no more specific name suggests itself.
-`Type` is a type that describes other types, so `Nat`, `List String`, and `PPoint Int` all have type `Type`.
-
 `Point` 구조체는 `x`과 `y` 필드가 모두 `Float`이어야 합니다.
 그러나 각 좌표에 대한 특정 표현이 필요한 점에 대해 특별한 것은 없습니다.
 `PPoint`라고 불리는 `Point`의 다형 버전은 타입을 인수로 받을 수 있고, 그 타입을 두 필드 모두에 사용할 수 있습니다:
@@ -52,6 +42,16 @@ structure PPoint (α : Type) where
 x : α
 y : α
 ```
+
+```lean
+structure PPoint (α : Type) where
+x : α
+y : α
+```
+
+Just as a function definition's arguments are written immediately after the name being defined, a structure's arguments are written immediately after the structure's name.
+It is customary to use Greek letters to name type arguments in Lean when no more specific name suggests itself.
+`Type` is a type that describes other types, so `Nat`, `List String`, and `PPoint Int` all have type `Type`.
 
 함수 정의의 인수가 정의되는 이름 직후에 작성되는 것처럼, 구조체의 인수는 구조체의 이름 직후에 작성됩니다.
 더 구체적인 이름이 없을 때 Lean에서 타입 인수의 이름을 지정하기 위해 그리스 문자를 사용하는 것이 관례입니다.
@@ -379,15 +379,15 @@ Many operations on collections may fail to find what they are looking for.
 For instance, a function that finds the first entry in a list may not find any such entry.
 It must therefore have a way to signal that there was no first entry.
 
-Many languages have a `null` value that represents the absence of a value.
-Instead of equipping existing types with a special `null` value, Lean provides a datatype called `Option` that equips some other type with an indicator for missing values.
-For instance, a nullable `Int` is represented by `Option Int`, and a nullable list of strings is represented by the type `Option (List String)`.
-Introducing a new type to represent nullability means that the type system ensures that checks for `null` cannot be forgotten, because an `Option Int` can't be used in a context where an `Int` is expected.
-
 모든 리스트가 첫 번째 항목을 가지지는 않습니다. 일부 리스트는 비어 있습니다.
 모음에 대한 많은 연산은 찾고 있는 것을 찾지 못할 수 있습니다.
 예를 들어, 리스트의 첫 번째 항목을 찾는 함수는 그러한 항목을 찾지 못할 수 있습니다.
 따라서 첫 번째 항목이 없었음을 신호하는 방법이 있어야 합니다.
+
+Many languages have a `null` value that represents the absence of a value.
+Instead of equipping existing types with a special `null` value, Lean provides a datatype called `Option` that equips some other type with an indicator for missing values.
+For instance, a nullable `Int` is represented by `Option Int`, and a nullable list of strings is represented by the type `Option (List String)`.
+Introducing a new type to represent nullability means that the type system ensures that checks for `null` cannot be forgotten, because an `Option Int` can't be used in a context where an `Int` is expected.
 
 많은 언어는 값의 부재를 나타내는 `null` 값을 가지고 있습니다.
 기존 타입에 특수 `null` 값을 갖추는 대신, Lean은 `Option`이라는 데이터타입을 제공하여 다른 타입에 누락된 값에 대한 표시기를 갖춥니다.
@@ -683,6 +683,10 @@ On its own, `Unit` is not particularly useful.
 However, in polymorphic code, it can be used as a placeholder for data that is missing.
 For instance, the following inductive datatype represents arithmetic expressions:
 
+`Unit`은 `unit`이라는 단 하나의 인수 없는 생성자를 가진 타입입니다.
+다시 말해, 이는 단일 값만 설명하며, 인수 없이 적용된 생성자로 구성됩니다.
+`Unit`은 다음과 같이 정의됩니다:
+
 ```lean
 inductive ArithExpr (ann : Type) : Type where
 | int : ann → Int → ArithExpr ann
@@ -691,18 +695,14 @@ inductive ArithExpr (ann : Type) : Type where
 | times : ann → ArithExpr ann → ArithExpr ann → ArithExpr ann
 ```
 
-The type argument `ann` stands for annotations, and each constructor is annotated.
-Expressions coming from a parser might be annotated with source locations, so a return type of `ArithExpr SourcePos` ensures that the parser put a `SourcePos` at each subexpression.
-Expressions that don't come from the parser, however, will not have source locations, so their type can be `ArithExpr Unit`.
-
-`Unit`은 `unit`이라는 단 하나의 인수 없는 생성자를 가진 타입입니다.
-다시 말해, 이는 단일 값만 설명하며, 인수 없이 적용된 생성자로 구성됩니다.
-`Unit`은 다음과 같이 정의됩니다:
-
 ```lean
 inductive Unit : Type where
 | unit : Unit
 ```
+
+The type argument `ann` stands for annotations, and each constructor is annotated.
+Expressions coming from a parser might be annotated with source locations, so a return type of `ArithExpr SourcePos` ensures that the parser put a `SourcePos` at each subexpression.
+Expressions that don't come from the parser, however, will not have source locations, so their type can be `ArithExpr Unit`.
 
 자체적으로 `Unit`은 특별히 유용하지 않습니다.
 그러나 다형 코드에서, 누락된 데이터에 대한 자리 표시자로 사용될 수 있습니다.
@@ -729,15 +729,15 @@ Unit의 생성자는 빈 괄호로 작성될 수 있습니다: `() : Unit`.
 The `Empty` datatype has no constructors whatsoever.
 Thus, it indicates unreachable code, because no series of calls can ever terminate with a value at type `Empty`.
 
+`Empty` 데이터타입은 생성자가 전혀 없습니다.
+따라서 도달할 수 없는 코드를 나타냅니다. 왜냐하면 함수 호출 시리즈가 `Empty` 타입의 값으로 종료될 수 없기 때문입니다.
+
 `Empty` is not used nearly as often as `Unit`.
 However, it is useful in some specialized contexts.
 Many polymorphic datatypes do not use all of their type arguments in all of their constructors.
 For instance, `Sum.inl` and `Sum.inr` each use only one of `Sum`'s type arguments.
 Using `Empty` as one of the type arguments to `Sum` can rule out one of the constructors at a particular point in a program.
 This can allow generic code to be used in contexts that have additional restrictions.
-
-`Empty` 데이터타입은 생성자가 전혀 없습니다.
-따라서 도달할 수 없는 코드를 나타냅니다. 왜냐하면 함수 호출 시리즈가 `Empty` 타입의 값으로 종료될 수 없기 때문입니다.
 
 `Empty`는 `Unit`만큼 자주 사용되지 않습니다.
 그러나 일부 특수한 컨텍스트에서 유용합니다.

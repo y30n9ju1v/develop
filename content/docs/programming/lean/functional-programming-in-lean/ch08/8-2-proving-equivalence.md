@@ -241,6 +241,7 @@ The induction hypothesis can be used for `Tail.sumHelper n ys`, not `Tail.sumHel
 In other words, this proof is stuck.
 
 다시 말해, 이 증명은 막혔습니다.
+
 ## 8.2.2. A Second Attempt
 
 Rather than attempting to muddle through the proof, it's time to take a step back and think.

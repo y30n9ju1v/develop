@@ -12,13 +12,13 @@ description: "Lean의 타입 시스템 소개"
 Types classify programs based on the values that they can
 compute. Types serve a number of roles in a program:
 
+타입은 프로그램이 계산할 수 있는 값을 기반으로 프로그램을 분류합니다. 타입은 프로그램에서 여러 역할을 수행합니다:
+
 1. They allow the compiler to make decisions about the in-memory representation of a value.
 2. They help programmers to communicate their intent to others, serving as a lightweight specification for the inputs and outputs of a function.
    The compiler ensures that the program adheres to this specification.
 3. They prevent various potential mistakes, such as adding a number to a string, and thus reduce the number of tests that are necessary for a program.
 4. They help the Lean compiler automate the production of auxiliary code that can save boilerplate.
-
-타입은 프로그램이 계산할 수 있는 값을 기반으로 프로그램을 분류합니다. 타입은 프로그램에서 여러 역할을 수행합니다:
 
 1. 컴파일러가 값의 메모리 내 표현에 대한 결정을 내릴 수 있게 합니다.
 2. 프로그래머가 다른 사람에게 자신의 의도를 전달하도록 도와주며, 함수의 입력 및 출력에 대한 경량 사양으로 제공됩니다.
@@ -42,6 +42,12 @@ examples so far, Lean has been able to discover a type on its own, but
 it is sometimes necessary to provide one. This is done using the colon
 operator inside parentheses:
 
+Lean의 모든 프로그램은 타입을 가져야 합니다. 특히, 모든 표현식은 평가되기 전에 타입을 가져야 합니다. 지금까지의 예제에서, Lean은 자동으로 타입을 발견할 수 있었지만, 때때로 직접 제공해야 합니다. 이는 괄호 안에 콜론 연산자를 사용하여 수행됩니다.
+
+```lean
+#eval (1 + 2 : Nat)
+```
+
 ```lean
 #eval (1 + 2 : Nat)
 ```
@@ -53,25 +59,6 @@ In C, unsigned integers underflow to the largest representable numbers when subt
 `Nat`, however, can represent arbitrarily-large unsigned numbers, so there is no largest number to underflow to.
 Thus, subtraction on `Nat` returns `zero` when the answer would have otherwise been negative.
 For instance,
-
-```lean
-#eval (1 - 2 : Nat)
-```
-
-evaluates to `0` rather than `-1`.
-To use a type that can represent the negative integers, provide it directly:
-
-```lean
-#eval (1 - 2 : Int)
-```
-
-With this type, the result is `-1`, as expected.
-
-Lean의 모든 프로그램은 타입을 가져야 합니다. 특히, 모든 표현식은 평가되기 전에 타입을 가져야 합니다. 지금까지의 예제에서, Lean은 자동으로 타입을 발견할 수 있었지만, 때때로 직접 제공해야 합니다. 이는 괄호 안에 콜론 연산자를 사용하여 수행됩니다.
-
-```lean
-#eval (1 + 2 : Nat)
-```
 
 여기서 `Nat`은 *자연수*의 타입이며, 임의의 정밀도를 가진 부호 없는 정수입니다.
 Lean에서 `Nat`은 음이 아닌 정수 리터럴의 기본 타입입니다.
@@ -85,6 +72,13 @@ C에서 부호 없는 정수는 뺄셈 결과가 영수보다 작을 때 가장 
 #eval (1 - 2 : Nat)
 ```
 
+```lean
+#eval (1 - 2 : Nat)
+```
+
+evaluates to `0` rather than `-1`.
+To use a type that can represent the negative integers, provide it directly:
+
 는 `-1`이 아니라 `0`으로 평가됩니다.
 음수를 표현할 수 있는 타입을 사용하려면, 직접 제공하세요.
 
@@ -92,15 +86,15 @@ C에서 부호 없는 정수는 뺄셈 결과가 영수보다 작을 때 가장 
 #eval (1 - 2 : Int)
 ```
 
+```lean
+#eval (1 - 2 : Int)
+```
+
+With this type, the result is `-1`, as expected.
+
 이 타입으로, 결과는 예상대로 `-1`입니다.
 
 To check the type of an expression without evaluating it, use `#check` instead of `#eval`. For instance:
-
-```lean
-#check (1 - 2 : Int)
-```
-
-reports `1 - 2 : Int` without actually performing the subtraction.
 
 표현식을 평가하지 않고 타입을 확인하려면, `#eval` 대신 `#check`를 사용하세요. 예를 들어,
 
@@ -108,34 +102,27 @@ reports `1 - 2 : Int` without actually performing the subtraction.
 #check (1 - 2 : Int)
 ```
 
+```lean
+#check (1 - 2 : Int)
+```
+
+reports `1 - 2 : Int` without actually performing the subtraction.
+
 는 실제로 뺄셈을 수행하지 않고 `1 - 2 : Int`를 보고합니다.
 
 When a program can't be given a type, an error is returned from both `#check` and `#eval`. For instance:
-
-```
-#check String.append ["hello", " "] "world"
-```
-
-outputs
-
-```
-Application type mismatch: The argument
-  ["hello", " "]
-has type
-  List String
-but is expected to have type
-  String
-in the application
-  String.append ["hello", " "]
-```
-
-because the first argument to `String.append` is expected to be a string, but a list of strings was provided instead.
 
 프로그램에 타입을 부여할 수 없으면, `#check`와 `#eval` 모두에서 오류가 반환됩니다. 예를 들어,
 
 ```
 #check String.append ["hello", " "] "world"
 ```
+
+```
+#check String.append ["hello", " "] "world"
+```
+
+outputs
 
 는 다음을 출력합니다.
 
@@ -149,5 +136,18 @@ but is expected to have type
 in the application
   String.append ["hello", " "]
 ```
+
+```
+Application type mismatch: The argument
+  ["hello", " "]
+has type
+  List String
+but is expected to have type
+  String
+in the application
+  String.append ["hello", " "]
+```
+
+because the first argument to `String.append` is expected to be a string, but a list of strings was provided instead.
 
 `String.append`의 첫 번째 인수는 문자열이어야 하지만, 대신 문자열 목록이 제공되었기 때문입니다.

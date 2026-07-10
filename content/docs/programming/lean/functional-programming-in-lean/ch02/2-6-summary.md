@@ -36,12 +36,12 @@ While this model of side effects cannot actually be implemented, as the whole un
 An `IO` action `main` is executed when the program starts.
 `main` can have one of three types:
 
+`IO` 액션 `main`은 프로그램이 시작할 때 실행됩니다.
+`main`은 다음 세 가지 타입 중 하나를 가질 수 있습니다:
+
 * `main : IO Unit` is used for simple programs that cannot read their command-line arguments and always return exit code `0`,
 * `main : IO UInt32` is used for programs without arguments that may signal success or failure, and
 * `main : List String → IO UInt32` is used for programs that take command-line arguments and signal success or failure.
-
-`IO` 액션 `main`은 프로그램이 시작할 때 실행됩니다.
-`main`은 다음 세 가지 타입 중 하나를 가질 수 있습니다:
 
 * `main : IO Unit`은 명령줄 인자를 읽을 수 없고 항상 종료 코드 `0`을 반환하는 단순 프로그램에 사용되며,
 * `main : IO UInt32`는 인자가 없으면서 성공 또는 실패를 신호할 수 있는 프로그램에 사용되고,
@@ -53,13 +53,13 @@ The Lean standard library provides a number of basic `IO` actions that represent
 These base `IO` actions are composed into larger `IO` actions using `do` notation, which is a built-in domain-specific language for writing descriptions of programs with side effects.
 A `do` expression contains a sequence of *statements*, which may be:
 
-* expressions that represent `IO` actions,
-* ordinary local definitions with `let` and `:=`, where the defined name refers to the value of the provided expression, or
-* local definitions with `let` and `←`, where the defined name refers to the result of executing the value of the provided expression.
-
 Lean 표준 라이브러리는 파일 읽기 및 쓰기, 표준 입력 및 출력과의 상호작용과 같은 효과를 나타내는 여러 기본 `IO` 액션들을 제공합니다.
 이러한 기본 `IO` 액션들은 부작용이 있는 프로그램의 설명을 작성하기 위한 내장 도메인별 언어인 `do` 표기법을 사용하여 더 큰 `IO` 액션들로 구성됩니다.
 `do` 표현식은 *문장들*의 순서를 포함하며, 이는 다음과 같을 수 있습니다:
+
+* expressions that represent `IO` actions,
+* ordinary local definitions with `let` and `:=`, where the defined name refers to the value of the provided expression, or
+* local definitions with `let` and `←`, where the defined name refers to the result of executing the value of the provided expression.
 
 * `IO` 액션들을 나타내는 표현식들,
 * 정의된 이름이 제공된 표현식의 값을 나타내는 `let`과 `:=`을 사용한 일반적인 지역 정의들, 또는
@@ -67,12 +67,12 @@ Lean 표준 라이브러리는 파일 읽기 및 쓰기, 표준 입력 및 출�
 
 `IO` actions that are written with `do` are executed one statement at a time.
 
+`do`로 작성된 `IO` 액션들은 한 번에 하나의 문장씩 실행됩니다.
+
 Furthermore, `if` and `match` expressions that occur immediately under a `do` are implicitly considered to have their own `do` in each branch.
 Inside of a `do` expression, *nested actions* are expressions with a left arrow immediately under parentheses.
 The Lean compiler implicitly lifts them to the nearest enclosing `do`, which may be implicitly part of a branch of a `match` or `if` expression, and gives them a unique name.
 This unique name then replaces the origin site of the nested action.
-
-`do`로 작성된 `IO` 액션들은 한 번에 하나의 문장씩 실행됩니다.
 
 더욱이, `do` 바로 아래에 발생하는 `if`와 `match` 표현식들은 암묵적으로 각 분기에서 자신만의 `do`를 가지도록 간주됩니다.
 `do` 표현식 내에서 *중첩 액션들*은 괄호 바로 아래에 왼쪽 화살표를 가진 표현식들입니다.
@@ -84,14 +84,14 @@ Lean 컴파일러는 이들을 가장 가까운 바깥쪽 `do`로 암묵적으�
 A Lean program that consists of a single file with a `main` definition can be run using `lean --run FILE`.
 While this can be a nice way to get started with a simple program, most programs will eventually graduate to a multiple-file project that should be compiled before running.
 
+`main` 정의를 포함하는 단일 파일로 구성된 Lean 프로그램은 `lean --run FILE`을 사용하여 실행할 수 있습니다.
+이는 단순한 프로그램으로 시작하는 좋은 방법일 수 있지만, 대부분의 프로그램은 결국 실행 전에 컴파일되어야 하는 다중 파일 프로젝트로 발전합니다.
+
 Lean projects are organized into *packages*, which are collections of libraries and executables together with information about dependencies and a build configuration.
 Packages are described using Lake, a Lean build tool.
 Use `lake new` to create a Lake package in a new directory, or `lake init` to create one in the current directory.
 Lake package configuration is another domain-specific language.
 Use `lake build` to build a project.
-
-`main` 정의를 포함하는 단일 파일로 구성된 Lean 프로그램은 `lean --run FILE`을 사용하여 실행할 수 있습니다.
-이는 단순한 프로그램으로 시작하는 좋은 방법일 수 있지만, 대부분의 프로그램은 결국 실행 전에 컴파일되어야 하는 다중 파일 프로젝트로 발전합니다.
 
 Lean 프로젝트는 라이브러리와 실행 파일들의 모음으로, 의존성 정보와 빌드 설정을 함께 포함하는 *패키지*로 조직됩니다.
 패키지는 Lean 빌드 도구인 Lake를 사용하여 설명됩니다.
@@ -105,16 +105,16 @@ One consequence of following the mathematical model of expression evaluation is 
 This rules out both incomplete pattern matches that fail to cover all constructors of a datatype and programs that can fall into an infinite loop.
 Lean ensures that all `match` expressions cover all cases, and that all recursive functions are either structurally recursive or have an explicit proof of termination.
 
+표현식 평가의 수학적 모델을 따르는 결과로, 모든 표현식은 값을 가져야 합니다.
+이는 데이터타입의 모든 생성자를 포함하지 못하는 불완전한 패턴 매칭과 무한 루프에 빠질 수 있는 프로그램 모두를 배제합니다.
+Lean은 모든 `match` 표현식이 모든 경우를 포함하도록 보장하며, 모든 재귀 함수는 구조적으로 재귀적이거나 명시적인 종료 증명을 가지도록 합니다.
+
 However, some real programs require the possibility of looping infinitely, because they handle potentially-infinite data, such as POSIX streams.
 Lean provides an escape hatch: functions whose definition is marked `partial` are not required to terminate.
 This comes at a cost.
 Because types are a first-class part of the Lean language, functions can return types.
 Partial functions, however, are not evaluated during type checking, because an infinite loop in a function could cause the type checker to enter an infinite loop.
 Furthermore, mathematical proofs are unable to inspect the definitions of partial functions, which means that programs that use them are much less amenable to formal proof.
-
-표현식 평가의 수학적 모델을 따르는 결과로, 모든 표현식은 값을 가져야 합니다.
-이는 데이터타입의 모든 생성자를 포함하지 못하는 불완전한 패턴 매칭과 무한 루프에 빠질 수 있는 프로그램 모두를 배제합니다.
-Lean은 모든 `match` 표현식이 모든 경우를 포함하도록 보장하며, 모든 재귀 함수는 구조적으로 재귀적이거나 명시적인 종료 증명을 가지도록 합니다.
 
 그러나 일부 실제 프로그램들은 POSIX 스트림과 같이 잠재적으로 무한한 데이터를 처리하기 때문에 무한 루프의 가능성이 필요합니다.
 Lean은 빠져나갈 수 있는 방법을 제공합니다: 정의가 `partial`로 표시된 함수들은 종료할 필요가 없습니다.

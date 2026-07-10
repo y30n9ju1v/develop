@@ -179,17 +179,17 @@ In particular, type class search does not occur until all inputs are known.
 However, in some cases, output parameters are not enough, and instance search should also occur when some inputs are unknown.
 This is a bit like default values for optional function arguments in Python or Kotlin, except default *types* are being selected.
 
+parameter가 입력인지 출력인지 결정하는 것은 Lean이 type class search를 시작할 조건을 제어합니다.
+특히, type class search는 모든 입력이 알려질 때까지 발생하지 않습니다.
+그러나 어떤 경우에는 output parameter들만으로는 충분하지 않으며, instance search는 일부 입력이 알 수 없을 때도 발생해야 합니다.
+이는 Python이나 Kotlin의 선택 함수 인자에 대한 기본값과 비슷하지만, 기본 *타입*이 선택되고 있다는 점을 제외하고는 말입니다.
+
 *Default instances* are instances that are available for instance search *even when not all their inputs are known*.
 When one of these instances can be used, it will be used.
 This can cause programs to successfully type check, rather than failing with errors related to unknown types and metavariables.
 On the other hand, default instances can make instance selection less predictable.
 In particular, if an undesired default instance is selected, then an expression may have a different type than expected, which can cause confusing type errors to occur elsewhere in the program.
 Be selective about where default instances are used!
-
-parameter가 입력인지 출력인지 결정하는 것은 Lean이 type class search를 시작할 조건을 제어합니다.
-특히, type class search는 모든 입력이 알려질 때까지 발생하지 않습니다.
-그러나 어떤 경우에는 output parameter들만으로는 충분하지 않으며, instance search는 일부 입력이 알 수 없을 때도 발생해야 합니다.
-이는 Python이나 Kotlin의 선택 함수 인자에 대한 기본값과 비슷하지만, 기본 *타입*이 선택되고 있다는 점을 제외하고는 말입니다.
 
 *Default instance*는 모든 입력이 알려지지 않았을 때에도 instance search에 이용 가능한 instance들입니다.
 이 instance들 중 하나를 사용할 수 있으면, 사용됩니다.
@@ -247,21 +247,21 @@ as expected, but
 
 yields a type that contains two metavariables, one for the remaining argument and one for the return type:
 
+대부분의 경우, 누군가 덧셈에 한 인자를 제공할 때, 다른 인자는 같은 타입을 가질 것입니다.
+이 instance를 default instance로 만들려면, `default_instance` attribute를 적용하세요:
+
 ```
 HPlus.hPlus 5 : ?m.2 → ?m.3
 ```
-
-In the vast majority of cases, when someone supplies one argument to addition, the other argument will have the same type.
-To make this instance into a default instance, apply the `default_instance` attribute:
-
-대부분의 경우, 누군가 덧셈에 한 인자를 제공할 때, 다른 인자는 같은 타입을 가질 것입니다.
-이 instance를 default instance로 만들려면, `default_instance` attribute를 적용하세요:
 
 ```lean
 @[default_instance]
 instance [Add α] : HPlus α α α where
   hPlus := Add.add
 ```
+
+In the vast majority of cases, when someone supplies one argument to addition, the other argument will have the same type.
+To make this instance into a default instance, apply the `default_instance` attribute:
 
 With this default instance, the example has a more useful type:
 

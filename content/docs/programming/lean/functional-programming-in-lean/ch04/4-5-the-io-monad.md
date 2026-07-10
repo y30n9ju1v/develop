@@ -50,27 +50,24 @@ Nat.succ : Nat → Nat
 
 and
 
+때로는 `#print`의 출력에 이 책에서 아직 제시되지 않은 Lean 기능이 포함될 수 있습니다. 예를 들어,
+
 ```lean
 #print Char.isAlpha
 ```
-
-results in
-
-```
-def Char.isAlpha : Char → Bool :=
-fun c => c.isUpper || c.isLower
-```
-
-Sometimes, the output of `#print` includes Lean features that have not yet been presented in this book.
-For example,
-
-때로는 `#print`의 출력에 이 책에서 아직 제시되지 않은 Lean 기능이 포함될 수 있습니다. 예를 들어,
 
 ```lean
 #print List.isEmpty
 ```
 
+results in
+
 produces
+
+```
+def Char.isAlpha : Char → Bool :=
+fun c => c.isUpper || c.isLower
+```
 
 ```
 def List.isEmpty.{u} : {α : Type u} → List α → Bool :=
@@ -79,6 +76,9 @@ fun {α} x =>
   | [] => true
   | head :: tail => false
 ```
+
+Sometimes, the output of `#print` includes Lean features that have not yet been presented in this book.
+For example,
 
 which includes a `.{u}` after the definition's name, and annotates types as `Type u` rather than just `Type`.
 This can be safely ignored for now.

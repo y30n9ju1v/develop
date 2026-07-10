@@ -122,10 +122,10 @@ The rules for evaluation into a multiset are:
 * Division `X / Y` evaluates to `\{ x / y \mid x ∈ X, y ∈ Y, y ≠ 0\}`. In other words, all `0` values in `Y` are thrown out.
 * A choice `\mathrm{choose}(x, y)` evaluates to `\{ x, y \}`.
 
+예를 들어, `1 + \mathrm{choose}(2, 5)`는 `\{ 3, 6 \}`으로 평가되고, `1 + 2 / 0`은 `\{\}`으로 평가되며, `90 / (\mathrm{choose}(-5, 5) + 5)`는 `\{ 9 \}`로 평가됩니다. 참 집합 대신 다중집합을 사용하면 요소의 유일성을 확인할 필요가 없음으로써 코드를 단순화합니다.
+
 For example, `1 + \mathrm{choose}(2, 5)` evaluates to `\{ 3, 6 \}`, `1 + 2 / 0` evaluates to `\{\}`, and `90 / (\mathrm{choose}(-5, 5) + 5)` evaluates to `\{ 9 \}`.
 Using multisets instead of true sets simplifies the code by removing the need to check for uniqueness of elements.
-
-예를 들어, `1 + \mathrm{choose}(2, 5)`는 `\{ 3, 6 \}`으로 평가되고, `1 + 2 / 0`은 `\{\}`으로 평가되며, `90 / (\mathrm{choose}(-5, 5) + 5)`는 `\{ 9 \}`로 평가됩니다. 참 집합 대신 다중집합을 사용하면 요소의 유일성을 확인할 필요가 없음으로써 코드를 단순화합니다.
 
 A monad that represents this non-deterministic effect must be able to represent a situation in which there are no answers, and a situation in which there is at least one answer together with any remaining answers:
 
@@ -375,6 +375,9 @@ When evaluating expressions in the reader monad, the following rules are used:
 * Constants `n` evaluate to constant functions `λ e . n`,
 * Arithmetic operators evaluate to functions that pass their arguments on, so `f + g` evaluates to `λ e . f(e) + g(e)`, and
 * Custom operators evaluate to the result of applying the custom operator to the arguments, so `f \ \mathrm{OP}\ g` evaluates to
+
+Lean에서 reader monad를 정의하기 위해 첫 번째 단계는 `Reader` 타입과 사용자가 환경을 얻을 수 있게 해주는 효과를 정의하는 것입니다:
+
   ```
   λ e .
     \begin{cases}
@@ -382,18 +385,17 @@ When evaluating expressions in the reader monad, the following rules are used:
     0 & \mathrm{otherwise}
     \end{cases}
   ```
-  with `0` serving as a fallback in case an unknown operator is applied.
-
-To define the reader monad in Lean, the first step is to define the `Reader` type and the effect that allows users to get ahold of the environment:
-
-Lean에서 reader monad를 정의하기 위해 첫 번째 단계는 `Reader` 타입과 사용자가 환경을 얻을 수 있게 해주는 효과를 정의하는 것입니다:
 
 ```lean
 def Reader (ρ : Type) (α : Type) : Type := ρ → α
 def read : Reader ρ ρ := fun env => env
 ```
 
+  with `0` serving as a fallback in case an unknown operator is applied.
+
 By convention, the Greek letter `ρ`, which is pronounced “rho”, is used for environments.
+
+To define the reader monad in Lean, the first step is to define the `Reader` type and the effect that allows users to get ahold of the environment:
 
 관례상 “rho”로 발음되는 그리스 문자 `ρ`가 환경에 사용됩니다.
 

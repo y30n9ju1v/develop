@@ -192,15 +192,15 @@ The `match` expression is provided the function's argument `n` for destructuring
 If `n` was constructed by `Nat.zero`, then the first branch of the pattern match is taken, and the result is `true`.
 If `n` was constructed by `Nat.succ`, then the second branch is taken, and the result is `false`.
 
-Step-by-step, evaluation of `isZero Nat.zero` proceeds as follows:
-
-Evaluation of `isZero 5` proceeds similarly:
-
 패턴 매칭을 사용하는 함수의 예는 `isZero`이며, 인수가 `Nat.zero`일 때 `true`를 반환하고, 그 외에는 false를 반환하는 함수입니다.
+
+Step-by-step, evaluation of `isZero Nat.zero` proceeds as follows:
 
 `match` 표현식은 함수의 인수 `n`을 분해(destructuring)하기 위해 제공됩니다.
 `n`이 `Nat.zero`로 구성되었으면, 패턴 매칭의 첫 번째 분기가 취해지고, 결과는 `true`입니다.
 `n`이 `Nat.succ`로 구성되었으면, 두 번째 분기가 취해지고, 결과는 `false`입니다.
+
+Evaluation of `isZero 5` proceeds similarly:
 
 단계별로, `isZero Nat.zero`의 평가는 다음과 같이 진행됩니다.
 

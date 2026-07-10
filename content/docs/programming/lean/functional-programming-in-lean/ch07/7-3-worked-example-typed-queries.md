@@ -333,19 +333,19 @@ schema에 두 개 이상의 column이 있다면, `here`의 case가 있어야 하
 
 `HasCol` plays two roles:
 
+`HasCol`은 두 가지 역할을 합니다:
+
 1. It serves as *evidence* that a column with a particular name and type exists in a schema.
 2. It serves as *data* that can be used to find the value associated with the column in a row.
+
+1. 특정 name과 type을 가진 column이 schema에 존재한다는 *evidence*로 작용합니다.
+2. row에서 column과 연결된 값을 찾는 데 사용할 수 있는 *data*로 작용합니다.
 
 The first role, that of evidence, is similar to way that propositions are used.
 The definition of the indexed family `HasCol` can be read as a specification of what counts as evidence that a given column exists.
 Unlike propositions, however, it matters which constructor of `HasCol` was used.
 In the second role, the constructors are used like `Nat`s to find data in a collection.
 Programming with indexed families often requires the ability to switch fluently between both perspectives.
-
-`HasCol`은 두 가지 역할을 합니다:
-
-1. 특정 name과 type을 가진 column이 schema에 존재한다는 *evidence*로 작용합니다.
-2. row에서 column과 연결된 값을 찾는 데 사용할 수 있는 *data*로 작용합니다.
 
 첫 번째 역할인 evidence는 proposition이 사용되는 방식과 유사합니다.
 indexed family `HasCol`의 정의는 주어진 column이 존재한다는 evidence로 간주되는 것에 대한 specification으로 읽을 수 있습니다.

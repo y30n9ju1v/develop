@@ -80,18 +80,14 @@ Options:
 
 Accordingly, a configuration can be constructed by examining a list of command-line arguments:
 
+`main` 함수는 구성을 사용하여 디렉토리의 내용을 표시하는 `dirTree`라는 내부 작업자 주변의 래퍼입니다. `dirTree`를 호출하기 전에 `main`은 명령줄 인수 처리를 담당합니다. 또한 운영 체제에 적절한 종료 코드를 반환해야 합니다:
+
 ```lean
 def configFromArgs : List String → Option Config
   | [] => some {} -- both fields default
   | ["--ascii"] => some {useASCII := true}
   | _ => none
 ```
-
-The `main` function is a wrapper around an inner worker, called `dirTree`, that shows the contents of a directory using a configuration.
-Before calling `dirTree`, `main` is responsible for processing command-line arguments.
-It must also return the appropriate exit code to the operating system:
-
-`main` 함수는 구성을 사용하여 디렉토리의 내용을 표시하는 `dirTree`라는 내부 작업자 주변의 래퍼입니다. `dirTree`를 호출하기 전에 `main`은 명령줄 인수 처리를 담당합니다. 또한 운영 체제에 적절한 종료 코드를 반환해야 합니다:
 
 ```lean
 def main (args : List String) : IO UInt32 := do
@@ -104,6 +100,10 @@ def main (args : List String) : IO UInt32 := do
     IO.eprintln usage
     pure 1
 ```
+
+The `main` function is a wrapper around an inner worker, called `dirTree`, that shows the contents of a directory using a configuration.
+Before calling `dirTree`, `main` is responsible for processing command-line arguments.
+It must also return the appropriate exit code to the operating system:
 
 `IO.eprintln` is a version of `IO.println` that outputs to standard error.
 
@@ -341,23 +341,23 @@ def main (args : List String) : IO UInt32 := do
 
 This custom monad has a number of advantages over passing configurations manually:
 
+이 사용자 정의 Monad는 수동으로 구성을 전달하는 것에 비해 여러 장점이 있습니다:
+
 1. It is easier to ensure that configurations are passed down unchanged, except when changes are desired
 2. The concern of passing the configuration onwards is more clearly separated from the concern of printing directory contents
 3. As the program grows, there will be more and more intermediate layers that do nothing with configurations except propagate them, and these layers don't need to be rewritten as the configuration logic changes
-
-However, there are also some clear downsides:
-
-1. As the program evolves and the monad requires more features, each of the basic operators such as `locally` and `currentConfig` will need to be updated
-2. Wrapping ordinary `IO` actions in `runIO` is noisy and distracts from the flow of the program
-3. Writing monads instances by hand is repetitive, and the technique for adding a reader effect to another monad is a design pattern that requires documentation and communication overhead
-
-이 사용자 정의 Monad는 수동으로 구성을 전달하는 것에 비해 여러 장점이 있습니다:
 
 1. 변경이 원할 때를 제외하고는 구성이 변경되지 않은 채로 전달되도록 하기 더 쉽습니다.
 2. 구성을 전달하는 것에 대한 관심이 디렉토리 내용을 인쇄하는 것에 대한 관심과 더 명확하게 분리됩니다.
 3. 프로그램이 커질수록 구성을 전파하는 것 외에는 아무것도 하지 않는 중간 계층이 점점 더 많아질 것이며, 이러한 계층들은 구성 로직이 변경될 때 다시 작성될 필요가 없습니다.
 
+However, there are also some clear downsides:
+
 그러나 몇 가지 명확한 단점도 있습니다:
+
+1. As the program evolves and the monad requires more features, each of the basic operators such as `locally` and `currentConfig` will need to be updated
+2. Wrapping ordinary `IO` actions in `runIO` is noisy and distracts from the flow of the program
+3. Writing monads instances by hand is repetitive, and the technique for adding a reader effect to another monad is a design pattern that requires documentation and communication overhead
 
 1. 프로그램이 진화하고 Monad가 더 많은 기능이 필요함에 따라 `locally` 및 `currentConfig`와 같은 각각의 기본 연산자들을 업데이트해야 합니다.
 2. 일반적인 `IO` 작업을 `runIO`로 래핑하는 것은 시끄럽고 프로그램의 흐름에서 주의를 분산시킵니다.
@@ -367,11 +367,11 @@ Using a technique called *monad transformers*, all of these downsides can be add
 A monad transformer takes a monad as an argument and returns a new monad.
 Monad transformers consist of:
 
+*Monad transformer*라는 기술을 사용하면 이러한 모든 단점을 해결할 수 있습니다. Monad transformer는 Monad를 인수로 받아서 새로운 Monad를 반환합니다. Monad transformer는 다음으로 구성됩니다:
+
 1. A definition of the transformer itself, which is typically a function from types to types
 2. A `Monad` instance that assumes the inner type is already a monad
 3. An operator to “lift” an action from the inner monad to the transformed monad, akin to `runIO`
-
-*Monad transformer*라는 기술을 사용하면 이러한 모든 단점을 해결할 수 있습니다. Monad transformer는 Monad를 인수로 받아서 새로운 Monad를 반환합니다. Monad transformer는 다음으로 구성됩니다:
 
 1. Transformer 자체의 정의로, 일반적으로 타입에서 타입으로의 함수입니다.
 2. 내부 타입이 이미 Monad라고 가정하는 `Monad` 인스턴스입니다.
@@ -392,12 +392,12 @@ def ReaderT (ρ : Type u) (m : Type u → Type v) (α : Type u) :
 
 Its arguments are as follows:
 
+인수는 다음과 같습니다:
+
 * `ρ` is the environment that is accessible to the reader
 * `m` is the monad that is being transformed, such as `IO`
 * `α` is the type of values being returned by the monadic computation
   Both `α` and `ρ` are in the same universe because the operator that retrieves the environment in the monad will have type `m ρ`.
-
-인수는 다음과 같습니다:
 
 * `ρ`는 Reader에 액세스할 수 있는 환경입니다.
 * `m`은 `IO`와 같이 변환되고 있는 Monad입니다.

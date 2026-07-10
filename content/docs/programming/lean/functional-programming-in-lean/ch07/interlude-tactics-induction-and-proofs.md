@@ -35,10 +35,10 @@ On the other, they also correspond to proofs by *mathematical induction*.
 
 Mathematical induction is a proof technique where a statement is proven for *all* natural numbers in two steps:
 
+수학적 귀납법은 명제를 두 가지 단계로 모든 자연수에 대해 증명하는 증명 기법입니다:
+
 1. The statement is shown to hold for `0`. This is called the *base case*.
 2. Under the assumption that the statement holds for some arbitrarily chosen number `n`, it is shown to hold for `n + 1`. This is called the *induction step*. The assumption that the statement holds for `n` is called the *induction hypothesis*.
-
-수학적 귀납법은 명제를 두 가지 단계로 모든 자연수에 대해 증명하는 증명 기법입니다:
 
 1. 명제가 `0`에 대해 성립함을 보입니다. 이를 기저 경우(base case)라고 부릅니다.
 2. 임의로 선택된 수 `n`에 대해 명제가 성립한다는 가정 하에, `n + 1`에 대해서도 성립함을 보입니다. 이를 귀납 단계(induction step)라고 부릅니다. 명제가 `n`에 대해 성립한다는 가정을 귀납 가설(induction hypothesis)이라고 부릅니다.
@@ -267,6 +267,8 @@ However, `simp` can be configured to make use of a set of definitions.
 Just like `rw`, these arguments are provided in a list.
 Asking `simp` to take the definition of `Nat.plusR` into account leads to a simpler goal:
 
+하지만 `simp`는 정의들의 집합을 사용하도록 설정할 수 있습니다. `rw`와 마찬가지로, 이러한 인수들은 리스트에 제공됩니다. `simp`가 `Nat.plusR`의 정의를 고려하도록 요청하면 더 간단한 목표로 이어집니다.
+
 ```lean
 theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
   induction k with
@@ -274,8 +276,6 @@ theorem plusR_zero_left (k : Nat) : k = Nat.plusR 0 k := by
   | succ n ih =>
     simp [Nat.plusR]
 ```
-
-하지만 `simp`는 정의들의 집합을 사용하도록 설정할 수 있습니다. `rw`와 마찬가지로, 이러한 인수들은 리스트에 제공됩니다. `simp`가 `Nat.plusR`의 정의를 고려하도록 요청하면 더 간단한 목표로 이어집니다.
 
 ```
 unsolved goals
@@ -416,10 +416,10 @@ The ability to carry out proofs by induction is the very reason why they are cal
 One example of this is induction on binary trees.
 Induction on binary trees is a proof technique where a statement is proven for *all* binary trees in two steps:
 
+이의 한 예는 이진 트리에 대한 귀납법입니다. 이진 트리에 대한 귀납법은 명제를 두 단계로 모든 이진 트리에 대해 증명하는 증명 기법입니다:
+
 1. The statement is shown to hold for `BinTree.leaf`. This is called the base case.
 2. Under the assumption that the statement holds for some arbitrarily chosen trees `l` and `r`, it is shown to hold for `BinTree.branch l x r`, where `x` is an arbitrarily-chosen new data point. This is called the *induction step*. The assumptions that the statement holds for `l` and `r` are called the *induction hypotheses*.
-
-이의 한 예는 이진 트리에 대한 귀납법입니다. 이진 트리에 대한 귀납법은 명제를 두 단계로 모든 이진 트리에 대해 증명하는 증명 기법입니다:
 
 1. 명제가 `BinTree.leaf`에 대해 성립함을 보입니다. 이를 기저 경우라고 부릅니다.
 2. 임의로 선택된 트리 `l`과 `r`에 대해 명제가 성립한다는 가정 하에, `BinTree.branch l x r`에 대해서도 성립함을 보입니다. 여기서 `x`는 임의로 선택된 새로운 데이터 포인트입니다. 이를 귀납 단계라고 부릅니다. `l`과 `r`에 대해 명제가 성립한다는 가정들을 귀납 가설들이라고 부릅니다.

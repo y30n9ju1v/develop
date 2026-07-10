@@ -423,11 +423,11 @@ Here are some examples of functors and how their `Functor` instances overload `m
 * `Functor.map toString (some (List.cons 5 List.nil))` evaluates to `some "[5]"`
 * `Functor.map List.reverse [[1, 2, 3], [4, 5, 6]]` evaluates to `[[3, 2, 1], [6, 5, 4]]`
 
-Because `Functor.map` is a bit of a long name for this common operation, Lean also provides an infix operator for mapping a function, namely `<$>`.
-The prior examples can be rewritten as follows:
-
 `Functor.map`은 이 일반적인 연산에 대해 조금 긴 이름이기 때문에, Lean은 함수를 매핑하기 위한 infix 연산자인 `<$>`도 제공합니다.
 위의 예들은 다음과 같이 다시 쓸 수 있습니다:
+
+Because `Functor.map` is a bit of a long name for this common operation, Lean also provides an infix operator for mapping a function, namely `<$>`.
+The prior examples can be rewritten as follows:
 
 * `(· + 5) <$> [1, 2, 3]` evaluates to `[6, 7, 8]`
 * `toString <$> (some (List.cons 5 List.nil))` evaluates to `some "[5]"`
@@ -489,12 +489,12 @@ def concat [Append α] (xs : NonEmptyList α) : α :=
 
 However, for some classes, there are operations that can be more efficiently implemented with knowledge of the internals of a datatype.
 
+그러나 어떤 class들의 경우, datatype의 내부에 대한 지식으로 더 효율적으로 구현될 수 있는 연산들이 있습니다.
+
 In these cases, a default method definition can be provided.
 A default method definition provides a default implementation of a method in terms of the other methods.
 However, instance implementors may choose to override this default with something more efficient.
 Default method definitions contain `:=` in a `class` definition.
-
-그러나 어떤 class들의 경우, datatype의 내부에 대한 지식으로 더 효율적으로 구현될 수 있는 연산들이 있습니다.
 
 이 경우들에서, default method definition을 제공할 수 있습니다.
 Default method definition은 다른 method들의 관점에서 method의 기본 구현을 제공합니다.
@@ -529,13 +529,13 @@ Specifically, `Functor` instances should follow two rules:
 1. Mapping the identity function should result in the original argument.
 2. Mapping two composed functions should have the same effect as composing their mapping.
 
+1. Identity 함수를 매핑하면 원본 인자를 결과로 가져야 합니다.
+2. 두 개의 합성된 함수를 매핑하는 것은 이들의 매핑을 합성하는 것과 같은 효과를 가져야 합니다.
+
 More formally, the first rule says that `id <$> x` equals `x`.
 The second rule says that `map (fun y => f (g y)) x` equals `map f (map g x)`.
 The composition `f ∘ g` can also be written `fun y => f (g y)`.
 These rules prevent implementations of `map` that move the data around or delete some of it.
-
-1. Identity 함수를 매핑하면 원본 인자를 결과로 가져야 합니다.
-2. 두 개의 합성된 함수를 매핑하는 것은 이들의 매핑을 합성하는 것과 같은 효과를 가져야 합니다.
 
 더 정형적으로, 첫 번째 규칙은 `id <$> x`가 `x`와 같다고 말합니다.
 두 번째 규칙은 `map (fun y => f (g y)) x`가 `map f (map g x)`와 같다고 말합니다.
@@ -547,18 +547,18 @@ These rules prevent implementations of `map` that move the data around or delete
 Lean is not able to derive instances for all classes.
 For example, the code
 
+Lean은 모든 class에 대해 instance를 derive할 수 없습니다.
+예를 들어, 다음 코드는 다음 에러를 야기합니다:
+
 ```lean
 deriving instance ToString for NonEmptyList
 ```
 
-results in the following error:
-
-Lean은 모든 class에 대해 instance를 derive할 수 없습니다.
-예를 들어, 다음 코드는 다음 에러를 야기합니다:
-
 ```
 No deriving handlers have been implemented for class `ToString`
 ```
+
+results in the following error:
 
 Invoking `deriving instance` causes Lean to consult an internal table of code generators for type class instances.
 If the code generator is found, then it is invoked on the provided type to create the instance.

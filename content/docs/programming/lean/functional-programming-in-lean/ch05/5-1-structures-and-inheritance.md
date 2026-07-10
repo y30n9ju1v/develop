@@ -330,11 +330,11 @@ def nonsenseCreature : SizedCreature where
 
 If the child structure should not deviate from the parent structure, there are a few options:
 
+자식 structure이 부모 structure에서 벗어나지 않아야 한다면, 몇 가지 옵션이 있습니다:
+
 1. Documenting the relationship, as is done for `BEq` and `Hashable`
 2. Defining a proposition that the fields are related appropriately, and designing the API to require evidence that the proposition is true where it matters
 3. Not using inheritance at all
-
-자식 structure이 부모 structure에서 벗어나지 않아야 한다면, 몇 가지 옵션이 있습니다:
 
 1. `BEq`와 `Hashable`에서처럼 관계를 문서화하기
 2. 필드가 적절히 관련되어 있다는 proposition을 정의하고, 중요한 곳에서 그 proposition이 참임을 보여주는 증거를 요구하도록 API를 설계하기

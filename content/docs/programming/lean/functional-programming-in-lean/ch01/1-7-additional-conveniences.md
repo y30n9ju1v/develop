@@ -770,19 +770,19 @@ Lean에서, 문자열 앞에 `s!`를 붙이면 *interpolation*이 트리거되�
 
 yields the output
 
+모든 표현식을 문자열로 interpolate할 수는 없습니다.
+예를 들어, 함수를 interpolate하려고 시도하면 오류가 발생합니다.
+
 ```
 "three fives is 15"
 ```
 
-Not all expressions can be interpolated into a string.
-For instance, attempting to interpolate a function results in an error.
-
-모든 표현식을 문자열로 interpolate할 수는 없습니다.
-예를 들어, 함수를 interpolate하려고 시도하면 오류가 발생합니다.
-
 ```lean
 #check s!"three fives is {NewNamespace.triple}"
 ```
+
+Not all expressions can be interpolated into a string.
+For instance, attempting to interpolate a function results in an error.
 
 yields the error
 

@@ -331,12 +331,12 @@ def stringOrType : Sum String Type := .inr Nat
 
 In positions where Lean expects a universe level, any of the following are allowed:
 
+Lean이 universe level을 기대하는 위치에서, 다음 중 어느 것이든 허용됩니다:
+
 * A concrete level, like `0` or `1`
 * A variable that stands for a level, such as `u` or `v`
 * The maximum of two levels, written as `max` applied to the levels
 * A level increase, written with `+ 1`
-
-Lean이 universe level을 기대하는 위치에서, 다음 중 어느 것이든 허용됩니다:
 
 * `0` 또는 `1` 같은 구체적인 level
 * `u` 또는 `v` 같은 level을 나타내는 변수
@@ -349,16 +349,16 @@ Until now, every datatype defined in this book has been in `Type`, the smallest 
 When presenting polymorphic datatypes from the Lean standard library, such as `List` and `Sum`, this book created non-universe-polymorphic versions of them.
 The real versions use universe polymorphism to enable code re-use between type-level and non-type-level programs.
 
+지금까지 이 책에서 정의된 모든 datatype은 `Type`(데이터의 가장 작은 universe)에 있었습니다.
+Lean 표준 라이브러리의 `List`와 `Sum` 같은 polymorphic datatype들을 제시할 때, 이 책은 그들의 비-universe-polymorphic 버전들을 만들었습니다.
+실제 버전들은 type-level과 비-type-level 프로그램 간의 코드 재사용을 가능하게 하기 위해 universe polymorphism을 사용합니다.
+
 There are a few general guidelines to follow when writing universe-polymorphic types.
 First off, independent type arguments should have different universe variables, which enables the polymorphic definition to be used with a wider variety of arguments, increasing the potential for code reuse.
 Secondly, the whole type is itself typically either in the maximum of all the universe variables, or one greater than this maximum.
 Try the smaller of the two first.
 Finally, it's a good idea to put the new type in as small of a universe as possible, which allows it to be used more flexibly in other contexts.
 Non-polymorphic types, such as `Nat` and `String`, can be placed directly in `Type 0`.
-
-지금까지 이 책에서 정의된 모든 datatype은 `Type`(데이터의 가장 작은 universe)에 있었습니다.
-Lean 표준 라이브러리의 `List`와 `Sum` 같은 polymorphic datatype들을 제시할 때, 이 책은 그들의 비-universe-polymorphic 버전들을 만들었습니다.
-실제 버전들은 type-level과 비-type-level 프로그램 간의 코드 재사용을 가능하게 하기 위해 universe polymorphism을 사용합니다.
 
 universe-polymorphic type들을 작성할 때 따를 몇 가지 일반적인 지침이 있습니다.
 먼저, 독립적인 type argument들은 서로 다른 universe 변수들을 가져야 하며, 이는 polymorphic 정의가 더 다양한 argument들과 함께 사용될 수 있게 하여 코드 재사용의 가능성을 증가시킵니다.

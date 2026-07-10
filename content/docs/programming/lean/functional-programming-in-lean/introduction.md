@@ -83,21 +83,21 @@ It is also useful to explore Lean as you read the book, finding creative new way
 Before writing and running programs written in Lean, you'll need to set up Lean on your own computer.
 The Lean tooling consists of the following:
 
+Lean으로 프로그램을 작성하고 실행하려면 먼저 로컬 환경에 Lean을 설치해야 합니다.
+Lean 도구 모음은 다음으로 구성됩니다:
+
 * `elan` manages the Lean compiler toolchains, similarly to `rustup` or `ghcup`.
 * `lake` builds Lean packages and their dependencies, similarly to `cargo`, `make`, or Gradle.
 * `lean` type checks and compiles individual Lean files as well as providing information to programmer tools about files that are currently being written.
   Normally, `lean` is invoked by other tools rather than directly by users.
 * Plugins for editors, such as Visual Studio Code or Emacs, that communicate with `lean` and present its information conveniently.
 
-Please refer to the [Lean manual](https://lean-lang.org/lean4/doc/quickstart.html) for up-to-date instructions for installing Lean.
-
-Lean으로 프로그램을 작성하고 실행하려면 먼저 로컬 환경에 Lean을 설치해야 합니다.
-Lean 도구 모음은 다음으로 구성됩니다:
-
 * `elan`: `rustup`이나 `ghcup`처럼 Lean 컴파일러 툴체인을 관리합니다.
 * `lake`: `cargo`나 `make`처럼 Lean 패키지와 의존성을 빌드합니다.
 * `lean`: 개별 Lean 파일의 타입 검사와 컴파일을 수행하고, 현재 편집 중인 파일 정보를 개발 도구에 제공합니다. 보통 사용자가 직접 호출하지 않고 다른 도구가 호출합니다.
 * Visual Studio Code, Emacs 등의 편집기 플러그인: `lean`과 통신해 정보를 편리하게 표시합니다.
+
+Please refer to the [Lean manual](https://lean-lang.org/lean4/doc/quickstart.html) for up-to-date instructions for installing Lean.
 
 설치 방법은 [Lean 공식 문서](https://lean-lang.org/lean4/doc/quickstart.html)를 참고하세요.
 
@@ -150,14 +150,14 @@ Idiomatic Lean code makes use of a variety of Unicode characters that are not pa
 For instance, Greek letters like `α` and `β` and the arrow `→` both occur in the first chapter of this book.
 This allows Lean code to more closely resemble ordinary mathematical notation.
 
+관용적인 Lean 코드는 ASCII에 없는 다양한 유니코드 문자를 사용합니다.
+예를 들어 `α`, `β` 같은 그리스 문자와 화살표 `→`가 1장에서부터 등장합니다.
+이 덕분에 Lean 코드가 일반적인 수학 표기법과 유사하게 보입니다.
+
 With the default Lean settings, both Visual Studio Code and Emacs allow these characters to be typed with a backslash (`\`) followed by a name.
 For example, to enter `α`, type `\alpha`.
 To find out how to type a character in Visual Studio Code, point the mouse at it and look at the tooltip.
 In Emacs, use `C-c C-k` with point on the character in question.
-
-관용적인 Lean 코드는 ASCII에 없는 다양한 유니코드 문자를 사용합니다.
-예를 들어 `α`, `β` 같은 그리스 문자와 화살표 `→`가 1장에서부터 등장합니다.
-이 덕분에 Lean 코드가 일반적인 수학 표기법과 유사하게 보입니다.
 
 기본 설정에서 Visual Studio Code와 Emacs 모두 역슬래시(`\`) 뒤에 이름을 입력해 이런 문자를 삽입할 수 있습니다.
 예를 들어 `α`는 `\alpha`로 입력합니다.

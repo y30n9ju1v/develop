@@ -149,15 +149,15 @@ In the above description, it can be difficult to see why the distinction between
 After all, each action is executed immediately after it is produced.
 Why not simply carry out the effects during evaluation, as is done in other languages?
 
+위의 설명에서 식을 평가하는 것과 `IO` 액션을 실행하는 것 사이의 구분이 필요한 이유를 보기가 어려울 수 있습니다.
+결국 각 액션은 생성된 직후에 실행됩니다.
+다른 언어처럼 평가 중에 효과를 수행하지 않는 이유는 무엇일까요?
+
 The answer is twofold.
 First off, separating evaluation from execution means that programs must be explicit about which functions can have side effects.
 Because the parts of the program that do not have effects are much more amenable to mathematical reasoning, whether in the heads of programmers or using Lean's facilities for formal proof, this separation can make it easier to avoid bugs.
 Secondly, not all `IO` actions need be executed at the time that they come into existence.
 The ability to mention an action without carrying it out allows ordinary functions to be used as control structures.
-
-위의 설명에서 식을 평가하는 것과 `IO` 액션을 실행하는 것 사이의 구분이 필요한 이유를 보기가 어려울 수 있습니다.
-결국 각 액션은 생성된 직후에 실행됩니다.
-다른 언어처럼 평가 중에 효과를 수행하지 않는 이유는 무엇일까요?
 
 답은 두 가지입니다.
 먼저 평가를 실행과 분리한다는 것은 프로그램이 어떤 함수가 부작용을 가질 수 있는지에 대해 명시적이어야 함을 의미합니다.
@@ -183,15 +183,12 @@ twice (IO.println "shy")
 
 results in
 
-```
-shy
-shy
-```
-
-being printed.
-This can be generalized to a version that runs the underlying action any number of times:
-
 이는 기본 액션을 여러 번 실행하는 버전으로 일반화될 수 있습니다:
+
+```
+shy
+shy
+```
 
 ```lean
 def nTimes (action : IO Unit) : Nat → IO Unit
@@ -200,6 +197,9 @@ def nTimes (action : IO Unit) : Nat → IO Unit
     action
     nTimes action n
 ```
+
+being printed.
+This can be generalized to a version that runs the underlying action any number of times:
 
 In the base case for `Nat.zero`, the result is `pure ()`.
 The function `pure` creates an `IO` action that has no side effects, but returns `pure`'s argument, which in this case is the constructor for `Unit`.

@@ -154,19 +154,14 @@ After deriving a `Repr B` instance with `deriving instance Repr for B`,
 
 results in:
 
-```
-B.b
-```
-
-The `Option` type can be used similarly to nullable types in C# and Kotlin: the `none` constructor represents the absence of a value.
-The Lean standard library defines a coercion from any type `α` to `Option α` that wraps the value in `some`.
-This allows option types to be used in a manner even more similar to nullable types, because `some` can be omitted.
-For instance, the function `List.last?` that finds the last entry in a list can be written without a `some` around the return value `x`:
-
 `Option` 타입은 C#과 Kotlin의 nullable 타입과 유사하게 사용될 수 있습니다: `none` 생성자는 값의 부재를 나타냅니다.
 Lean 표준 라이브러리는 모든 타입 `α`에서 `Option α`로의 coercion을 정의하며, 이는 값을 `some`으로 감싸줍니다.
 이는 option 타입을 nullable 타입과 더욱 유사한 방식으로 사용할 수 있게 하며, `some`을 생략할 수 있기 때문입니다.
 예를 들어, 리스트의 마지막 항목을 찾는 함수 `List.last?`는 반환 값 `x` 주변에 `some` 없이 작성될 수 있습니다:
+
+```
+B.b
+```
 
 ```lean
 def List.last? : List α → Option α
@@ -174,6 +169,11 @@ def List.last? : List α → Option α
   | [x] => x
   | _ :: x :: xs => last? (x :: xs)
 ```
+
+The `Option` type can be used similarly to nullable types in C# and Kotlin: the `none` constructor represents the absence of a value.
+The Lean standard library defines a coercion from any type `α` to `Option α` that wraps the value in `some`.
+This allows option types to be used in a manner even more similar to nullable types, because `some` can be omitted.
+For instance, the function `List.last?` that finds the last entry in a list can be written without a `some` around the return value `x`:
 
 Instance search finds the coercion, and inserts a call to `coe`, which wraps the argument in `some`.
 These coercions can be chained, so that nested uses of `Option` don't require nested `some` constructors:
@@ -681,13 +681,13 @@ Abelson과 Sussman이 *Structure and Interpretation of Computer Programs* (MIT P
 
 > Programs must be written for people to read, and only incidentally for machines to execute.
 
-Coercions, used wisely, are a valuable means of achieving readable code that can serve as the basis for communication with domain experts.
-APIs that rely heavily on coercions have a number of important limitations, however.
-Think carefully about these limitations before using coercions in your own libraries.
-
 Coercion을 현명하게 사용하면 도메인 전문가와의 의사소통의 기초가 될 수 있는 읽기 쉬운 코드를 달성하기 위한 귀중한 수단입니다.
 그러나 coercion에 크게 의존하는 API는 여러 중요한 제한 사항이 있습니다.
 자신의 라이브러리에서 coercion을 사용하기 전에 이러한 제한 사항을 신중하게 생각해보세요.
+
+Coercions, used wisely, are a valuable means of achieving readable code that can serve as the basis for communication with domain experts.
+APIs that rely heavily on coercions have a number of important limitations, however.
+Think carefully about these limitations before using coercions in your own libraries.
 
 First off, coercions are only applied in contexts where enough type information is available for Lean to know all of the types involved, because there are no output parameters in the coercion type classes. This means that a return type annotation on a function can be the difference between a type error and a successfully applied coercion.
 For example, the coercion from non-empty lists to lists makes the following program work:

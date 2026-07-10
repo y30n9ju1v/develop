@@ -97,11 +97,11 @@ def idahoSpiders : NonEmptyList String := {
 
 Looking up the value at a specific index in this list with a recursive function should consider three possibilities:
 
+이 list에서 recursive function을 사용하여 특정 index에서 값을 조회할 때 세 가지 가능성을 고려해야 합니다:
+
 1. The index is `0`, in which case the head of the list should be returned.
 2. The index is `n + 1` and the tail is empty, in which case the index is out of bounds.
 3. The index is `n + 1` and the tail is non-empty, in which case the function can be called recursively on the tail and `n`.
-
-이 list에서 recursive function을 사용하여 특정 index에서 값을 조회할 때 세 가지 가능성을 고려해야 합니다:
 
 1. Index가 `0`인 경우, list의 head를 반환해야 합니다.
 2. Index가 `n + 1`이고 tail이 비어 있는 경우, index는 범위를 벗어납니다.
@@ -198,13 +198,13 @@ This requires techniques for working with proofs and propositions that are descr
 Indexing notation for a collection type can be overloaded by defining an instance of the `GetElem` type class.
 For the sake of flexibility, `GetElem` has four parameters:
 
+Collection type의 indexing notation은 `GetElem` type class의 instance를 정의하여 overload할 수 있습니다.
+유연성을 위해 `GetElem`은 네 가지 parameter를 가집니다:
+
 * The type of the collection
 * The type of the index
 * The type of elements that are extracted from the collection
 * A function that determines what counts as evidence that the index is in bounds
-
-Collection type의 indexing notation은 `GetElem` type class의 instance를 정의하여 overload할 수 있습니다.
-유연성을 위해 `GetElem`은 네 가지 parameter를 가집니다:
 
 * Collection의 type
 * Index의 type
@@ -228,12 +228,12 @@ class GetElem
 
 In the case of `NonEmptyList α`, these parameters are:
 
+`NonEmptyList α`의 경우, 이러한 parameter는 다음과 같습니다:
+
 * The collection is `NonEmptyList α`
 * Indices have type `Nat`
 * The type of elements is `α`
 * An index is in bounds if it is less than or equal to the length of the tail
-
-`NonEmptyList α`의 경우, 이러한 parameter는 다음과 같습니다:
 
 * Collection은 `NonEmptyList α`
 * Index는 `Nat` type

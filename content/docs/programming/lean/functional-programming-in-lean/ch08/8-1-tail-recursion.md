@@ -149,25 +149,25 @@ The reason why `Tail.sumHelper` is tail recursive is that the recursive call is 
 Informally speaking, a function call is in tail position when the caller does not need to modify the returned value in any way, but will just return it directly.
 More formally, tail position can be defined explicitly for expressions.
 
+`Tail.sumHelper`가 꼬리 재귀인 이유는 재귀 호출이 *tail position* (꼬리 위치)에 있기 때문입니다.
+비공식적으로 말하면, 함수 호출이 꼬리 위치에 있을 때 호출자가 반환된 값을 어떤 방식으로든 수정할 필요가 없고, 단지 그것을 직접 반환하려고 합니다.
+더 공식적으로는, 꼬리 위치를 표현식에 대해 명시적으로 정의할 수 있습니다.
+
 If a `match`-expression is in tail position, then each of its branches is also in tail position.
 Once a `match` has selected a branch, control proceeds immediately to it.
 Similarly, both branches of an `if`-expression are in tail position if the `if`-expression itself is in tail position.
 Finally, if a `let`-expression is in tail position, then its body is as well.
+
+`match`-expression이 꼬리 위치에 있으면, 그것의 각 분기도 꼬리 위치에 있습니다.
+`match`가 분기를 선택한 후, 제어는 즉시 그것으로 진행됩니다.
+마찬가지로, `if`-expression의 두 분기는 `if`-expression 자체가 꼬리 위치에 있을 때 꼬리 위치에 있습니다.
+마지막으로, `let`-expression이 꼬리 위치에 있으면, 그것의 본문도 그렇습니다.
 
 All other positions are not in tail position.
 The arguments to a function or a constructor are not in tail position because evaluation must track the function or constructor that will be applied to the argument's value.
 The body of an inner function is not in tail position because control may not even pass to it: function bodies are not evaluated until the function is called.
 Similarly, the body of a function type is not in tail position.
 To evaluate `E` in `(x : α) → E`, it is necessary to track that the resulting type must have `(x : α) → ...` wrapped around it.
-
-`Tail.sumHelper`가 꼬리 재귀인 이유는 재귀 호출이 *tail position* (꼬리 위치)에 있기 때문입니다.
-비공식적으로 말하면, 함수 호출이 꼬리 위치에 있을 때 호출자가 반환된 값을 어떤 방식으로든 수정할 필요가 없고, 단지 그것을 직접 반환하려고 합니다.
-더 공식적으로는, 꼬리 위치를 표현식에 대해 명시적으로 정의할 수 있습니다.
-
-`match`-expression이 꼬리 위치에 있으면, 그것의 각 분기도 꼬리 위치에 있습니다.
-`match`가 분기를 선택한 후, 제어는 즉시 그것으로 진행됩니다.
-마찬가지로, `if`-expression의 두 분기는 `if`-expression 자체가 꼬리 위치에 있을 때 꼬리 위치에 있습니다.
-마지막으로, `let`-expression이 꼬리 위치에 있으면, 그것의 본문도 그렇습니다.
 
 다른 모든 위치는 꼬리 위치에 있지 않습니다.
 함수 또는 생성자에 대한 인자는 꼬리 위치에 있지 않습니다. 왜냐하면 평가는 인자의 값에 적용될 함수 또는 생성자를 추적해야 하기 때문입니다.
@@ -178,12 +178,12 @@ To evaluate `E` in `(x : α) → E`, it is necessary to track that the resulting
 In `NonTail.sum`, the recursive call is not in tail position because it is an argument to `+`.
 In `Tail.sumHelper`, the recursive call is in tail position because it is immediately underneath a pattern match, which itself is the body of the function.
 
+`NonTail.sum`에서 재귀 호출은 `+`의 인자이기 때문에 꼬리 위치에 있지 않습니다.
+`Tail.sumHelper`에서 재귀 호출은 패턴 매치 바로 아래에 있기 때문에 꼬리 위치에 있으며, 패턴 매치는 그 자체로 함수의 본문입니다.
+
 At the time of writing, Lean only eliminates direct tail calls in recursive functions.
 This means that tail calls to `f` in `f`'s definition will be eliminated, but not tail calls to some other function `g`.
 While it is certainly possible to eliminate a tail call to some other function, saving a stack frame, this is not yet implemented in Lean.
-
-`NonTail.sum`에서 재귀 호출은 `+`의 인자이기 때문에 꼬리 위치에 있지 않습니다.
-`Tail.sumHelper`에서 재귀 호출은 패턴 매치 바로 아래에 있기 때문에 꼬리 위치에 있으며, 패턴 매치는 그 자체로 함수의 본문입니다.
 
 저작 시점에서 Lean은 재귀 함수에서 직접 꼬리 호출만 제거합니다.
 즉, `f`의 정의에서 `f`로의 꼬리 호출은 제거되지만, 다른 함수 `g`로의 꼬리 호출은 제거되지 않음입니다.
@@ -325,4 +325,3 @@ def NonTail.filter (p : α → Bool) : List α → List α
 
 `NonTail.filter`의 변환은 꼬리 재귀를 통해 상수 스택 공간을 취하는 프로그램과 입력 리스트의 길이에 대해 선형 시간을 생성해야 합니다.
 상수 계수 오버헤드는 원본에 상대적으로 허용됩니다:
-

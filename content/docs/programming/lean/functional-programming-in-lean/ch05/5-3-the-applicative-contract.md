@@ -59,9 +59,9 @@ The third rule follows directly from the definition of `seq`:
 
 In the fourth case, assume that `u` is `some f`, because if it's `none`, both sides of the equation are `none`.
 
-`some f <*> some x` evaluates directly to `some (f x)`, as does `some (fun g => g x) <*> some f`.
-
 네 번째 경우에는 `u`가 `some f`라고 가정합니다. 왜냐하면 `none`이면 등식의 양쪽이 모두 `none`이기 때문입니다.
+
+`some f <*> some x` evaluates directly to `some (f x)`, as does `some (fun g => g x) <*> some f`.
 
 `some f <*> some x`는 직접 `some (f x)`로 평가되며, `some (fun g => g x) <*> some f`도 마찬가지입니다.
 

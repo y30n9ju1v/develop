@@ -41,14 +41,14 @@ Lean의 function은 first-class value입니다. 즉, 다른 function의 인자�
 
 There are three primary ways of creating functions:
 
+Function을 만드는 세 가지 주요 방법이 있습니다:
+
 1. Anonymous functions are written using `fun`.
    For instance, a function that swaps the fields of a `Point` can be written `fun (point : Point) => { x := point.y, y := point.x : Point }`
 2. Very simple anonymous functions are written by placing one or more centered dots `·` inside of parentheses.
    Each centered dot becomes an argument to the function, and the parentheses delimit its body.
    For instance, a function that subtracts one from its argument can be written as `(· - 1)` instead of as `fun x => x - 1`.
 3. Functions can be defined using `def` or `let` by adding an argument list or by using pattern-matching notation.
-
-Function을 만드는 세 가지 주요 방법이 있습니다:
 
 1. Anonymous function은 `fun`을 사용하여 작성됩니다.
    예를 들어, `Point`의 필드를 교환하는 function은 `fun (point : Point) => { x := point.y, y := point.x : Point }`로 작성할 수 있습니다.

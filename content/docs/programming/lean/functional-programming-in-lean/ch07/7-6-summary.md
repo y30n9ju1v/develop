@@ -55,13 +55,13 @@ Custom universes are an alternative to defining a type class with instances for 
 Type classes are extensible, but extensibility is not always desired.
 Defining a custom universe has a number of advantages over using the types directly:
 
-* Generic operations that work for *any* type in the universe, such as equality testing and serialization, can be implemented by recursion on codes.
-* The types accepted by external systems can be represented precisely, and the definition of the code datatype serves to document what can be expected.
-* Lean's pattern matching completeness checker ensures that no codes are forgotten, while solutions based on type classes defer missing instance errors to client code.
-
 사용자 정의 유니버스는 각 타입 관심사에 대해 인스턴스를 가진 타입 클래스를 정의하는 것의 대안입니다.
 타입 클래스는 확장 가능하지만, 확장성이 항상 필요한 것은 아닙니다.
 사용자 정의 유니버스를 정의하는 것은 타입을 직접 사용하는 것보다 여러 장점이 있습니다:
+
+* Generic operations that work for *any* type in the universe, such as equality testing and serialization, can be implemented by recursion on codes.
+* The types accepted by external systems can be represented precisely, and the definition of the code datatype serves to document what can be expected.
+* Lean's pattern matching completeness checker ensures that no codes are forgotten, while solutions based on type classes defer missing instance errors to client code.
 
 * 동등성 검사 및 직렬화와 같이 유니버스의 *모든* 타입에 대해 작동하는 일반 연산은 코드에 대한 재귀로 구현할 수 있습니다.
 * 외부 시스템에서 수용하는 타입을 정확하게 표현할 수 있으며, 코드 데이터타입의 정의는 무엇을 기대할 수 있는지를 문서화합니다.
@@ -116,13 +116,13 @@ Because types can contain arbitrary programs, it must therefore be able to check
 However, there is no efficient algorithm to check arbitrary programs for fully-general mathematical equality.
 To work around this, Lean contains two notions of equality:
 
-* *Definitional equality* is an underapproximation of equality that essentially checks for equality of syntactic representation modulo computation and renaming of bound variables. Lean automatically checks for definitional equality in situations where it is required.
-* *Propositional equality* must be explicitly proved and explicitly invoked by the programmer. In return, Lean automatically checks that the proofs are valid and that the invocations accomplish the right goal.
-
 Lean의 타입 검사기는 때때로 두 타입이 상호 교환 가능한 것으로 간주되어야 하는지를 확인해야 합니다.
 타입은 임의의 프로그램을 포함할 수 있기 때문에, 임의의 프로그램의 동등성을 확인할 수 있어야 합니다.
 그러나 완전히 일반적인 수학적 동등성에 대해 임의의 프로그램을 확인할 수 있는 효율적인 알고리즘이 없습니다.
 이를 해결하기 위해 Lean은 두 가지 동등성 개념을 포함합니다:
+
+* *Definitional equality* is an underapproximation of equality that essentially checks for equality of syntactic representation modulo computation and renaming of bound variables. Lean automatically checks for definitional equality in situations where it is required.
+* *Propositional equality* must be explicitly proved and explicitly invoked by the programmer. In return, Lean automatically checks that the proofs are valid and that the invocations accomplish the right goal.
 
 * *정의적 동등성*(definitional equality)은 본질적으로 계산과 바인딩된 변수의 이름 바꾸기를 고려한 구문 표현의 동등성을 확인하는 동등성의 하위 근사입니다. Lean은 필요한 상황에서 정의적 동등성을 자동으로 확인합니다.
 * *명제적 동등성*(propositional equality)은 명시적으로 증명되고 프로그래머에 의해 명시적으로 호출되어야 합니다. 대신 Lean은 증명이 유효하고 호출이 올바른 목표를 달성하는 것을 자동으로 확인합니다.

@@ -488,9 +488,11 @@ is
 which is
 `2^{2^{\left| \mathtt{Bool} \times \mathtt{Bool} \right| }},`
 which is
+
 ```lean
 2^{2^4}
 ```
+
 or 65536.
 Nested exponentials grow quickly, and there are many higher-order functions.
 

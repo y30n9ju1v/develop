@@ -21,15 +21,15 @@ These design patterns are made into a library of reusable software components by
 Monad transformers take the simpler monad types as arguments, returning the enhanced monad types.
 At a minimum, a monad transformer should provide the following instances:
 
+이러한 디자인 패턴은 기본 Monad에 효과를 추가하는 *Monad Transformer*를 정의하여 재사용 가능한 소프트웨어 구성 요소의 라이브러리로 만들어집니다. Monad Transformer는 더 단순한 Monad 타입을 인수로 받아 향상된 Monad 타입을 반환합니다. 최소한 Monad Transformer는 다음 인스턴스를 제공해야 합니다:
+
 1. A `Monad` instance that assumes the inner type is already a monad
 2. A `MonadLift` instance to translate an action from the inner monad to the transformed monad
 
-Monad transformers may be implemented as polymorphic structures or inductive datatypes, but they are most often implemented as functions from the underlying monad type to the enhanced monad type.
-
-이러한 디자인 패턴은 기본 Monad에 효과를 추가하는 *Monad Transformer*를 정의하여 재사용 가능한 소프트웨어 구성 요소의 라이브러리로 만들어집니다. Monad Transformer는 더 단순한 Monad 타입을 인수로 받아 향상된 Monad 타입을 반환합니다. 최소한 Monad Transformer는 다음 인스턴스를 제공해야 합니다:
-
 1. 내부 타입이 이미 Monad라고 가정하는 `Monad` 인스턴스
 2. 내부 Monad에서 변환된 Monad로 액션을 변환하는 `MonadLift` 인스턴스
+
+Monad transformers may be implemented as polymorphic structures or inductive datatypes, but they are most often implemented as functions from the underlying monad type to the enhanced monad type.
 
 Monad Transformer는 다형 구조 또는 귀납형 데이터타입으로 구현될 수 있지만 가장 종종 기본 Monad 타입에서 향상된 Monad 타입으로의 함수로 구현됩니다.
 

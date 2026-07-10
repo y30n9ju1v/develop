@@ -194,11 +194,19 @@ Lean의 `#eval` 명령은 단순히 평가하는 것이 아니라 `IO` action을
 
 This means that, given the prior definitions of `countdown` and `runActions`,
 
+즉, `countdown`과 `runActions`의 이전 정의가 주어진 경우, 다음은
+
+```lean
+#eval runActions (countdown 3)
+```
+
 ```lean
 #eval runActions (countdown 3)
 ```
 
 displays
+
+를 실행하면 다음이 표시됩니다.
 
 ```
 3
@@ -206,14 +214,6 @@ displays
 1
 Blast off!
 ```
-
-즉, `countdown`과 `runActions`의 이전 정의가 주어진 경우, 다음은
-
-```lean
-#eval runActions (countdown 3)
-```
-
-를 실행하면 다음이 표시됩니다.
 
 ```
 3

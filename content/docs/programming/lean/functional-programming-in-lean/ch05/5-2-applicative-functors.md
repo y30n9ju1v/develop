@@ -357,11 +357,11 @@ In the `then` branch, `h` is bound to evidence that `n > 0`, and this evidence c
 
 The validated user input is a structure that expresses the business logic using multiple techniques:
 
+검증된 사용자 입력은 여러 기법을 사용하여 비즈니스 로직을 표현하는 구조입니다:
+
 * The structure type itself encodes the year in which it was checked for validity, so that `CheckedInput 2019` is not the same type as `CheckedInput 2020`
 * The birth year is represented as a `Nat` rather than a `String`
 * Subtypes are used to constrain the allowed values in the name and birth year fields
-
-검증된 사용자 입력은 여러 기법을 사용하여 비즈니스 로직을 표현하는 구조입니다:
 
 * 구조 타입 자체는 검증된 연도를 인코딩하므로, `CheckedInput 2019`는 `CheckedInput 2020`과 동일한 타입이 아닙니다
 * 출생 연도는 `String`이 아닌 `Nat`로 표현됩니다

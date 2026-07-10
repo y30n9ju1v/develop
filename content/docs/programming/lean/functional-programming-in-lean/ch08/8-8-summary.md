@@ -99,10 +99,10 @@ There are no values of type `Fin 0`.
 
 If `arr` is an `Array α`, then `Fin arr.size` always contains a number that is a suitable index into `arr`.
 
+`arr`이 `Array α`이면, `Fin arr.size`는 항상 `arr`에 대한 적절한 인덱스인 숫자를 포함합니다.
+
 Lean provides instances of most of the useful numeric type classes for `Fin`.
 The `OfNat` instances for `Fin` perform modular arithmetic rather than failing at compile time if the number provided is larger than the `Fin` can accept.
-
-`arr`이 `Array α`이면, `Fin arr.size`는 항상 `arr`에 대한 적절한 인덱스인 숫자를 포함합니다.
 
 Lean은 `Fin`에 대해 대부분의 유용한 숫자 타입 클래스의 인스턴스를 제공합니다.
 `Fin`에 대한 `OfNat` 인스턴스는 제공된 숫자가 `Fin`이 수용할 수 있는 것보다 크면 컴파일 타임에 실패하는 대신 모듈로 산술을 수행합니다.

@@ -136,6 +136,8 @@ The problem here is that Lean is selecting the wrong `Monad` instance for the su
 Similar errors occur for the definition of `bind`.
 One solution is to use type annotations to guide Lean to the correct `Monad` instance:
 
+이 해결책이 작동하지만 우아하지 않으며 코드가 약간 시끄러워집니다. 대신 타입 시그니처가 Lean을 올바른 인스턴스로 안내하는 함수를 정의하는 것입니다. 사실 `OptionT`는 구조로 정의될 수 있습니다:
+
 ```lean
 instance [Monad m] : Monad (OptionT m) where
   pure x := (pure (some x) : m (Option _))
@@ -145,21 +147,19 @@ instance [Monad m] : Monad (OptionT m) where
     | some v => next v : m (Option _))
 ```
 
-While this solution works, it is inelegant and the code becomes a bit noisy.
-
-An alternative solution is to define functions whose type signatures guide Lean to the correct instances.
-In fact, `OptionT` could have been defined as a structure:
-
-이 해결책이 작동하지만 우아하지 않으며 코드가 약간 시끄러워집니다. 대신 타입 시그니처가 Lean을 올바른 인스턴스로 안내하는 함수를 정의하는 것입니다. 사실 `OptionT`는 구조로 정의될 수 있습니다:
-
 ```lean
 structure OptionT (m : Type u → Type v) (α : Type u) : Type v where
   run : m (Option α)
 ```
 
+While this solution works, it is inelegant and the code becomes a bit noisy.
+
 This would solve the problem, because the constructor `OptionT.mk` and the field accessor `OptionT.run` would guide type class inference to the correct instances.
 The downside to doing this is that the resulting code is more complicated, and these structures can make it more difficult to read proofs.
 The best of both worlds can be achieved by defining functions that serve the same role as the constructor `OptionT.mk` and the field `OptionT.run`, but that work with the direct definition:
+
+An alternative solution is to define functions whose type signatures guide Lean to the correct instances.
+In fact, `OptionT` could have been defined as a structure:
 
 이는 생성자 `OptionT.mk`와 필드 접근자 `OptionT.run`이 타입 클래스 추론을 올바른 인스턴스로 안내하기 때문에 문제를 해결할 것입니다. 이를 하는 단점은 결과 코드가 더 복잡해지고 이러한 구조는 증명을 읽기 더 어렵게 만들 수 있다는 것입니다. 생성자 `OptionT.mk` 및 필드 `OptionT.run`과 동일한 역할을 하지만 직접 정의에서 작동하는 함수를 정의하여 두 세계의 최고를 달성할 수 있습니다:
 
@@ -184,11 +184,11 @@ instance [Monad m] : Monad (OptionT m) where
 
 Here, the use of `OptionT.mk` indicates that its arguments should be considered as code that uses the interface of `m`, which allows Lean to select the correct `Monad` instances.
 
+여기서 `OptionT.mk`의 사용은 해당 인수가 `m`의 인터페이스를 사용하는 코드로 간주되어야 함을 나타내며, 이를 통해 Lean이 올바른 `Monad` 인스턴스를 선택할 수 있습니다. Monad 인스턴스를 정의한 후 Monad 계약이 충족되었는지 확인하는 것이 좋습니다. 첫 번째 단계는 `bind (pure v) f`가 `f v`와 동일함을 보이는 것입니다. 다음은 단계입니다.
+
 After defining the monad instance, it's a good idea to check that the monad contract is satisfied.
 The first step is to show that `bind (pure v) f` is the same as `f v`.
 Here's the steps:
-
-여기서 `OptionT.mk`의 사용은 해당 인수가 `m`의 인터페이스를 사용하는 코드로 간주되어야 함을 나타내며, 이를 통해 Lean이 올바른 `Monad` 인스턴스를 선택할 수 있습니다. Monad 인스턴스를 정의한 후 Monad 계약이 충족되었는지 확인하는 것이 좋습니다. 첫 번째 단계는 `bind (pure v) f`가 `f v`와 동일함을 보이는 것입니다. 다음은 단계입니다.
 
 The second rule states that `bind w pure` is the same as `w`.
 To demonstrate this, unfold the definitions of `bind` and `pure`, yielding:

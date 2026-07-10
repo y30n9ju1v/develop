@@ -11,12 +11,12 @@ description: "삽입 정렬과 배열 변경 (Insertion Sort and Array Mutation)
 
 While insertion sort does not have the optimal worst-case time complexity for a sorting algorithm, it still has a number of useful properties:
 
+삽입 정렬은 정렬 알고리즘의 최적 최악의 경우 시간 복잡도를 가지지는 않지만, 여전히 많은 유용한 특성을 가지고 있습니다:
+
 * It is simple and straightforward to implement and understand
 * It is an in-place algorithm, requiring no additional space to run
 * It is a stable sort
 * It is fast when the input is already almost sorted
-
-삽입 정렬은 정렬 알고리즘의 최적 최악의 경우 시간 복잡도를 가지지는 않지만, 여전히 많은 유용한 특성을 가지고 있습니다:
 
 * 구현하고 이해하기가 간단하고 명확합니다
 * In-place 알고리즘으로, 실행하는 데 추가 공간이 필요하지 않습니다
@@ -69,10 +69,10 @@ Reference counting은 Lean 런타임 시스템의 데이터 구조 할당/해제
 
 An implementation of insertion sort for Lean arrays should satisfy the following criteria:
 
+Lean 배열에 대한 삽입 정렬 구현은 다음 기준을 만족해야 합니다:
+
 1. Lean should accept the function without a `partial` annotation
 2. If passed an array to which there are no other references, it should modify the array in-place rather than allocating a new one
-
-Lean 배열에 대한 삽입 정렬 구현은 다음 기준을 만족해야 합니다:
 
 1. Lean은 `partial` 주석 없이 함수를 수용해야 합니다
 2. 다른 참조가 없는 배열이 전달되면, 새 배열을 할당하지 않고 배열을 in-place로 수정해야 합니다
@@ -289,14 +289,14 @@ There are two cases two consider: either the element has been fully inserted int
 However, swapping two elements in an array doesn't change the size of it, and the induction hypothesis states that the recursive call with the next index returns an array that's the same size as its argument.
 Thus, the size remains unchanged.
 
-Translating this English-language theorem statement to Lean and proceeding using the techniques from this chapter is enough to prove the base case and make progress in the inductive step:
-
 `insertSorted`가 삽입되는 요소의 인덱스에서 구조적으로 재귀하기 때문에, 증명은 인덱스에 대한 귀납법이어야 합니다.
 기본 경우에서, 배열은 변경되지 않은 상태로 반환되므로, 그 길이는 확실히 변하지 않습니다.
 귀납적 단계의 경우, 귀납 가설은 다음 더 작은 인덱스에 대한 재귀 호출이 배열의 길이를 변경하지 않는다는 것입니다.
 두 가지 경우를 고려해야 합니다: 요소가 정렬된 영역에 완전히 삽입되고 배열이 변경되지 않은 상태로 반환되는 경우(이 경우 길이도 변경되지 않음) 또는 요소가 재귀 호출 전에 다음 요소와 교환되는 경우입니다.
 그러나 배열의 두 요소를 교환해도 크기는 변경되지 않으며, 귀납 가설은 다음 인덱스를 사용하는 재귀 호출이 인수와 같은 크기의 배열을 반환한다고 명시합니다.
 따라서 크기는 변경되지 않습니다.
+
+Translating this English-language theorem statement to Lean and proceeding using the techniques from this chapter is enough to prove the base case and make progress in the inductive step:
 
 이 영어 정리문을 Lean으로 변환하고 이 장의 기법을 사용하여 진행하는 것만으로도 기본 경우를 증명하고 귀납적 단계에서 진행할 수 있습니다:
 

@@ -38,10 +38,10 @@ Together with default methods, this can be used to create a fine-grained hierarc
 
 An applicative functor is a functor with two additional operations:
 
+Applicative Functor는 두 가지 추가 연산이 있는 Functor입니다:
+
 * `pure`, which is the same operator as that for `Monad`
 * `seq`, which allows a function to be applied in the context of the functor.
-
-Applicative Functor는 두 가지 추가 연산이 있는 Functor입니다:
 
 * `pure`, `Monad`와 동일한 연산자
 * `seq`, Functor의 context에서 함수를 적용할 수 있게 하는 연산
