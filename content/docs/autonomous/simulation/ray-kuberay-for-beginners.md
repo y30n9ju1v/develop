@@ -4,163 +4,64 @@ date: 2026-07-10T00:00:00+09:00
 draft: false
 tags: ["autonomous", "ray", "kuberay", "simulation", "batch-scheduling", "gpu-scheduling"]
 categories: ["autonomous"]
-description: "Ray의 태스크 기반 스케줄링 모델과 num_gpus fractional 할당, KubeRay로 K8s 위에 Ray 클러스터를 올리는 방법, 그리고 Ray Data로 시뮬레이션 결과를 이어붙이는 패턴을 정리합니다."
+description: "Ray가 태스크를 스케줄링 단위로 삼는 이유, futures가 암묵적 DAG를 이루는 원리, fractional GPU가 가능한 이유, KubeRay가 K8s의 강점을 흡수하는 방식을 개념 수준에서 정리합니다."
 ---
 
-[K8s vs Ray vs Slurm 비교 글](../cloud-orchestrator-comparison/)에서 Ray를 "시나리오 단위 태스크 스케줄링과 CPU/GPU 이종 자원 배분"을 맡는 레이어로 소개했습니다. 이 글은 Ray가 왜 그 역할에 적합한지, 그리고 [K8s 위에 KubeRay로 어떻게 얹는지](../k8s-batch-scheduling-with-kueue/)를 코드 수준에서 정리합니다.
-
----
-
-## 1. Ray의 태스크 모델: 함수 하나가 곧 스케줄링 단위
-
-Ray는 파이썬 함수에 `@ray.remote` 데코레이터를 붙이면 그 함수가 클러스터 어디서든 실행될 수 있는 태스크가 됩니다. K8s Job처럼 YAML로 리소스를 선언하는 게 아니라, 코드 안에서 리소스 요구량을 직접 지정합니다.
-
-```python
-import ray
-
-ray.init(address="auto")
-
-@ray.remote(num_cpus=2)
-def run_physics(scenario_id: str):
-    # 물리 시뮬레이션, CPU 바운드
-    ...
-    return sim_state
-
-@ray.remote(num_gpus=1)
-def render_sensors(sim_state):
-    # 카메라/LiDAR 렌더링, GPU 필요
-    ...
-    return sensor_data
-
-@ray.remote(num_gpus=1)
-def run_perception(sensor_data):
-    # 인지 모델 추론
-    ...
-    return metrics
-```
-
-CPU 단계와 GPU 단계를 각각 다른 함수로 선언하면, Ray 스케줄러가 `num_gpus=0`인 태스크는 CPU 노드에, `num_gpus>0`인 태스크는 GPU 노드에 자동으로 배치합니다. 파이프라인 체이닝은 futures를 그대로 다음 함수에 넘기면 됩니다.
-
-```python
-scenario_ids = load_scenario_manifest()  # 수천 개
-
-results = []
-for scenario_id in scenario_ids:
-    sim_state = run_physics.remote(scenario_id)
-    sensor_data = render_sensors.remote(sim_state)
-    metrics = run_perception.remote(sensor_data)
-    results.append(metrics)
-
-all_metrics = ray.get(results)
-```
-
-Ray는 `sim_state`가 GPU 태스크의 인자로 쓰이는 것을 보고 의존성 그래프를 자동으로 추적하며, `run_physics`가 끝나야 `render_sensors`가 시작되도록 스케줄링합니다. 별도의 DAG 엔진 없이도 파이프라인 의존성이 코드 자체에서 드러납니다.
+[K8s vs Ray vs Slurm 비교 글](../cloud-orchestrator-comparison/)에서 Ray를 "시나리오 단위 태스크 스케줄링과 CPU/GPU 이종 자원 배분"을 맡는 레이어로 소개했습니다. 이 글은 Ray가 왜 그 역할에 적합한지 — [K8s의 선언적 오브젝트 모델](../k8s-batch-scheduling-with-kueue/)과 근본적으로 다른 스케줄링 단위를 택했기 때문이라는 점을 개념 수준에서 풀어봅니다.
 
 ---
 
-## 2. Fractional GPU와 커스텀 리소스
+## 1. 스케줄링 단위를 파드가 아니라 함수로 낮춘다는 것
 
-시나리오마다 GPU 사용량이 다르면 `num_gpus`에 소수를 지정해 GPU 하나를 여러 태스크가 나눠 쓰게 할 수 있습니다.
+K8s의 스케줄링 단위는 파드입니다. 파드 하나를 어느 노드에 놓을지 결정하는 게 스케줄러의 일이고, 그 안에서 무슨 코드가 도는지는 스케줄러의 관심사가 아닙니다. Ray는 이 단위를 한 단계 더 낮춰서, **함수 호출 하나하나를 스케줄링 대상**으로 삼습니다. 파이썬 함수에 원격 실행 표시를 해두면, 그 함수를 호출하는 순간이 곧 "이 계산을 클러스터 어딘가에 배치해달라"는 스케줄링 요청이 됩니다.
 
-```python
-@ray.remote(num_gpus=0.25)
-def render_light_scenario(sim_state):
-    ...
-```
+이 차이가 왜 중요할까요. K8s에서 시뮬레이션 파이프라인의 각 단계(물리 시뮬레이션, 렌더링, 추론)를 표현하려면 각 단계를 별도 Job이나 컨테이너로 미리 정의해야 합니다. 파이프라인의 모양 — 몇 단계인지, 단계 간 의존성이 어떻게 얽히는지 — 은 YAML이라는 별도의 선언 레이어에 존재하고, 실제 실행 코드와는 분리되어 있습니다. Ray는 파이프라인의 모양이 코드 자체의 함수 호출 순서로 드러납니다. 함수 A의 반환값을 함수 B의 인자로 넘기면, 그 자체가 "B는 A가 끝난 뒤에 실행되어야 한다"는 의존성 선언입니다. 별도의 워크플로 엔진이나 YAML DAG 정의 없이도, 스케줄러가 코드를 분석해 실행 순서를 추론합니다.
 
-GPU 세대나 특정 하드웨어 기능(예: 특정 시나리오만 필요한 레이 트레이싱 코어)에 따라 노드를 구분하고 싶다면 커스텀 리소스를 씁니다.
-
-```python
-# 클러스터 시작 시 노드에 커스텀 리소스 태깅
-# ray start --resources='{"raytracing_gpu": 4}'
-
-@ray.remote(resources={"raytracing_gpu": 1})
-def render_with_raytracing(sim_state):
-    ...
-```
+또한 각 함수는 자신이 필요로 하는 자원(CPU 몇 개, GPU 몇 개)을 스스로 선언합니다. CPU만 필요한 함수와 GPU가 필요한 함수를 나란히 정의해두면, 스케줄러는 자원 요구량이 없는 함수는 CPU 노드로, 있는 함수는 GPU 노드로 각각 보냅니다. 이건 K8s에서 CPU/GPU 단계를 별도 Job으로 쪼개고 노드 셀렉터로 강제 분리하는 것과 결과는 같지만, 그 분리가 인프라 설정이 아니라 함수 시그니처 수준에서 자연스럽게 이뤄진다는 점이 다릅니다. 파이프라인을 새로 짤 때마다 YAML을 새로 쓰는 대신, 파이썬 함수를 새로 정의하기만 하면 됩니다.
 
 ---
 
-## 3. KubeRay로 K8s 위에 Ray 클러스터 올리기
+## 2. futures가 암묵적으로 DAG를 이루는 이유
 
-Ray 단독 클러스터는 오토스케일링, 장애 복구, 멀티테넌시가 K8s만큼 성숙하지 않습니다. [KubeRay](https://github.com/ray-project/kuberay)는 `RayCluster` CRD로 Ray 클러스터를 K8s 오브젝트처럼 선언하고, K8s의 오토스케일러·노드 풀·RBAC을 그대로 활용하게 해줍니다.
+원격 함수를 호출하면 결과값이 아니라 **미래에 결과가 될 것이라는 약속(future)**을 즉시 돌려받습니다. 실제 계산은 그 함수가 클러스터 어딘가에서 실행을 마칠 때 완료됩니다. 이 future를 다른 원격 함수의 인자로 넘기면, 스케줄러는 "이 인자는 아직 계산 중이니, 계산이 끝날 때까지 다음 함수의 실행을 미뤄야 한다"는 걸 자동으로 인식합니다.
 
-```yaml
-apiVersion: ray.io/v1
-kind: RayCluster
-metadata:
-  name: sim-regression-cluster
-spec:
-  headGroupSpec:
-    rayStartParams: {}
-    template:
-      spec:
-        containers:
-          - name: ray-head
-            image: registry.internal/ray-sim:latest
-            resources:
-              requests: { cpu: "2", memory: "4Gi" }
-  workerGroupSpecs:
-    - groupName: cpu-workers
-      replicas: 20
-      minReplicas: 0
-      maxReplicas: 200
-      rayStartParams: {}
-      template:
-        spec:
-          nodeSelector:
-            node-pool: cpu
-          containers:
-            - name: ray-worker
-              image: registry.internal/ray-sim:latest
-              resources:
-                requests: { cpu: "2", memory: "4Gi" }
-    - groupName: gpu-workers
-      replicas: 2
-      minReplicas: 0
-      maxReplicas: 32
-      rayStartParams: {}
-      template:
-        spec:
-          nodeSelector:
-            node-pool: gpu
-          tolerations:
-            - key: "nvidia.com/gpu"
-              operator: "Exists"
-              effect: "NoSchedule"
-          containers:
-            - name: ray-worker
-              image: registry.internal/ray-sim:latest
-              resources:
-                requests: { cpu: "4", memory: "16Gi" }
-                limits: { nvidia.com/gpu: 1 }
-```
-
-CPU 워커 그룹과 GPU 워커 그룹을 분리해두면, Ray Autoscaler가 대기 중인 태스크의 리소스 요구량을 보고 각 그룹을 독립적으로 늘리고 줄입니다. `minReplicas: 0`으로 GPU 워커 그룹을 유휴 시 완전히 0으로 내릴 수 있어, [K8s 글](../k8s-batch-scheduling-with-kueue/)에서 다룬 Cluster Autoscaler/Karpenter와 자연스럽게 맞물립니다.
+이 메커니즘의 핵심은 **의존성 그래프가 프로그래머의 머릿속이 아니라 런타임에 존재한다**는 점입니다. 물리 시뮬레이션 결과를 렌더링 함수에 넘기고, 렌더링 결과를 다시 추론 함수에 넘기는 코드를 순서대로 쓰기만 하면, 스케줄러는 이 호출들이 순차적으로 의존한다는 걸 자동으로 그래프로 구성합니다. 반대로 서로 의존하지 않는 시나리오 2,000개를 반복문으로 던지면, 그래프에는 아무 의존관계가 없는 2,000개의 독립된 경로가 생기고, 스케줄러는 이들을 자유롭게 병렬 배치합니다. 즉 병렬성과 순차성이 모두 같은 메커니즘(future를 인자로 넘기느냐, 넘기지 않느냐)에서 자연스럽게 도출됩니다. 별도의 DAG 엔진에서 "이 태스크는 병렬, 이 태스크는 순차"라고 명시할 필요가 없습니다.
 
 ---
 
-## 4. Ray Data로 결과를 다음 단계로 흘려보내기
+## 3. Fractional GPU가 가능한 이유와 그 한계
 
-시뮬레이션 결과(메트릭, 실패 케이스)를 파일로 떨어뜨리고 별도 배치로 다시 읽어들이는 대신, Ray Data를 쓰면 시뮬레이션 → 집계 → 다음 학습 파이프라인까지 하나의 Ray 클러스터 안에서 스트리밍으로 이어붙일 수 있습니다.
+시나리오마다 GPU 사용량이 다르면, GPU 하나를 여러 태스크가 나눠 쓰게 할 수 있습니다. Ray의 스케줄러는 GPU를 정수 단위가 아니라 임의로 쪼갤 수 있는 슬롯으로 취급하기 때문에, "이 태스크는 GPU의 4분의 1만 필요하다"는 선언이 가능합니다. 스케줄러는 이 선언을 보고 GPU 슬롯의 잔여 용량을 장부처럼 관리하면서, 슬롯이 남아있는 한 여러 가벼운 태스크를 같은 GPU에 동시에 배정합니다.
 
-```python
-import ray.data
+다만 이건 어디까지나 **스케줄링 장부상의 분할**이라는 점을 이해하는 게 중요합니다. Ray는 "이 GPU에 태스크를 몇 개까지 동시에 올릴 수 있는가"를 계산할 뿐이고, 실제로 그 GPU 위에서 여러 프로세스의 메모리가 서로 침범하지 않도록 격리해주지는 않습니다. 격리는 GPU 벤더가 제공하는 하드웨어/드라이버 수준의 메커니즘(예: 프로세스 간 컨텍스트 분리 기능)에 맡겨야 하며, 그런 보장이 없는 상태에서 fractional GPU를 남용하면 한 태스크가 다른 태스크의 GPU 메모리를 잠식해 예측 불가능한 실패가 생길 수 있습니다. 따라서 fractional GPU는 "가벼운 렌더링처럼 GPU 메모리 사용량이 작고 예측 가능한 워크로드"에 한정해서 쓰는 것이 안전합니다.
 
-ds = ray.data.from_items(scenario_ids)
-ds = ds.map(run_physics_fn) \
-       .map(render_sensors_fn) \
-       .map(run_perception_fn)
-
-ds.write_parquet("s3://bucket/regression-results/")
-```
-
-이렇게 얻은 Parquet 결과는 [Arrow 기반 데이터 스택](../../data-infra/closed-loop-regression-with-dora/)의 py123d/FiftyOne/Rerun 파이프라인으로 바로 이어서 분석할 수 있습니다.
+커스텀 리소스 태깅(예: 특정 노드에만 있는 레이 트레이싱 가속 코어)도 같은 장부 메커니즘의 확장입니다. 클러스터를 구성할 때 노드에 임의의 이름표를 붙여두면, 스케줄러는 CPU/GPU와 똑같은 방식으로 그 이름표의 잔여 수량을 추적합니다. 이 덕분에 하드웨어 이종성이 있는 클러스터에서도 "이 시나리오는 반드시 이런 하드웨어가 있는 노드에서만 돌아야 한다"는 제약을 자연스럽게 표현할 수 있습니다.
 
 ---
 
-## 5. 정리
+## 4. KubeRay: Ray의 약점을 K8s로 메운다
 
-Ray/KubeRay가 K8s 단독 대비 갖는 강점은 **리소스 요구량을 코드 레벨에서 태스크 단위로 세밀하게 선언**할 수 있고, **태스크 간 의존성이 futures 체이닝만으로 자연스럽게 DAG를 이룬다**는 점입니다. K8s가 노드 프로비저닝과 큐 격리(Kueue)를 맡고, 그 위에서 Ray가 시나리오 단위 CPU/GPU 스케줄링을 맡는 조합이 실전에서 가장 균형 잡힌 구성입니다.
+Ray 자체의 스케줄러는 태스크 단위의 세밀한 자원 배분에 강하지만, 클러스터 자체를 운영하는 능력 — 노드가 죽었을 때 복구, 여러 팀이 같은 클러스터를 안전하게 나눠 쓰는 격리, 사용량에 따라 노드를 자동으로 늘리고 줄이는 오토스케일링 — 은 K8s만큼 성숙하지 않습니다. [KubeRay](https://github.com/ray-project/kuberay)는 Ray 클러스터 자체를 K8s가 관리하는 오브젝트로 감싸서, 이 부족한 부분을 K8s의 기존 기능으로 대체합니다.
 
-온프레미스 GPU 팜을 함께 쓰는 조직이라면, 이 조합에 [Slurm을 클라우드 버스트 대상으로 연결](../slurm-batch-scheduling/)하는 것도 고려해볼 만합니다.
+이 조합에서 역할 분담이 명확해집니다. K8s는 "물리적으로 어떤 노드가 존재하고, 그 노드가 살아있는지, 누가 어떤 노드 풀에 접근할 수 있는지"를 책임집니다. Ray는 그 노드들 위에서 "어떤 함수를 어디에 배치하고, 함수 간 의존성을 어떻게 실행 순서로 풀어낼지"를 책임집니다. CPU 워커와 GPU 워커를 K8s 레벨에서 별도 그룹으로 나눠두면, [앞선 글에서 다룬 오토스케일러의 빈 패킹 로직](../k8s-batch-scheduling-with-kueue/)이 그대로 적용되어 각 그룹이 독립적으로 늘고 줄며, Ray의 태스크 스케줄러는 그 위에서 자원 요구량에 맞는 워커를 골라 태스크를 배정합니다. 두 레이어가 서로 다른 추상화 수준에서 각자 잘하는 일을 하는 구조입니다.
+
+---
+
+## 5. 파이프라인의 끝: 결과를 다음 단계로 흘려보내는 방식
+
+시뮬레이션 결과(메트릭, 실패 케이스)를 굳이 파일로 떨어뜨리고 별도 배치 작업으로 다시 읽어들일 필요가 없다는 것도 태스크 기반 모델의 부산물입니다. 시뮬레이션 → 집계 → 후속 분석까지, 데이터가 한 클러스터 안에서 함수 호출의 연쇄로 그대로 흘러갈 수 있습니다. 각 단계가 이전 단계의 future를 받아 처리하는 스트리밍 방식이므로, 전체 배치가 끝나기를 기다리지 않고 먼저 끝난 시나리오의 결과부터 다음 단계로 흘려보낼 수 있어 파이프라인 전체의 지연 시간이 줄어듭니다.
+
+이렇게 얻은 결과는 [Arrow 기반 데이터 스택](../../data-infra/closed-loop-regression-with-dora/)의 py123d/FiftyOne/Rerun 파이프라인으로 바로 이어서 분석할 수 있습니다.
+
+---
+
+## 6. 정리
+
+Ray/KubeRay가 K8s 단독 대비 갖는 강점은 스케줄링 단위를 파드에서 함수로 낮췄다는 데서 출발합니다.
+
+1. **함수가 곧 스케줄링 단위**이므로, 파이프라인의 모양(단계 구성과 의존성)이 별도 YAML이 아니라 코드 자체에서 드러난다.
+2. **futures가 암묵적 DAG를 구성**해, 병렬성과 순차성이 별도 워크플로 엔진 없이 함수 호출 패턴만으로 자연스럽게 결정된다.
+3. **fractional GPU는 장부상의 분할**이지 하드웨어 격리가 아니므로, 메모리 사용량이 작고 예측 가능한 워크로드에만 안전하게 적용해야 한다.
+4. **KubeRay가 K8s의 인프라 운영 능력을 흡수**해, Ray가 부족한 클러스터 관리 영역(장애 복구, 오토스케일링, 격리)을 메운다.
+
+K8s가 노드 프로비저닝과 큐 격리를 맡고, 그 위에서 Ray가 시나리오 단위 CPU/GPU 스케줄링을 맡는 조합이 실전에서 가장 균형 잡힌 구성입니다. 온프레미스 GPU 팜을 함께 쓰는 조직이라면, 이 조합에 [Slurm을 클라우드 버스트 대상으로 연결](../slurm-batch-scheduling/)하는 것도 고려해볼 만합니다.

@@ -13,8 +13,7 @@ description: "수천 개 자율주행 시나리오를 클라우드에서 병렬 
 2. **[Kubernetes 실전: Job, 오토스케일링, Kueue](../k8s-batch-scheduling-with-kueue/)** — Indexed Job으로 배치를 던지고, Kueue로 워크로드 큐를 분리하는 구체적인 설정
 3. **[Ray/KubeRay 입문](../ray-kuberay-for-beginners/)** — 태스크 단위 CPU/GPU 스케줄링과 K8s 위에 Ray 클러스터를 올리는 방법
 4. **[Slurm 실전](../slurm-batch-scheduling/)** — 온프레미스 GPU 팜에서 job array, QoS, 클라우드 버스트 구성
-5. **[CPU/GPU 혼합 배치 스케줄링 실전](../cpu-gpu-mixed-batch-scheduling/)** — 파이프라인 단계 분리, fractional GPU, 실행 시간 편차 흡수
-6. **[스팟 비용, 재현성, 큐 우선순위](../spot-cost-reproducibility-queue-priority/)** — 비용 절감과 재현 가능한 회귀 테스트 사이의 절충
+5. **[시뮬레이션 배치 스케줄링 실전](../batch-scheduling-strategies/)** — 오케스트레이터 무관하게 적용되는 범용 전략: 파이프라인 단계 분리, GPU 분할, 실행 시간 편차 흡수, 재현성, 큐 우선순위
 
 ---
 
@@ -64,4 +63,4 @@ HPC 진영에서 수십 년간 검증된 배치 스케줄러입니다.
 
 수천 개 시나리오 규모라면, **K8s + Ray(KubeRay) 조합**이 클라우드 자원 탄력성과 태스크 세밀도 사이에서 가장 균형 잡힌 선택지인 경우가 많습니다.
 
-각 도구를 실제로 어떻게 구성하는지는 [Kubernetes 실전](../k8s-batch-scheduling-with-kueue/), [Ray/KubeRay 입문](../ray-kuberay-for-beginners/), [Slurm 실전](../slurm-batch-scheduling/)에서 각각 다룹니다. 이어서 [CPU/GPU 혼합 배치 스케줄링 실전](../cpu-gpu-mixed-batch-scheduling/)에서 파이프라인을 어떻게 쪼개고 스케줄링하는지 정리합니다.
+각 도구를 실제로 어떻게 구성하는지는 [Kubernetes 실전](../k8s-batch-scheduling-with-kueue/), [Ray/KubeRay 입문](../ray-kuberay-for-beginners/), [Slurm 실전](../slurm-batch-scheduling/)에서 각각 다룹니다. 이어서 [시뮬레이션 배치 스케줄링 실전](../batch-scheduling-strategies/)에서 도구와 무관하게 적용되는 범용 전략을 정리합니다.

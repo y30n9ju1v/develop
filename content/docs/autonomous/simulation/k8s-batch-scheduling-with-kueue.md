@@ -4,147 +4,58 @@ date: 2026-07-10T00:00:00+09:00
 draft: false
 tags: ["autonomous", "kubernetes", "kueue", "simulation", "batch-scheduling", "gpu-scheduling"]
 categories: ["autonomous"]
-description: "K8s Indexed Job으로 수천 개 시나리오를 배치 실행하고, Cluster Autoscaler로 GPU 노드를 탄력적으로 늘리고, Kueue로 워크로드 큐를 분리하는 실전 구성을 정리합니다."
+description: "K8s Indexed Job의 완료 모델, 오토스케일러의 빈 패킹 원리, Kueue의 공정 배분 알고리즘까지 — 시뮬레이션 배치를 K8s 위에서 돌릴 때 필요한 개념을 정리합니다."
 ---
 
-[K8s vs Ray vs Slurm 비교 글](../cloud-orchestrator-comparison/)에서 K8s를 "클러스터의 기반 레이어"로 두는 조합을 추천했습니다. 이 글은 그 기반 레이어를 실제로 어떻게 구성하는지 — Job으로 시나리오를 배치 실행하고, 노드를 오토스케일링하고, Kueue로 큐를 분리하는 구체적인 설정을 다룹니다.
-
----
-
-## 1. Indexed Job으로 시나리오 배치 던지기
-
-K8s에서 "시나리오 N개를 병렬로 돌린다"는 요구에 가장 잘 맞는 기본 오브젝트는 `Job`의 `Indexed` 완료 모드입니다. 각 파드가 `JOB_COMPLETION_INDEX` 환경 변수를 받아 자신이 몇 번째 시나리오를 맡았는지 알 수 있습니다.
-
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: scenario-batch-001
-spec:
-  completions: 2000
-  parallelism: 200
-  completionMode: Indexed
-  template:
-    spec:
-      restartPolicy: Never
-      containers:
-        - name: sim-runner
-          image: registry.internal/sim-runner:latest
-          command: ["python", "run_scenario.py"]
-          env:
-            - name: SCENARIO_INDEX
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.annotations['batch.kubernetes.io/job-completion-index']
-          resources:
-            requests:
-              cpu: "2"
-              memory: "4Gi"
-            limits:
-              cpu: "2"
-              memory: "4Gi"
-```
-
-`parallelism: 200`은 동시에 200개 파드까지만 뜨게 제한합니다. 시나리오 인덱스와 실제 시나리오 목록의 매핑은 러너 스크립트 안에서 (예: S3에 올려둔 시나리오 매니페스트를 인덱스로 조회하는 방식으로) 처리합니다. GPU가 필요한 렌더링/추론 단계는 별도 Job으로 분리하고, `nodeSelector`와 `tolerations`로 GPU 노드 풀에만 스케줄링되게 강제합니다.
-
-```yaml
-      nodeSelector:
-        node-pool: gpu
-      tolerations:
-        - key: "nvidia.com/gpu"
-          operator: "Exists"
-          effect: "NoSchedule"
-      resources:
-        limits:
-          nvidia.com/gpu: 1
-```
+[K8s vs Ray vs Slurm 비교 글](../cloud-orchestrator-comparison/)에서 K8s를 "클러스터의 기반 레이어"로 두는 조합을 추천했습니다. 이 글은 그 기반 레이어가 왜 그렇게 동작하는지 — Job의 완료 모델, 오토스케일러의 빈 패킹 원리, Kueue의 공정 배분 알고리즘을 개념 수준에서 정리합니다.
 
 ---
 
-## 2. Cluster Autoscaler / Karpenter로 GPU 노드 탄력적으로 늘리기
+## 1. "완료"의 정의가 왜 문제가 되는가
 
-수천 개 시나리오가 한꺼번에 몰릴 때마다 GPU 노드를 상시 띄워두는 건 비용 낭비입니다. 오토스케일러가 큐에 쌓인 Pending 파드를 보고 노드를 자동으로 추가/제거하게 합니다.
+일반적인 K8s `Job`은 파드 하나가 성공하면 끝입니다. 하지만 "시나리오 2,000개를 돌린다"는 요구는 성격이 다릅니다. 파드 하나가 아니라 **N개의 독립적인 작업 단위**가 있고, 각 단위는 서로 다른 입력(시나리오)을 처리해야 하며, 전체 Job은 N개가 모두 끝나야 완료됩니다.
 
-- **Cluster Autoscaler**: 클라우드 제공자의 관리형 노드 그룹(예: AWS EKS Managed Node Group, GKE Node Pool)을 스케일링합니다. GPU 노드 그룹은 별도 Auto Scaling Group으로 분리하고, `min=0`으로 설정해 유휴 시 완전히 0으로 스케일 다운되게 합니다.
-- **Karpenter**: 노드 그룹을 미리 정의하지 않고 Pending 파드의 리소스 요청을 보고 즉석에서 알맞은 인스턴스 타입을 골라 프로비저닝합니다. 시나리오마다 GPU 요구량이 다른 워크로드에서는 Karpenter가 인스턴스 타입 선택의 유연성 면에서 유리합니다.
+이걸 순수하게 파드 개수로만 표현하면 문제가 생깁니다. 파드 A가 실패해서 재시작됐다면, 그 파드는 원래 몇 번째 시나리오를 맡고 있었을까요? K8s의 `Indexed` 완료 모드는 이 질문에 답을 주기 위해 존재합니다. 각 파드에 0부터 N-1까지의 고정된 인덱스를 부여하고, 파드가 재시작되어도 같은 인덱스를 유지합니다. 즉 "파드가 몇 개 떠 있는가"가 아니라 "어떤 인덱스가 아직 완료되지 않았는가"로 진행 상황을 추적합니다.
 
-```yaml
-apiVersion: karpenter.sh/v1
-kind: NodePool
-metadata:
-  name: gpu-sim
-spec:
-  template:
-    spec:
-      requirements:
-        - key: karpenter.k8s.aws/instance-family
-          operator: In
-          values: ["g5", "g6"]
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["spot", "on-demand"]
-      nodeClassRef:
-        name: gpu-sim-class
-  limits:
-    cpu: 1000
-    nvidia.com/gpu: 64
-```
+이 설계가 중요한 이유는 재현성 때문입니다. 시나리오 매니페스트를 인덱스로 정렬해두면, 파드가 죽었다 살아나도 항상 같은 시나리오를 다시 맡습니다. 인덱스와 시나리오의 매핑이 흔들리면, 나중에 "몇 번 파드가 실패했다"는 로그만으로는 어떤 시나리오가 실패했는지 재구성할 수 없습니다. `parallelism`으로 동시 실행 수를 제한하는 것도 단순한 리소스 절약을 넘어, 클러스터 전체 용량을 넘어서는 동시 요청을 admission 단계에서 걸러 스케줄러가 매번 실패-재시도를 반복하지 않게 하는 역할을 합니다.
 
-`capacity-type`에 `spot`과 `on-demand`를 둘 다 넣어두면, 가용한 쪽으로 자동 배치됩니다. 스팟 회수와 재현성 트레이드오프는 [스팟 비용·재현성 글](../spot-cost-reproducibility-queue-priority/)에서 다뤘습니다.
+CPU 단계와 GPU 단계를 별도 Job으로 쪼개는 것도 같은 맥락입니다. 하나의 Job 안에 CPU 전용 컨테이너와 GPU 전용 컨테이너를 함께 넣으면, 스케줄러는 그 파드를 배치할 노드를 찾을 때 두 요구사항을 모두 만족하는 노드(즉 GPU가 있는 노드)만 고려합니다. 결과적으로 CPU만 필요한 단계도 비싼 GPU 노드를 점유하게 됩니다. Job을 쪼개면 스케줄러가 각 단계를 독립적으로, 가장 저렴한 적합 노드에 배치할 수 있습니다.
 
 ---
 
-## 3. Kueue로 PR 검증 큐와 야간 배치 큐 분리하기
+## 2. 오토스케일러가 풀고 있는 건 사실 빈 패킹 문제다
 
-기본 K8s 스케줄러는 파드를 FIFO에 가깝게 처리하기 때문에, 야간에 던진 2,000개짜리 회귀 배치가 GPU 노드를 다 점유하고 있으면 낮에 급하게 들어온 PR 검증 10개가 몇 시간을 기다리게 됩니다. [Kueue](https://kueue.sigs.k8s.io/)는 이 문제를 위해 만들어진 K8s 네이티브 배치 큐 매니저입니다.
+수천 개 시나리오가 한꺼번에 몰릴 때마다 GPU 노드를 상시 띄워두는 건 비용 낭비입니다. 오토스케일러는 "지금 얼마나 많은 파드가 노드를 못 찾고 대기 중인가"를 관측하고 그에 맞춰 노드 수를 조절하는데, 이 결정의 본질은 **가변 크기 빈 패킹(bin packing)** 문제입니다. 각 파드는 서로 다른 CPU/메모리/GPU 요구량을 갖고, 오토스케일러는 이걸 최소 비용으로 채울 노드 조합을 찾아야 합니다. 빈 패킹은 NP-hard이기 때문에, 실제 오토스케일러는 최적해가 아니라 빠르게 "충분히 좋은" 근사해를 내는 그리디 휴리스틱을 씁니다.
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: pr-verification
-spec:
-  namespaceSelector: {}
-  resourceGroups:
-    - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-      flavors:
-        - name: gpu-flavor
-          resources:
-            - name: "nvidia.com/gpu"
-              nominalQuota: 8
+이 지점에서 두 가지 철학이 갈립니다.
+
+- **Cluster Autoscaler**는 미리 정의된 노드 그룹(예: "GPU g5 인스턴스 그룹") 단위로만 스케일링합니다. 즉 빈 패킹의 "빈(bin)의 종류"를 운영자가 사전에 고정해둡니다. 예측 가능하고 관리하기 쉽지만, 파드 요구량이 그 노드 그룹의 스펙과 잘 안 맞으면(예: GPU는 1개만 필요한데 노드는 8-GPU 인스턴스뿐인 경우) 자원 낭비가 커집니다.
+- **Karpenter**는 노드 그룹이라는 개념 자체를 없애고, 대기 중인 파드 집합을 보고 그때그때 가장 적합한 인스턴스 타입을 즉석에서 골라 프로비저닝합니다. 빈의 종류 자체를 매번 다시 최적화하는 셈이라, 시나리오마다 GPU 요구량이 들쭉날쭉한 워크로드에서 패킹 효율이 더 좋습니다. 대신 어떤 인스턴스 타입이 뜰지 사전에 예측하기 어려워, 예산 상한이나 인스턴스 타입 화이트리스트 같은 가드레일을 별도로 둬야 합니다.
+
+두 방식 모두 "유휴 시 0개까지 축소"를 지원하지만, 축소와 확장 사이에는 **콜드 스타트 비용**이라는 트레이드오프가 숨어 있습니다. GPU 노드는 부팅, 드라이버 초기화, 컨테이너 이미지 풀링까지 몇 분이 걸릴 수 있습니다. 최소 노드 수를 0으로 두면 비용은 최소화되지만, 배치가 시작될 때마다 이 콜드 스타트 지연을 감수해야 합니다. 반대로 최소 1~2개 노드를 상시 유지하면 지연은 줄지만 유휴 비용이 생깁니다. 이 균형점은 배치가 얼마나 자주, 얼마나 급하게 실행되는지에 달려 있습니다 — 야간 정기 배치라면 콜드 스타트를 감수해도 되지만, PR 검증처럼 즉시성이 중요한 워크로드라면 웜 풀을 유지하는 편이 낫습니다.
+
+온디맨드와 스팟 인스턴스를 함께 요청 가능하게 열어두면, 오토스케일러는 가용성이 확인되는 쪽을 우선 채웁니다. 스팟 회수와 재현성 사이의 트레이드오프는 [시뮬레이션 배치 스케줄링 실전](../batch-scheduling-strategies/)에서 별도로 다룹니다.
+
 ---
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: nightly-regression
-spec:
-  namespaceSelector: {}
-  resourceGroups:
-    - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-      flavors:
-        - name: gpu-flavor
-          resources:
-            - name: "nvidia.com/gpu"
-              nominalQuota: 4
-              borrowingLimit: 56
-```
 
-`pr-verification` 큐는 GPU 8개를 항상 보장받고, `nightly-regression` 큐는 기본 4개만 갖되 `borrowingLimit`으로 유휴 자원을 최대 56개까지 빌려 쓸 수 있습니다. 낮 시간대 PR 검증이 몰리면 야간 배치가 자원을 반납하고, 밤에는 야간 배치가 전체 GPU를 활용하는 식으로 자연스럽게 균형이 맞춰집니다. Job에는 `kueue.x-k8s.io/queue-name` 라벨만 붙이면 됩니다.
+## 3. Kueue: FIFO 스케줄러가 놓치는 "공정함"을 계산 가능하게 만들기
 
-```yaml
-metadata:
-  labels:
-    kueue.x-k8s.io/queue-name: nightly-regression
-```
+기본 K8s 스케줄러는 파드를 거의 도착 순서대로 처리합니다. 이건 "먼저 요청한 쪽이 먼저 처리된다"는 점에서는 공정해 보이지만, 워크로드 클래스가 다르면 문제가 됩니다. 야간에 던진 2,000개짜리 회귀 배치가 GPU를 다 점유하고 있으면, 낮에 급하게 들어온 PR 검증 10개는 배치 전체가 끝날 때까지 무한정 기다립니다. FIFO는 요청 순서에 대해서만 공정하고, 요청의 긴급도나 중요도에 대해서는 아무것도 모릅니다.
+
+[Kueue](https://kueue.sigs.k8s.io/)는 이 문제를 **쿼터와 큐를 분리**하는 방식으로 풉니다. 워크로드 클래스마다 별도의 큐를 두고, 각 큐에 "이 정도는 항상 보장한다"는 최소 쿼터(nominal quota)를 할당합니다. PR 검증 큐는 작지만 항상 보장되는 쿼터를 갖고, 야간 배치 큐는 기본 쿼터는 작지만 다른 큐가 쓰지 않는 유휴 자원을 빌려(borrow) 쓸 수 있게 설정합니다. 결과적으로 낮에는 PR 검증이 보장된 자원을 즉시 쓰고, 밤에는 야간 배치가 전체 클러스터의 유휴 용량을 흡수합니다.
+
+이 "빌려 쓰기" 메커니즘의 근간에는 **Dominant Resource Fairness(DRF)**라는 개념이 있습니다. 사용자마다 CPU, 메모리, GPU를 서로 다른 비율로 요구할 때, 어떤 자원을 기준으로 "공정하다"를 판단해야 할지가 애매합니다. DRF는 각 워크로드가 자신에게 가장 부담이 되는 자원(dominant resource, 예: GPU 태스크라면 GPU)을 기준으로 점유율을 계산하고, 그 점유율이 워크로드 간에 균형을 이루도록 스케줄링합니다. 즉 "GPU를 많이 쓰는 워크로드는 GPU 기준으로, CPU를 많이 쓰는 워크로드는 CPU 기준으로" 공정성을 따진다는 뜻입니다. 여러 종류의 이종 자원이 섞인 시뮬레이션 클러스터에서 이 방식이 단순 자원별 균등 분배보다 실제 체감 공정성에 더 가깝습니다.
+
+큐 사이의 우선순위 역전을 막기 위해 Kueue는 **선점(preemption)**도 지원합니다. 높은 우선순위 큐가 쿼터 내에서 자원을 요구했는데 낮은 우선순위 워크로드가 빌려 쓴 자원 때문에 배치될 수 없다면, Kueue는 낮은 우선순위 워크로드를 중단시키고 자리를 내주게 할 수 있습니다. 이때 중단된 워크로드가 처음부터 다시 시작해야 하는지, 중간 상태에서 이어갈 수 있는지는 애플리케이션이 체크포인팅을 지원하는지에 달려 있습니다 — 이 부분은 [시뮬레이션 배치 스케줄링 실전](../batch-scheduling-strategies/)의 체크포인팅 논의와 이어집니다.
 
 ---
 
 ## 4. 정리
 
-K8s를 시뮬레이션 배치의 기반 레이어로 쓸 때 필요한 세 조각은 명확합니다.
+K8s를 시뮬레이션 배치의 기반 레이어로 쓸 때 핵심은 세 가지 개념입니다.
 
-1. Indexed Job으로 시나리오 인덱스를 파드에 나눠주고, CPU/GPU 단계를 별도 Job과 노드 풀로 분리한다.
-2. Cluster Autoscaler(관리형 노드 그룹) 또는 Karpenter(유연한 인스턴스 선택)로 GPU 노드를 필요할 때만 띄운다.
-3. Kueue로 워크로드 클래스별 큐와 쿼터를 나눠, 급한 검증이 대규모 배치에 밀리지 않게 한다.
+1. **Indexed 완료 모델**: 파드 개수가 아니라 인덱스 단위로 진행 상황을 추적해, 재시작에도 시나리오-작업 매핑의 재현성을 지킨다. CPU/GPU 단계를 별도 Job으로 쪼개 스케줄러가 각각을 가장 저렴한 노드에 배치하게 한다.
+2. **오토스케일러의 빈 패킹**: Cluster Autoscaler(사전 정의된 노드 그룹, 예측 가능)와 Karpenter(즉석 인스턴스 선택, 패킹 효율)는 빈 패킹 문제를 푸는 두 가지 다른 전략이며, 콜드 스타트 비용과 유휴 비용 사이의 균형점을 워크로드 특성에 맞게 골라야 한다.
+3. **Kueue의 공정 배분**: 쿼터와 큐를 분리하고 DRF로 이종 자원 간 공정성을 계산해, 급한 검증이 대규모 배치에 밀리지 않게 한다. 선점이 걸릴 수 있다는 전제하에 워크로드는 체크포인팅을 고려해 설계해야 한다.
 
 여기까지가 K8s 단독으로 할 수 있는 범위입니다. 시나리오 단위의 세밀한 CPU/GPU 태스크 스케줄링과 결과 체이닝은 [Ray/KubeRay 실전](../ray-kuberay-for-beginners/)에서 이어집니다.
