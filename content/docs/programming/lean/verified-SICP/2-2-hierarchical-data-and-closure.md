@@ -1,0 +1,218 @@
+---
+title: "2.2. 계층적 데이터와 닫힘 성질 (Hierarchical Data and the Closure Property)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "lists", "recursion", "termination"]
+categories: ["programming"]
+description: "SICP 2장 2절의 아이디어(쌍의 닫힘 성질, 리스트와 트리, map/filter/accumulate로 조립하는 시퀀스 인터페이스)를 Lean 4의 List/구조적 재귀로 다시 짜 봅니다."
+---
+
+A pair is a small thing on its own — two slots, glued together. What makes it interesting is that nothing stops one of those slots from holding another pair. Once you allow that, you can build structures nested arbitrarily deep out of a single primitive, and that single fact — that the output of combining two things is itself something you can combine again — turns out to be the whole story behind why list-like data is so useful.
+
+쌍(pair) 자체는 별것 아닙니다 — 칸 두 개를 붙여놓은 것뿐이죠. 흥미로운 지점은, 그 칸 중 하나에 또 다른 쌍이 들어가지 못할 이유가 없다는 데 있습니다. 이걸 허용하는 순간, 단 하나의 원시 연산만으로 임의로 깊게 중첩된 구조를 만들 수 있게 됩니다. 그리고 바로 이 사실 — 두 값을 합친 결과가 다시 합칠 수 있는 대상이 된다는 것 — 이 리스트류 데이터가 그토록 유용한 이유의 핵심입니다.
+
+SICP names this the *closure property*: an operation is closed over a domain if combining elements of that domain always yields another element of the same domain. Lean's `List α` is closure taken as a primitive rather than derived — a `List α` is either empty or an `α` glued onto another `List α`, and that recursive definition *is* the closure property, baked into the type itself rather than observed as a happy accident of `cons`.
+
+SICP는 이를 *닫힘 성질(closure property)*이라 부릅니다 — 어떤 영역의 원소들을 결합한 결과가 항상 같은 영역의 원소가 될 때, 그 연산은 그 영역에 대해 닫혀 있다고 합니다. Lean의 `List α`는 이 닫힘 성질을 파생된 결과가 아니라 아예 정의 그 자체로 갖고 있습니다 — `List α`는 비어 있거나, `α` 하나를 또 다른 `List α`에 붙인 것입니다. 이 재귀적 정의 자체가 곧 닫힘 성질이며, `cons`를 쓰다 보니 우연히 얻어지는 성질이 아니라 타입에 처음부터 새겨진 것입니다.
+
+---
+
+## 2.2.1. 시퀀스를 표현하기
+
+Where Scheme builds a list by hand out of `cons` cells terminated by `nil`, Lean's `List` is a genuine inductive type with two constructors, `List.nil` and `List.cons`, and the standard `[1, 2, 3, 4]` syntax is just notation for `1 :: 2 :: 3 :: 4 :: []`. There is no separate act of "deciding" that lists are chains of pairs — the compiler already knows, because that's the type's definition.
+
+Scheme에서는 `nil`로 끝나는 `cons` 셀들을 손으로 엮어 리스트를 만들지만, Lean의 `List`는 `List.nil`과 `List.cons`라는 두 생성자를 가진 진짜 귀납 타입입니다. 익숙한 `[1, 2, 3, 4]` 표기는 사실 `1 :: 2 :: 3 :: 4 :: []`의 축약일 뿐입니다. "리스트는 쌍들의 사슬이다"라는 결정을 따로 내릴 필요가 없습니다 — 그게 이미 타입의 정의이기 때문에 컴파일러가 처음부터 알고 있습니다.
+
+Indexing into a list by counting down is the first place structural recursion shows up. Lean sees that `listRef` always recurses on the tail of the list it was given, which is a strictly smaller structure by construction, so it accepts the definition without any help:
+
+리스트에서 개수를 세어 내려가며 원소를 뽑아내는 것이, 구조적 재귀가 처음 등장하는 자리입니다. `listRef`가 항상 자신이 받은 리스트의 꼬리에 대해서만 재귀 호출한다는 것을, Lean은 구조상 항상 더 작아지는 대상임을 보고 별다른 도움 없이 정의를 받아들입니다.
+
+```lean
+def listRef : List α → Nat → Option α
+  | [], _ => none
+  | x :: _, 0 => some x
+  | _ :: xs, n + 1 => listRef xs n
+
+def squares : List Nat := [1, 4, 9, 16, 25]
+
+#eval listRef squares 3
+-- some 16
+```
+
+Note the `Option α` return type: Scheme's `list-ref` simply errors out on an out-of-range index at run time, but Lean functions are total, so an out-of-range call has to produce *some* value of the declared return type. Returning `none` makes the possibility of failure visible in the signature instead of leaving it as an unstated assumption about the caller.
+
+`Option α` 반환 타입에 주목하세요. Scheme의 `list-ref`는 범위를 벗어난 인덱스가 들어오면 그냥 실행 중에 에러를 냅니다. 하지만 Lean 함수는 전역(total)이어야 하므로, 범위를 벗어난 호출도 선언된 반환 타입의 *어떤* 값을 내놓아야 합니다. `none`을 반환하게 하면, "실패할 수도 있다"는 사실이 호출자에 대한 암묵적 전제로 숨어 있는 대신 타입 시그니처에 드러납니다.
+
+`length` and `append` are the other two workhorses, and both recurse on a strictly shrinking list, so Lean's termination checker accepts them with no `partial` and no explicit `termination_by`:
+
+`length`와 `append`도 마찬가지로 자주 쓰이는 도구인데, 둘 다 항상 줄어드는 리스트에 대해서만 재귀하므로 Lean의 종료성 검사기는 `partial`도 명시적 `termination_by`도 요구하지 않고 그대로 받아들입니다.
+
+```lean
+def myLength : List α → Nat
+  | [] => 0
+  | _ :: xs => 1 + myLength xs
+
+def myAppend : List α → List α → List α
+  | [], ys => ys
+  | x :: xs, ys => x :: myAppend xs ys
+
+def odds : List Nat := [1, 3, 5, 7]
+
+#eval myLength odds
+-- 4
+
+#eval myAppend squares odds
+-- [1, 4, 9, 16, 25, 1, 3, 5, 7]
+```
+
+Rewriting `length` in a tail-recursive, accumulator-passing style doesn't change any of that — Lean still sees the recursive call operating on the tail of the argument it was handed, so it's just as happily structural as the direct version, and `#eval` gives the same answer:
+
+`length`를 누적 인자를 넘기는 꼬리 재귀 스타일로 다시 써도 사정은 달라지지 않습니다 — Lean은 여전히 재귀 호출이 인자로 받은 리스트의 꼬리에 대해 이루어짐을 보고, 직접적인 버전과 똑같이 구조적 재귀로 받아들입니다. `#eval` 결과도 동일합니다.
+
+```lean
+def lengthIter (items : List α) : Nat :=
+  go items 0
+where
+  go : List α → Nat → Nat
+    | [], count => count
+    | _ :: xs, count => go xs (count + 1)
+
+#eval lengthIter odds
+-- 4
+```
+
+**연습문제 2.17 (Lean 버전).** SICP는 `last-pair`를 리스트의 마지막 쌍만 담은 리스트로 정의합니다. Lean에서는 빈 리스트에 대한 결과가 존재하지 않으므로, 전역성을 지키려면 반환 타입을 어떻게 설계해야 할까요? 아래는 `Option`으로 그 경우를 명시한 버전입니다 — 각 재귀 호출이 인자를 한 칸씩 줄이므로 구조적 재귀로 통과합니다.
+
+```lean
+def lastPair : List α → Option α
+  | [] => none
+  | [x] => some x
+  | _ :: xs => lastPair xs
+
+#eval lastPair [23, 72, 149, 34]
+-- some 34
+
+#eval lastPair ([] : List Nat)
+-- none
+```
+
+---
+
+## 2.2.2. 계층적 구조
+
+A list whose elements are themselves lists is naturally read as a tree: each element is a branch, and an element that is itself a list is a subtree with further branches underneath it. Counting the *leaves* of such a structure — the atomic values sitting at the bottom, as opposed to `length`, which only counts top-level elements — needs a function that recurses on both "look inside this element" and "move to the next element," rather than a function that only ever peels one layer off the front.
+
+원소 자체가 다시 리스트인 리스트는 자연스럽게 트리로 읽힙니다. 각 원소는 가지이고, 그 원소가 다시 리스트라면 그 아래로 가지를 더 뻗은 부분트리입니다. 이런 구조에서 최상위 원소 개수만 세는 `length`와 달리, 바닥에 있는 원자값들, 즉 *잎(leaf)*의 개수를 세려면 "이 원소 안을 들여다보기"와 "다음 원소로 넘어가기"를 함께 재귀해야 합니다. 앞쪽 한 겹만 벗겨내는 함수로는 부족합니다.
+
+Lean doesn't have a single built-in type that is simultaneously "a number or a nested list of the same," so the cleanest way to carry that idea over is a small inductive type of its own — a leaf holding a value, or a node holding a list of subtrees:
+
+Lean에는 "숫자이거나 그 자신을 원소로 갖는 중첩 리스트"를 동시에 표현하는 내장 타입이 따로 없습니다. 그래서 가장 깔끔한 방법은 이를 위한 작은 귀납 타입을 직접 만드는 것입니다 — 값을 담은 잎, 또는 부분트리들의 리스트를 담은 노드로 정의합니다.
+
+```lean
+inductive Tree (α : Type) where
+  | leaf : α → Tree α
+  | node : List (Tree α) → Tree α
+
+def countLeaves : Tree α → Nat
+  | .leaf _ => 1
+  | .node ts => (ts.map countLeaves).foldl (· + ·) 0
+
+def sample : Tree Nat :=
+  .node [.node [.leaf 1, .leaf 2], .leaf 3, .leaf 4]
+
+#eval countLeaves sample
+-- 4
+```
+
+This still passes Lean's structural check without a fight, but the reason is more interesting than in the `List`-only case: each subtree in the list handed to `.node` is *structurally* smaller than the outer `Tree`, and Lean's compiler generates the right induction principle for nested inductive types like this automatically (it's the same machinery behind `Tree`'s auto-derived recursor). No `partial`, no `termination_by` needed — but it's worth noticing that this works precisely because the recursion follows the shape the type was built with, not because Lean is somehow smarter than in the flat-list case.
+
+이 코드도 Lean의 구조적 재귀 검사를 별 저항 없이 통과하지만, 그 이유는 앞서 `List`만 다뤘을 때보다 조금 더 흥미롭습니다. `.node`에 넘긴 리스트 속 각 부분트리는 바깥쪽 `Tree`보다 *구조적으로* 더 작고, Lean 컴파일러는 이런 중첩 귀납 타입에 대해서도 알맞은 귀납 원리를 자동으로 생성해줍니다(`Tree`에 자동으로 딸려오는 재귀소거자를 만드는 것과 같은 장치입니다). `partial`도 `termination_by`도 필요 없습니다 — 다만 이게 통하는 이유가 "Lean이 리스트만 다룰 때보다 더 똑똑해서"가 아니라, 재귀가 타입이 만들어진 구조를 그대로 따라가기 때문이라는 점을 눈여겨볼 만합니다.
+
+Scaling every leaf of a tree by a constant factor follows the same skeleton, just replacing "count" with "map, then rebuild":
+
+트리의 모든 잎을 일정 배율로 스케일하는 것도 같은 뼈대를 따릅니다. 다만 "개수 세기"를 "map한 뒤 다시 조립하기"로 바꾼 것뿐입니다.
+
+```lean
+def scaleTree (factor : Nat) : Tree Nat → Tree Nat
+  | .leaf x => .leaf (x * factor)
+  | .node ts => .node (ts.map (scaleTree factor))
+
+#eval scaleTree 10 sample
+-- Tree.node [Tree.node [Tree.leaf 10, Tree.leaf 20], Tree.leaf 30, Tree.leaf 40]
+```
+
+---
+
+## 2.2.3. 관례적 인터페이스로서의 시퀀스
+
+Two computations can look nothing alike as written — one walking a tree to sum the squares of its odd leaves, another building up a list of even Fibonacci numbers — and yet both decompose into the same four moves: enumerate the raw elements, filter down to the ones you care about, transform each survivor, and fold the results into a single answer. The trouble with writing each one from scratch is that the enumeration, filtering, and accumulation end up tangled together inside one recursive function, so the shared shape never becomes visible in the code.
+
+겉보기엔 전혀 안 닮은 두 계산 — 트리를 훑어 홀수 잎들의 제곱합을 구하는 것과, 짝수 피보나치 수들의 리스트를 쌓아 올리는 것 — 이 사실은 똑같은 네 동작으로 분해됩니다. 원소를 나열하고, 원하는 것만 걸러내고, 살아남은 것들을 변형하고, 결과를 하나로 접는 것입니다. 각각을 처음부터 따로 짜면 문제가 생깁니다 — 나열·필터링·누적이 하나의 재귀 함수 안에 뒤엉켜서, 공유된 형태가 코드 상에 전혀 드러나지 않게 됩니다.
+
+Lean's `List` already ships with exactly these four operations under names close to their SICP counterparts — `map`, `filter`, and `foldr`/`foldl` in place of `accumulate` — so composing a pipeline is a matter of chaining calls rather than writing a bespoke recursive walker each time:
+
+Lean의 `List`에는 이 네 연산이 SICP와 거의 같은 이름으로 이미 들어 있습니다 — `accumulate` 대신 `foldr`/`foldl`을 쓰는 정도의 차이입니다. 그래서 파이프라인을 짜는 일은 매번 전용 재귀 순회기를 새로 쓰는 게 아니라, 호출을 이어 붙이는 문제가 됩니다.
+
+```lean
+def sumOddSquares (xs : List Nat) : Nat :=
+  ((xs.filter (fun n => n % 2 == 1)).map (fun n => n * n)).foldl (· + ·) 0
+
+#eval sumOddSquares [1, 2, 3, 4, 5]
+-- 35  (1*1 + 3*3 + 5*5)
+```
+
+`foldr`/`foldl` themselves are worth pausing on from a termination standpoint: `List.foldl` in Lean's core library is defined by structural recursion on the list argument directly, and `List.foldr` the same way (walking to the end before combining, rather than accumulating as it goes) — both are ordinary structural recursion, no `partial` in sight, because a `List` can only ever get shorter as you pattern-match into it.
+
+`foldr`/`foldl` 자체도 종료성 관점에서 짚어볼 만합니다. Lean 코어 라이브러리의 `List.foldl`은 리스트 인자에 대한 구조적 재귀로 직접 정의되어 있고, `List.foldr`도 마찬가지입니다(다만 끝까지 간 다음 결합하는 방식이라, 진행하며 누적하는 `foldl`과는 순서가 다릅니다). 둘 다 평범한 구조적 재귀이고 `partial`이 낄 자리가 없습니다 — `List`는 패턴 매칭으로 파고들수록 항상 짧아질 수밖에 없기 때문입니다.
+
+The nested-loop case — generating every ordered pair $(i, j)$ with $j < i \le n$ and keeping the ones whose sum is prime — is where `flatMap` (SICP's `flatmap`) earns its keep, replacing what would otherwise be two hand-written nested recursive loops:
+
+$j < i \le n$인 모든 순서쌍 $(i, j)$를 만들고 그중 합이 소수인 것만 남기는, 중첩 루프에 해당하는 경우가 바로 `flatMap`(SICP의 `flatmap`)이 진가를 발휘하는 대목입니다. 이게 없다면 손으로 짠 이중 재귀 루프 두 개가 필요했을 것입니다.
+
+```lean
+def isPrime (n : Nat) : Bool :=
+  n > 1 && (List.range n).drop 2 |>.all (fun d => n % d != 0)
+
+def primeSumPairs (n : Nat) : List (Nat × Nat × Nat) :=
+  (List.range (n + 1)).flatMap (fun i =>
+    (List.range i).filterMap (fun j =>
+      if j = 0 then none
+      else if isPrime (i + j) then some (i, j, i + j) else none))
+
+#eval primeSumPairs 6
+-- [(2, 1, 3), (3, 2, 5), (4, 1, 5), (4, 3, 7), (5, 2, 7), (6, 1, 7), (6, 5, 11)]
+```
+
+Every piece here — `range`, `filterMap`, `flatMap` — is structural recursion on a `List` or `Nat` that's provably shrinking, so nothing in this pipeline needs `partial` or a manual `termination_by`; the interesting design question was never termination, it was finding the right four-stage decomposition in the first place.
+
+여기 쓰인 조각들 — `range`, `filterMap`, `flatMap` — 은 모두 증명 가능하게 줄어드는 `List`나 `Nat`에 대한 구조적 재귀이므로, 이 파이프라인 어디에도 `partial`이나 수동 `termination_by`가 필요하지 않습니다. 흥미로운 설계 질문은 애초에 종료성이 아니라, 올바른 네 단계 분해를 찾아내는 데 있었습니다.
+
+**연습문제 2.33 (Lean 버전).** SICP는 `map`, `append`, `length`를 `accumulate`(=`foldr`) 하나만으로 표현해보라고 합니다. Lean에서 이를 옮기면 다음과 같습니다 — 각 정의가 실제로 `List` 표준 라이브러리의 `map`/`append`/`length`와 같은 결과를 내는지 `#eval`로 확인해볼 수 있습니다.
+
+```lean
+def myMap (f : α → β) (xs : List α) : List β :=
+  xs.foldr (fun x acc => f x :: acc) []
+
+def myAppend' (xs ys : List α) : List α :=
+  xs.foldr (fun x acc => x :: acc) ys
+
+def myLength' (xs : List α) : Nat :=
+  xs.foldr (fun _ acc => acc + 1) 0
+
+#eval myMap (· * 2) [1, 2, 3]
+-- [2, 4, 6]
+
+#eval myAppend' [1, 2] [3, 4]
+-- [1, 2, 3, 4]
+
+#eval myLength' [1, 2, 3, 4, 5]
+-- 5
+```
+
+Every one of these three is expressed as a single call to `List.foldr`, and `foldr` itself is the only piece doing recursion — so the termination question for all three collapses to the single question of whether `foldr` terminates, which it does, structurally, once and for all in the standard library.
+
+이 세 정의 모두 `List.foldr` 호출 하나로 표현되고, 재귀를 실제로 수행하는 것은 `foldr` 하나뿐입니다. 그래서 셋 각각의 종료성 질문은 결국 "`foldr`이 종료하는가"라는 하나의 질문으로 수렴하고, 그 답은 표준 라이브러리에서 구조적으로 단 한 번 이미 확정되어 있습니다.
+
+The next post picks up where trees and sequences leave off — symbolic data and the `quote` mechanism that lets a program talk about expressions as data rather than only as things to evaluate.
+
+다음 글에서는 트리와 시퀀스 다음 이야기, 즉 기호 데이터와 프로그램이 식을 평가 대상이 아니라 데이터로 다룰 수 있게 해주는 `quote` 메커니즘을 다룹니다.
