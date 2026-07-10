@@ -179,12 +179,12 @@ inductive WifeOf : String → String → Prop where
 inductive GrandsonOf : String → String → Prop where
   | mk : SonOf s f → SonOf f g → GrandsonOf s g
 
-theorem enochIsGrandsonOfAdam : GrandsonOf "Enoch" "Adam" :=
-  .mk .cain_enoch .adam_cain
+theorem enochIsGrandsonOfAdam : GrandsonOf "Adam" "Enoch" :=
+  .mk .adam_cain .cain_enoch
 ```
 
 SICP의 질의 `(grandson ?x Adam)`가 데이터베이스를 훑어 답을 *찾아내는* 것과 달리, `enochIsGrandsonOfAdam`은 답을 이미 알고 있는 사람이 그 답이 왜 성립하는지를 *증명*합니다 — 이것이 이 시리즈 전체를 관통하는 주제이기도 합니다. Prolog류 질의 엔진이 "이 조건을 만족하는 게 있는가"를 실행 시점에 탐색으로 답한다면, Lean의 귀납적 관계는 "이것이 그 조건을 만족한다는 증거"를 컴파일 시점에 검사받는 항으로 답합니다. 둘 다 같은 논리적 구조(SICP의 규칙 = Lean의 생성자)를 공유하지만, 하나는 탐색 기계이고 다른 하나는 증명 검사기입니다.
 
-The next post follows the last major thread SICP opens in Chapter 4 — the metacircular evaluator gains an explicit environment model and register-machine-level implementation in [Chapter 5](../5-1-register-machine-designs/), asking what an evaluator looks like once we stop assuming a host Lisp underneath it and build the machine itself.
+The next post follows the last major thread SICP opens in Chapter 4 — the metacircular evaluator gains an explicit environment model and register-machine-level implementation in [Chapter 5](../5-1-designing-register-machines/), asking what an evaluator looks like once we stop assuming a host Lisp underneath it and build the machine itself.
 
-다음 글은 SICP가 4장에서 여는 마지막 큰 흐름을 따라갑니다 — [5장](../5-1-register-machine-designs/)에서 메타순환 평가기는 명시적인 환경 모델과 레지스터 머신 수준의 구현을 얻습니다. 밑에 깔린 호스트 Lisp를 더 이상 가정하지 않고 기계 자체를 만들 때, 평가기가 어떤 모습이 되는지를 묻습니다.
+다음 글은 SICP가 4장에서 여는 마지막 큰 흐름을 따라갑니다 — [5장](../5-1-designing-register-machines/)에서 메타순환 평가기는 명시적인 환경 모델과 레지스터 머신 수준의 구현을 얻습니다. 밑에 깔린 호스트 Lisp를 더 이상 가정하지 않고 기계 자체를 만들 때, 평가기가 어떤 모습이 되는지를 묻습니다.

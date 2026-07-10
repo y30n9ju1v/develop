@@ -84,7 +84,10 @@ partial def compile (exp : SExp) (target : Target) (linkage : Linkage) (n : Nat)
     let (argCodes, n2) := compileOperands args n1
     (preserving ["env", "continue"] fCode
       (preserving ["proc", "continue"] (constructArgList argCodes) (compileProcCall target linkage)), n2)
-  | .lam _ _ => sorry  -- 지면 절약을 위해 생략
+  | .lam _ _ => sorry  -- `.lam`은 이 글에서 완성하지 않습니다: SICP의 compile-lambda가 필요로 하는
+    -- 절차 진입 레이블 생성, 자유 변수 캡처, `.ret` 링키지로 본문 컴파일 등은 위에서 정의하지 않은
+    -- 여러 보조 절차를 요구합니다. 아래 `compile`은 `.lit`/`.var`/`.ifExp`/`.app`에 대해서만
+    -- 실제로 완결된 컴파일러이고, `.lam`을 포함한 전체 언어의 컴파일러가 아닙니다.
 ```
 
 This one line — `partial def compile` — is worth pausing on, because it doesn't actually need to be there for the reason `execute` needed it in the previous post. Every recursive call here is on a strict subterm of `exp` (or a strict prefix of `args`, in `compileOperands`), so this genuinely is structural recursion; the `partial` marker above is only papering over a superficial issue — the counter `n` threaded through for fresh-label generation makes the recursion's shape slightly awkward for Lean's structural-recursion heuristics to see automatically, not because the recursion is unbounded in any deep sense. Restructuring the label-counter threading through a `StateM Nat` monad, or supplying `termination_by exp` explicitly, removes the `partial` marker without changing what the function computes — a genuinely different situation from `execute`, where no such removal is possible even in principle.
@@ -110,7 +113,9 @@ partial def compileM (exp : SExp) (target : Target) (linkage : Linkage) : StateM
     let body := InstSeq.mk ["env"] [targetName target]
       [s!"assign {targetName target} (op lookup-variable-value) (const {name}) (reg env)"]
     pure (endWithLinkage linkage body)
-  | _ => sorry  -- ifExp/app/lam도 같은 방식으로 옮기면 되지만, 지면 절약을 위해 생략
+  | _ => sorry  -- `.ifExp`/`.app`/`.lam`도 같은 방식(카운터를 `StateM`으로 실어 나르기)으로
+    -- 옮기면 되지만, 이 글에서는 완성하지 않습니다. `compileM`은 `.lit`/`.var` 두 경우만
+    -- 실제로 구현된 스케치이며, `compile`을 대체하는 완결된 컴파일러가 아닙니다.
 ```
 
 `.ifExp`/`.app`까지 전부 옮기면 `n`을 명시적으로 실어 나르는 코드가 사라지긴 하지만, `compileM`이 여전히 `partial`인 것은 위 두 경우만 채웠기 때문이지 `StateM`이 종료성 문제를 자동으로 풀어줘서가 아닙니다 — 종료성을 실제로 얻는 것은 어디까지나 `.ifExp`/`.app`의 재귀 호출들도 `exp`의 하위 항에 대해서만 이뤄진다는 구조적 사실이고, `StateM`은 그 구조를 카운터 실어 나르기로 가리지 않게 해줄 뿐입니다.

@@ -39,6 +39,11 @@ def PairMemory.empty (capacity : Nat) : PairMemory :=
   { cars := Array.mkArray capacity .nilPtr, cdrs := Array.mkArray capacity .nilPtr, free := 0 }
 
 def PairMemory.cons (mem : PairMemory) (a d : Ptr) : PairMemory × Ptr :=
+  -- `mem.free < mem.cars.size`를 미리 확인하지 않습니다: SICP의 벡터 구현도 `free`가
+  -- `capacity`를 넘어서는 순간이 바로 가비지 컬렉션이 필요해지는 지점이라고 그 자체로 논증합니다
+  -- (5.3.2절 참고). 여기서는 그 한계를 넘기면 `Array.set!`이 조용히 아무 일도 하지 않고
+  -- `Array.set!`이 범위를 벗어난 인덱스에서 어떻게 동작하는지에 기대게 됩니다 — 실전 구현이라면
+  -- `mem.free < mem.cars.size`를 확인해 `stopAndCopy`를 먼저 호출하도록 강제해야 할 지점입니다.
   let idx := mem.free
   ({ mem with cars := mem.cars.set! idx a, cdrs := mem.cdrs.set! idx d, free := idx + 1 }, .pairPtr idx)
 
@@ -102,7 +107,7 @@ partial def relocate (old : PairMemory) (forward : IO.Ref (Std.HashMap Nat Nat))
       let a := old.cars.get! idx
       let d := old.cdrs.get! idx
       let (mem', newPtr) := (← new.get).cons .nilPtr .nilPtr
-      let some newIdx := newPtr matches .pairPtr newIdx | pure .nilPtr
+      let .pairPtr newIdx := newPtr | pure .nilPtr
       new.set mem'
       forward.modify (·.insert idx newIdx)
       let newA ← relocate old forward new a
@@ -142,7 +147,7 @@ def relocateFuel (fuel : Nat) (old : PairMemory) (forward : IO.Ref (Std.HashMap 
       let a := old.cars.get! idx
       let d := old.cdrs.get! idx
       let (mem', newPtr) := (← new.get).cons .nilPtr .nilPtr
-      let some newIdx := newPtr matches .pairPtr newIdx | pure .nilPtr
+      let .pairPtr newIdx := newPtr | pure .nilPtr
       new.set mem'
       forward.modify (·.insert idx newIdx)
       let newA ← relocateFuel f old forward new f a

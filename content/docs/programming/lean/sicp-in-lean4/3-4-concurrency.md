@@ -134,19 +134,35 @@ Serializing a single account is straightforward; serializing an *exchange* betwe
 
 계좌 하나를 시리얼라이즈하는 것은 단순하지만, 두 계좌 사이의 *교환(exchange)*을 시리얼라이즈하는 것은 그렇지 않습니다 — 두 잔액을 읽고, 차이를 계산하고, 새 잔액 둘을 쓰는 것이 한 계좌가 아니라 *두* 계좌의 시리얼라이저 모두에 대해 하나의 원자적 블록으로 일어나야 하기 때문입니다. 각 계좌의 시리얼라이저를 노출하고 둘을 합성하는 것 — 교환을 실행하기 전에 두 뮤텍스를 모두 획득하는 것 — 이 이 틈을 메우지만, 두 뮤텍스를 합성하는 것은 SICP가 신중하게 짚는 고전적인 위험을 다시 불러옵니다 — 한 프로세스가 계좌 1의 뮤텍스를 획득하고 계좌 2를 기다리는 동안, 다른 프로세스가 동시에 계좌 2의 뮤텍스를 획득하고 계좌 1을 기다린다면, 둘 다 영원히 진행할 수 없습니다. 이것이 *교착 상태(deadlock)*이고, 표준적인 해법은 거의 민망할 만큼 단순합니다 — 모든 계좌에 고정된 고유 번호를 매기고, 항상 더 낮은 번호의 계좌 뮤텍스를 먼저 획득하게 해서, 어떤 두 프로세스도 서로를 순환하며 기다리는 상황이 생기지 않게 하는 것입니다.
 
+Note that `makeSerializer`'s wrapper only protects a *single* call to the function it returns — it acquires the mutex, runs one action, and releases it, which is exactly wrong for `exchange`: we need both mutexes held across the *entire* read-both-balances-then-write-both-balances sequence, not just around one field access at a time. So `exchange` has to reach past the per-call serializer and hold each account's `Mutex` directly, in ascending `id` order, for the whole operation:
+
 ```lean
 structure NumberedAccount where
   id : Nat
-  account : Account
-  serializer : (Unit → IO Unit) → (Unit → IO Unit)
+  balance : IO.Ref Int
+  mutex : Mutex
 
-partial def exchange (a1 a2 : Account) : IO Unit := do
-  let bal1 ← a1.withdraw 0  -- 잔액 조회 목적의 0원 출금으로 대체 (실전이라면 별도 'balance' 메시지 필요)
-  pure ()
-  -- 실제 교환 로직은 두 계좌의 시리얼라이저를 낮은 id 순서로 획득한 뒤 진행합니다.
+def NumberedAccount.new (id : Nat) (initialBalance : Int) : IO NumberedAccount := do
+  let balance ← IO.mkRef initialBalance
+  let mutex ← Mutex.new
+  pure { id, balance, mutex }
+
+partial def exchange (a1 a2 : NumberedAccount) : IO Unit := do
+  let (lo, hi) := if a1.id < a2.id then (a1, a2) else (a2, a1)
+  lo.mutex.acquire
+  hi.mutex.acquire
+  let bal1 ← a1.balance.get
+  let bal2 ← a2.balance.get
+  let difference := bal1 - bal2
+  a1.balance.set (bal1 - difference)
+  a2.balance.set (bal2 + difference)
+  hi.mutex.release
+  lo.mutex.release
 ```
 
-(위 `exchange` 스케치는 두 시리얼라이저를 낮은 `id` 순서로 획득해야 한다는 뼈대만 보여줍니다 — 잔액 조회 메시지를 `Account`에 추가하는 것부터 시작해야 완전한 구현이 되므로, 여기서는 개념만 남겨둡니다.)
+`exchange` always acquires the lower-`id` account's mutex first and the higher-`id` account's mutex second, regardless of the order `a1`/`a2` were passed in — so two processes exchanging the same pair of accounts can never end up waiting on each other in a cycle. Both locks are held across the entire read-both/compute-difference/write-both sequence and released in reverse order once it's done — unlike `makeSerializer`, which only wraps one field access at a time, `exchange` needs atomicity spanning multiple steps, so it reaches past the serializer and manipulates the underlying `Mutex` directly.
+
+`exchange`는 `id`가 낮은 계좌의 뮤텍스를 먼저 획득하고 높은 계좌의 뮤텍스를 나중에 획득합니다 — 인자로 넘어온 `a1`/`a2`의 순서와 무관하게, 항상 `id` 순서로 획득하기 때문에 같은 계좌 쌍을 교환하는 두 프로세스가 서로 다른 순서로 기다리며 순환 대기에 빠지는 일이 없습니다. 이렇게 얻은 두 잠금은 잔액을 읽고 차액을 계산하고 두 계좌 모두에 새 잔액을 쓰는 전체 시퀀스가 끝날 때까지 유지된 뒤 역순으로 풀립니다 — `makeSerializer`가 한 번의 필드 접근만 감쌀 수 있는 것과 달리, `exchange`는 여러 단계에 걸친 원자성이 필요하므로 그 아래 놓인 `Mutex`를 직접 다룹니다.
 
 ---
 

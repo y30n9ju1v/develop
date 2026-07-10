@@ -156,12 +156,9 @@ def makeExpt : AExp2 → Int → AExp2
 def derivPow (var : Sym) : AExp2 → AExp2
   | .num _ => .num 0
   | .var v => if sameVar v var then .num 1 else .num 0
-  | .add u v => match u, v with
-      | u, v => .add (derivPow var u) (derivPow var v)  -- makeSum 생략, 지면 절약
+  | .add u v => .add (derivPow var u) (derivPow var v)  -- makeSum 생략, 지면 절약
   | .mul u v => .add (.mul u (derivPow var v)) (.mul (derivPow var u) v)
-  | .pow u n =>
-      .mul (.mul (.num n) (match makeExpt u (n - 1) with | e => e))
-           (derivPow var u)
+  | .pow u n => .mul (.mul (.num n) (makeExpt u (n - 1))) (derivPow var u)
 ```
 
 ---
