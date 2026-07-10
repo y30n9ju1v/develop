@@ -1,0 +1,164 @@
+---
+title: "3.4. 동시성: 시간이 중요해지다 (Concurrency: Time Is of the Essence)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "concurrency", "mutable-state"]
+categories: ["programming"]
+description: "SICP 3장 4절의 아이디어(동시성이 낳는 시간 문제, 인터리빙, 시리얼라이저, 뮤텍스, 교착 상태)를 Lean 4의 IO.Ref와 Task로 다시 짜 봅니다."
+---
+
+[3.1절](../3-1-assignment-and-local-state/)에서 배정이 참조 투명성을 무너뜨리는 대가를 살펴봤습니다. 이 절은 그 대가가 왜 동시성 앞에서 훨씬 심각해지는지를 다룹니다 — 여러 프로세스가 같은 상태를 공유하는 순간, 그 상태가 언제 바뀌는지의 *순서*가 결과 자체를 결정하기 때문입니다.
+
+[3.1절](../3-1-assignment-and-local-state/) discussed the price assignment pays in referential transparency. This section is about why that price gets much steeper under concurrency — once several processes share the same state, the *order* in which that state changes becomes part of what determines the result.
+
+---
+
+## 3.4.1. 동시 시스템에서 시간의 본질
+
+Two processes withdrawing from the same shared bank account can interleave the three steps of a withdrawal — read the balance, compute the new value, write it back — in ways that lose money entirely. If both processes read the balance before either writes it back, one process's update simply overwrites the other's, and the total amount of money in the system stops being conserved.
+
+같은 공유 계좌에서 인출하는 두 프로세스는, 인출의 세 단계 — 잔액을 읽고, 새 값을 계산하고, 다시 쓰는 것 — 를 돈이 통째로 사라지는 방식으로 뒤섞을 수 있습니다. 둘 다 잔액을 쓰기 전에 읽어버리면, 한 프로세스의 갱신이 다른 프로세스의 갱신을 그냥 덮어써버리고, 시스템 안의 총액이 더 이상 보존되지 않습니다.
+
+We can model exactly this with two `IO` actions sharing an `IO.Ref`, run concurrently via Lean's `Task`:
+
+Lean의 `Task`로 동시에 실행되는, `IO.Ref`를 공유하는 두 `IO` 액션으로 정확히 이를 모델링할 수 있습니다.
+
+```lean
+def parallelExecute (p1 p2 : IO Unit) : IO Unit := do
+  let t1 ← IO.asTask p1
+  let t2 ← IO.asTask p2
+  discard t1.get
+  discard t2.get
+
+def squareX (x : IO.Ref Nat) : IO Unit := do
+  let v ← x.get
+  x.set (v * v)
+
+def incX (x : IO.Ref Nat) : IO Unit := do
+  let v ← x.get
+  x.set (v + 1)
+
+#eval show IO Unit from do
+  let x ← IO.mkRef (10 : Nat)
+  parallelExecute (squareX x) (incX x)
+  IO.println (← x.get)
+```
+
+If `squareX` and `incX` each run their read-then-write as two separate uninterruptible steps, but the *scheduler* can interleave the two processes at any point between them, the final value of `x` can land on any of 101, 121, 110, 11, or 100, depending on exactly when each process's read and write happen relative to the other's — precisely SICP's five-outcome example, translated line for line. Which of these actually shows up depends on Lean's runtime scheduler and the underlying OS thread scheduling, neither of which this post can pin down or verify by running the snippet once; the value of the example is in the *shape* of the nondeterminism, not in reproducing a specific number.
+
+`squareX`와 `incX`가 각각 읽기-그다음-쓰기를 두 개의 끊길 수 있는 단계로 실행하지만 *스케줄러*가 그 사이 어느 지점에서든 두 프로세스를 뒤섞을 수 있다면, `x`의 최종 값은 101, 121, 110, 11, 100 중 어디로든 떨어질 수 있습니다. 각 프로세스의 읽기와 쓰기가 서로에 대해 정확히 언제 일어나느냐에 달려 있죠 — SICP의 다섯 가지 결과 예제를 한 줄 한 줄 그대로 옮긴 것입니다. 이 중 실제로 어떤 값이 나오는지는 Lean 런타임 스케줄러와 그 아래 OS 스레드 스케줄링에 달려 있고, 이 글에서 스니펫을 한 번 실행해본다고 확정하거나 검증할 수 있는 게 아닙니다 — 이 예제의 가치는 특정 숫자를 재현하는 데 있는 게 아니라 비결정성의 *모양*에 있습니다.
+
+---
+
+## 3.4.2. 동시성을 통제하는 메커니즘
+
+Rather than reasoning about every possible interleaving by hand, we constrain concurrency with a *serializer*: a mechanism that marks a set of procedures as mutually exclusive, so that only one member of the set can be running at any given moment. The mechanism underneath is a *mutex*, a cell that's either locked or free, with an `acquire` operation that blocks until the cell is free and a `release` that frees it:
+
+가능한 모든 인터리빙을 손으로 따지는 대신, *시리얼라이저(serializer)*로 동시성을 제한합니다 — 절차들의 집합을 상호 배타적으로 표시해서, 어느 순간이든 그 집합의 구성원 하나만 실행될 수 있게 하는 메커니즘입니다. 그 밑바탕은 *뮤텍스(mutex)*입니다 — 잠기거나 풀린 상태인 셀이고, 셀이 풀릴 때까지 막혀 있는 `acquire` 연산과 셀을 풀어주는 `release` 연산을 갖습니다.
+
+```lean
+structure Mutex where
+  locked : IO.Ref Bool
+
+def Mutex.new : IO Mutex := do
+  let locked ← IO.mkRef false
+  pure { locked := locked }
+
+partial def Mutex.acquire (m : Mutex) : IO Unit := do
+  if (← m.locked.get) then
+    m.acquire
+  else
+    m.locked.set true
+
+def Mutex.release (m : Mutex) : IO Unit :=
+  m.locked.set false
+```
+
+This `acquire` has exactly the flaw SICP's own discussion of `test-and-set!` warns about: reading `locked` and then setting it are two separate steps, not one atomic step, so two processes can both read `false` before either has a chance to write `true`, and both believe they've acquired the mutex. SICP's fix is to insist that the check-and-set happen *atomically*, which depends on facilities — disabling time-slicing, or a hardware test-and-set instruction — that live below the level of an ordinary procedure. Lean's `IO.Ref` gives us mutable cells, but a genuinely atomic compare-and-swap is a different, lower-level primitive that this toy `Mutex` does not actually provide; treat it as a specification of what a correct mutex must do, not as production-ready synchronization code.
+
+이 `acquire`는 정확히 SICP가 `test-and-set!`에 대해 경고하는 결함을 그대로 갖고 있습니다 — `locked`를 읽는 것과 그다음 설정하는 것이 하나의 원자적 단계가 아니라 두 개의 분리된 단계이므로, 두 프로세스 모두 상대가 `true`를 쓰기 전에 `false`를 읽어버려서 둘 다 자신이 뮤텍스를 획득했다고 믿을 수 있습니다. SICP의 해법은 확인과 설정이 *원자적으로* 일어나야 한다고 못박는 것인데, 이는 타임 슬라이싱을 비활성화하거나 하드웨어의 test-and-set 명령어 같은, 평범한 절차보다 더 아래 수준에 사는 시설에 의존합니다. Lean의 `IO.Ref`는 가변 셀을 주지만, 진짜로 원자적인 compare-and-swap은 이 장난감 `Mutex`가 실제로 제공하지 않는 더 낮은 수준의 별개 원시 연산입니다 — 이걸 프로덕션에 쓸 동기화 코드가 아니라, 올바른 뮤텍스가 반드시 해야 할 일에 대한 명세로 여겨주세요.
+
+There's a second, more mundane problem with `acquire` even if we fixed the atomicity: it's a *spin lock* — a process waiting for the mutex calls itself in a tight loop, burning CPU the entire time it's blocked, exactly the busy-waiting SICP's own footnote flags as wasteful compared to a scheduler that parks the blocked process and wakes it when the mutex frees up. A version meant to actually run under load would back off between retries (an `IO.sleep` between attempts) or, better, hand the waiting off to Lean's own task scheduler instead of polling a flag from user code at all.
+
+`acquire`에는 원자성 문제를 고친다 해도 남는, 더 평범한 문제가 하나 더 있습니다 — 이건 *스핀 락(spin lock)*입니다. 뮤텍스를 기다리는 프로세스가 좁은 루프 안에서 자기 자신을 계속 호출하며, 막혀 있는 내내 CPU를 태웁니다. 이는 정확히 SICP 자신의 각주가 "차단된 프로세스를 재워두었다가 뮤텍스가 풀리면 깨우는 스케줄러"에 비해 낭비라고 짚는 바쁜 대기입니다. 실제 부하 아래서 쓸 버전이라면 재시도 사이에 물러서거나(재시도 사이에 `IO.sleep`을 두거나), 더 낫게는 사용자 코드에서 플래그를 폴링하는 대신 대기를 Lean 자체의 태스크 스케줄러에 넘겨야 합니다.
+
+A serializer wraps a mutex around any action: acquire, run, release.
+
+시리얼라이저는 뮤텍스를 임의의 액션 주위에 감쌉니다 — 획득하고, 실행하고, 해제합니다.
+
+```lean
+def makeSerializer : IO ((α → IO β) → (α → IO β)) := do
+  let mutex ← Mutex.new
+  pure fun f x => do
+    mutex.acquire
+    let result ← f x
+    mutex.release
+    pure result
+```
+
+We can now revisit the `Account` structure from [3.1절](../3-1-assignment-and-local-state/) and serialize its `withdraw`/`deposit` fields, reusing the same message-passing shape while closing the race condition from 3.4.1:
+
+이제 [3.1절](../3-1-assignment-and-local-state/)의 `Account` 구조체를 다시 보고 `withdraw`/`deposit` 필드를 시리얼라이즈할 수 있습니다 — 같은 메시지 패싱 모양을 재사용하면서 3.4.1의 경쟁 조건을 닫습니다.
+
+```lean
+structure Account where
+  withdraw : Int → IO (Except String Int)
+  deposit : Int → IO Int
+
+def makeAccount (initialBalance : Int) : IO Account := do
+  let balance ← IO.mkRef initialBalance
+  let serialize ← makeSerializer
+  let rawWithdraw := fun (amount : Int) => do
+    let bal ← balance.get
+    if bal >= amount then
+      balance.set (bal - amount)
+      return .ok (bal - amount)
+    else
+      return .error "Insufficient funds"
+  let rawDeposit := fun (amount : Int) => do
+    balance.set ((← balance.get) + amount)
+    balance.get
+  pure {
+    withdraw := serialize rawWithdraw
+    deposit := serialize rawDeposit
+  }
+```
+
+With this in place, two concurrent calls to the same account's `withdraw` and `deposit` can no longer interleave their read-modify-write steps — exactly the guarantee that eliminates the Peter-and-Paul anomaly from 3.4.1. Different accounts still have independent serializers, so deposits and withdrawals on unrelated accounts proceed concurrently with no waiting.
+
+이제 같은 계좌의 `withdraw`와 `deposit`을 동시에 두 번 호출해도 읽기-수정-쓰기 단계가 서로 뒤섞일 수 없습니다 — 정확히 3.4.1의 피터-폴 이상 현상을 없애주는 보장입니다. 서로 다른 계좌는 여전히 독립된 시리얼라이저를 가지므로, 무관한 계좌들의 입출금은 기다림 없이 동시에 진행됩니다.
+
+### 여러 자원을 넘나드는 복잡성
+
+Serializing a single account is straightforward; serializing an *exchange* between two accounts is not, because reading both balances, computing the difference, and writing both new balances has to happen as one atomic block with respect to *both* accounts' serializers, not just one. Exposing each account's serializer and composing the two — acquiring both mutexes before running the exchange — closes this gap, but composing two mutexes reintroduces a classic hazard SICP is careful to name: if one process acquires account 1's mutex while waiting on account 2's, and another process simultaneously acquires account 2's while waiting on account 1's, neither can ever proceed. This is *deadlock*, and the standard fix is almost embarrassingly simple: give every account a fixed unique number, and always acquire the lower-numbered account's mutex first, so that no two processes can ever be waiting on each other in a cycle.
+
+계좌 하나를 시리얼라이즈하는 것은 단순하지만, 두 계좌 사이의 *교환(exchange)*을 시리얼라이즈하는 것은 그렇지 않습니다 — 두 잔액을 읽고, 차이를 계산하고, 새 잔액 둘을 쓰는 것이 한 계좌가 아니라 *두* 계좌의 시리얼라이저 모두에 대해 하나의 원자적 블록으로 일어나야 하기 때문입니다. 각 계좌의 시리얼라이저를 노출하고 둘을 합성하는 것 — 교환을 실행하기 전에 두 뮤텍스를 모두 획득하는 것 — 이 이 틈을 메우지만, 두 뮤텍스를 합성하는 것은 SICP가 신중하게 짚는 고전적인 위험을 다시 불러옵니다 — 한 프로세스가 계좌 1의 뮤텍스를 획득하고 계좌 2를 기다리는 동안, 다른 프로세스가 동시에 계좌 2의 뮤텍스를 획득하고 계좌 1을 기다린다면, 둘 다 영원히 진행할 수 없습니다. 이것이 *교착 상태(deadlock)*이고, 표준적인 해법은 거의 민망할 만큼 단순합니다 — 모든 계좌에 고정된 고유 번호를 매기고, 항상 더 낮은 번호의 계좌 뮤텍스를 먼저 획득하게 해서, 어떤 두 프로세스도 서로를 순환하며 기다리는 상황이 생기지 않게 하는 것입니다.
+
+```lean
+structure NumberedAccount where
+  id : Nat
+  account : Account
+  serializer : (Unit → IO Unit) → (Unit → IO Unit)
+
+partial def exchange (a1 a2 : Account) : IO Unit := do
+  let bal1 ← a1.withdraw 0  -- 잔액 조회 목적의 0원 출금으로 대체 (실전이라면 별도 'balance' 메시지 필요)
+  pure ()
+  -- 실제 교환 로직은 두 계좌의 시리얼라이저를 낮은 id 순서로 획득한 뒤 진행합니다.
+```
+
+(위 `exchange` 스케치는 두 시리얼라이저를 낮은 `id` 순서로 획득해야 한다는 뼈대만 보여줍니다 — 잔액 조회 메시지를 `Account`에 추가하는 것부터 시작해야 완전한 구현이 되므로, 여기서는 개념만 남겨둡니다.)
+
+---
+
+## 정리
+
+| SICP 개념 | Scheme | Lean 4 |
+|---|---|---|
+| 동시 실행 | `parallel-execute` | `IO.asTask` + `Task.get` |
+| 공유 상태의 경쟁 조건 | `set!`의 읽기-쓰기 인터리빙 | `IO.Ref`의 `.get`/`.set` 인터리빙 |
+| 시리얼라이저 | `make-serializer` | `(α → IO β) → (α → IO β)`를 반환하는 함수 |
+| 뮤텍스 | 셀 + `test-and-set!` | `IO.Ref Bool` + `acquire`/`release`(원자성은 별도로 필요) |
+| 원자성의 경계 | "test-and-set!은 원자적이어야 한다"는 산문 경고 | `IO.Ref`의 get/set이 원자적이지 않다는 것을 코드로 직접 시연 |
+| 교착 상태 회피 | 계좌 번호 순으로 획득 | 동일 — `id` 필드로 순서를 고정 |
+
+이 절에서 SICP가 짚는 핵심 — 동시성은 배정의 문제를 단순히 두 배로 만드는 게 아니라 질적으로 다른 문제로 만든다는 것 — 은 Lean에서도 그대로 유지됩니다. `IO.Ref`가 있다고 동시성 문제가 사라지지 않고, 오히려 "이 연산이 정말로 원자적인가"라는 질문이 훨씬 날카롭게 드러납니다 — 타입 시스템은 `IO`가 있는지는 알려주지만, 그 `IO` 안에서 일어나는 여러 단계가 서로 끼어들 수 있는지는 알려주지 않기 때문입니다. 다음 글에서는 3.5절 — 무한한 데이터 구조를 다루는 스트림과, 지연 평가가 어떻게 상태 없이도 시간의 흐름을 표현하는 대안이 되는지 — 를 다룹니다.
