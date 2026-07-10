@@ -55,15 +55,17 @@ def toMlirText (e : SafecArrayGet) : String :=
   | some n =>
     s!"func.func @{e.funcName}(%arr: {arrTy}) -> i32 \{\n" ++
     s!"  %idx = safec.const_index {n} : index\n" ++
-    s!"  %val = safec.array_get %arr[%idx] \{bounds_checked = {bc}\} : ({arrTy}, index) -> i32\n" ++
+    s!"  %val = safec.array_get %arr[%idx] \{bounds_checked = {bc}} : ({arrTy}, index) -> i32\n" ++
     "  return %val : i32\n}\n"
   | none =>
     s!"func.func @{e.funcName}(%arr: {arrTy}, %i: index) -> i32 \{\n" ++
-    s!"  %val = safec.array_get %arr[%i] \{bounds_checked = {bc}\} : ({arrTy}, index) -> i32\n" ++
+    s!"  %val = safec.array_get %arr[%i] \{bounds_checked = {bc}} : ({arrTy}, index) -> i32\n" ++
     "  return %val : i32\n}\n"
 
 #eval IO.println (toMlirText getElement)
 ```
+
+(`s!"..."` 안에서 문자 그대로의 `{`는 `\{`로 이스케이프해야 하지만, 닫는 `}`는 그냥 `}`로 씁니다 — Lean4의 문자열 보간은 `{`가 열릴 때만 특별한 의미를 가지므로, `\{...}`처럼 여는 쪽만 이스케이프하면 그 뒤에 이어지는 `}`는 그 이스케이프를 그대로 닫는 문자로 해석됩니다. `\}`는 유효한 이스케이프 시퀀스가 아니라서 컴파일 에러가 납니다.)
 
 이걸 실제로 실행하면(에디터에서 `#eval` 위에 커서를 두거나, `lake env lean --run` 명령으로) 정확히 이런 텍스트가 콘솔에 찍힙니다.
 
@@ -88,7 +90,7 @@ def toC (e : SafecArrayGet) : String :=
   match e.boundsChecked, e.indexLit with
   | true, some n =>
     s!"int32_t {e.funcName}(int32_t arr[{e.arraySize}]) \{\n" ++
-    s!"    return arr[{n}];  // 검사 없음 — 이미 안전이 증명됨\n}}\n"
+    s!"    return arr[{n}];  // 검사 없음 — 이미 안전이 증명됨\n}\n"
   | _, _ =>
     s!"int32_t {e.funcName}(int32_t arr[{e.arraySize}], size_t i) \{\n" ++
     "    if (i < " ++ toString e.arraySize ++ ") {\n" ++
@@ -176,7 +178,7 @@ if !e.boundsChecked then
 def verifyBoundsAdvanced (e : SafecArrayGet) (generatedC : String) : Except String Unit :=
   match e.boundsChecked, e.indexLit with
   | false, _ =>
-    if generatedC.splitOn "if (i <" |>.length > 1 then .ok ()
+    if (generatedC.splitOn "if (i <" |>.length) > 1 then .ok ()
     else .error "런타임 변수인데 생성된 C 코드에 범위 검사 가드가 없음"
   | _, _ => verifyBounds e
 

@@ -12,7 +12,7 @@ Lean4의 타입 시스템과 elaboration으로 안전성이 증명된 내부 IR�
 ## 읽기 순서
 
 1. **[왜 Lean4로 MLIR을 만드는가](01-why-lean4-for-mlir/)** — elaboration이 컴파일러 프론트엔드와 구조적으로 닮은 이유, MLIR을 중간 타겟으로 삼는 이론적 이유
-2. **[안전성이 타입에 인코딩된 내부 IR 설계](02-safety-encoded-ir/)** — 정제 타입과 선형성으로 위험한 프로그램을 표현 불가능하게 만들고, 증명 의무를 자동 생성·해소하는 메커니즘
+2. **[안전성이 타입에 인코딩된 내부 IR 설계](02-safety-encoded-ir/)** — 정제 타입(`Fin n`)으로 위험한 프로그램을 표현 불가능하게 만들고 증명 의무를 자동 생성·해소하는 메커니즘, 그리고 이 전략이 자원 소유권 문제에는 왜 그대로 통하지 않는지
 3. **[MLIR 텍스트 방출과 커스텀 dialect 설계](03-emitting-mlir-text/)** — operation/region/block/attribute 모델과, 안전성 증명을 attribute로 실어 보내는 원리
 4. **[MLIR 파이프라인과의 접합](04-mlir-pipeline-integration/)** — dialect conversion, EmitC, 그리고 Lean4와 MLIR C++ 인프라 사이의 신뢰 경계
 5. **[번역 검증: 방출 코드 자체를 어떻게 믿을 것인가](05-translation-validation/)** — 번역 검증, 증명 운반 코드(PCC), 차등 테스트로 TCB로 지목된 attribute 방출 코드의 신뢰성을 실질적으로 좁히는 방법
