@@ -3,7 +3,7 @@ title: "4편: LiDAR로 Scale 복원"
 date: 2026-05-15T03:00:00+09:00
 draft: true
 tags: ["SfM", "LiDAR", "Scale Ambiguity", "OpenCV", "ETH3D"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "카메라 SfM의 근본적인 한계인 scale ambiguity를 LiDAR depth로 해결합니다."
 ---
 

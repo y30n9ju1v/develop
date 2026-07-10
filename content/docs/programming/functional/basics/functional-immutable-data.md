@@ -3,7 +3,7 @@ title: "불변 데이터와 구조적 공유: 데이터를 안전하게 바꾸�
 date: 2026-04-28T20:30:00+09:00
 draft: false
 tags: ["함수형 프로그래밍", "Rust", "설계", "불변성", "Grokking Simplicity"]
-categories: ["프로그래밍", "함수형 프로그래밍"]
+categories: ["programming"]
 description: "데이터를 직접 바꾸지 않고 새 값을 만드는 방식이 왜 안전한지, 그리고 Rust에서 어떻게 표현하는지 설명합니다."
 ---
 

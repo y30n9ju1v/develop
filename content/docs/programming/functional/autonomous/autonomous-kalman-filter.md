@@ -3,7 +3,7 @@ title: "함수형 칼만 필터: predict와 update를 순수 함수로"
 date: 2026-04-30T14:00:00+09:00
 draft: false
 tags: ["함수형 프로그래밍", "Rust", "설계", "자율주행", "로봇", "칼만 필터", "다중 물체 추적", "액션/계산/데이터"]
-categories: ["프로그래밍", "자율주행"]
+categories: ["programming"]
 description: "칼만 필터의 predict/update를 불변 값 전달 순수 함수로 구현하면, 다중 물체 추적(MOT)까지 센서 없이 테스트하고 로그만으로 임의 프레임을 재현할 수 있습니다."
 ---
 

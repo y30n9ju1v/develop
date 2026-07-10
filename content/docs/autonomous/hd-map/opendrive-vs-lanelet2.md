@@ -3,7 +3,7 @@ title: "OpenDRIVE vs Lanelet2: 두 HD 맵 포맷 비교 분석"
 date: 2026-05-11T18:00:00+09:00
 draft: false
 tags: ["자율주행", "HD맵", "OpenDRIVE", "XODR", "Lanelet2", "비교", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "자율주행의 두 대표 HD 맵 포맷 OpenDRIVE와 Lanelet2를 초보자도 이해할 수 있도록 개념, 구조, 강점, 사용처를 비교 분석합니다."
 ---
 
@@ -77,58 +77,11 @@ description: "자율주행의 두 대표 HD 맵 포맷 OpenDRIVE와 Lanelet2를 
 
 ### 같은 도로를 표현하는 방식 차이
 
-왕복 2차선, 길이 100m의 직선 도로를 예로 들면:
+왕복 2차선, 길이 100m의 직선 도로를 예로 들면, OpenDRIVE는 "시작점(0,0)에서 방향 0으로 100m 직선, 좌우 폭 3.5m"라는 수식 한 줄로 도로 전체를 정의합니다. 좌표를 계산이 필요할 때(예: s=50m 지점의 x,y 좌표)마다 그때그때 구하면 되므로, 파일에는 좌표 자체가 아예 등장하지 않습니다.
 
-**OpenDRIVE 방식**
-```xml
-<road length="100.0" id="1">
-  <planView>
-    <geometry s="0" x="0" y="0" hdg="0" length="100">
-      <line/>   <!-- 직선이므로 수식 한 줄 -->
-    </geometry>
-  </planView>
-  <lanes>
-    <laneSection s="0">
-      <left>
-        <lane id="1" type="driving">
-          <width a="3.5"/>   <!-- 차선 폭 3.5m -->
-        </lane>
-      </left>
-      <right>
-        <lane id="-1" type="driving">
-          <width a="3.5"/>
-        </lane>
-      </right>
-    </laneSection>
-  </lanes>
-</road>
-```
+Lanelet2는 정반대로 접근합니다. 왼쪽 경계선의 좌표 점 3개, 오른쪽 경계선의 좌표 점 3개를 각각 나열하고, 이 두 선을 Lanelet 하나로 묶습니다. 직선이라는 사실 자체는 파일 어디에도 명시되지 않습니다 — 점들이 우연히 일직선 위에 놓여있을 뿐이고, 파서는 그 사실을 알 필요조차 없습니다.
 
-**Lanelet2 방식**
-```xml
-<!-- 왼쪽 경계선: 실제 좌표를 일일이 찍음 -->
-<way id="10">
-  <nd ref="1"/>  <!-- (0, 3.5) -->
-  <nd ref="2"/>  <!-- (50, 3.5) -->
-  <nd ref="3"/>  <!-- (100, 3.5) -->
-</way>
-
-<!-- 오른쪽 경계선 -->
-<way id="11">
-  <nd ref="4"/>  <!-- (0, 0) -->
-  <nd ref="5"/>  <!-- (50, 0) -->
-  <nd ref="6"/>  <!-- (100, 0) -->
-</way>
-
-<!-- Lanelet: 두 경계선으로 차선 구간 정의 -->
-<relation id="100">
-  <member type="way" ref="10" role="left"/>
-  <member type="way" ref="11" role="right"/>
-  <tag k="type" v="lanelet"/>
-</relation>
-```
-
-직선 도로 하나를 표현하는 데 OpenDRIVE는 수식 한 줄, Lanelet2는 좌표 여러 개가 필요합니다. 하지만 복잡한 실제 도로에서는 Lanelet2가 실측 데이터를 그대로 쓸 수 있어 오히려 편합니다.
+직선 도로 하나를 표현하는 데 필요한 데이터량은 OpenDRIVE 쪽이 훨씬 적습니다. 하지만 이 차이는 복잡한 실제 도로에서 뒤집힙니다. 실측 LiDAR 데이터는 애초에 "점들의 집합"이므로 Lanelet2 방식과 표현 형태가 이미 일치하고, 그대로 가져다 쓸 수 있습니다. 반대로 이 점들을 OpenDRIVE에 넣으려면 점 구름에 가장 잘 맞는 직선·원호·클로소이드 조합을 역으로 찾아내는 **곡선 피팅(curve fitting)** 과정이 필요합니다. 두 포맷의 강약점은 결국 "형상을 수식으로 압축해서 얻는 정밀함과 파일 크기"와 "실측 데이터를 가공 없이 바로 쓸 수 있는 편의성" 사이의 트레이드오프로 요약됩니다.
 
 ---
 
@@ -171,42 +124,13 @@ description: "자율주행의 두 대표 HD 맵 포맷 OpenDRIVE와 Lanelet2를 
 
 ### OpenDRIVE: Signal과 Object
 
-신호등, 속도 제한 표지판 등을 `signal` 요소로 표현합니다. 도로 기준선 위의 위치(s값)와 횡방향 오프셋(t값)으로 위치를 지정합니다.
-
-```xml
-<signals>
-  <signal s="150.0" t="-2.0" id="1" name="SpeedLimit"
-          dynamic="no" orientation="+" zOffset="2.0"
-          type="274" subtype="50" value="50" unit="km/h"
-          height="0.6" width="0.6"/>
-</signals>
-```
-
-어느 차선에 적용되는지는 `validity` 요소로 지정하며, 적용 범위가 복잡할수록 표현이 번거로워집니다.
+신호등, 속도 제한 표지판 등을 `signal` 요소로 표현합니다. 도로 기준선 위의 위치(s값)와 횡방향 오프셋(t값)으로 위치를 지정하고, 어느 차선에 적용되는지는 별도의 `validity` 요소로 지정합니다. 즉 "규칙이 어디에 있는가"와 "규칙이 어느 차선에 적용되는가"가 분리된 두 정보로 존재합니다. 적용 범위가 복잡한 규칙(특정 차선만, 특정 시간대만 등)일수록 이 `validity` 목록이 길어지고 관리가 번거로워집니다.
 
 ### Lanelet2: RegulatoryElement
 
-신호등, 속도 제한 등을 **RegulatoryElement**로 표현하고 관련 Lanelet에 직접 연결합니다. "이 Lanelet을 달리는 차는 이 규칙을 따른다"는 관계가 명확합니다.
+신호등, 속도 제한 등을 **RegulatoryElement**로 표현하고, 위치 정보(신호등이 어디 있는지)와 적용 대상(어느 Lanelet에 적용되는지)을 하나의 관계 안에 함께 묶습니다. `TrafficLight`, `TrafficSign`, `SpeedLimit`, `RightOfWay`, `AllWayStop` 등이 대표적인 종류입니다.
 
-| RegulatoryElement | 의미 |
-|---|---|
-| `TrafficLight` | 신호등 + 정지선 |
-| `TrafficSign` | 도로 표지판 |
-| `SpeedLimit` | 속도 제한 |
-| `RightOfWay` | 양보/우선 통행 |
-| `AllWayStop` | 전방향 정지 |
-
-```xml
-<relation id="200">
-  <member type="way" ref="50" role="refers"/>      <!-- 신호등 위치 -->
-  <member type="way" ref="51" role="ref_line"/>    <!-- 정지선 -->
-  <member type="relation" ref="100" role="refers"/> <!-- 적용 Lanelet -->
-  <tag k="type" v="regulatory_element"/>
-  <tag k="subtype" v="traffic_light"/>
-</relation>
-```
-
-경로 계획 알고리즘이 Lanelet을 순회하면서 RegulatoryElement를 자동으로 확인할 수 있어 코드 연동이 훨씬 편합니다.
+OpenDRIVE의 "위치 따로, 적용 범위 따로"인 구조와 달리, Lanelet2는 "이 Lanelet은 이 RegulatoryElement를 참조한다"는 단일 관계로 표현합니다. 그 결과 경로 계획 알고리즘이 어떤 Lanelet을 지나갈 때 "이 구간에 적용되는 규칙이 뭐가 있지?"를 묻는 질의가 Lanelet 객체에서 RegulatoryElement 목록을 바로 꺼내는 것으로 끝납니다. OpenDRIVE라면 이 질의를 위해 signal 목록 전체를 순회하며 validity 범위와 현재 위치를 매번 대조해야 합니다.
 
 ---
 
@@ -236,65 +160,7 @@ Lanelet2 파일
 → getRoute()로 즉시 경로 탐색
 ```
 
-자세한 코드는 아래 "코드로 다루는 방법" 섹션을 참고하세요.
-
----
-
-## 코드로 다루는 방법
-
-### OpenDRIVE: scenariogeneration + CARLA
-
-Python `scenariogeneration` 라이브러리로 `.xodr` 파일을 코드로 생성할 수 있습니다.
-
-```python
-from scenariogeneration import xodr
-
-# 직선 도로 생성 후 파일로 저장
-road = xodr.create_road([xodr.Line(200)], id=1, left_lanes=1, right_lanes=2)
-
-odr = xodr.OpenDrive("my_road")
-odr.add_road(road)
-odr.adjust_roads_and_lanes()
-odr.write_xml("my_road.xodr")
-```
-
-CARLA에서는 내장 샘플 맵을 불러오거나, 현재 맵을 OpenDRIVE 형식으로 내보낼 수 있습니다.
-
-```python
-import carla
-
-client = carla.Client("localhost", 2000)
-# CARLA 내장 샘플 맵 불러오기
-world = client.load_world("Town03")
-# 현재 맵을 OpenDRIVE 형식으로 내보내기
-print(world.get_map().to_opendrive()[:300])
-```
-
-### Lanelet2: Python 라이브러리
-
-공식 Python 바인딩으로 맵을 불러오고 경로를 탐색합니다.
-
-```python
-import lanelet2
-from lanelet2.io import load
-from lanelet2.projection import UtmProjector
-from lanelet2.routing import RoutingGraph
-
-# 맵 불러오기
-projector = UtmProjector(lanelet2.io.Origin(37.5, 127.0))
-map = load("my_map.osm", projector)
-
-# 모든 Lanelet 출력
-for lanelet in map.laneletLayer:
-    print(f"id={lanelet.id}, speed_limit={lanelet.attributes.get('speed_limit')}")
-
-# 경로 탐색
-traffic_rules = lanelet2.traffic_rules.create(
-    lanelet2.traffic_rules.Locations.Germany,
-    lanelet2.traffic_rules.Participants.Vehicle)
-graph = RoutingGraph(map, traffic_rules)
-route = graph.getRoute(map.laneletLayer[100], map.laneletLayer[200])
-```
+이 차이는 설계 목적의 차이에서 곧바로 따라 나옵니다. OpenDRIVE는 "도로가 어떻게 생겼는가"를 정밀하게 기술하는 데 집중한 포맷이고, 경로 탐색은 애초에 이 포맷이 풀려는 문제가 아니었습니다. 반면 Lanelet2는 처음부터 "차량이 이 그래프 위에서 어떻게 이동할 것인가"를 염두에 두고 설계됐기 때문에, 맵을 불러오는 행위 자체가 곧 경로 탐색이 가능한 그래프를 얻는 행위와 같습니다.
 
 ---
 
@@ -332,12 +198,6 @@ route = graph.getRoute(map.laneletLayer[100], map.laneletLayer[200])
 |---|---|---|
 | OpenDRIVE → Lanelet2 | `opendrive2lanelet` (Python) | 복잡한 교차로에서 수동 수정 필요 |
 | Lanelet2 → OpenDRIVE | 공식 도구 없음, 커스텀 스크립트 | 형상 정밀도 손실 가능 |
-
-```bash
-# opendrive2lanelet 설치 및 변환
-pip install opendrive2lanelet
-opendrive2lanelet --opendrive input.xodr --lanelet2 output.osm
-```
 
 > **주의**: `opendrive2lanelet` 패키지는 현재 활발히 유지보수되지 않습니다. 2025년 기준 가장 현실적인 변환 방법은 MathWorks RoadRunner에서 두 포맷을 모두 내보내거나, CARLA 맵을 기준으로 각각 내보내는 방식입니다.
 

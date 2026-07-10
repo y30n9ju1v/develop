@@ -3,7 +3,7 @@ title: "LiDAR 포인트 클라우드 입문: 자율주행의 눈을 이해하다
 date: 2026-05-12T16:00:00+09:00
 draft: false
 tags: ["자율주행", "LiDAR", "포인트클라우드", "센서", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "자율주행의 핵심 센서 LiDAR의 동작 원리, 포인트 클라우드 데이터 구조, Voxel Grid, 날씨 취약성까지 실무 관점에서 설명합니다."
 math: true
 ---

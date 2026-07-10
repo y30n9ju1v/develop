@@ -2,6 +2,7 @@
 title = 'ISTQB CT-AI 2장'
 date = 2024-10-01T20:45:04+09:00
 draft = false
+categories = ["testing"]
 +++
 
 이 글은 ISTQB의 CT-AI(Certified Tester AI Testing) 자격증을 준비하면서 한국어 실라버스를 참고하여 정리 요약한 글입니다.

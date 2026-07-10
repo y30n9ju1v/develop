@@ -3,7 +3,7 @@ title: "자율주행 카메라 모델 입문: 핀홀, 피쉬아이, FTheta"
 date: 2026-05-11T20:00:00+09:00
 draft: false
 tags: ["자율주행", "카메라", "핀홀", "피쉬아이", "ftheta", "캘리브레이션", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "자율주행에서 쓰이는 카메라 모델의 기초를 설명합니다. 핀홀, 피쉬아이, FTheta 모델의 원리와 차이, 렌즈 왜곡, 왜곡 보정 방법을 다룹니다."
 math: true
 ---

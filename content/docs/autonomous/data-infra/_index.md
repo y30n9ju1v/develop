@@ -21,3 +21,5 @@ title: "데이터 인프라"
 10. **[py123d → NVIDIA NuRec(NCore): 자율주행 데이터를 신경 재구성 파이프라인으로](py123d-to-nurec/)** — py123d 표준 포맷을 NCore V4로 변환해 NuRec 신경 재구성 파이프라인에 연결하는 방법을 설명합니다.
 11. **[Arrow로 관통하는 E2E 회귀 테스트 파이프라인](closed-loop-regression-with-dora/)** — py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache Arrow 기반 회귀 테스트 구조를 소개합니다.
 12. **[Arrow Flight: gRPC로 이기종 PC 간 데이터를 Zero-Copy에 가깝게 전송하기](arrow-flight-network-transfer/)** — 같은 머신 안에서만 통하던 Arrow의 Zero-Copy를, gRPC 기반 Arrow Flight가 네트워크 너머로 어떻게 확장하는지 정리합니다.
+
+수천 개 시나리오를 클라우드에서 병렬 실행하는 오케스트레이션은 별도 시리즈로 분리했습니다. **[시뮬레이션 오케스트레이션](../simulation/)**을 참고하세요.

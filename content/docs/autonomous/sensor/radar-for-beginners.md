@@ -3,7 +3,7 @@ title: "Radar 센서 입문: FMCW 원리부터 카메라·LiDAR 융합까지"
 date: 2026-07-09T00:00:00+09:00
 draft: false
 tags: ["자율주행", "radar", "FMCW", "포인트클라우드", "센서퓨전", "도플러", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "자율주행 Radar가 어떻게 거리·속도를 동시에 측정하는지, Range-Doppler 맵이 무엇인지, 카메라·LiDAR와 어떻게 융합하는지 설명합니다."
 math: true
 ---

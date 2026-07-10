@@ -3,7 +3,7 @@ title: "센서 퓨전 기초: LiDAR 포인트를 카메라 이미지에 투영�
 date: 2026-05-12T17:00:00+09:00
 draft: false
 tags: ["자율주행", "센서퓨전", "LiDAR", "카메라", "Projection", "Depth", "OpenCV", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "Extrinsic/Intrinsic 변환을 이용해 LiDAR 포인트 클라우드를 카메라 이미지 위에 겹쳐 그리고, 거리(Depth)에 따라 색상을 칠하는 Python 실습입니다."
 math: true
 ---

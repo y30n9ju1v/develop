@@ -3,7 +3,7 @@ title: "Let's build GPT: from scratch 핵심 요약 및 타임라인"
 date: 2026-05-14T08:04:17+09:00
 draft: false
 tags: ["Deep Learning", "LLM", "GPT", "PyTorch", "Transformer"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "안드레 카파시(Andrej Karpathy)의 'Let's build GPT: from scratch' 강의 타임라인과 핵심 요약, 수식 및 코드를 포함한 상세 가이드를 정리합니다."
 ---
 

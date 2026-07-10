@@ -3,7 +3,7 @@ title: "OpenSCENARIO 입문: 자율주행 시나리오를 처음 다루는 사�
 date: 2026-05-11T14:00:00+09:00
 draft: false
 tags: ["자율주행", "OpenSCENARIO", "시뮬레이션", "ASAM", "시나리오", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "OpenSCENARIO가 무엇인지, 왜 자율주행 시뮬레이션에서 쓰이는지, 어떤 구조로 시나리오를 표현하는지 초보자도 이해할 수 있게 설명합니다."
 ---
 
@@ -80,185 +80,21 @@ OpenSCENARIO
 
 ---
 
-## 실제 예시: 앞차 급정거 시나리오
+## 실제 예시: 앞차 급정거 시나리오는 어떻게 조립되나요
 
-아래는 "자차가 일정 속도로 주행 중, 앞차가 급정거하는" 시나리오입니다.
+"자차가 일정 속도로 주행 중, 앞차가 급정거하는" 시나리오를 앞서 본 5개 섹션에 맞춰 채우면 이렇게 됩니다.
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<OpenSCENARIO>
+**ParameterDeclarations**에는 `EgoSpeed`, `LeadSpeed` 같은 재사용 값을 선언합니다. 본문에서는 이 값을 `$EgoSpeed`처럼 참조하는데, 값 자체를 하드코딩하지 않고 파라미터로 빼두면 같은 시나리오 구조로 속도만 다른 변형을 여러 개 만들 수 있습니다.
 
-  <FileHeader
-    description="앞차 급정거 시나리오"
-    author="test_engineer"
-    revMajor="1"
-    revMinor="0"
-    date="2026-05-11T14:00:00"/>
+**Entities**에는 등장하는 모든 객체(자차 `Ego`, 앞차 `LeadVehicle`)를 선언합니다. 각 `Vehicle`은 바운딩 박스 크기, 최대 속도/가감속, 축거 같은 물리 제원까지 명시해야 합니다 — 시뮬레이터가 충돌 판정이나 동역학 계산을 하려면 이 값들이 필요하기 때문입니다.
 
-  <!-- 재사용 파라미터 -->
-  <!-- 참조 시 $ParamName 또는 ${ParamName} 형식을 쓰며, 시뮬레이터마다 다를 수 있음 -->
-  <ParameterDeclarations>
-    <ParameterDeclaration name="EgoSpeed" parameterType="double" value="60"/>
-    <ParameterDeclaration name="LeadSpeed" parameterType="double" value="60"/>
-  </ParameterDeclarations>
+**Storyboard**가 시나리오의 실제 본문이며, 세 단계로 나뉩니다.
 
-  <!-- 도로 맵 지정 -->
-  <RoadNetwork>
-    <LogicFile filepath="my_map.xodr"/>
-  </RoadNetwork>
+1. **Init**: 두 차량을 `TeleportAction`으로 초기 위치(`LanePosition`으로 도로 ID·차선·s좌표 지정)에 배치하고, `SpeedAction`으로 초기 속도를 설정합니다. "시나리오가 시작되는 순간의 스냅샷"을 정의하는 구간입니다.
+2. **Story → Act → ManeuverGroup → Maneuver → Event**: 실제 전개입니다. `Actors`로 "누가"(`LeadVehicle`)를 지정하고, `Action`으로 "무엇을"(속도를 0으로 줄이는 `SpeedAction`, 감속률 8.0으로 선형 감속)을 지정하고, `StartTrigger`로 "언제"(자차와의 종방향 거리가 `RelativeDistanceCondition`으로 30m 미만이 되는 순간)를 지정합니다. 이 다섯 단계 중첩이 XML을 장황하게 만드는 지점이지만, 각 계층은 "이 동작 묶음을 누가·언제·어떤 우선순위로 실행하는가"를 각각 독립적으로 제어하기 위한 것입니다 — 예를 들어 `priority="overwrite"`는 같은 Event가 다시 트리거되면 이전 실행을 덮어쓰라는 지정입니다.
+3. **StopTrigger**: 시나리오 전체의 종료 조건입니다. 여기서는 시뮬레이션 시작 30초 후 종료하도록 `SimulationTimeCondition`을 씁니다.
 
-  <!-- 시나리오에 등장하는 객체 선언 -->
-  <Entities>
-    <ScenarioObject name="Ego">
-      <Vehicle name="vehicle.tesla.model3" vehicleCategory="car">
-        <BoundingBox>
-          <Center x="1.5" y="0.0" z="0.9"/>
-          <Dimensions width="2.1" length="4.5" height="1.8"/>
-        </BoundingBox>
-        <Performance maxSpeed="69.444" maxAcceleration="10.0" maxDeceleration="10.0"/>
-        <Axles>
-          <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="3.1" positionZ="0.3"/>
-          <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
-        </Axles>
-        <Properties/>
-      </Vehicle>
-    </ScenarioObject>
-    <ScenarioObject name="LeadVehicle">
-      <Vehicle name="vehicle.audi.a2" vehicleCategory="car">
-        <BoundingBox>
-          <Center x="1.5" y="0.0" z="0.9"/>
-          <Dimensions width="2.0" length="4.2" height="1.8"/>
-        </BoundingBox>
-        <Performance maxSpeed="69.444" maxAcceleration="10.0" maxDeceleration="10.0"/>
-        <Axles>
-          <FrontAxle maxSteering="0.5" wheelDiameter="0.6" trackWidth="1.8" positionX="3.1" positionZ="0.3"/>
-          <RearAxle maxSteering="0.0" wheelDiameter="0.6" trackWidth="1.8" positionX="0.0" positionZ="0.3"/>
-        </Axles>
-        <Properties/>
-      </Vehicle>
-    </ScenarioObject>
-  </Entities>
-
-  <Storyboard>
-
-    <!-- 1. 초기 상태: 각 차량의 시작 위치와 속도 -->
-    <Init>
-      <Actions>
-        <!-- 자차(Ego) 초기화 -->
-        <Private entityRef="Ego">
-          <PrivateAction>
-            <TeleportAction>
-              <Position>
-                <LanePosition roadId="1" laneId="-1" s="10.0"/>
-              </Position>
-            </TeleportAction>
-          </PrivateAction>
-          <PrivateAction>
-            <LongitudinalAction>
-              <SpeedAction>
-                <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
-                <SpeedActionTarget>
-                  <AbsoluteTargetSpeed value="$EgoSpeed"/>
-                </SpeedActionTarget>
-              </SpeedAction>
-            </LongitudinalAction>
-          </PrivateAction>
-        </Private>
-
-        <!-- 앞차(LeadVehicle) 초기화 -->
-        <Private entityRef="LeadVehicle">
-          <PrivateAction>
-            <TeleportAction>
-              <Position>
-                <LanePosition roadId="1" laneId="-1" s="50.0"/>
-              </Position>
-            </TeleportAction>
-          </PrivateAction>
-          <PrivateAction>
-            <LongitudinalAction>
-              <SpeedAction>
-                <SpeedActionDynamics dynamicsShape="step" value="0" dynamicsDimension="time"/>
-                <SpeedActionTarget>
-                  <AbsoluteTargetSpeed value="$LeadSpeed"/>
-                </SpeedActionTarget>
-              </SpeedAction>
-            </LongitudinalAction>
-          </PrivateAction>
-        </Private>
-      </Actions>
-    </Init>
-
-    <!-- 2. 시나리오 전개 -->
-    <Story name="MainStory">
-      <Act name="BrakeAct">
-        <ManeuverGroup name="LeadVehicleGroup" maximumExecutionCount="1">
-          <Actors selectTriggeringEntities="false">
-            <EntityRef entityRef="LeadVehicle"/>
-          </Actors>
-
-          <Maneuver name="BrakeManeuver">
-            <Event name="BrakeEvent" priority="overwrite">
-
-              <!-- 무엇을: 앞차가 급정거 (속도를 0으로 줄임) -->
-              <Action name="BrakeAction">
-                <PrivateAction>
-                  <LongitudinalAction>
-                    <SpeedAction>
-                      <SpeedActionDynamics
-                        dynamicsShape="linear"
-                        value="8.0"
-                        dynamicsDimension="rate"/>
-                      <SpeedActionTarget>
-                        <AbsoluteTargetSpeed value="0"/>
-                      </SpeedActionTarget>
-                    </SpeedAction>
-                  </LongitudinalAction>
-                </PrivateAction>
-              </Action>
-
-              <!-- 언제: 자차와 앞차의 거리가 30m 이하가 되면 -->
-              <StartTrigger>
-                <ConditionGroup>
-                  <Condition name="DistanceCondition" delay="0" conditionEdge="rising">
-                    <ByEntityCondition>
-                      <TriggeringEntities triggeringEntitiesRule="any">
-                        <EntityRef entityRef="Ego"/>
-                      </TriggeringEntities>
-                      <EntityCondition>
-                        <RelativeDistanceCondition
-                          entityRef="LeadVehicle"
-                          relativeDistanceType="longitudinal"
-                          value="30.0"
-                          freespace="true"
-                          rule="lessThan"/>
-                      </EntityCondition>
-                    </ByEntityCondition>
-                  </Condition>
-                </ConditionGroup>
-              </StartTrigger>
-
-            </Event>
-          </Maneuver>
-        </ManeuverGroup>
-
-        <StartTrigger/>
-      </Act>
-    </Story>
-
-    <!-- 3. 종료 조건: 시뮬레이션 시작 후 30초가 지나면 종료 -->
-    <StopTrigger>
-      <ConditionGroup>
-        <Condition name="EndTime" delay="0" conditionEdge="rising">
-          <ByValueCondition>
-            <SimulationTimeCondition value="30" rule="greaterThan"/>
-          </ByValueCondition>
-        </Condition>
-      </ConditionGroup>
-    </StopTrigger>
-
-  </Storyboard>
-</OpenSCENARIO>
-```
+이 파일 하나가 "언제(30m 이내 접근), 누가(앞차), 무엇을(급정거)"이라는 한 문장을 5단 중첩 구조로 정확하게, 그러나 장황하게 표현하고 있는 셈입니다. 이 장황함을 코드에 가까운 문법으로 줄이려는 시도가 뒤에서 다룰 [OpenSCENARIO 2.0](../openscenario-2-for-beginners/)입니다.
 
 ---
 
@@ -316,14 +152,7 @@ Action이 시작되는 조건입니다.
 
 ## CARLA에서 실행해보기
 
-CARLA ScenarioRunner를 설치했다면 아래 명령으로 시나리오를 실행할 수 있습니다.
-
-```bash
-# ScenarioRunner 실행
-python scenario_runner.py \
-  --openscenario my_scenario.xosc \
-  --reloadWorld
-```
+CARLA ScenarioRunner는 `.xosc` 파일 경로를 인자로 받아 그대로 재생하는 방식으로 동작합니다. 별도의 통합 작업 없이 표준 파일 하나만 넘기면 되는 이 단순함이 OpenSCENARIO가 여러 시뮬레이터에서 공통으로 채택되는 이유이기도 합니다 — 시뮬레이터 입장에서는 자체 시나리오 포맷을 설계할 필요 없이 이 XML을 파싱하는 로더 하나만 구현하면 됩니다.
 
 ---
 
@@ -341,4 +170,4 @@ OpenSCENARIO의 핵심은 단순합니다. **"언제(Trigger), 누가(Entity), �
 
 ---
 
-*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [OpenDRIVE 입문](/docs/autonomous/hd-map/opendrive-for-beginners/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/), [OpenDRIVE vs Lanelet2 비교](/docs/autonomous/hd-map/opendrive-vs-lanelet2/)*
+*관련 글: [자율주행 시뮬레이션을 위한 HD 맵 포맷: OpenDRIVE(XODR)와 Lanelet2](/docs/autonomous/hd-map-formats-xodr-lanelet2/), [OpenDRIVE 입문](/docs/autonomous/hd-map/opendrive-for-beginners/), [Lanelet2 입문](/docs/autonomous/hd-map/lanelet2-for-beginners/), [OpenDRIVE vs Lanelet2 비교](/docs/autonomous/hd-map/opendrive-vs-lanelet2/), [OpenSCENARIO 2.0 입문](/docs/autonomous/hd-map/openscenario-2-for-beginners/)*

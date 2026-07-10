@@ -3,7 +3,7 @@ title: "자율주행 좌표계 입문: Ego, World, Sensor 좌표계"
 date: 2026-05-12T10:00:00+09:00
 draft: false
 tags: ["자율주행", "좌표계", "Ego", "카메라", "LiDAR", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "자율주행에서 자주 등장하는 Ego, World, Sensor 좌표계의 개념과 관계를 초보자도 이해할 수 있게 설명합니다."
 math: true
 ---

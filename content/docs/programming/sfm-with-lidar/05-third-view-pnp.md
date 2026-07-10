@@ -3,7 +3,7 @@ title: "5편: 3번째 뷰 추가 — PnP"
 date: 2026-05-15T04:00:00+09:00
 draft: true
 tags: ["SfM", "OpenCV", "PnP", "solvePnP", "Triangulation"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "이미 복원된 3D 포인트와 세 번째 이미지의 2D 대응점으로 solvePnP를 이용해 세 번째 카메라 pose를 추정합니다."
 ---
 

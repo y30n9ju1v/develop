@@ -3,7 +3,7 @@ title: "GPU Compute 셰이더를 함수형으로: GPGPU 파이프라인 설계"
 date: 2026-04-30T15:00:00+09:00
 draft: false
 tags: ["함수형 프로그래밍", "Rust", "설계", "GPU", "GPGPU", "Compute Shader", "자율주행", "액션/계산/데이터", "wgpu"]
-categories: ["프로그래밍", "GPU"]
+categories: ["programming"]
 description: "GPU 연산(Compute) 셰이더를 액션/계산/데이터로 분리하면, GPU 없이 디스패치 로직을 테스트하고 자율주행 포인트 클라우드 처리나 DNN 추론을 CPU/GPU 코드 공유로 검증할 수 있습니다."
 ---
 

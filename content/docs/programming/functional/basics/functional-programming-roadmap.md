@@ -3,7 +3,7 @@ title: "함수형 프로그래밍 시리즈 로드맵"
 date: 2027-04-29T22:00:00+09:00
 draft: false
 tags: ["함수형 프로그래밍", "Rust", "설계", "Grokking Simplicity", "로드맵", "자율주행", "로봇", "GPU"]
-categories: ["프로그래밍", "함수형 프로그래밍", "자율주행", "GPU"]
+categories: ["programming"]
 description: "액션/계산/데이터 구분부터 온어니언 아키텍처, 추상화 기준, 파서 컴비네이터, 자율주행·로봇·GPU 응용까지, 함수형 프로그래밍 시리즈 전체를 한 눈에 정리합니다."
 ---
 

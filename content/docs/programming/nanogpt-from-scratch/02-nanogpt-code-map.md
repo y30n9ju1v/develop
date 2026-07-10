@@ -3,7 +3,7 @@ title: "강의 타임라인 × nanoGPT 코드 매핑"
 date: 2026-05-14T08:14:17+09:00
 draft: false
 tags: ["Deep Learning", "LLM", "GPT", "PyTorch", "Transformer", "nanoGPT"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "Karpathy 강의의 각 타임라인이 nanoGPT 레포의 어떤 파일, 어떤 라인에 해당하는지 직접 매핑합니다."
 ---
 

@@ -3,7 +3,7 @@ title: "3D Gaussian Splatting 저장 포맷 입문"
 date: 2026-05-13T09:00:00+09:00
 draft: false
 tags: ["3DGS", "Gaussian Splatting", "PLY", "3D", "입문"]
-categories: ["Graphics"]
+categories: ["computer-vision"]
 description: "3D Gaussian Splatting이 장면을 어떻게 저장하는지, PLY 파일 구조와 각 속성의 의미를 초보자 눈높이에서 설명합니다."
 math: true
 ---

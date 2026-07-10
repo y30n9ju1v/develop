@@ -3,7 +3,7 @@ title: "Arrow Flight: gRPC로 이기종 PC 간 데이터를 Zero-Copy에 가깝�
 date: 2026-07-10T00:00:00+09:00
 draft: false
 tags: ["apache-arrow", "arrow-flight", "grpc", "network", "zero-copy", "flight-sql", "big-data"]
-categories: ["programming"]
+categories: ["autonomous"]
 description: "같은 머신 안에서만 통하던 Arrow의 Zero-Copy를, gRPC 기반 Arrow Flight가 네트워크 너머로 어떻게 확장하는지 정리합니다."
 ---
 

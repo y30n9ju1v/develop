@@ -3,7 +3,7 @@ title: "6편: 결과 시각화 및 정리"
 date: 2026-05-15T05:00:00+09:00
 draft: true
 tags: ["SfM", "Rerun", "시각화", "LiDAR", "3DGS"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "Rerun SDK로 카메라 pose와 포인트클라우드를 시각화하고, LiDAR GT와 비교하며 시리즈를 마무리합니다."
 ---
 

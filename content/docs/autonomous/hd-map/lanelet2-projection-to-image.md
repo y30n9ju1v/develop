@@ -3,7 +3,7 @@ title: "HD 맵에서 센서로: Lanelet2 맵을 카메라 이미지에 투영하
 date: 2026-05-12T14:00:00+09:00
 draft: false
 tags: ["자율주행", "Lanelet2", "카메라", "좌표변환", "Projection", "OpenCV", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "World → Ego → Camera 좌표 변환을 총동원해서 Lanelet2 맵의 차선 경계선을 실제 카메라 이미지에 직접 그려봅니다."
 math: true
 ---

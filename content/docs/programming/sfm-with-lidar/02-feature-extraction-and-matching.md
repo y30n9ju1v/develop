@@ -3,7 +3,7 @@ title: "2편: Feature 추출 및 매칭"
 date: 2026-05-15T01:00:00+09:00
 draft: false
 tags: ["SfM", "OpenCV", "SIFT", "Feature Matching", "RANSAC"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "SIFT로 feature를 추출하고 BFMatcher + RANSAC으로 세 프레임 간 대응점을 찾습니다."
 ---
 

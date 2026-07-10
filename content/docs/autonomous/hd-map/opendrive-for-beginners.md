@@ -3,7 +3,7 @@ title: "OpenDRIVE 입문: 자율주행 도로 모델을 처음 다루는 사람�
 date: 2026-05-11T16:00:00+09:00
 draft: false
 tags: ["자율주행", "HD맵", "OpenDRIVE", "XODR", "ASAM", "시뮬레이션", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "OpenDRIVE가 무엇인지, 왜 자율주행 시뮬레이션에서 쓰이는지, 어떤 구조로 도로를 표현하는지 초보자도 이해할 수 있게 설명합니다."
 ---
 
@@ -93,84 +93,17 @@ OpenDRIVE
 
 ---
 
-## 실제 파일 예시: 단순 직선 도로
+## 하나의 Road가 조립되는 순서
 
-아래는 길이 200m의 단순한 직선 2차선 도로입니다.
+편도 2차선 + 반대 방향 1차선, 총 3차선의 200m 직선 도로를 예로 들면, `.xodr` 파일 안에서 정보가 쌓이는 순서는 이렇습니다.
 
-```xml
-<?xml version="1.0" standalone="yes"?>
-<OpenDRIVE>
+1. **header**: 파일 버전과 지리 기준점을 선언합니다.
+2. **road의 link**: 이 도로가 앞뒤로 다른 도로와 연결되는지 지정합니다. 이 예시처럼 독립된 구간이면 비워둡니다.
+3. **planView**: 기준선의 형상을 정의합니다. 직선이므로 시작 좌표·방향·길이만 있으면 되고, 곡선이었다면 원호나 클로소이드 파라미터가 추가로 필요합니다.
+4. **elevationProfile**: 고도 변화를 정의합니다. 평지라면 생략에 가까운 값 하나로 끝납니다.
+5. **lanes → laneSection**: 기준선을 중심으로 `left`(왼쪽 -1개 차선)와 `right`(오른쪽 -2개 차선)에 차선을 배치하고, 각 차선마다 폭(`width`)과 경계선 종류(`roadMark`)를 지정합니다. 0번 차선(`center`)은 실제 차선이 아니라 기준선 자체를 나타내는 자리표시자입니다.
 
-  <header
-    revMajor="1"
-    revMinor="6"
-    name="simple_road"
-    version="1.00"
-    date="2026-05-11T16:00:00"
-    north="0.0" south="0.0" east="0.0" west="0.0">
-  </header>
-
-  <road name="StraightRoad" length="200.0" id="1" junction="-1">
-
-    <!-- 앞뒤 도로 연결 (이 예시에서는 연결 없음) -->
-    <link/>
-
-    <!-- 기준선 형상: 원점에서 시작하는 200m 직선 -->
-    <planView>
-      <geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="200.0">
-        <line/>
-      </geometry>
-    </planView>
-
-    <!-- 고도: 평지 -->
-    <elevationProfile>
-      <elevation s="0.0" a="0.0" b="0.0" c="0.0" d="0.0"/>
-    </elevationProfile>
-
-    <!-- 차선 구성 -->
-    <lanes>
-      <laneSection s="0.0">
-
-        <!-- 기준선 왼쪽: 반대 방향 차선 -->
-        <left>
-          <lane id="1" type="driving" level="false">
-            <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
-            <roadMark sOffset="0.0" type="solid" weight="standard"
-                      color="white" width="0.12"/>
-          </lane>
-        </left>
-
-        <!-- 기준선 자체 (0번 차선, 실제 차선 아님) -->
-        <center>
-          <lane id="0" type="none" level="false">
-            <roadMark sOffset="0.0" type="solid" weight="standard"
-                      color="yellow" width="0.12"/>
-          </lane>
-        </center>
-
-        <!-- 기준선 오른쪽: 주행 방향 차선 -->
-        <right>
-          <lane id="-1" type="driving" level="false">
-            <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
-            <roadMark sOffset="0.0" type="broken" weight="standard"
-                      color="white" width="0.12"/>
-          </lane>
-          <lane id="-2" type="driving" level="false">
-            <width sOffset="0.0" a="3.5" b="0.0" c="0.0" d="0.0"/>
-            <roadMark sOffset="0.0" type="solid" weight="standard"
-                      color="white" width="0.12"/>
-          </lane>
-        </right>
-
-      </laneSection>
-    </lanes>
-
-  </road>
-
-</OpenDRIVE>
-```
-
-이 파일은 편도 2차선(기준선 오른쪽 -1, -2) + 반대 방향 1차선(기준선 왼쪽 +1), 총 3차선 도로를 표현합니다.
+여기서 눈여겨볼 점은 **차선 폭이 고정 상수가 아니라 다항식 계수(`a`, `b`, `c`, `d`)로 주어진다**는 것입니다. 직선 도로처럼 폭이 일정하면 `a` 값 하나만 쓰지만, 진입로처럼 폭이 점점 넓어지는 구간에서는 `b`, `c`, `d`를 채워 3차 다항식으로 폭 변화를 표현합니다. 앞서 본 planView의 곡선 표현과 같은 발상 — "숫자 나열 대신 수식으로 형상을 압축한다" — 이 차선 폭에도 그대로 적용되는 셈입니다.
 
 ---
 
@@ -200,89 +133,21 @@ OpenDRIVE
 
 ### 기준선 형상(geometry) 파라미터
 
-직선(`line`)은 별도 파라미터가 없지만, 원호(`arc`)와 클로소이드(`spiral`)는 추가 파라미터가 필요합니다.
-
-```xml
-<!-- 반경 100m의 원호 -->
-<geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="50.0">
-  <arc curvature="0.01"/>  <!-- curvature = 1/반경 -->
-</geometry>
-
-<!-- 클로소이드: 곡률이 0에서 0.01로 변화 -->
-<geometry s="0.0" x="0.0" y="0.0" hdg="0.0" length="30.0">
-  <spiral curvStart="0.0" curvEnd="0.01"/>
-</geometry>
-```
+직선(`line`)은 시작 좌표·방향·길이만 있으면 끝나지만, 원호(`arc`)는 여기에 곡률(curvature, 반경의 역수) 하나가 더 필요하고, 클로소이드(`spiral`)는 구간 시작과 끝의 곡률 두 값이 필요합니다. 곡률이 시작과 끝에서 다르다는 것은 "곡률이 구간을 따라 선형으로 변한다"는 뜻이고, 바로 이 성질 때문에 클로소이드가 직선과 원호를 매끄럽게 이어주는 전환 구간(고속도로 진입로 등)에 쓰입니다. 원호처럼 곡률이 일정한 도형은 진입 지점에서 곡률이 0에서 갑자기 값을 가지므로 접선은 연속이어도 곡률은 불연속이 되어, 실제 차량이라면 조향각을 순간적으로 꺾어야 하는 부자연스러운 궤적이 됩니다. 클로소이드는 이 곡률 불연속을 없애 실제 차량의 조향 동역학과 맞아떨어지는 형상을 만듭니다.
 
 ---
 
 ## 교차로(Junction) 표현
 
-교차로는 Road들이 만나는 지점입니다. OpenDRIVE에서 교차로는 별도의 `junction` 섹션으로 정의하고, 교차로 내부의 연결 경로를 `connection`으로 표현합니다.
+교차로는 여러 Road가 만나는 지점입니다. OpenDRIVE는 교차로 자체를 하나의 도형으로 그리지 않고, 진입 도로들 사이를 잇는 짧은 연결 도로(connecting road)들의 묶음으로 표현합니다. 예를 들어 사거리라면 각 방향 조합(직진, 좌회전, 우회전)마다 별도의 짧은 Road가 있고, `junction` 섹션은 "어느 진입 도로의 어느 차선이 어느 연결 도로의 어느 차선으로 이어지는가"라는 대응 관계만 나열합니다.
 
-```xml
-<junction id="1" name="CrossIntersection">
-  <!-- 도로 1의 -1차선 → 도로 2의 -1차선으로 연결 -->
-  <connection id="0" incomingRoad="1" connectingRoad="10" contactPoint="start">
-    <laneLink from="-1" to="-1"/>
-  </connection>
-  <!-- 도로 3의 -1차선 → 도로 2의 -1차선으로 연결 -->
-  <connection id="1" incomingRoad="3" connectingRoad="11" contactPoint="start">
-    <laneLink from="-1" to="-1"/>
-  </connection>
-</junction>
-```
+이 설계의 이점은 교차로 내부도 결국 평범한 Road이므로, 지금까지 다룬 planView·lanes 구조를 교차로 내부 곡선 차선에도 그대로 재사용할 수 있다는 점입니다. 별도의 교차로 전용 형상 문법을 새로 배울 필요가 없습니다.
 
 ---
 
 ## OpenDRIVE를 어떻게 만드나요?
 
-| 방법 | 도구 | 특징 |
-|---|---|---|
-| **GUI 편집기** | ROADRUNNER (MathWorks) | 직관적인 드래그 앤 드롭, 유료 |
-| **뷰어** | esmini (오픈소스) | OpenDRIVE 뷰어 및 시뮬레이션 런타임, 무료 |
-| **시뮬레이터 내보내기** | CARLA OpenDRIVE Editor | CARLA 맵을 .xodr로 내보내기 |
-| **프로그래밍** | `scenariogeneration` (Python) | 코드로 맵 생성, 오픈소스 |
-| **변환** | `lanelet2_plugin` | Lanelet2 → OpenDRIVE 변환 |
-
-가장 쉽게 시작하는 방법은 **CARLA에 내장된 샘플 맵**을 열어보는 것입니다. CARLA는 Town01~Town15 등 다양한 샘플 맵을 `.xodr` 형식으로 제공합니다.
-
----
-
-## Python으로 OpenDRIVE 읽기
-
-`scenariogeneration` 라이브러리를 사용하면 Python으로 OpenDRIVE 파일을 생성하고 조작할 수 있습니다.
-
-```python
-from scenariogeneration import xodr
-
-# 직선 도로 생성
-road = xodr.create_road([xodr.Line(200)], id=1, left_lanes=1, right_lanes=2)
-
-# 맵 생성 및 저장
-odr = xodr.OpenDrive("simple_road")
-odr.add_road(road)
-odr.adjust_roads_and_lanes()
-odr.write_xml("simple_road.xodr")
-```
-
----
-
-## CARLA에서 OpenDRIVE 맵 불러오기
-
-```python
-import carla
-
-client = carla.Client("localhost", 2000)
-world = client.get_world()
-
-# 내장 맵 불러오기
-world = client.load_world("Town03")
-
-# 현재 맵의 OpenDRIVE 내용 출력
-opendrive_content = world.get_map().to_opendrive()
-print(opendrive_content[:500])
-```
+가장 쉽게 시작하는 방법은 **CARLA에 내장된 샘플 맵**(Town01~Town15)을 열어보는 것입니다. 실무에서는 MathWorks RoadRunner 같은 GUI 편집기로 맵을 그리거나, `scenariogeneration` 같은 Python 라이브러리로 도로 구조를 코드로 생성하는 방식을 씁니다. 뷰어로는 esmini가 오픈소스로 널리 쓰이며, Lanelet2에서 변환해오는 경우도 있습니다. 도구 선택 자체보다 중요한 것은 앞서 본 Road → planView → lanes 구조를 어떤 도구든 결국 같은 순서로 채워야 한다는 점입니다.
 
 ---
 

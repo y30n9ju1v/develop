@@ -3,7 +3,7 @@ title: "1편: 개요 및 데이터 준비"
 date: 2026-05-15T00:00:00+09:00
 draft: false
 tags: ["SfM", "LiDAR", "OpenCV", "Python", "ETH3D"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "3-View SfM 파이프라인 전체 흐름을 이해하고, ETH3D 데이터셋을 다운로드하여 Python으로 로딩하는 방법을 정리합니다."
 ---
 

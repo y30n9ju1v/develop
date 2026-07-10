@@ -3,7 +3,7 @@ title: "3편: 2-View Geometry"
 date: 2026-05-15T02:00:00+09:00
 draft: false
 tags: ["SfM", "OpenCV", "Essential Matrix", "Triangulation", "Epipolar Geometry"]
-categories: ["Programming"]
+categories: ["programming"]
 description: "Essential Matrix로 두 카메라의 상대 pose를 복원하고 초기 3D 포인트를 삼각측량합니다."
 ---
 

@@ -3,7 +3,7 @@ title: "Apache Arrow가 압도적으로 빠른 이유 4가지"
 date: 2026-07-08T00:00:00+09:00
 draft: false
 tags: ["apache-arrow", "big-data", "simd", "zero-copy", "columnar", "memory"]
-categories: ["programming"]
+categories: ["autonomous"]
 description: "컬럼 기반 레이아웃, Null 비트맵, SIMD, Zero-Copy — Apache Arrow가 메모리 단에서 어떤 원리로 빠른지 정리합니다."
 ---
 

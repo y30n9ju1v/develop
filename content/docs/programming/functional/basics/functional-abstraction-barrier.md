@@ -3,7 +3,7 @@ title: "중복 제거와 추상화의 기준: 언제 함수로 묶고, 언제 �
 date: 2026-04-28T23:30:00+09:00
 draft: false
 tags: ["함수형 프로그래밍", "Rust", "설계", "추상화 장벽", "Grokking Simplicity"]
-categories: ["프로그래밍", "함수형 프로그래밍"]
+categories: ["programming"]
 description: "모든 중복을 제거하면 오히려 코드가 나빠집니다. 에릭 노먼드의 추상화 장벽 개념으로 언제 묶고 언제 그냥 둬야 하는지 판단하는 기준을 설명합니다."
 ---
 

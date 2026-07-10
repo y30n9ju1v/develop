@@ -3,7 +3,7 @@ title: "함수형 병렬 파이프라인: Rayon과 GPU Compute의 역할 분담"
 date: 2026-04-30T21:00:00+09:00
 draft: false
 tags: ["함수형 프로그래밍", "Rust", "설계", "GPU", "병렬 처리", "Rayon", "액션/계산/데이터", "자율주행"]
-categories: ["프로그래밍", "GPU"]
+categories: ["programming"]
 description: "Rayon의 par_iter()는 함수형 패턴과 자연스럽게 맞습니다. 언제 CPU 병렬(Rayon)을 쓰고 언제 GPU Compute를 써야 하는지, 그리고 둘을 함께 쓸 때 액션/계산/데이터가 어떻게 분리되는지 설명합니다."
 ---
 

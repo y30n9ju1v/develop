@@ -2,6 +2,7 @@
 title = 'ISTQB CTFL 5, 6장'
 date = 2024-09-14T11:59:42+09:00
 draft = false
+categories = ["testing"]
 +++
 
 이 글은 ISTQB의 CTFL(Certified Tester Foundaton Level) 자격증을 준비하면서 한국어 실라버스를 참고하여 정리 요약한 글입니다.

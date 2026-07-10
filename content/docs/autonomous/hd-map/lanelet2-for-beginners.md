@@ -3,7 +3,7 @@ title: "Lanelet2 입문: 자율주행 지도를 처음 다루는 사람을 위�
 date: 2026-05-11T10:00:00+09:00
 draft: false
 tags: ["자율주행", "HD맵", "Lanelet2", "ROS", "Autoware", "입문"]
-categories: ["자율주행"]
+categories: ["autonomous"]
 description: "Lanelet2가 무엇인지, 왜 자율주행에서 쓰이는지, 어떤 구조로 되어 있는지 초보자도 이해할 수 있게 설명합니다."
 ---
 
@@ -151,71 +151,21 @@ RegulatoryElement: TrafficLight
 
 ## 파일 형식: OSM XML
 
-Lanelet2 맵은 **.osm** 파일로 저장됩니다. OpenStreetMap과 같은 XML 형식을 빌려 씁니다.
+Lanelet2 맵은 **.osm** 파일로 저장됩니다. 새로운 포맷을 발명하는 대신 OpenStreetMap이 쓰는 XML 스키마를 그대로 빌려 씁니다. OSM의 세 가지 기본 요소 `node`(점), `way`(선), `relation`(관계)이 각각 Lanelet2의 `Point`, `LineString`, `Lanelet`/`RegulatoryElement`에 대응합니다.
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<osm version="0.6">
-
-  <!-- Point -->
-  <node id="1" lat="37.5000" lon="127.0000">
-    <tag k="ele" v="0.0"/>
-    <tag k="local_x" v="0.0"/>
-    <tag k="local_y" v="0.0"/>
-  </node>
-
-  <!-- LineString (왼쪽 경계선) -->
-  <way id="10">
-    <nd ref="1"/>
-    <nd ref="2"/>
-    <nd ref="3"/>
-    <tag k="type" v="line_thin"/>
-    <tag k="subtype" v="dashed"/>
-  </way>
-
-  <!-- Lanelet -->
-  <relation id="100">
-    <member type="way" ref="10" role="left"/>
-    <member type="way" ref="11" role="right"/>
-    <tag k="type" v="lanelet"/>
-    <tag k="subtype" v="road"/>
-    <tag k="speed_limit" v="50"/>
-    <tag k="location" v="urban"/>
-    <tag k="turn_direction" v="straight"/>
-  </relation>
-
-</osm>
-```
+이 대응 관계가 실용적인 이유는 두 가지입니다. 첫째, OSM 생태계의 편집기(JOSM 등)와 파서를 그대로 재사용할 수 있어 도구를 처음부터 만들 필요가 없습니다. 둘째, `relation`이 다른 `relation`을 멤버로 참조할 수 있다는 OSM의 특성 덕분에, RegulatoryElement가 Lanelet을 참조하고 Lanelet이 다시 LineString을 참조하는 **계층적 참조 구조**를 별도 확장 없이 표현할 수 있습니다. 즉 Lanelet2가 OSM 포맷을 고른 것은 "익숙해서"가 아니라, 관계 기반 구조가 Lanelet2의 3계층 아키텍처와 자연스럽게 맞아떨어지기 때문입니다.
 
 ---
 
 ## Lanelet2를 어떻게 사용하나요?
 
-### C++ / Python 라이브러리
+Lanelet2는 공식 C++ 라이브러리와 Python 바인딩을 제공하며, 맵을 불러오면 곧바로 두 가지 핵심 기능을 쓸 수 있습니다.
 
-Lanelet2는 공식 C++ 라이브러리를 제공합니다. Python 바인딩도 있어서 Python으로도 맵을 읽고 경로를 계획할 수 있습니다.
+**좌표 투영(Projection)**: `.osm` 파일에는 위도·경도로 된 GPS 좌표가 저장되어 있지만, 실제 주행 계획에는 미터 단위의 평면 좌표(local x, y)가 필요합니다. 맵을 불러올 때 기준점(Origin)을 지정하면 UTM 투영법 등으로 이 변환을 자동으로 처리합니다.
 
-```python
-import lanelet2
-from lanelet2.io import load
-from lanelet2.projection import UtmProjector
+**경로 그래프 생성(Routing Graph)**: 맵을 불러오는 즉시 Lanelet 간의 연결 관계를 분석해 그래프를 구성하고, 여기에 국가별 교통 규칙(우측통행 여부, 차선 변경 허용 규칙 등)을 적용해 "이 Lanelet에서 저 Lanelet까지 갈 수 있는가"를 바로 질의할 수 있습니다. 이 부분이 Lanelet2와 OpenDRIVE의 결정적 차이입니다 — [OpenDRIVE vs Lanelet2 비교](../opendrive-vs-lanelet2/)에서 더 자세히 다룹니다.
 
-# 맵 불러오기
-projector = UtmProjector(lanelet2.io.Origin(37.5, 127.0))
-map = load("my_map.osm", projector)
-
-# 모든 Lanelet 출력
-for lanelet in map.laneletLayer:
-    print(f"Lanelet id={lanelet.id}, speed_limit={lanelet.attributes.get('speed_limit')}")
-```
-
-### Autoware에서 사용
-
-Autoware Universe는 Lanelet2를 기본 맵 포맷으로 사용합니다. `.osm` 파일을 지정하면 경로 계획, 신호등 인식, 차선 변경 판단 등에 자동으로 활용합니다.
-
-### RViz에서 시각화
-
-ROS 환경에서는 `lanelet2_rviz_plugin`을 사용하면 RViz에서 맵을 시각화할 수 있습니다.
+Autoware Universe는 Lanelet2를 기본 맵 포맷으로 사용해 경로 계획, 신호등 인식, 차선 변경 판단에 직접 활용하며, ROS 환경에서는 `lanelet2_rviz_plugin`으로 맵을 시각화합니다.
 
 ---
 

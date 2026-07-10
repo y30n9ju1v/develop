@@ -2,6 +2,7 @@
 title = 'ISTQB CT-AI 6장'
 date = 2024-10-07T21:16:53+09:00
 draft = false
+categories = ["testing"]
 +++
 
 ## 6. 기계학습 - 신경망과 테스팅

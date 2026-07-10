@@ -3,7 +3,7 @@ title: "함수형 추론 그래프: DNN 추론 파이프라인을 액션/계산/
 date: 2026-04-30T18:00:00+09:00
 draft: false
 tags: ["함수형 프로그래밍", "Rust", "설계", "GPU", "딥러닝", "추론", "ONNX", "액션/계산/데이터", "자율주행"]
-categories: ["프로그래밍", "GPU"]
+categories: ["programming"]
 description: "ONNX/TensorRT 추론 파이프라인을 액션/계산/데이터로 분리하면, GPU 없이 레이어 의존 관계를 검증하고 CPU 레퍼런스로 추론 결과를 재현할 수 있습니다."
 ---
 
