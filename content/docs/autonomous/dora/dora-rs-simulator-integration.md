@@ -147,6 +147,18 @@ CARLA는 서버 포트를 바꿔 같은 머신에서 여러 인스턴스를 실�
 
 ---
 
+## 6.5. 시뮬레이터를 다른 머신에 둘 때
+
+CARLA·NuRec 같은 렌더링 기반 시뮬레이터는 GPU 자원을 많이 씁니다. perception/planning 스택을 실행하는 머신과 별도로, 렌더링 전용 GPU 서버에 시뮬레이터를 띄우는 구성이 흔합니다. 이 경우 carla-bridge 노드가 만들어내는 센서 데이터(카메라 프레임, LiDAR 포인트 클라우드)가 매 틱마다 네트워크를 건너야 합니다.
+
+이 문제는 앞서 [py123d 입문](../../data-infra/py123d-for-beginners/) 시리즈에서 다룬 [Arrow Flight](../../data-infra/arrow-flight-network-transfer/)로 풀고 싶어질 수 있지만, 이 상황에는 맞지 않습니다. Arrow Flight의 `DoGet`/`Ticket`은 "클라이언트가 필요한 시점에 당겨오는" pull 모델을 전제로 설계되었습니다. 반면 시뮬레이터가 매 틱 100ms(또는 그보다 빠르게)마다 끊김없이 밀어내야 하는 실시간 스트림은 pull이 아니라 **지속적인 push**가 자연스럽습니다. 매 프레임마다 새 RPC를 여닫는 구조로 만들면 오히려 지연시간이 늘어납니다.
+
+DORA는 이 문제를 이미 프레임워크 차원에서 해결해 둡니다. [DORA 입문 글](../dora-rs-for-beginners/)에서 다뤘듯, 노드 간 통신은 **Zenoh**가 담당하며, 같은 머신이면 Arrow 공유 메모리로 제로카피 전달하고, 다른 머신이면 코드 변경 없이 자동으로 네트워크 전송으로 전환합니다. carla-bridge 노드를 렌더링 서버의 Daemon에, perception/planning 노드를 다른 머신의 Daemon에 배치하고 `dora up`으로 Coordinator를 띄우기만 하면, 같은 YAML 데이터플로우 정의가 그대로 멀티 머신 구성으로 동작합니다.
+
+정리하면, **배치/온디맨드로 조회하는 정적 데이터**(녹화된 시나리오 풀, py123d Arrow IPC 파일)는 Arrow Flight가, **지속적으로 밀어내야 하는 실시간 스트림**(시뮬레이터 센서 출력, 클로즈 루프 제어 피드백)은 DORA의 Daemon-Zenoh 배치가 맡는 것이 자연스러운 역할 분담입니다. 같은 Arrow 포맷을 공유하지만, 전송 계층은 데이터의 접근 패턴(pull vs. push)에 맞춰 다르게 골라야 합니다.
+
+---
+
 ## 7. LGSVL, Isaac Sim 등 다른 시뮬레이터
 
 CARLA 이외의 시뮬레이터도 같은 원칙으로 연동할 수 있습니다.
