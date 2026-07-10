@@ -1,0 +1,180 @@
+---
+title: "5.3. 저장소 할당과 가비지 컬렉션 (Storage Allocation and Garbage Collection)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "garbage-collection", "reference-counting", "arrays", "termination"]
+categories: ["programming"]
+description: "SICP 5장 3절의 아이디어(벡터로 구현하는 쌍, stop-and-copy 가비지 컬렉션)를 Lean 4의 Array와 실제 참조 카운팅 런타임에 비추어 다시 짜 봅니다."
+---
+
+Every `cons` in this series has been free — a `List.cons` just exists, with no thought given to where its two slots physically live or what happens to them once nothing points to them anymore. This section is where SICP stops pretending. A real machine has a fixed amount of memory addressed by plain integers, no built-in notion of "pair" at all, and every `cons` cell a program ever allocates has to eventually be reclaimed or the machine grinds to a halt. The chapter's answer is to show a pair as two parallel arrays plus an index, and to show garbage collection as a concrete algorithm — stop-and-copy — running as just another register machine.
+
+이 시리즈에서 지금까지의 모든 `cons`는 공짜였습니다 — `List.cons`는 그냥 존재할 뿐, 그 두 칸이 물리적으로 어디에 있는지, 아무도 가리키지 않게 됐을 때 무슨 일이 일어나는지는 전혀 신경 쓰지 않았습니다. 이번 절은 SICP가 그 시늉을 그만두는 지점입니다. 실제 기계는 정수로 주소를 매기는 고정된 크기의 메모리를 가질 뿐 "쌍"이라는 개념이 내장되어 있지 않고, 프로그램이 할당하는 모든 `cons` 셀은 결국 회수되지 않으면 기계가 멈춰버립니다. 이 장의 답은 쌍을 두 개의 평행한 배열과 인덱스로 보여주고, 가비지 컬렉션을 stop-and-copy라는 구체적인 알고리즘으로 — 그저 또 다른 레지스터 머신으로 — 보여주는 것입니다.
+
+Lean sits in an unusual spot relative to this discussion: it gives us `Array`, a genuine fixed-access-time vector exactly like SICP's `the-cars`/`the-cdrs`, so we *can* build SICP's representation by hand. But Lean's actual runtime doesn't use stop-and-copy at all — it uses reference counting with a compile-time ownership analysis (the "Perceus" scheme), a completely different answer to the same problem. This post builds the vector-based pair representation SICP describes, simulates one full stop-and-copy cycle, and then contrasts it with what Lean is really doing every time you write `x :: xs`.
+
+Lean은 이 논의에서 특이한 위치에 있습니다 — `Array`라는, SICP의 `the-cars`/`the-cdrs`와 정확히 같은 진짜 고정 접근 시간 벡터를 제공하므로, SICP의 표현을 실제로 손으로 만들어볼 *수 있습니다*. 하지만 Lean의 실제 런타임은 stop-and-copy를 전혀 쓰지 않습니다 — 컴파일 시점 소유권 분석("Perceus" 기법)을 곁들인 참조 카운팅을 씁니다. 같은 문제에 대한 완전히 다른 답입니다. 이번 글은 SICP가 설명하는 벡터 기반 쌍 표현을 만들어 stop-and-copy 한 사이클을 시뮬레이션해보고, 그것을 `x :: xs`를 쓸 때마다 Lean이 실제로 하고 있는 일과 대조해봅니다.
+
+---
+
+## 5.3.1. 벡터로서의 메모리
+
+SICP represents every pair as an index into two parallel vectors — `the-cars` holding every pair's first slot, `the-cdrs` holding every pair's second — with a tag distinguishing a pointer-to-pair from a pointer-to-number or pointer-to-symbol. Lean's `Array α` is exactly the vector primitive this needs: constant-time `Array.get!`/`Array.set!`, backed by contiguous memory, no traversal required to reach index `n`. We can build the same two-vector representation directly:
+
+SICP는 모든 쌍을 두 개의 평행한 벡터에 대한 인덱스로 표현합니다 — `the-cars`는 모든 쌍의 첫 번째 칸을, `the-cdrs`는 모든 쌍의 두 번째 칸을 담고, 태그가 쌍에 대한 포인터와 숫자·기호에 대한 포인터를 구분합니다. Lean의 `Array α`가 정확히 이런 벡터 원시 연산입니다 — 상수 시간 `Array.get!`/`Array.set!`이 연속된 메모리에 뒷받침되어, 인덱스 `n`에 닿기 위한 순회가 필요 없습니다. 같은 두 벡터 표현을 직접 만들 수 있습니다.
+
+```lean
+inductive Ptr where
+  | nilPtr
+  | numPtr (n : Nat)
+  | pairPtr (idx : Nat)
+deriving Repr, BEq
+
+structure PairMemory where
+  cars : Array Ptr
+  cdrs : Array Ptr
+  free : Nat
+
+def PairMemory.empty (capacity : Nat) : PairMemory :=
+  { cars := Array.mkArray capacity .nilPtr, cdrs := Array.mkArray capacity .nilPtr, free := 0 }
+
+def PairMemory.cons (mem : PairMemory) (a d : Ptr) : PairMemory × Ptr :=
+  let idx := mem.free
+  ({ mem with cars := mem.cars.set! idx a, cdrs := mem.cdrs.set! idx d, free := idx + 1 }, .pairPtr idx)
+
+def PairMemory.car (mem : PairMemory) : Ptr → Ptr
+  | .pairPtr idx => mem.cars.get! idx
+  | p => p
+
+def PairMemory.cdr (mem : PairMemory) : Ptr → Ptr
+  | .pairPtr idx => mem.cdrs.get! idx
+  | p => p
+
+#eval do
+  let mem0 := PairMemory.empty 10
+  let (mem1, p1) := mem0.cons (.numPtr 1) (.numPtr 2)
+  let (mem2, p2) := mem1.cons (.numPtr 3) .nilPtr
+  let (mem3, p3) := mem2.cons p1 p2
+  pure (mem3.car p3, mem3.cdr (mem3.cdr p3))
+-- (pairPtr 0, numPtr 3)
+```
+
+None of `cons`, `car`, or `cdr` here recurse at all — they're single array accesses, exactly matching SICP's claim that vector access takes time independent of the index. The only place a real recursion could hide is in a function that walks a chain of pairs (like SICP's `count-leaves`), and there, the recursion is on the *logical* structure encoded in the pointers, not on the vector itself; the vector never gets smaller, only the reachable chain of pointers does.
+
+여기서 `cons`, `car`, `cdr` 어느 것도 재귀하지 않습니다 — 단일 배열 접근일 뿐이고, 벡터 접근이 인덱스와 무관한 시간이 걸린다는 SICP의 주장과 정확히 일치합니다. 진짜 재귀가 숨을 수 있는 유일한 곳은 (SICP의 `count-leaves`처럼) 쌍의 사슬을 따라가는 함수이며, 거기서는 벡터 자체가 아니라 포인터에 인코딩된 *논리적* 구조에 대해 재귀합니다 — 벡터는 절대 작아지지 않고, 오직 도달 가능한 포인터 사슬만 작아집니다.
+
+**연습문제 5.21 (Lean 버전).** SICP는 `count-leaves`를 레지스터 머신 위에서 구현해보라고 합니다. Lean에서는 레지스터 머신을 만들 필요 없이, `PairMemory` 위에서 직접 재귀를 짜면 됩니다 — 다만 종료성 논증이 흥미롭게 바뀝니다. 재귀는 더 이상 `Ptr` 값 자체의 구조(그저 `Nat` 인덱스일 뿐)에 대한 것이 아니라, 그 인덱스가 벡터 안에서 가리키는 *논리적 트리*의 깊이에 대한 것입니다.
+
+```lean
+partial def countLeaves (mem : PairMemory) : Ptr → Nat
+  | .nilPtr => 0
+  | .numPtr _ => 1
+  | .pairPtr idx => countLeaves mem (mem.cars.get! idx) + countLeaves mem (mem.cdrs.get! idx)
+
+#eval do
+  let mem0 := PairMemory.empty 10
+  let (mem1, p1) := mem0.cons (.numPtr 1) (.numPtr 2)
+  let (mem2, p2) := mem1.cons (.numPtr 3) (.numPtr 4)
+  let (mem3, p3) := mem2.cons p1 p2
+  pure (countLeaves mem3 p3)
+-- 4
+```
+
+`countLeaves`가 `partial`인 이유는 `walk`가 4.4절에서 `partial`이었던 이유와 정확히 같습니다 — Lean의 종료성 검사기는 오직 매칭되는 인자(`Ptr`, 사실상 `Nat`)의 모양만 보고, `.pairPtr idx`에서 재귀 호출로 넘기는 `mem.cars.get! idx`가 다시 `.pairPtr`일 수도 있다는 사실을 구조적으로 더 작아진다고 인식할 방법이 없습니다. 실제 종료를 보장하는 것은 "이 메모리에 저장된 포인터 그래프에 순환이 없다"는 불변식인데, 이는 `PairMemory` 타입 자체가 아니라 `cons`를 호출하는 프로그램의 책임입니다 — SICP가 순환 리스트를 만드는 `set-cdr!`로 똑같은 문제를 겪었던 것과 같은 자리입니다.
+
+---
+
+## 5.3.2. Stop-and-copy를 시뮬레이션하기
+
+SICP's garbage collector walks every pointer reachable from a `root`, copies live pairs into a fresh memory, leaves a "broken heart" forwarding pointer at the old location so a pair reached twice is only copied once, and finishes by swapping old and new memory. We can simulate exactly this — not as a register-machine program, but as a Lean function over two `PairMemory` values, using an explicit `visited`/forwarding table to play the role of broken hearts:
+
+SICP의 가비지 컬렉터는 `root`에서 도달 가능한 모든 포인터를 훑고, 살아 있는 쌍을 새 메모리로 복사하고, 예전 위치에 "부서진 심장(broken heart)" 전달 포인터를 남겨 두 번 도달한 쌍이 한 번만 복사되게 하고, 마지막에 옛 메모리와 새 메모리를 맞바꿉니다. 이를 레지스터 머신 프로그램이 아니라, 두 개의 `PairMemory` 값에 대한 Lean 함수로 정확히 시뮬레이션할 수 있습니다 — 부서진 심장 역할을 하는 `visited`/전달 테이블을 명시적으로 둡니다.
+
+```lean
+partial def relocate (old : PairMemory) (forward : IO.Ref (Std.HashMap Nat Nat))
+    (new : IO.Ref PairMemory) : Ptr → IO Ptr
+  | .nilPtr => pure .nilPtr
+  | .numPtr n => pure (.numPtr n)
+  | .pairPtr idx => do
+    match (← forward.get).get? idx with
+    | some newIdx => pure (.pairPtr newIdx)
+    | none =>
+      let a := old.cars.get! idx
+      let d := old.cdrs.get! idx
+      let (mem', newPtr) := (← new.get).cons .nilPtr .nilPtr
+      let some newIdx := newPtr matches .pairPtr newIdx | pure .nilPtr
+      new.set mem'
+      forward.modify (·.insert idx newIdx)
+      let newA ← relocate old forward new a
+      let newD ← relocate old forward new d
+      new.modify (fun m => { m with cars := m.cars.set! newIdx newA, cdrs := m.cdrs.set! newIdx newD })
+      pure (.pairPtr newIdx)
+
+def stopAndCopy (old : PairMemory) (root : Ptr) (capacity : Nat) : IO (PairMemory × Ptr) := do
+  let forward ← IO.mkRef (∅ : Std.HashMap Nat Nat)
+  let new ← IO.mkRef (PairMemory.empty capacity)
+  let newRoot ← relocate old forward new root
+  pure (← new.get, newRoot)
+```
+
+Where SICP's `scan`/`free` two-pointer scheme processes each relocated pair exactly once by walking forward through the new memory as it's being filled, this version does the equivalent bookkeeping with `forward`, a `Std.HashMap` from old index to new index — checking it before copying is precisely the broken-heart test (`broken-heart?` in SICP's assembly), and inserting into it right after allocating a slot (before recursing into the `car`/`cdr`) is precisely how SICP guards against re-copying an already-moved pair, which matters as soon as the pointer graph shares structure (like `(list x x)` from [3.3](../3-3-modeling-with-mutable-data/)).
+
+SICP의 `scan`/`free` 두 포인터 방식이 새 메모리를 채워가며 앞으로 훑어서 재배치된 각 쌍을 정확히 한 번씩 처리하는 데 비해, 이 버전은 옛 인덱스에서 새 인덱스로 가는 `Std.HashMap`인 `forward`로 같은 부기를 합니다 — 복사하기 전에 이를 확인하는 것이 정확히 부서진 심장 검사(SICP 어셈블리의 `broken-heart?`)이고, 슬롯을 할당한 직후(즉 `car`/`cdr`로 재귀하기 전에) 여기에 삽입하는 것이 SICP가 이미 옮겨진 쌍을 다시 복사하지 않도록 지키는 방식과 정확히 같습니다 — 이는 포인터 그래프가 구조를 공유하는 순간([3.3](../3-3-modeling-with-mutable-data/)의 `(list x x)`처럼) 곧바로 중요해집니다.
+
+`relocate` is `partial` for the same reason `countLeaves` was: termination depends on the pointer graph reachable from `root` being acyclic and finite, a property of *how the memory was built*, not of `Ptr`'s shape. SICP's own version doesn't escape this either — its assembly-level `gc-loop` terminates only because `scan` provably catches up to `free`, an argument about the *algorithm's invariants*, not something the register machine's instruction format lets you check mechanically. Termination of a garbage collector was never a structural-recursion fact in the first place; it's always been a property you prove about the reachable graph, in any language.
+
+`relocate`가 `partial`인 이유는 `countLeaves`와 같습니다 — 종료성은 `root`에서 도달 가능한 포인터 그래프가 비순환적이고 유한하다는, `Ptr`의 모양이 아니라 *메모리가 어떻게 만들어졌는가*에 관한 성질에 달려 있습니다. SICP 자신의 버전도 이를 피해가지 못합니다 — 어셈블리 수준의 `gc-loop`는 `scan`이 결국 `free`를 따라잡는다는, *알고리즘의 불변식*에 관한 논증으로만 종료하며, 이는 레지스터 머신의 명령어 형식이 기계적으로 검사해줄 수 있는 것이 아닙니다. 가비지 컬렉터의 종료성은 애초에 구조적 재귀의 사실이었던 적이 없습니다 — 어떤 언어에서든 항상 도달 가능한 그래프에 대해 증명해야 하는 성질이었습니다.
+
+[4.4절](../4-4-logic-programming/)의 `walkFuel`과 같은 방식으로, 연료 매개변수를 꿰어 `partial`을 기계적으로 걷어낼 수도 있습니다.
+
+The same fuel-parameter trick as `walkFuel` from [4.4절](../4-4-logic-programming/) can mechanically remove `partial` here too:
+
+```lean
+def relocateFuel (fuel : Nat) (old : PairMemory) (forward : IO.Ref (Std.HashMap Nat Nat))
+    (new : IO.Ref PairMemory) : Nat → Ptr → IO Ptr
+  | 0, _ => pure .nilPtr
+  | _+1, .nilPtr => pure .nilPtr
+  | _+1, .numPtr n => pure (.numPtr n)
+  | f+1, .pairPtr idx => do
+    match (← forward.get).get? idx with
+    | some newIdx => pure (.pairPtr newIdx)
+    | none =>
+      let a := old.cars.get! idx
+      let d := old.cdrs.get! idx
+      let (mem', newPtr) := (← new.get).cons .nilPtr .nilPtr
+      let some newIdx := newPtr matches .pairPtr newIdx | pure .nilPtr
+      new.set mem'
+      forward.modify (·.insert idx newIdx)
+      let newA ← relocateFuel f old forward new f a
+      let newD ← relocateFuel f old forward new f d
+      new.modify (fun m => { m with cars := m.cars.set! newIdx newA, cdrs := m.cdrs.set! newIdx newD })
+      pure (.pairPtr newIdx)
+```
+
+`fuel`이 매 재귀 호출마다 구조적으로 줄어드므로 이 버전은 `partial`이 필요 없습니다. 하지만 `walkFuel`에서와 마찬가지로, 이건 순환이 없다는 것을 *증명*한 게 아니라 종료를 *강제*한 것입니다 — 진짜로 순환하는 포인터 그래프를 만나면(예컨대 [3.3절](../3-3-modeling-with-mutable-data/)의 `IO.Ref`로 엮은 순환 셀을 이 `Ptr` 표현으로 옮겼다면), 원래 `relocate`는 영원히 멈추지 않지만 `relocateFuel`은 `fuel`이 바닥나는 순간 조용히 `nilPtr`을 돌려주며 그래프의 나머지를 잘라버립니다 — GC가 살아있는 데이터의 일부를 회수해버리는, 훨씬 나쁜 실패 방식입니다. 실전 GC가 연료 대신 실제 불변식(할당 시점에 순환 생성을 막거나, 방문 집합으로 순환을 명시적으로 감지하는 것)에 기대는 이유가 바로 이것입니다.
+
+`fuel` shrinks structurally at every recursive call, so this version needs no `partial`. But exactly as with `walkFuel`, this *forces* termination rather than *proving* acyclicity — faced with a genuinely cyclic pointer graph (say, one built by porting [3.3절](../3-3-modeling-with-mutable-data/)의 `IO.Ref`-linked cyclic cells into this `Ptr` representation), the real `relocate` never returns, while `relocateFuel` silently returns `nilPtr` the moment `fuel` runs out and truncates the rest of the graph — a far worse failure mode, since it means the GC just reclaimed part of what was still live. This is exactly why real garbage collectors lean on actual invariants instead of fuel — preventing cycle creation at allocation time, or detecting cycles explicitly with a visited set — rather than a bounded retry count.
+
+---
+
+## 5.3.3. Lean이 실제로 하는 일 — 참조 카운팅과 Perceus
+
+Everything above is a faithful model of SICP's algorithm, but it is *not* what happens when you run actual Lean code. Lean's compiled runtime tracks, for every heap object, a reference count — a small integer stored alongside the object recording how many other objects currently point to it. When a binding goes out of scope, the count is decremented; when it hits zero, the object is freed immediately, on the spot, with no separate collection pass and no stopping the world to trace roots.
+
+위의 모든 것은 SICP 알고리즘을 충실히 본뜬 모델이지만, 실제 Lean 코드를 실행할 때 일어나는 일은 *아닙니다*. Lean의 컴파일된 런타임은 모든 힙 객체에 대해 참조 카운트를 추적합니다 — 현재 몇 개의 다른 객체가 그것을 가리키고 있는지 기록하는, 객체 옆에 저장된 작은 정수입니다. 바인딩이 스코프를 벗어나면 카운트가 감소하고, 0에 도달하면 객체는 그 자리에서 즉시 해제됩니다 — 별도의 수집 단계도, 루트를 추적하기 위해 세상을 멈추는 일도 없습니다.
+
+This is a genuinely different trade-off from stop-and-copy, not just a different implementation of the same idea. Stop-and-copy pays a cost proportional to *live* data, all at once, at unpredictable moments (whenever `free` runs out) — but reclaims cyclic garbage effortlessly, since a cycle unreachable from any root simply never gets traced or copied. Reference counting pays a small, predictable cost on every single pointer assignment, spread evenly through the program's execution — but a cycle of objects that only point to each other, with a count of exactly 1 apiece, will never hit zero and will never be freed by counting alone.
+
+이는 stop-and-copy와 진정으로 다른 트레이드오프이지, 같은 아이디어의 다른 구현이 아닙니다. Stop-and-copy는 *살아 있는* 데이터에 비례하는 비용을, 예측 불가능한 순간(`free`가 바닥날 때마다)에 한꺼번에 치릅니다 — 하지만 순환 가비지는 아무런 비용 없이 회수합니다. 어떤 루트에서도 도달 불가능한 순환은 애초에 추적되거나 복사되지 않기 때문입니다. 참조 카운팅은 모든 포인터 대입마다 작고 예측 가능한 비용을 프로그램 실행 전체에 고르게 치릅니다 — 하지만 서로만을 가리키는 객체들의 순환은, 각자의 카운트가 정확히 1이라면, 카운팅만으로는 절대 0에 도달하지 않고 절대 해제되지 않습니다.
+
+Lean's actual answer to reference counting's overhead is a compile-time optimization called Perceus, which analyzes ownership at each call site well enough to often avoid incrementing and decrementing counts at all — reusing memory in place when it can prove a value has exactly one owner and is about to be replaced, which is exactly the kind of static reasoning this whole series has associated with Lean's termination checker: proving a property once, at compile time, so the runtime never has to pay for checking it.
+
+참조 카운팅의 오버헤드에 대한 Lean의 실제 답은 Perceus라는 컴파일 시점 최적화입니다. 이는 각 호출 지점에서 소유권을 분석해, 어떤 값이 정확히 하나의 소유자를 갖고 곧 교체될 것임을 증명할 수 있으면 카운트를 늘리고 줄이는 일 자체를 생략하고 메모리를 제자리에서 재사용합니다 — 이는 이 시리즈 전체에서 Lean의 종료성 검사기와 연관 지어온 바로 그런 종류의 정적 추론입니다. 실행 시점이 검사 비용을 치르지 않도록, 컴파일 시점에 어떤 성질을 한 번 증명해두는 것입니다.
+
+The `Ptr`/`PairMemory` machinery built above, then, is best read as an archaeology exercise: it lets us hold SICP's stop-and-copy algorithm in our hands, in a language whose real memory manager works on entirely different principles, and see exactly which parts of "make an infinite-memory illusion out of finite memory" are choices SICP made versus which parts (an unavoidable termination argument about reachability, the need to distinguish live data from garbage at all) are forced by the problem itself, no matter which language or algorithm you bring to it.
+
+위에서 만든 `Ptr`/`PairMemory` 장치는, 그러니 일종의 고고학 연습으로 읽는 것이 가장 좋습니다 — 실제 메모리 관리자가 완전히 다른 원리로 동작하는 언어 안에서 SICP의 stop-and-copy 알고리즘을 손에 쥐어보고, "유한한 메모리로 무한한 메모리의 환상을 만든다"는 문제에서 어떤 부분이 SICP가 내린 선택이고 어떤 부분(도달 가능성에 관한 피할 수 없는 종료성 논증, 살아 있는 데이터와 가비지를 구별해야 한다는 필요성 자체)이 어떤 언어나 알고리즘을 쓰든 문제 자체에 의해 강제되는지를 정확히 보게 해줍니다.
+
+This closes out the series' tour through SICP's four core chapters — data abstraction, state and mutation, evaluators, and the machinery underneath them all. Every post has circled the same question in a different costume: what does SICP's Scheme leave implicit that Lean's type system forces into the open, and is the honest answer termination, an effect, an ownership invariant, or (as this last post shows) sometimes all three at once.
+
+이것으로 SICP의 네 핵심 장 — 데이터 추상화, 상태와 변경, 평가기, 그리고 그 모든 것 밑에 있는 장치 — 를 훑는 이 시리즈의 여정을 마칩니다. 모든 글이 매번 다른 옷을 입고 같은 질문을 맴돌았습니다 — SICP의 Scheme이 암묵적으로 남겨두는 것을 Lean의 타입 시스템은 무엇을 드러내도록 강제하는가, 그리고 그 정직한 답이 종료성인지, 효과인지, 소유권 불변식인지, 아니면 (이 마지막 글이 보여주듯) 때로는 셋 다인지.

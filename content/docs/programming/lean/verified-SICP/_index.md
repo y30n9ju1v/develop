@@ -28,3 +28,8 @@ description: "SICP의 아이디어를 Lean 4 코드로 다시 짜 보는 시리�
 15. **[4.2. 스킴의 변주 — 지연 평가](4-2-lazy-evaluation/)** — 정상 순서/응용 순서, thunk, 메모이제이션, 지연 리스트를 Lean의 `Thunk`와 평가 전략 관점에서 옮깁니다.
 16. **[4.3. 스킴의 변주 — 비결정적 계산](4-3-nondeterministic-computing/)** — `amb`, 자동 탐색, 되추적을 Lean의 명시적 성공/실패 continuation(`Amb` 타입)으로 옮기고, 여기에 `Monad` 인스턴스를 얹어 `do` 표기법으로 다시 쓰는 지점까지 다룹니다.
 17. **[4.4. 논리 프로그래밍](4-4-logic-programming/)** — 패턴 매칭, 단일화, 규칙 기반 질의를 Lean의 귀납적 관계와 손으로 짠 단일화기로 옮기며, 종료성을 연료 매개변수로 강제하는 것과 실제로 증명하는 것의 차이를 짚습니다.
+18. **[5.1. 레지스터 머신 설계하기](5-1-designing-register-machines/)** — 데이터 경로, 컨트롤러, 서브루틴, 스택을 이용한 재귀 구현을 Lean의 `inductive Instr`와 손으로 짠 머신 인터프리터로 옮기며, `save`/`restore`/`continue`가 사실 Lean의 함수 호출 스택이 평소 감춰주던 것을 손으로 만든 것임을 짚습니다.
+19. **[5.2. 레지스터 머신 시뮬레이터](5-2-a-register-machine-simulator/)** — 레지스터, 스택, 어셈블러, 실행 절차 생성을 Lean의 `IO.Ref` 기반 상태와 `partial` 종료성 관점에서 옮깁니다.
+20. **[5.3. 저장소 할당과 가비지 컬렉션](5-3-storage-allocation-and-garbage-collection/)** — 벡터로 구현하는 쌍, stop-and-copy 가비지 컬렉션을 Lean의 `Array`로 옮기고, 순환 그래프를 만났을 때 `partial`을 연료로 기계적으로 걷어내는 것과 실제로 비순환성을 증명하는 것의 차이를 짚습니다.
+21. **[5.4. 명시적 제어 평가기](5-4-the-explicit-control-evaluator/)** — 레지스터/스택으로 다시 쓴 `eval`/`apply`와 꼬리 재귀를 Lean의 명시적 상태 기계와 컴파일러 꼬리 호출 최적화에 비추어 옮깁니다.
+22. **[5.5. 컴파일](5-5-compilation/)** — `target`/`linkage`, 명령어 시퀀스 결합, 꼬리 재귀 컴파일을 Lean의 구조적 재귀 코드 생성으로 옮기며, 컴파일러의 `partial`이 재귀의 무한함이 아니라 레이블 카운터 실어 나르기 때문이라는 점과 `StateM`으로 이를 걷어내는 법을 짚습니다.

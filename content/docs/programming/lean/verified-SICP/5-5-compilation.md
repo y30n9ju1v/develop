@@ -1,0 +1,205 @@
+---
+title: "5.5. 컴파일 (Compilation)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "compilers", "tail-calls", "termination", "code-generation"]
+categories: ["programming"]
+description: "SICP 5장 5절의 아이디어(target/linkage, 명령어 시퀀스 결합, 꼬리 재귀 컴파일)를 Lean 4의 구조적 재귀 코드 생성과 종료성 관점에서 다시 짜 봅니다."
+---
+
+The previous post's `execute` loop was necessarily `partial` — a general-purpose interpreter has to be able to run forever, because some of the programs it's handed genuinely don't halt. This section asks a different question: instead of a machine whose controller re-examines a source expression every time it's evaluated, what if we walked the expression *once*, ahead of time, and produced a fixed sequence of instructions that does exactly the work that expression requires and nothing more? That act of walking a program once to produce another program is *compilation*, and it turns out to sit on the structural-recursion side of the termination story rather than the `partial` side — a compiler that terminates for every finite source program is a wholly different kind of function from an interpreter that must remain open to programs that never stop.
+
+이전 글의 `execute` 루프는 필연적으로 `partial`이었습니다 — 범용 인터프리터는 영원히 실행될 수 있어야 하는데, 그것에 주어지는 프로그램들 중 일부는 정말로 멈추지 않기 때문입니다. 이 절은 다른 질문을 던집니다 — 소스 표현식이 평가될 때마다 다시 살펴보는 컨트롤러를 가진 머신 대신, 표현식을 *한 번* 미리 훑어서 그 표현식이 정확히 필요로 하는 작업만을 수행하는 고정된 명령어 시퀀스를 만들어내면 어떨까요? 프로그램을 한 번 훑어서 다른 프로그램을 만들어내는 이 행위가 *컴파일*이고, 이는 종료성 이야기에서 `partial` 쪽이 아니라 구조적 재귀 쪽에 자리합니다 — 모든 유한한 소스 프로그램에 대해 종료하는 컴파일러는, 결코 멈추지 않는 프로그램에도 열려 있어야만 하는 인터프리터와는 완전히 다른 종류의 함수입니다.
+
+---
+
+## 5.5.1. 컴파일러의 구조
+
+A compiler, like the analyzing evaluator, dispatches on the syntactic shape of an expression and recurses into its parts — but where the interpreter's dispatch runs once per evaluation, the compiler's dispatch runs once per *compilation*, producing a data structure (an instruction sequence) rather than immediately performing an effect. This is the same shift chapter 4 already made when it separated `analyze` from execution, pushed one step further: the "analysis" itself is now the entire output, with no execution procedure attached at all until some later stage runs the generated code.
+
+컴파일러는 분석형 평가기와 마찬가지로 표현식의 구문적 모양에 따라 분기하고 그 부분들로 재귀합니다 — 다만 인터프리터의 분기가 평가당 한 번 실행되는 반면, 컴파일러의 분기는 *컴파일*당 한 번 실행되어, 즉시 효과를 수행하는 대신 데이터 구조(명령어 시퀀스)를 만들어냅니다. 이는 4장이 `analyze`를 실행에서 분리했을 때 이미 이뤄낸 전환을 한 걸음 더 밀어붙인 것입니다 — "분석" 자체가 이제 출력 전체이고, 나중 단계가 생성된 코드를 실행하기 전까지는 실행 절차가 전혀 붙어있지 않습니다.
+
+We can model a small source language and a small target instruction set directly as Lean inductive types, which lets the compiler be an ordinary total function rather than a family of Scheme procedures manipulating tagged lists:
+
+작은 소스 언어와 작은 대상 명령어 집합을 Lean 귀납 타입으로 직접 모델링할 수 있고, 그러면 컴파일러는 태그된 리스트를 다루는 여러 Scheme 절차들의 모음이 아니라 평범한 전역 함수가 됩니다.
+
+```lean
+inductive SExp where
+  | lit : Int → SExp
+  | var : String → SExp
+  | ifExp : SExp → SExp → SExp → SExp
+  | lam : List String → List SExp → SExp
+  | app : SExp → List SExp → SExp
+
+inductive Target where
+  | val | proc
+
+inductive Linkage where
+  | next | ret | toLabel : String → Linkage
+
+structure InstSeq where
+  needs : List String
+  modifies : List String
+  instrs : List String  -- 사람이 읽을 수 있는 명령어 텍스트로 단순화
+  deriving Inhabited
+```
+
+`InstSeq` deliberately keeps SICP's three-part bookkeeping — needed registers, modified registers, the instructions themselves — because that's exactly the information `preserving` needs to decide whether a `save`/`restore` pair is necessary, and computing it once per fragment (rather than re-scanning combined sequences) is precisely the efficiency argument SICP makes for tracking it explicitly.
+
+`InstSeq`는 SICP의 세 부분짜리 부기 — 필요한 레지스터, 변경되는 레지스터, 명령어 자체 — 를 의도적으로 유지하는데, 이것이 정확히 `preserving`이 `save`/`restore` 쌍이 필요한지를 결정하는 데 필요한 정보이고, (결합된 시퀀스를 다시 훑는 대신) 조각마다 한 번씩 계산하는 것이 SICP가 이를 명시적으로 추적하는 이유로 드는 효율성 논증 그 자체이기 때문입니다.
+
+---
+
+## 5.5.2. 표현식 컴파일하기
+
+`compile` recurses on the structure of `SExp` — `ifExp`'s branches, `lam`'s body, `app`'s operator and operands are all strict subterms of the expression handed in — so, exactly like `deriv` walking `AExp` in the symbolic-data post, the recursion itself is structural. Below, though, it still carries a `partial` marker; that's not a contradiction so much as a preview of the next paragraph's point, that a structurally-recursive function can still need `partial` for reasons that have nothing to do with the recursion being unbounded:
+
+`compile`은 `SExp`의 구조에 대해 재귀합니다 — `ifExp`의 가지들, `lam`의 본문, `app`의 연산자와 피연산자들은 모두 건네받은 표현식의 엄격한 하위 항입니다 — 그래서 기호 데이터 글에서 `AExp`를 순회하던 `deriv`와 마찬가지로 재귀 자체는 구조적입니다. 다만 아래 코드에는 여전히 `partial` 표시가 붙어 있습니다 — 이는 모순이라기보다, 구조적으로 재귀하는 함수도 재귀가 무한해서가 아닌 다른 이유로 `partial`이 필요할 수 있다는 다음 문단의 요지를 미리 보여주는 것입니다.
+
+```lean
+def freshLabel (base : String) (n : Nat) : String := s!"{base}{n}"
+
+partial def compile (exp : SExp) (target : Target) (linkage : Linkage) (n : Nat) : InstSeq × Nat :=
+  match exp with
+  | .lit v =>
+    let body := InstSeq.mk [] [targetName target] [s!"assign {targetName target} (const {v})"]
+    (endWithLinkage linkage body, n)
+  | .var name =>
+    let body := InstSeq.mk ["env"] [targetName target]
+      [s!"assign {targetName target} (op lookup-variable-value) (const {name}) (reg env)"]
+    (endWithLinkage linkage body, n)
+  | .ifExp p c a =>
+    let (pCode, n1) := compile p .val .next n
+    let tLabel := freshLabel "true" n1
+    let fLabel := freshLabel "false" (n1 + 1)
+    let afterLabel := freshLabel "after" (n1 + 2)
+    let consLinkage := if linkage matches .next then .toLabel afterLabel else linkage
+    let (cCode, n2) := compile c target consLinkage (n1 + 3)
+    let (aCode, n3) := compile a target linkage n2
+    (preserving ["env", "continue"] pCode
+      (appendSeqs (InstSeq.mk ["val"] [] [s!"test (op false?) (reg val)", s!"branch (label {fLabel})"])
+        (appendSeqs (labeled tLabel cCode) (labeled fLabel aCode))), n3)
+  | .app f args =>
+    let (fCode, n1) := compile f .proc .next n
+    let (argCodes, n2) := compileOperands args n1
+    (preserving ["env", "continue"] fCode
+      (preserving ["proc", "continue"] (constructArgList argCodes) (compileProcCall target linkage)), n2)
+  | .lam _ _ => sorry  -- 지면 절약을 위해 생략
+```
+
+This one line — `partial def compile` — is worth pausing on, because it doesn't actually need to be there for the reason `execute` needed it in the previous post. Every recursive call here is on a strict subterm of `exp` (or a strict prefix of `args`, in `compileOperands`), so this genuinely is structural recursion; the `partial` marker above is only papering over a superficial issue — the counter `n` threaded through for fresh-label generation makes the recursion's shape slightly awkward for Lean's structural-recursion heuristics to see automatically, not because the recursion is unbounded in any deep sense. Restructuring the label-counter threading through a `StateM Nat` monad, or supplying `termination_by exp` explicitly, removes the `partial` marker without changing what the function computes — a genuinely different situation from `execute`, where no such removal is possible even in principle.
+
+`partial def compile`이라는 이 한 줄은 잠시 멈춰 생각해볼 가치가 있는데, `execute`가 이전 글에서 그것을 필요로 했던 것과 같은 이유로 실제로 필요한 게 아니기 때문입니다. 여기서 모든 재귀 호출은 `exp`의 엄격한 하위 항(또는 `compileOperands`에서는 `args`의 엄격한 앞부분)에 대한 것이므로, 이것은 정말로 구조적 재귀입니다 — 위의 `partial` 표시는 그저 표면적인 문제를 덮고 있을 뿐입니다 — 신선한 레이블 생성을 위해 실어 나르는 카운터 `n`이 Lean의 구조적 재귀 휴리스틱이 자동으로 알아보기에 재귀의 모양을 살짝 어색하게 만드는 것이지, 재귀가 어떤 깊은 의미에서 무한하기 때문이 아닙니다. 레이블 카운터의 실어 나르기를 `StateM Nat` 모나드로 재구성하거나 `termination_by exp`를 명시적으로 제공하면 함수가 계산하는 것을 전혀 바꾸지 않고도 `partial` 표시를 제거할 수 있습니다 — 그런 제거가 원리적으로도 불가능했던 `execute`와는 완전히 다른 상황입니다.
+
+가장 간단한 경우(`.lit`, `.var`)만으로 그 형태를 가늠해보면 이렇습니다 — 카운터 `n`이 반환값이 아니라 상태로 흐르는 것만 다를 뿐, 계산 자체는 위 `compile`과 똑같습니다.
+
+Sketching the shape with just the simplest cases (`.lit`, `.var`) — the only change is that counter `n` flows as state instead of a return value; the computation itself is identical to `compile` above:
+
+```lean
+def freshLabelM (base : String) : StateM Nat String := do
+  let n ← get
+  set (n + 1)
+  pure s!"{base}{n}"
+
+partial def compileM (exp : SExp) (target : Target) (linkage : Linkage) : StateM Nat InstSeq := do
+  match exp with
+  | .lit v =>
+    let body := InstSeq.mk [] [targetName target] [s!"assign {targetName target} (const {v})"]
+    pure (endWithLinkage linkage body)
+  | .var name =>
+    let body := InstSeq.mk ["env"] [targetName target]
+      [s!"assign {targetName target} (op lookup-variable-value) (const {name}) (reg env)"]
+    pure (endWithLinkage linkage body)
+  | _ => sorry  -- ifExp/app/lam도 같은 방식으로 옮기면 되지만, 지면 절약을 위해 생략
+```
+
+`.ifExp`/`.app`까지 전부 옮기면 `n`을 명시적으로 실어 나르는 코드가 사라지긴 하지만, `compileM`이 여전히 `partial`인 것은 위 두 경우만 채웠기 때문이지 `StateM`이 종료성 문제를 자동으로 풀어줘서가 아닙니다 — 종료성을 실제로 얻는 것은 어디까지나 `.ifExp`/`.app`의 재귀 호출들도 `exp`의 하위 항에 대해서만 이뤄진다는 구조적 사실이고, `StateM`은 그 구조를 카운터 실어 나르기로 가리지 않게 해줄 뿐입니다.
+
+Threading `.ifExp`/`.app` through as well would make the explicit `n`-passing disappear, but `compileM` above is still `partial` only because those two cases are the only ones filled in — not because `StateM` automatically solves the termination question. What actually buys termination is the structural fact that `.ifExp`/`.app`'s recursive calls are still only on subterms of `exp`; `StateM` just stops that structure from being obscured by counter-threading.
+
+`preserving` is the procedure doing the actual optimization work SICP is proud of — deciding, from the `needs`/`modifies` sets attached to each fragment, whether a register genuinely has to be saved around a subcomputation:
+
+`preserving`은 SICP가 자랑스러워하는 실제 최적화 작업을 수행하는 절차입니다 — 각 조각에 붙은 `needs`/`modifies` 집합으로부터, 레지스터를 하위 계산 주위에서 정말로 저장해야 하는지를 결정합니다.
+
+```lean
+def preserving (regs : List String) (seq1 seq2 : InstSeq) : InstSeq :=
+  match regs with
+  | [] => appendSeqs seq1 seq2
+  | r :: rest =>
+    if seq1.modifies.contains r && seq2.needs.contains r then
+      let saved := InstSeq.mk (r :: seq1.needs) seq1.modifies
+        (s!"save {r}" :: seq1.instrs ++ [s!"restore {r}"])
+      preserving rest saved seq2
+    else
+      preserving rest (appendSeqs seq1 seq2) seq2  -- 단순화를 위해 재귀적으로 처리
+```
+
+`preserving` is likewise structural, recursing on the finite list `regs` — no `partial` needed, and no ambiguity about why: this function's job is entirely at compile time, deciding what code to emit, and every decision it makes is a lookup in a finite `List String`, nothing about "will this program eventually stop" ever enters into it.
+
+`preserving`도 마찬가지로 구조적이고, 유한한 리스트 `regs`에 대해 재귀합니다 — `partial`이 필요 없고, 왜 그런지도 모호하지 않습니다 — 이 함수의 일은 전적으로 컴파일 시점에 있고, 어떤 코드를 낼지를 결정하는 것이며, 그것이 내리는 모든 결정은 유한한 `List String`에 대한 조회일 뿐, "이 프로그램이 언젠가 멈출 것인가" 같은 것은 전혀 관여하지 않습니다.
+
+---
+
+## 5.5.3. 조합 컴파일하기 — 그리고 꼬리 호출
+
+The sharpest idea in this section, and the one that connects most directly back to something Lean cares about deeply, is how `compile-proc-appl` handles the `return` linkage: when a procedure call is the very last thing a compiled procedure body does, no `continue` register needs to be saved at all, because the callee's own eventual `(goto (reg continue))` already lands exactly where the caller wanted to go. SICP's point is precise and important — get this detail wrong, and every recursive call in a "loop" written as a self-call accumulates a saved frame, turning an iterative process into a recursive one at the machine level, exactly the distinction the very first post in this series drew between `factorial` and `factIter`.
+
+이 절에서 가장 날카로운 아이디어이자 Lean이 깊이 신경 쓰는 무언가와 가장 직접적으로 연결되는 것은, `compile-proc-appl`이 `return` 연결(linkage)을 다루는 방식입니다 — 절차 호출이 컴파일된 절차 본문이 하는 정말 마지막 일일 때는 `continue` 레지스터를 전혀 저장할 필요가 없는데, 피호출자 자신의 최종적인 `(goto (reg continue))`가 이미 호출자가 가고 싶어 했던 바로 그곳으로 착지하기 때문입니다. SICP의 요점은 정확하고 중요합니다 — 이 세부사항을 잘못하면, 자기 호출로 작성된 "루프"의 모든 재귀 호출이 저장된 프레임을 쌓아서, 머신 수준에서 반복적 프로세스를 재귀적 프로세스로 바꿔버립니다. 이는 정확히 이 시리즈의 첫 글이 `factorial`과 `factIter` 사이에서 그었던 구분입니다.
+
+```lean
+def compileProcCall (target : Target) (linkage : Linkage) : InstSeq :=
+  match target, linkage with
+  | .val, .ret =>
+    -- 꼬리 호출: continue를 건드리지 않는다 — 이미 올바른 곳을 가리키고 있다
+    InstSeq.mk ["proc", "continue"] ["val", "proc", "argl", "env", "continue"]
+      ["assign val (op compiled-procedure-entry) (reg proc)", "goto (reg val)"]
+  | .val, .next =>
+    InstSeq.mk ["proc"] ["val", "proc", "argl", "env", "continue"]
+      ["assign continue (label after-call)", "assign val (op compiled-procedure-entry) (reg proc)", "goto (reg val)"]
+  | _, _ => InstSeq.mk [] [] ["(생략)"]
+```
+
+Lean's own compiler faces exactly this question when it decides whether a recursive call compiles to a jump-back-to-the-top loop or to a genuine stack-growing call, and it's why the language draws its own version of SICP's distinction: a function recognized as *tail-recursive* — where the recursive call is the entire result of a branch, with nothing left to do after it returns — compiles to a loop using constant stack space, while a call that still has work pending after it returns (accumulating a multiplication, say, the way `factorial` does) cannot, no matter how the source code is dressed up. This is the same content as SICP's `compile-proc-appl` case analysis, just moved from "which linkage descriptor did this call get compiled with" to "does Lean's compiler recognize this call as being in tail position" — the mechanism differs, but the payoff being chased, constant-space iteration instead of stack growth proportional to recursion depth, is identical.
+
+Lean 자신의 컴파일러도 재귀 호출이 맨 위로 되돌아가는 루프로 컴파일될지, 아니면 진짜로 스택을 늘리는 호출로 컴파일될지를 결정할 때 정확히 이 질문에 맞닥뜨리고, 이것이 언어가 SICP의 구분을 자기 나름의 버전으로 그리는 이유입니다 — *꼬리 재귀*로 인식된 함수 — 재귀 호출이 어떤 분기의 결과 전체이고, 그것이 반환된 후 해야 할 일이 남아있지 않은 경우 — 는 상수 스택 공간을 쓰는 루프로 컴파일되는 반면, 반환된 후에도 여전히 할 일이 남아있는 호출(`factorial`이 그러듯 곱셈을 누적하는 경우)은 소스 코드를 아무리 꾸며도 그럴 수 없습니다. 이는 SICP의 `compile-proc-appl` 케이스 분석과 같은 내용이고, 다만 "이 호출이 어떤 연결 서술자로 컴파일됐는가"에서 "Lean의 컴파일러가 이 호출을 꼬리 위치에 있다고 인식하는가"로 자리를 옮겼을 뿐입니다 — 메커니즘은 다르지만, 쫓고 있는 성과 — 재귀 깊이에 비례해 스택이 자라는 대신 상수 공간으로 반복하는 것 — 은 동일합니다.
+
+```lean
+def factLoop : Nat → Nat → Nat
+  | acc, 0 => acc
+  | acc, n + 1 => factLoop (acc * (n + 1)) n
+
+#eval factLoop 1 100000
+-- (스택 오버플로 없이 계산됨 — factLoop (acc * (n + 1)) n의 결과가
+--  바로 이 호출 전체의 결과이므로 꼬리 위치에 있다)
+```
+
+`factLoop`'s recursive call is in exactly the position SICP's `return`-linkage optimization targets: nothing happens to its result before it becomes the caller's own result. Compare this to a version where the multiplication happens *after* the recursive call returns — the shape `factorial` itself had, back in the very first post of this series:
+
+`factLoop`의 재귀 호출은 정확히 SICP의 `return` 연결 최적화가 겨냥하는 위치에 있습니다 — 그 결과가 호출자 자신의 결과가 되기 전에 아무 일도 일어나지 않습니다. 이를 재귀 호출이 반환된 *이후에* 곱셈이 일어나는 버전과 비교해 보세요 — 이 시리즈의 첫 글에 나왔던 `factorial` 자신의 모양입니다.
+
+```lean
+def factNotTail : Nat → Nat
+  | 0 => 1
+  | n + 1 => (n + 1) * factNotTail n  -- 곱셈이 재귀 호출 이후에 남아있다 — 꼬리 위치가 아니다
+```
+
+`factNotTail (n + 1)` still terminates and still type-checks with no `partial` needed — Lean's structural-recursion checker only cares whether the argument shrinks, not whether the call is in tail position — but at runtime it builds exactly the chain of deferred multiplications SICP's substitution-model trace showed for `factorial` back in [the first post](../1-2-procedures-and-processes/): a recursive process, in SICP's vocabulary, versus `factLoop`'s iterative one. Termination-checking and tail-call optimization are, in other words, two entirely separate concerns that happen to both be about recursive calls: one asks "does this definitely finish," the other asks "does finishing cost a growing amount of stack." SICP's compiler chapter is squarely about the second question; the `partial` keyword that's run through most of this series has always been about the first.
+
+`factNotTail (n + 1)`도 여전히 종료하고 `partial` 없이 타입 검사를 통과합니다 — Lean의 구조적 재귀 검사기는 인자가 줄어드는지만 신경 쓰지, 호출이 꼬리 위치에 있는지는 신경 쓰지 않습니다 — 하지만 실행 시점에는 [첫 글](../1-2-procedures-and-processes/)에서 `factorial`에 대한 SICP의 치환 모델 추적이 보여준 것과 정확히 같은, 미뤄진 곱셈의 사슬을 쌓습니다 — SICP의 어휘로는 재귀적 프로세스이고, `factLoop`의 반복적 프로세스와 대비됩니다. 즉 종료성 검사와 꼬리 호출 최적화는, 둘 다 재귀 호출에 관한 것이라는 점에서만 겹칠 뿐 완전히 별개의 관심사입니다 — 하나는 "이것이 확실히 끝나는가"를 묻고, 다른 하나는 "끝나는 데 늘어나는 만큼의 스택 비용이 드는가"를 묻습니다. SICP의 컴파일러 장은 정확히 두 번째 질문에 관한 것이고, 이 시리즈를 관통해온 `partial` 키워드는 언제나 첫 번째 질문에 관한 것이었습니다.
+
+**연습문제 5.31 (Lean 버전):** 원문은 절차 호출의 각 부분에서 `env`, `argl`, `proc`을 저장/복원하는 것 중 어느 것이 불필요한지 판별해 보라고 합니다. 아래 네 가지 `SExp` 조합에 대해, 위에서 정의한 `compile`의 `preserving` 호출들이 실제로 `save`/`restore` 쌍을 만들어낼지 만들어내지 않을지를 직접 짚어 봅시다. 요점은 `preserving`이 `needs`/`modifies` 집합만 보고 결정하므로, 연산자가 `.var "f"`처럼 `env`를 건드리지 않는 표현식이면 `save env`/`restore env`가 아예 생성되지 않는다는 것입니다.
+
+```lean
+-- (f 'x 'y): f는 var이므로 env를 변경하지 않는다 → env를 위한 save/restore가 생략된다
+-- ((g) 'x 'y): 연산자 자체가 조합(app)이므로 env를 변경할 수 있다 → env가 보존되어야 한다
+```
+
+Both cases recurse through the same `compile`/`preserving` machinery; the difference in generated code comes entirely from what `modifies` set gets attached to the operator's compiled fragment — `.var` produces a fragment that modifies only the target register, while `.app` produces one whose `modifies` set is conservatively "everything," since a called procedure's body could do anything to any register. Nothing about *termination* distinguishes these two cases — both compile in finitely many structural steps — the distinction SICP is after here is entirely about code quality, not about whether `compile` itself is total.
+
+두 경우 모두 같은 `compile`/`preserving` 기계를 통해 재귀합니다 — 생성되는 코드의 차이는 전적으로 연산자의 컴파일된 조각에 어떤 `modifies` 집합이 붙느냐에서 나옵니다 — `.var`는 대상 레지스터만 변경하는 조각을 만들어내는 반면, `.app`은 `modifies` 집합이 보수적으로 "전부"인 조각을 만들어냅니다. 호출된 절차의 본문이 어떤 레지스터에든 무엇이든 할 수 있기 때문입니다. *종료성*에 관해서는 이 두 경우를 구분할 게 아무것도 없습니다 — 둘 다 유한하게 많은 구조적 단계로 컴파일됩니다 — 여기서 SICP가 쫓는 구분은 전적으로 코드 품질에 관한 것이지, `compile` 자체가 전역인지에 관한 게 아닙니다.
+
+---
+
+Setting this section beside the previous one draws a clean line through this whole series: `execute` from the register-machine simulator was the shape of function whose termination genuinely depends on the program being run, so `partial` there was a correct, permanent verdict, not a gap to be closed. `compile` is the opposite shape — a function over the finite syntax tree of a *source program*, and it terminates for the same structural reasons `deriv` and `elemOfTree` did many posts ago, with its one apparent `partial` marker removable by better bookkeeping rather than fundamental to the problem. The two functions look superficially similar — both are central to running Scheme programs on register machines, both are recursive — but they sit on opposite sides of the one distinction this whole series has been circling: does this recursion terminate because of the *shape of the data it consumes*, or does it terminate — if it does — because of facts about the world that no type checker could see from the function's definition alone?
+
+이 절을 앞 절과 나란히 놓으면 이 시리즈 전체를 관통하는 깔끔한 선이 그려집니다 — 레지스터 머신 시뮬레이터의 `execute`는 종료성이 실행되는 프로그램에 정말로 의존하는 함수의 모양이었고, 그래서 거기서의 `partial`은 메워야 할 틈이 아니라 올바르고 영구적인 판결이었습니다. `compile`은 반대 모양입니다 — *소스 프로그램*의 유한한 구문 트리에 대한 함수이고, 여러 글 전에 `deriv`와 `elemOfTree`가 그랬던 것과 같은 구조적 이유로 종료하며, 겉보기의 `partial` 표시 하나는 문제에 본질적인 게 아니라 더 나은 부기로 제거할 수 있는 것입니다. 이 두 함수는 겉보기에 비슷해 보입니다 — 둘 다 레지스터 머신에서 Scheme 프로그램을 실행하는 데 핵심적이고, 둘 다 재귀적입니다 — 하지만 이 시리즈 전체가 맴돌아온 하나의 구분에서 서로 반대편에 서 있습니다 — 이 재귀는 소비하는 *데이터의 모양* 때문에 종료하는가, 아니면 종료한다면 그것은 함수의 정의만으로는 어떤 타입 검사기도 볼 수 없는 세계에 대한 사실들 때문인가?
