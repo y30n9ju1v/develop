@@ -1,0 +1,15 @@
+---
+title: "계산 이론"
+date: 2026-07-12T00:00:00+09:00
+draft: false
+tags: ["theory-of-computation", "automata", "complexity-theory"]
+categories: ["programming"]
+description: "MIT 18.404 Theory of Computation 강의를 요약 정리하고, 컴퓨터가 풀 수 있는 문제와 그 한계에 대해 다룹니다."
+---
+
+MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반으로 작성한 계산 이론 요약 시리즈입니다.
+
+## 시리즈 목록
+
+- **[1. 유한 오토마타와 정규 언어](01-introduction-finite-automata-regular-expressions/)** — 가장 단순한 컴퓨터 모델인 유한 오토마타, 5-Tuple 수학적 정의, 정규 연산과 합집합 닫힘성 증명
+- **[2. 비결정론(Nondeterminism)과 정규 표현식의 NFA 변환](02-nondeterminism-closure-properties-regular-expressions-to-finite-automata/)** — 비결정적 유한 오토마타(NFA)의 개념과 수학적 정의, NFA와 DFA의 동등성 증명(Subset Construction), NFA를 이용한 정규 표현식 조립
