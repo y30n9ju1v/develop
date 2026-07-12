@@ -64,6 +64,10 @@ $$S = \text{"인풋 } \langle M, w \rangle \text{에 대해:}$$
 3. $A \le_m B$ 이고 $B$가 인식 가능(Turing-Recognizable)하면, $A$도 인식 가능하다.
 4. $A \le_m B$ 이고 $A$가 인식 불가능(Turing-Unrecognizable)하면, $B$도 인식 불가능하다.
 
+### 주의: 매핑 환원은 방향이 있다
+
+$A \le_m B$가 성립한다고 해서 그 역인 $B \le_m A$나, $A \le_m \overline{A}$ 같은 관계가 자동으로 성립하는 것은 아닙니다. 매핑 환원은 "$A$의 답을 $B$의 답으로 그대로 번역해 주는 함수 $f$가 존재하는가"를 묻는 일방향적인 관계이기 때문에, 실제로 $A_{\text{TM}} \le_m \overline{A_{\text{TM}}}$은 성립하지 않습니다(만약 성립한다면 $A_{\text{TM}}$이 인식 가능하면서 동시에 $\overline{A_{\text{TM}}}$도 인식 가능해져야 하는데, 이는 앞서 증명한 $\overline{A_{\text{TM}}}$의 인식 불가능성과 모순됩니다). 즉, 환원이 어느 방향으로 성립하는지는 매번 별도로 증명해야 하는 사실입니다.
+
 ---
 
 ## 3. $E_{\text{TM}}$의 인식 불가능성 증명
