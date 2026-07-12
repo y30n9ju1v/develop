@@ -33,6 +33,9 @@ MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반
 - **[21. 계층 정리(Hierarchy Theorems)와 NL = coNL 정리의 완결](21-hierarchy-theorems/)** — 도달 가능한 노드 수 카운팅 기법을 통한 NL = coNL(임머만-셀레프체니 정리) 증명 완결, 더 많은 시간과 공간이 주어지면 더 복잡한 문제를 풀 수 있음을 대각선 논법으로 보이는 시간 및 공간 계층 정리(Time/Space Hierarchy Theorems)의 상세 분석
 - **[22. 증명 가능하게 다루기 힘든 문제(Provably Intractable)와 오라클, P vs NP의 장벽](22-provably-intractable-problems-oracles/)** — P와 PSPACE를 벗어나는 복잡도 계층(EXPTIME, EXPSPACE), 거듭제곱을 허용한 정규식 동치성 문제($EQ_{\text{REX}\uparrow}$)의 EXPSPACE-완전성 증명, 오라클 TM의 정의, 그리고 상대화(Relativization)의 한계와 BGS 정리가 제시한 P vs NP의 수학적 한계 분석
 - **[23. 확률적 계산(Probabilistic Computation)과 다항 시간 클래스 BPP](23-probabilistic-computation/)** — 무작위성을 계산의 도구로 도입한 확률적 튜링 머신(PTM), 다항 시간 오차 확률 제어 클래스 BPP와 다수결 증폭 정리(Amplification Lemma), 분기 프로그램(BP) 및 읽기 한 번 분기 프로그램(ROBP)의 동치성 검정을 대수적 다항식 대입법으로 해결하는 아리스메티제이션(Arithmetization) 기법
+- **[24. 1회 읽기 분기 프로그램(ROBP)의 동치성 검정과 BPP](24-probabilistic-computation-cont/)** — ROBP 동치성 검정을 위한 BPP 알고리즘 설계, 부울 논리를 다항식으로 매핑하는 산술적 라벨링(Arithmetical Labeling) 기법, 그리고 대입 오차 확률을 억제하는 슈왈츠-지펠 정리(Schwartz-Zippel Theorem)의 상세 분석
+- **[25. 대화형 증명 시스템(Interactive Proof Systems)과 클래스 IP](25-interactive-proofs/)** — 다항 시간 확률 검증관(Verifier)과 무한 연산 증명관(Prover)의 질문과 대화식 검증 모델 클래스 IP, 그래프 비동형성 문제($\overline{\text{ISO}}$)의 IP 프로토콜 및 오차 통계적 안전성 증명, 그리고 coNP ⊆ IP 입증을 위해 식의 참인 대입 가짓수를 세는 #SAT 문제와 지수식 트리 탐색 병목의 개요
+
 
 
 
