@@ -22,3 +22,4 @@ MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반
 - **[9. 매핑 환원(Mapping Reducibility)과 프로그램 분석의 한계](09-reducibility/)** — 환원 개념의 형식 수학 정의인 매핑 환원($\le_m$), 튜링 머신 공백성 문제($E_{\text{TM}}$)의 판정/인식 불가능 증명, 그리고 두 프로그램의 일치성을 판별할 수 없는 동치성 문제($EQ_{\text{TM}}$)의 비인식성 증명
 - **[10. 계산 이력 방법(Computation History)과 LBA·PCP·CFG의 난제들](10-the-computation-history-method/)** — 실행 로그를 사용하는 계산 이력 방법의 원리, LBA 공백성 문제($E_{\text{LBA}}$)의 판정 불가능 증명, 도미노 매칭 퍼즐인 포스트 대응 문제(PCP)의 불가능성 증명 및 CFG 전역 매칭 문제($ALL_{\text{CFG}}$)의 판정 불가능 증명
 - **[11. 재귀 정리(Recursion Theorem)와 괴델의 불완전성 정리](11-the-recursion-theorem-and-logic/)** — 프로그램이 자기 설계도를 읽어들이는 클레이니 재귀 정리, 콰인(Quine)의 구성, 고정점 정리(Fixed-point Theorem) 및 괴델의 제1불완전성 정리 증명
+- **[12. 시간 복잡도(Time Complexity)와 다항 시간 클래스 P](12-time-complexity/)** — 계산 복잡도 이론 개요 및 Big-O 표기법, 하드웨어 모델에 따른 연산 시간 분석 및 다항식적 관계(Polynomial overhead), 그리고 다항 시간 해결 가능 문제 집합인 클래스 P(Class P)의 정의와 PATH vs HAMPATH 문제 소개
