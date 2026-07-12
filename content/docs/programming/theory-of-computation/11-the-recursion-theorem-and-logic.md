@@ -9,7 +9,7 @@ description: "기계가 스스로의 설계도를 획득하는 클레이니 재�
 
 지난 10편에서는 튜링 머신의 전체 실행 단계를 기록하는 **계산 이력 방법(Computation History)**을 공부하고, 이를 이용해 LBA 공백성, PCP, 그리고 CFG의 전역 수락 문제($ALL_{\text{CFG}}$)들이 전부 계산 불가능함을 밝혔습니다.
 
-이번 11번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-11-the-recursion-theorem-and-logic.pdf)에서는 "자기 복제"라는 생명체의 특성을 기계로 모사하는 **재귀 정리(Recursion Theorem)**와, 수학적 진리와 증명 가능성의 근본적 한계를 입증한 **괴델의 불완전성 정리**를 연결해 보겠습니다.
+이번 11번째 강의와 강의 슬라이드에서는 "자기 복제"라는 생명체의 특성을 기계로 모사하는 **재귀 정리(Recursion Theorem)**와, 수학적 진리와 증명 가능성의 근본적 한계를 입증한 **괴델의 불완전성 정리**를 연결해 보겠습니다.
 
 ---
 

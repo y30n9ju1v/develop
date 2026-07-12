@@ -11,7 +11,7 @@ description: "튜링 머신의 전체 실행 과정을 하나의 문자열로 �
 
 튜링 머신 수락 문제($A_{\text{TM}}$)의 판정 불가능성을 활용하여 다른 복잡한 오토마타나 문법 문제를 해결할 때 사용하는 가장 강력하고 일반적인 환원 기법이 바로 **계산 이력 방법(Computation History Method)**입니다.
 
-이번 10번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-10-the-computation-history-method.pdf)에서는 계산 이력의 정의를 배우고, 이를 통해 LBA, PCP, 그리고 CFG의 난제들을 해결해 보겠습니다.
+이번 10번째 강의와 강의 슬라이드에서는 계산 이력의 정의를 배우고, 이를 통해 LBA, PCP, 그리고 CFG의 난제들을 해결해 보겠습니다.
 
 ---
 

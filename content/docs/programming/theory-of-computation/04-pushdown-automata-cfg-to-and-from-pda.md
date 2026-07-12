@@ -11,7 +11,7 @@ description: "문맥 자유 문법(CFG)의 형식적 정의와 모호성(Ambigui
 
 그렇다면 정규 언어에 유한 오토마타(DFA/NFA)라는 매칭 기계가 있었던 것처럼, **문맥 자유 언어(CFL)를 인식하고 판별할 수 있는 기계 모델**은 무엇일까요?
 
-이번 4번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-04-pushdown-automata-cfg-to-and-from-pda.pdf)에서는 LIFO(Last-In, First-Out) 방식의 메모리 스택을 탑재한 **푸시다운 오토마타(PDA)**와 문법 간의 동등성을 알아보겠습니다.
+이번 4번째 강의와 강의 슬라이드에서는 LIFO(Last-In, First-Out) 방식의 메모리 스택을 탑재한 **푸시다운 오토마타(PDA)**와 문법 간의 동등성을 알아보겠습니다.
 
 ---
 

@@ -11,7 +11,7 @@ description: "DFA를 정규 표현식으로 역변환하는 GNFA 알고리즘, �
 
 그렇다면 반대로 **"모든 유한 오토마타(DFA/NFA)는 정규 표현식으로 변환될 수 있을까?"**라는 의문이 생깁니다.
 
-이번 3번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-03-the-regular-pumping-lemma-finite-automata-to-regular-expressions-cfgs.pdf)에서는 이 질문에 답하는 **GNFA 알고리즘**을 배우고, 정규 언어의 근본적인 한계를 밝히는 **펌핑 렘마(Pumping Lemma)**, 그리고 이를 넘어서기 위한 **문맥 자유 문법(CFG)**에 대해 알아보겠습니다.
+이번 3번째 강의와 강의 슬라이드에서는 이 질문에 답하는 **GNFA 알고리즘**을 배우고, 정규 언어의 근본적인 한계를 밝히는 **펌핑 렘마(Pumping Lemma)**, 그리고 이를 넘어서기 위한 **문맥 자유 문법(CFG)**에 대해 알아보겠습니다.
 
 ---
 

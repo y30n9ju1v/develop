@@ -9,7 +9,7 @@ description: "상호작용 증명 시스템(IP) 계층의 최정점인 Shamir의
 
 지난 25편에서는 일방적으로 증명서를 제출하는 대신 검증관(Verifier)과 증명자(Prover)의 주고받는 질의응답을 통해 참을 입증하는 **대화형 증명 시스템(Interactive Proof Systems, IP)**과 그 기본 예제들을 다루었습니다.
 
-이번 26번째 강의이자 대단원의 마지막 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-26-conp-and-ip.pdf)에서는 계산 복잡도 이론 역사상 가장 놀라운 포함 관계 중 하나인 **$\text{coNP} \subseteq \text{IP}$**의 증명(샤미르의 정리 $\text{IP} = \text{PSPACE}$의 핵심 디딤돌)을 완성해 보겠습니다.
+이번 26번째 강의이자 대단원의 마지막 강의 슬라이드에서는 계산 복잡도 이론 역사상 가장 놀라운 포함 관계 중 하나인 **$\text{coNP} \subseteq \text{IP}$**의 증명(샤미르의 정리 $\text{IP} = \text{PSPACE}$의 핵심 디딤돌)을 완성해 보겠습니다.
 
 ---
 

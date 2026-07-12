@@ -11,7 +11,7 @@ description: "계산 복잡도 이론(Complexity Theory)의 개요, 하드웨어
 
 지금까지는 "이 문제가 컴퓨터로 풀 수 있는가 없는가(판정 가능성)"의 근본적인 경계를 다루었다면, 이제부터는 **"이 문제를 컴퓨터로 현실적인 시간과 자원 내에 효율적으로 풀 수 있는가"**를 다루는 **계산 복잡도 이론(Complexity Theory)**의 세계로 진입합니다.
 
-이번 12번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-12-time-complexity.pdf)에서는 복잡도 분석의 기초인 시간 복잡도와 클래스 P(Class P)에 대해 알아보겠습니다.
+이번 12번째 강의와 강의 슬라이드에서는 복잡도 분석의 기초인 시간 복잡도와 클래스 P(Class P)에 대해 알아보겠습니다.
 
 ---
 

@@ -11,7 +11,7 @@ description: "비결정적 유한 오토마타(NFA)의 개념과 수학적 정�
 
 하지만 두 언어를 이어 붙이는 **연결 연산(Concatenation, $A_1 \circ A_2$)**을 증명하려 할 때 큰 벽에 부딪혔습니다. 입력 문자열 $w$를 어디서 쪼개야($w=xy$) 앞부분은 $M_1$이, 뒷부분은 $M_2$가 수락할 수 있을지 DFA는 스스로 "추측"할 수 없기 때문입니다.
 
-이 한계를 극복하기 위해 MIT 18.404J 강좌의 2번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-02-nondeterminism-closure-properties-regular-expressions-to-finite-automata.pdf)에서는 마법 같은 개념인 **비결정론(Nondeterminism)**을 도입합니다.
+이 한계를 극복하기 위해 MIT 18.404J 강좌의 2번째 강의와 강의 슬라이드에서는 마법 같은 개념인 **비결정론(Nondeterminism)**을 도입합니다.
 
 ---
 

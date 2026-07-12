@@ -11,7 +11,7 @@ description: "결정적 계산 모델의 한계를 극복하기 위해 무작위
 
 지금까지의 튜링 머신들은 철저하게 정해진 경로만을 따라가는 **결정적(Deterministic) 계산**만을 수행해 왔습니다. 하지만 현대의 수많은 효율적인 알고리즘들은 한 단계 한 단계 진행할 때마다 동전을 던져 무작위 선택을 하는 **확률적(Probabilistic) 계산**을 적극적으로 도입하고 있습니다.
 
-이번 23번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-23-probabilistic-computation-bpp.pdf)에서는 컴퓨터 과학에서 무작위성(Randomness)이 어떻게 계산 자원으로서 효율성을 가져다주는지, 그리고 이 무작위성을 반영한 다항 시간 클래스인 **BPP**와 그 강력한 기법인 **아리스메티제이션(Arithmetization)**에 대해 알아보겠습니다.
+이번 23번째 강의와 강의 슬라이드에서는 컴퓨터 과학에서 무작위성(Randomness)이 어떻게 계산 자원으로서 효율성을 가져다주는지, 그리고 이 무작위성을 반영한 다항 시간 클래스인 **BPP**와 그 강력한 기법인 **아리스메티제이션(Arithmetization)**에 대해 알아보겠습니다.
 
 ---
 
@@ -162,7 +162,9 @@ $$\text{무작위 대입 쌍: } r_1, \dots, r_m \in \mathbb{F}_p$$
 만약 두 다항식이 서로 다른 다항식($P_1 \ne P_2$)이라면, 이들이 거대한 유한체 공간 상에서 무작위 점 대입 값으로 일치할 확률은 어떻게 될까요? 
 대수학의 저명한 법칙인 **Schwartz-Zippel Lemma**에 의하면, 서로 다른 다항식이 무작위 좌표 대입으로 우연히 일치할 확률은 전체 공간의 크기 분의 다항식 차수 정도로 극단적으로 낮습니다.
 
-$$P_1 \ne P_2 \implies \text{Pr}[P_1(r_1, \dots, r_m) = P_2(r_1, \dots, r_m)] \le \frac{\text{다항식 차수 } d}{\text{유한체 크기 } |S|}$$
+$$P_1 \ne P_2 \implies \text{Pr}[P_1(r_1, \dots, r_m) = P_2(r_1, \dots, r_m)] \le \frac{d \cdot m}{|S|}$$
+
+(단, $d$는 다항식의 차수, $m$은 변수의 개수, $|S|$는 유한체의 크기입니다.)
 
 따라서 $r_i$를 충분히 큰 범위에서 무작위로 한 번만 뽑아 $P_1(r)$과 $P_2(r)$을 계산해 보고 같으면 수락(Accept), 다르면 거절(Reject)하는 알고리즘을 수행하면 다항식 시간 내에 극소의 오차율을 보장하며 $\text{EQ}_{\text{ROBP}}$를 완벽히 해결할 수 있습니다. 
 

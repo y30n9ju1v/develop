@@ -11,7 +11,7 @@ description: "가장 단순한 컴퓨터 모델인 유한 오토마타(Finite Au
 > **"컴퓨터가 풀 수 있는 문제와 풀 수 없는 문제는 무엇일까?"**
 > **"문제를 푸는 데 얼마나 많은 시간과 메모리가 필요할까?"**
 
-이러한 핵심 질문들에 수학적으로 답하고자 하는 학문이 바로 **계산 이론(Theory of Computation)**입니다. 이 글은 MIT의 세계적인 석학 마이클 십서(Michael Sipser) 교수님의 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-01-introduction-finite-automata-regular-expressions.pdf)를 바탕으로, 가장 단순하지만 강력한 컴퓨터 모델인 **유한 오토마타(Finite Automata)**와 **정규 언어(Regular Language)**에 대해 정리합니다.
+이러한 핵심 질문들에 수학적으로 답하고자 하는 학문이 바로 **계산 이론(Theory of Computation)**입니다. 이 글은 MIT의 세계적인 석학 마이클 십서(Michael Sipser) 교수님의 강의와 강의 슬라이드를 바탕으로, 가장 단순하지만 강력한 컴퓨터 모델인 **유한 오토마타(Finite Automata)**와 **정규 언어(Regular Language)**에 대해 정리합니다.
 
 ---
 

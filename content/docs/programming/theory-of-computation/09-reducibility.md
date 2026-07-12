@@ -11,7 +11,7 @@ description: "어려운 문제를 변환하여 해결하는 환원(Reduction)의
 
 이때 한 문제를 다른 문제로 변형하여 해결하는 **환원(Reduction)**이라는 개념을 직관적으로 사용했습니다. 
 
-이번 9번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-09-reducibility.pdf)에서는 환원을 수학적으로 엄밀히 규정한 **매핑 환원(Mapping Reducibility)**에 대해 배우고, 이를 이용해 튜링 머신 자체를 분석하는 정적 분석 문제들이 얼마나 극단적으로 계산 불가능한 영역에 있는지를 증명합니다.
+이번 9번째 강의와 강의 슬라이드에서는 환원을 수학적으로 엄밀히 규정한 **매핑 환원(Mapping Reducibility)**에 대해 배우고, 이를 이용해 튜링 머신 자체를 분석하는 정적 분석 문제들이 얼마나 극단적으로 계산 불가능한 영역에 있는지를 증명합니다.
 
 ---
 

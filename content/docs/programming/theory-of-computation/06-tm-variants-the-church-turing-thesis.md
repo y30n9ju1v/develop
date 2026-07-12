@@ -11,7 +11,7 @@ description: "다중 테이프, 비결정론, 열거기(Enumerator) 등 다양�
 
 현대 컴퓨터는 멀티코어 CPU, 다중 하드디스크, 멀티 스레드 등 훨씬 복잡한 구조를 가지고 있습니다. 그렇다면 **여러 개의 테이프를 쓰거나(Multi-tape), 비결정적으로 작동하는(Nondeterministic) 튜링 머신을 만든다면 단일 테이프 튜링 머신보다 더 많은 문제를 풀 수 있을까요?**
 
-이번 6번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-06-tm-variants-the-church-turing-thesis.pdf)에서는 이 질문에 답하고, 알고리즘의 철학적 종착지인 **처치-튜링 명제(Church-Turing Thesis)**에 대해 다룹니다.
+이번 6번째 강의와 강의 슬라이드에서는 이 질문에 답하고, 알고리즘의 철학적 종착지인 **처치-튜링 명제(Church-Turing Thesis)**에 대해 다룹니다.
 
 ---
 

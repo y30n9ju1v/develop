@@ -9,7 +9,7 @@ description: "QBF 논리식을 두 플레이어의 대결로 묘사하는 포뮬
 
 지난 18편에서는 PSPACE = NPSPACE임을 증명하는 새비치 정리(Savitch's Theorem)와 PSPACE-완전(PSPACE-Complete) 문제의 대표격인 TQBF 문제에 대해 공부했습니다. 
 
-이번 19번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-19-games-generalized-geography.pdf)에서는 PSPACE의 또 다른 강력한 표현 도구인 **게임 이론(Game Theory)**과 그래프에서의 한붓그리기 끝말잇기 게임인 **일반화된 지리 게임(Generalized Geography)**, 그리고 선형 공간보다도 작은 메모리를 사용하는 극단적인 최적화의 세계인 **로그 공간 복잡도(Log space)**에 대해 알아보겠습니다.
+이번 19번째 강의와 강의 슬라이드에서는 PSPACE의 또 다른 강력한 표현 도구인 **게임 이론(Game Theory)**과 그래프에서의 한붓그리기 끝말잇기 게임인 **일반화된 지리 게임(Generalized Geography)**, 그리고 선형 공간보다도 작은 메모리를 사용하는 극단적인 최적화의 세계인 **로그 공간 복잡도(Log space)**에 대해 알아보겠습니다.
 
 ---
 
@@ -58,7 +58,7 @@ $$\phi = \exists x_1 \forall x_2 \exists x_3 \dots (\exists/\forall) x_k [\psi]$
 $$\text{GG} = \{ \langle G, a \rangle \mid G\text{에서 시작점 } a\text{로 게임을 시작할 때, Player I이 필승 전략을 가진다} \}$$
 
 ### B. GG는 PSPACE-완전(PSPACE-complete)이다
-- **GG ∈ PSPACE**: 재귀적으로 한 단계씩 모든 가능한 다음 수를 탐색하며 깊이 우선 탐색(DFS)을 활용하면, 게임 트리를 공간 재사용 방식으로 $O(n^2)$ 공간 내에 완벽히 탐색할 수 있습니다.
+- **GG ∈ PSPACE**: 재귀적으로 한 단계씩 모든 가능한 다음 수를 탐색하며 깊이 우선 탐색(DFS)을 활용하면, 게임 트리를 공간 재사용 방식으로 다항 공간 내에 완벽히 탐색할 수 있습니다.
 - **$\text{TQBF} \le_{\text{P}} \text{GG}$**: QBF의 포뮬러 게임을 일반화된 지리 게임의 그래프 구조로 환원(Reduction)하여 하한선을 증명합니다.
 
 ### C. 환원 가젯(Gadget)의 구성 방식

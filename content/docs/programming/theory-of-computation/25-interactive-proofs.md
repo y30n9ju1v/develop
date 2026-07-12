@@ -11,7 +11,7 @@ description: "기존의 정적인 정답 검증(NP)을 넘어 증명자(Prover)�
 
 지금까지 우리가 보아온 계산 이론에서 '증명(Proof)'이란 수학적인 정답의 힌트(인증서, Certificate)를 정적으로 건네받아 결정적으로 빠르게 검증하는 방식(NP)에 머물렀습니다. 하지만 실생활에서 누군가를 설득할 때 우리는 단순히 보고서를 읽는 것보다 **"실시간으로 질문을 주고받는 대화"**를 통해 더 강력한 확신을 얻곤 합니다.
 
-이번 25번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-25-interactive-proof-systems-ip.pdf)에서는 컴퓨터 과학에서 '증명'이라는 개념 자체를 완전히 재정의하는 **대화형 증명 시스템(Interactive Proof Systems)**과 이를 기반으로 하는 강력한 복잡도 클래스인 **IP**에 대해 알아보겠습니다.
+이번 25번째 강의와 강의 슬라이드에서는 컴퓨터 과학에서 '증명'이라는 개념 자체를 완전히 재정의하는 **대화형 증명 시스템(Interactive Proof Systems)**과 이를 기반으로 하는 강력한 복잡도 클래스인 **IP**에 대해 알아보겠습니다.
 
 ---
 

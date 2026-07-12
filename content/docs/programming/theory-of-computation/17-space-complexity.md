@@ -11,7 +11,7 @@ description: "컴퓨터가 사용하는 메모리 공간의 한계를 다루는 
 
 지금까지는 알고리즘이 연산하는 데 걸리는 '시간(Time)' 자원을 기준으로 문제들을 분류해 왔습니다. 하지만 실제 컴퓨터를 동작시킬 때 시간 못지않게 중요한 또 하나의 제한 자원이 있습니다. 바로 **메모리 공간(Space)**입니다.
 
-이번 17번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-17-space-complexity-pspace-savitchs-theorem.pdf)에서는 프로그램이 사용하는 공간 자원의 한계를 규정하는 **공간 복잡도(Space Complexity)**의 세계와, 다항 공간 클래스인 **PSPACE**, 그리고 비결정적 공간을 결정적 공간으로 변환하는 핵심 원리를 탐험해 보겠습니다.
+이번 17번째 강의와 강의 슬라이드에서는 프로그램이 사용하는 공간 자원의 한계를 규정하는 **공간 복잡도(Space Complexity)**의 세계와, 다항 공간 클래스인 **PSPACE**, 그리고 비결정적 공간을 결정적 공간으로 변환하는 핵심 원리를 탐험해 보겠습니다.
 
 ---
 

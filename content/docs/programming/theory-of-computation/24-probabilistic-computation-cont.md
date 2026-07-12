@@ -9,7 +9,7 @@ description: "무작위성을 활용하여 1회 읽기 분기 프로그램(ROBP)
 
 지난 23편에서는 확률적 튜링 머신(PTM)의 정의와 다수결 증폭 정리(Amplification Lemma)를 통한 BPP 클래스의 설계, 그리고 논리 회로를 수식으로 바꾸는 **산술화(Arithmetization)** 기법의 개념을 공부했습니다.
 
-이번 24번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-24-probabilistic-computation-cont.pdf)에서는 산술화 기법을 완벽히 활용하여, 고전적인 결정적 알고리즘으로는 해결하기 극도로 까다로운 **1회 읽기 분기 프로그램(ROBP)의 동치성 문제**가 BPP 클래스에 속함을 증명해 보겠습니다.
+이번 24번째 강의와 강의 슬라이드에서는 산술화 기법을 완벽히 활용하여, 고전적인 결정적 알고리즘으로는 해결하기 극도로 까다로운 **1회 읽기 분기 프로그램(ROBP)의 동치성 문제**가 BPP 클래스에 속함을 증명해 보겠습니다.
 
 ---
 

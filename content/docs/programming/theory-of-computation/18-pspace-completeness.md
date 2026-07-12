@@ -11,7 +11,7 @@ description: "결정적·비결정적 공간 복잡도 계층인 PSPACE와 NPSPA
 
 지금까지는 컴퓨터 연산에 걸리는 "시간(Time)"의 제약을 위주로 보았다면, 이번에는 연산 중에 소모되는 메모리 즉 **"공간(Space)"**의 제약을 위주로 분석하는 공간 복잡도 계층을 다룹니다.
 
-이번 18번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-18-pspace-completeness.pdf)에서는 비결정론이 공간 사용에 큰 영향을 주지 못한다는 **새비치 정리**를 배우고, 공간 복잡도 최고의 난제 집합인 **PSPACE-완전성**과 **TQBF 문제**를 공부하겠습니다.
+이번 18번째 강의와 강의 슬라이드에서는 비결정론이 공간 사용에 큰 영향을 주지 못한다는 **새비치 정리**를 배우고, 공간 복잡도 최고의 난제 집합인 **PSPACE-완전성**과 **TQBF 문제**를 공부하겠습니다.
 
 ---
 
@@ -27,7 +27,7 @@ description: "결정적·비결정적 공간 복잡도 계층인 PSPACE와 NPSPA
 시간 복잡도에서는 아직 $\text{P} = \text{NP}$인지 밝혀내지 못했지만, **공간 복잡도에서는 비결정론적 공간과 결정론적 공간이 정확히 일치함**이 수학적으로 증명되어 있습니다. 그 도구가 바로 **새비치 정리**입니다.
 
 ### 새비치 정리 (Savitch's Theorem)
-$$\text{NSPACE}(f(n)) \subseteq \text{SPACE}(f^2(n)) \quad (\text{단, } f(n) \ge n)$$
+$$\text{NSPACE}(f(n)) \subseteq \text{SPACE}(f^2(n)) \quad (\text{단, } f(n) \ge \log n)$$
 
 비결정적으로 작동하는 NSPACE 알고리즘은 결정적 튜링 머신으로 시뮬레이션할 때 **최대 제곱 배의 공간($f^2(n)$)**만 있으면 구현이 가능합니다.
 
@@ -38,7 +38,7 @@ $$\text{NSPACE}(f(n)) \subseteq \text{SPACE}(f^2(n)) \quad (\text{단, } f(n) \g
   3. 두 재귀 호출이 모두 참을 반환하는 $c_{\text{mid}}$가 발견되면 수락합니다.
 
 - **공간 복잡도 분석**:
-  최대 가치 있는 경로의 길이는 상태 설정의 수인 $t = d^{f(n)}$ ($d$는 상수)개입니다. 
+  고려해야 할 경로의 길이는 상태 설정의 수인 $t = d^{f(n)}$ ($d$는 상수)개입니다. 
   - 재귀 호출의 최대 깊이는 $\log t = O(f(n))$이 됩니다.
   - 각 재귀 단계마다 중간 설정 $c_{\text{mid}}$ 하나를 테이프에 기록해야 하므로 레벨당 $O(f(n))$ 공간이 듭니다.
   - 따라서 전체 공간 복잡도는 **$\text{깊이} \times \text{레벨당 공간} = O(f^2(n))$**이 됩니다.

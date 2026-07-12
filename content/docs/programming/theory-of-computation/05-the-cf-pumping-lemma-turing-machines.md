@@ -11,7 +11,7 @@ description: "문맥 자유 언어(CFL)의 한계를 증명하는 CFL 펌핑 렘
 
 하지만 스택을 단 1개만 사용하는 오토마타 역시 한계가 존재합니다. 예를 들어, 0과 1의 개수를 맞춰주던 스택은 세 번째 문자인 2의 개수까지 동시에 세어줄 수 없습니다.
 
-이번 5번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-05-the-cf-pumping-lemma-turing-machines.pdf)에서는 **문맥 자유 언어(CFL)의 펌핑 렘마**를 이용해 이러한 한계를 증명하고, 마침내 현대 컴퓨터의 수학적 모태인 **튜링 머신(Turing Machine)**의 막을 올립니다.
+이번 5번째 강의와 강의 슬라이드에서는 **문맥 자유 언어(CFL)의 펌핑 렘마**를 이용해 이러한 한계를 증명하고, 마침내 현대 컴퓨터의 수학적 모태인 **튜링 머신(Turing Machine)**의 막을 올립니다.
 
 ---
 

@@ -11,7 +11,7 @@ description: "컴퓨터 과학 역사상 최초로 SAT 문제의 NP-완전성(NP
 
 NP 클래스에 속한 모든 문제들을 다항 시간 내에 변환하여 풀 수 있는 **"NP에서 가장 어려운 문제들의 집합"**을 **NP-완전(NP-Complete)** 클래스라고 부릅니다. 만약 NP-완전 문제 중 단 하나라도 다항 시간(P 클래스) 내에 풀린다면, $\text{P} = \text{NP}$가 됨이 보장됩니다.
 
-이번 16번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-16-cook-levin-theorem.pdf)에서는 전산학 역사상 가장 중요하고 아름다운 증명인 **쿡-레빈 정리(Cook-Levin Theorem)**를 통해 만족 가능성 문제(SAT)가 최초의 NP-완전 문제임을 입증해 보겠습니다.
+이번 16번째 강의와 강의 슬라이드에서는 전산학 역사상 가장 중요하고 아름다운 증명인 **쿡-레빈 정리(Cook-Levin Theorem)**를 통해 만족 가능성 문제(SAT)가 최초의 NP-완전 문제임을 입증해 보겠습니다.
 
 ---
 

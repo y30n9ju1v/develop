@@ -11,7 +11,7 @@ description: "무한의 크기를 비교하는 게오르크 칸토어의 대각�
 
 그렇다면 **"이 세상에 존재하는 모든 논리적 문제들은 전부 컴퓨터(튜링 머신)로 풀 수 있을까?"**라는 의문이 생깁니다.
 
-이번 8번째 강의와 [강의 슬라이드](file:///Users/yeongjun/Develops/develop/static/references/theory-of-computation/lecture-08-undecidability.pdf)에서는 수학에서 무한의 크기를 비교할 때 사용되는 **대각선 논법**을 배우고, 컴퓨터 과학 최대의 한계선인 **정지 문제(Halting Problem)의 판정 불가능성**을 증명합니다.
+이번 8번째 강의와 강의 슬라이드에서는 수학에서 무한의 크기를 비교할 때 사용되는 **대각선 논법**을 배우고, 컴퓨터 과학 최대의 한계선인 **정지 문제(Halting Problem)의 판정 불가능성**을 증명합니다.
 
 ---
 
