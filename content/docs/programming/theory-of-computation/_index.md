@@ -28,5 +28,10 @@ MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반
 - **[16. 쿡-레빈 정리(Cook-Levin Theorem)와 SAT 문제의 NP-완전성 증명](16-cook-levin-theorem/)** — 최초의 NP-완전(NP-Complete) 문제인 SAT의 쿡-레빈 정리 증명 과정, NTM 연산을 논리식 격자판으로 시뮬레이션하는 태블로(Tableau) 및 2x3 윈도우 합법성 규칙, 그리고 3SAT의 NP-완전성 증명
 - **[17. 공간 복잡도(Space Complexity)와 다항 공간 클래스 PSPACE, Savitch 정리](17-space-complexity/)** — 메모리 공간을 기준으로 하는 공간 복잡도 개요, 시간 복잡도와의 관계, 다항 공간 클래스 PSPACE 및 TQBF 문제 분석, 그리고 비결정적 공간을 결정론적으로 시뮬레이션하여 NPSPACE = PSPACE를 입증한 Savitch 정리와 그 작동 원리
 - **[18. 공간 복잡도(Space Complexity)와 새비치 정리, 그리고 TQBF의 PSPACE-완전성](18-pspace-completeness/)** — PSPACE = NPSPACE 임을 증명하는 새비치 정리(Savitch's Theorem), PSPACE-완전성(PSPACE-Completeness) 및 다항 시간 환원의 의의, 그리고 TQBF의 PSPACE-완전성 증명 과정에서 식의 길이를 줄이는 양화사 융합 트릭
+- **[19. 게임, 일반화된 지리(Generalized Geography) 및 로그 공간(Logspace) 복잡도](19-games-generalized-geography/)** — QBF 논리식을 두 플레이어의 대결로 묘사하는 포뮬러 게임(Formula Game)을 통해 게임과 복잡도의 관계를 이해하고, Generalized Geography의 PSPACE-완전성 증명 및 입력 외에 O(log n) 작업 메모리만 사용하는 로그 공간 복잡도(L, NL)의 다양한 성질을 학습
+- **[20. 로그 공간 복잡도 클래스 L과 NL, 그리고 NL = coNL의 기적](20-l-and-nl-nl-conl/)** — 입력 데이터를 상수 개수 포인터로 나타내는 로그 공간(L, NL) 개념, 설정 그래프를 활용한 L, NL ⊆ P 유도, 로그 공간 환원 및 PATH의 NL-완전성 입증, 그리고 NL = coNL(임머만-셀레프체니 정리)의 완벽 증명
+- **[21. 계층 정리(Hierarchy Theorems)와 NL = coNL 정리의 완결](21-hierarchy-theorems/)** — 도달 가능한 노드 수 카운팅 기법을 통한 NL = coNL(임머만-셀레프체니 정리) 증명 완결, 더 많은 시간과 공간이 주어지면 더 복잡한 문제를 풀 수 있음을 대각선 논법으로 보이는 시간 및 공간 계층 정리(Time/Space Hierarchy Theorems)의 상세 분석
+
+
 
 
