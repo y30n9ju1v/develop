@@ -35,6 +35,7 @@ MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반
 - **[23. 확률적 계산(Probabilistic Computation)과 다항 시간 클래스 BPP](23-probabilistic-computation/)** — 무작위성을 계산의 도구로 도입한 확률적 튜링 머신(PTM), 다항 시간 오차 확률 제어 클래스 BPP와 다수결 증폭 정리(Amplification Lemma), 분기 프로그램(BP) 및 읽기 한 번 분기 프로그램(ROBP)의 동치성 검정을 대수적 다항식 대입법으로 해결하는 아리스메티제이션(Arithmetization) 기법
 - **[24. 1회 읽기 분기 프로그램(ROBP)의 동치성 검정과 BPP](24-probabilistic-computation-cont/)** — ROBP 동치성 검정을 위한 BPP 알고리즘 설계, 부울 논리를 다항식으로 매핑하는 산술적 라벨링(Arithmetical Labeling) 기법, 그리고 대입 오차 확률을 억제하는 슈왈츠-지펠 정리(Schwartz-Zippel Theorem)의 상세 분석
 - **[25. 대화형 증명 시스템(Interactive Proof Systems)과 클래스 IP](25-interactive-proofs/)** — 다항 시간 확률 검증관(Verifier)과 무한 연산 증명관(Prover)의 질문과 대화식 검증 모델 클래스 IP, 그래프 비동형성 문제($\overline{\text{ISO}}$)의 IP 프로토콜 및 오차 통계적 안전성 증명, 그리고 coNP ⊆ IP 입증을 위해 식의 참인 대입 가짓수를 세는 #SAT 문제와 지수식 트리 탐색 병목의 개요
+- **[26. coNP가 IP의 부분집합임을 증명하기와 #SAT 문제](26-conp-and-ip/)** — 만족 가능성 대입 개수 세기 문제(#SAT)의 정의와 coNP-난해성, 무작위 포인트 대입 및 다항식을 활용한 대화형 검증 프로토콜, 슈왈츠-지펠(Schwartz-Zippel) 정리를 통한 보안성 보장, 그리고 coNP ⊆ IP 및 IP = PSPACE(샤미르의 정리) 유도와 계산 이론의 종장
 
 
 
