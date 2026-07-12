@@ -20,3 +20,4 @@ MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반
 - **[7. 오토마타와 문법의 판정성(Decidability) 및 유니버설 튜링 머신(UTM)](07-decision-problems-for-automata-and-grammars/)** — DFA, NFA, CFG의 수락성/공백성/동치성 판정 가능성 및 촘스키 정규형(CNF) 활용, 현대 내장 프로그램 컴퓨터의 모태가 된 유니버설 튜링 머신(UTM)의 작동 원리
 - **[8. 대각선 논법과 정지 문제(Halting Problem)의 판정 불가능성](08-undecidability/)** — 무한의 크기를 규명하는 게오르크 칸토어의 대각선 논법(Diagonalization), 프로그램의 개수적 한계 증명, 수락 문제($A_{\text{TM}}$) 및 정지 문제(Halting Problem)의 판정 불가능성(Undecidability) 증명
 - **[9. 매핑 환원(Mapping Reducibility)과 프로그램 분석의 한계](09-reducibility/)** — 환원 개념의 형식 수학 정의인 매핑 환원($\le_m$), 튜링 머신 공백성 문제($E_{\text{TM}}$)의 판정/인식 불가능 증명, 그리고 두 프로그램의 일치성을 판별할 수 없는 동치성 문제($EQ_{\text{TM}}$)의 비인식성 증명
+- **[10. 계산 이력 방법(Computation History)과 LBA·PCP·CFG의 난제들](10-the-computation-history-method/)** — 실행 로그를 사용하는 계산 이력 방법의 원리, LBA 공백성 문제($E_{\text{LBA}}$)의 판정 불가능 증명, 도미노 매칭 퍼즐인 포스트 대응 문제(PCP)의 불가능성 증명 및 CFG 전역 매칭 문제($ALL_{\text{CFG}}$)의 판정 불가능 증명
