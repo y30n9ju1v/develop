@@ -24,6 +24,9 @@ MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반
 - **[11. 재귀 정리(Recursion Theorem)와 괴델의 불완전성 정리](11-the-recursion-theorem-and-logic/)** — 프로그램이 자기 설계도를 읽어들이는 클레이니 재귀 정리, 콰인(Quine)의 구성, 고정점 정리(Fixed-point Theorem) 및 괴델의 제1불완전성 정리 증명
 - **[12. 시간 복잡도(Time Complexity)와 다항 시간 클래스 P](12-time-complexity/)** — 계산 복잡도 이론 개요 및 Big-O 표기법, 하드웨어 모델에 따른 연산 시간 분석 및 다항식적 관계(Polynomial overhead), 그리고 다항 시간 해결 가능 문제 집합인 클래스 P(Class P)의 정의와 PATH vs HAMPATH 문제 소개
 - **[14. 클래스 NP와 SAT 문제, 그리고 다항 시간 환원(Polynomial-time Reducibility)](14-p-and-np-sat-poly-time-reducibility/)** — 비결정적 다항 시간 클래스 NP와 정답 인증서(Certificate), 동적 계획법(DP)을 사용한 $A_{\text{CFG}} \in \text{P}$ 증명, 논리 만족 가능성 문제(SAT), 그리고 복잡도 하한선을 입증하는 다항 시간 환원($\le_{\text{P}}$)의 정의
-- **[16. 쿡-레빈 정리(Cook-Levin Theorem)와 SAT 문제의 NP-완전성 증명](16-cook-levin-theorem/)** — 최초의 NP-완전(NP-Complete) 문제인 SAT의 쿡-레빈 정리 증명 과정, NTM 연산을 논리식 격자판으로 시뮬레이션하는 태블로(Tableau) 및 2x3 윈도우 합법성 규칙, 그리고 3SAT의 NP-완전성 증명
 - **[15. NP-완전성(NP-Completeness)과 Clique, HamPath 문제](15-np-completeness/)** — NP 클래스 내에서 가장 어려운 핵심 문제인 NP-완전성의 수학적 정의와 의의, 최초의 NP-완전 문제인 SAT와 이를 응용해 3SAT 문제를 CLIQUE 및 HAMPATH로 다항 시간 환원(Reduction)하는 상세 증명과 그 의의
+- **[16. 쿡-레빈 정리(Cook-Levin Theorem)와 SAT 문제의 NP-완전성 증명](16-cook-levin-theorem/)** — 최초의 NP-완전(NP-Complete) 문제인 SAT의 쿡-레빈 정리 증명 과정, NTM 연산을 논리식 격자판으로 시뮬레이션하는 태블로(Tableau) 및 2x3 윈도우 합법성 규칙, 그리고 3SAT의 NP-완전성 증명
+- **[17. 공간 복잡도(Space Complexity)와 다항 공간 클래스 PSPACE, Savitch 정리](17-space-complexity/)** — 메모리 공간을 기준으로 하는 공간 복잡도 개요, 시간 복잡도와의 관계, 다항 공간 클래스 PSPACE 및 TQBF 문제 분석, 그리고 비결정적 공간을 결정론적으로 시뮬레이션하여 NPSPACE = PSPACE를 입증한 Savitch 정리와 그 작동 원리
+- **[18. 공간 복잡도(Space Complexity)와 새비치 정리, 그리고 TQBF의 PSPACE-완전성](18-pspace-completeness/)** — PSPACE = NPSPACE 임을 증명하는 새비치 정리(Savitch's Theorem), PSPACE-완전성(PSPACE-Completeness) 및 다항 시간 환원의 의의, 그리고 TQBF의 PSPACE-완전성 증명 과정에서 식의 길이를 줄이는 양화사 융합 트릭
+
 
