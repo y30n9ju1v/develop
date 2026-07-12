@@ -31,6 +31,9 @@ MIT 18.404J Theory of Computation(Michael Sipser 교수) 강의 노트를 기반
 - **[19. 게임, 일반화된 지리(Generalized Geography) 및 로그 공간(Logspace) 복잡도](19-games-generalized-geography/)** — QBF 논리식을 두 플레이어의 대결로 묘사하는 포뮬러 게임(Formula Game)을 통해 게임과 복잡도의 관계를 이해하고, Generalized Geography의 PSPACE-완전성 증명 및 입력 외에 O(log n) 작업 메모리만 사용하는 로그 공간 복잡도(L, NL)의 다양한 성질을 학습
 - **[20. 로그 공간 복잡도 클래스 L과 NL, 그리고 NL = coNL의 기적](20-l-and-nl-nl-conl/)** — 입력 데이터를 상수 개수 포인터로 나타내는 로그 공간(L, NL) 개념, 설정 그래프를 활용한 L, NL ⊆ P 유도, 로그 공간 환원 및 PATH의 NL-완전성 입증, 그리고 NL = coNL(임머만-셀레프체니 정리)의 완벽 증명
 - **[21. 계층 정리(Hierarchy Theorems)와 NL = coNL 정리의 완결](21-hierarchy-theorems/)** — 도달 가능한 노드 수 카운팅 기법을 통한 NL = coNL(임머만-셀레프체니 정리) 증명 완결, 더 많은 시간과 공간이 주어지면 더 복잡한 문제를 풀 수 있음을 대각선 논법으로 보이는 시간 및 공간 계층 정리(Time/Space Hierarchy Theorems)의 상세 분석
+- **[22. 증명 가능하게 다루기 힘든 문제(Provably Intractable)와 오라클, P vs NP의 장벽](22-provably-intractable-problems-oracles/)** — P와 PSPACE를 벗어나는 복잡도 계층(EXPTIME, EXPSPACE), 거듭제곱을 허용한 정규식 동치성 문제($EQ_{\text{REX}\uparrow}$)의 EXPSPACE-완전성 증명, 오라클 TM의 정의, 그리고 상대화(Relativization)의 한계와 BGS 정리가 제시한 P vs NP의 수학적 한계 분석
+- **[23. 확률적 계산(Probabilistic Computation)과 다항 시간 클래스 BPP](23-probabilistic-computation/)** — 무작위성을 계산의 도구로 도입한 확률적 튜링 머신(PTM), 다항 시간 오차 확률 제어 클래스 BPP와 다수결 증폭 정리(Amplification Lemma), 분기 프로그램(BP) 및 읽기 한 번 분기 프로그램(ROBP)의 동치성 검정을 대수적 다항식 대입법으로 해결하는 아리스메티제이션(Arithmetization) 기법
+
 
 
 
