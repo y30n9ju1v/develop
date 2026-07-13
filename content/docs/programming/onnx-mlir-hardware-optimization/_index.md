@@ -19,3 +19,4 @@ ONNX로 export된 딥러닝 모델 그래프는 "무엇을 계산하는지"만 �
 4. **[linalg dialect로 낮추기](04-lowering-to-linalg-and-tiling/)** — 반복문 구조가 드러나는 linalg.generic, 캐시 크기에 맞춘 타일링, 텐서에서 메모리로의 버퍼화
 5. **[벡터화](05-vectorization/)** — 타일 안쪽 반복문이 하드웨어의 SIMD 폭에 맞춰 vector dialect 명령으로 접히는 과정
 6. **[하드웨어별 최종 낮추기: GPU 커널과 커스텀 NPU 명령](06-hardware-backend-lowering/)** — 같은 벡터 표현이 GPU의 스레드 병렬성과 커스텀 가속기의 고정 크기 MAC 배열로 갈라지는 과정, 그리고 양자화가 더하는 새로운 결정
+7. **[더 무거운 연산자: 대형 MatMul과 Attention의 최적화](07-heavier-operators-matmul-attention/)** — 다단계 타일링, softmax의 reduction 병렬화, FlashAttention 스타일의 공격적 융합, 동적 shape, 텐서 코어 매핑까지 — 1~6편의 원리가 더 무거운 연산자로 어떻게 확장되는지
