@@ -64,7 +64,7 @@ $$A_{\text{CFG}} = \{ \langle G, w \rangle \mid G\text{는 CFG이고, } w \in L(
 - **따라서 모든 문맥 자유 언어(CFL)는 튜링 판정 가능(Decidable)합니다.**
 
 ### B. CFG 공백성 문제 ($E_{\text{CFG}}$)
-$$E_{\text{CFG}} = \{ \langle G \rangle \mid G\text{는 CFG이고, } L(G) = ∅ \}$$
+$$E_{\text{CFG}} = \{ \langle G \rangle \mid G\text{는 CFG이고, } L(G) = \emptyset \}$$
 - **판정 알고리즘**: 오토마타와 반대로 **터미널 기호에서부터 역방향으로** 올라오며 마킹하는 방식을 취합니다.
   1. 문법에 등장하는 모든 터미널 문자들에 마크를 표시합니다.
   2. 우변에 있는 모든 문자들($B_1 \dots B_k$)이 마크되어 있는 규칙 $A \to B_1 \dots B_k$가 있다면, 좌변의 변수 $A$에도 마크를 표시합니다. (새롭게 마크되는 변수가 없을 때까지 반복)
