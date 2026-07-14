@@ -93,6 +93,7 @@ Python 리플레이 스크립트
 - [py123d → NVIDIA NuRec(NCore)](../py123d-to-nurec/): nuScenes·Waymo 같은 공개 데이터셋이나 사내 데이터를 NCore V4로 변환해 NuRec 파이프라인에 실제로 넣는 방법.
 - [CARLA 시뮬레이터와 DORA 연동하기](../../dora/dora-rs-simulator-integration/): NuRec 없이 CARLA 자체 렌더링만으로 DORA와 클로즈 루프를 구성하는 기본 구조 — NuRec은 이 구조의 "그림을 그리는 부분"만 실제 장면으로 바꿔 끼우는 것입니다.
 - [Arrow로 관통하는 E2E 회귀 테스트 파이프라인](../closed-loop-regression-with-dora/): 여기까지 쌓은 조각들이 py123d → FiftyOne → DORA → Rerun으로 이어지는 하나의 회귀 테스트 파이프라인으로 합쳐지는 지점입니다.
+- [Sim-to-Real 검증 방법론](../sim-to-real-validation-methodology/): 이 글이 다룬 재구성이 "사진처럼 정확한가"를 넘어, 그 위에서 낸 시뮬레이션 성능이 실제로 실차 성능을 예측하는지를 정량적으로 검증하는 방법을 다룹니다.
 
 ---
 
