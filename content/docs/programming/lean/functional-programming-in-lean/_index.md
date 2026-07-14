@@ -21,3 +21,4 @@ Lean 4 공식 교재 *[Functional Programming in Lean](https://lean-lang.org/fun
 - **Ch.7** [의존 타입으로 프로그래밍](ch07/)
 - **Ch.8** [프로그래밍, 증명, 성능](ch08/)
 - **Ch.9** [다음 단계](ch09/)
+- [감사의 말](acknowledgments/)
