@@ -18,8 +18,9 @@ title: "데이터 인프라"
 7. **[py123d 입문: 자율주행 데이터셋의 공통어](py123d-for-beginners/)** — nuScenes, Waymo, Argoverse 2 등을 단 하나의 API로 다루는 py123d의 설계 원리와 사용법을 소개합니다.
 8. **[파편화된 자율주행 데이터를 하나로: py123d + FiftyOne + Rerun](autonomous-data-pipeline/)** — 파편화된 데이터셋을 py123d로 표준화하고, FiftyOne으로 큐레이션하고, Rerun으로 시각화하는 파이프라인을 소개합니다.
 9. **[py123d 커스텀 파서 작성법](py123d-dataset-conversion/)** — nuScenes·Waymo·AV2 변환 코드를 분석하고, 사내 데이터셋용 `BaseLogParser`를 직접 구현합니다.
-10. **[py123d → NVIDIA NuRec(NCore): 자율주행 데이터를 신경 재구성 파이프라인으로](py123d-to-nurec/)** — py123d 표준 포맷을 NCore V4로 변환해 NuRec 신경 재구성 파이프라인에 연결하는 방법을 설명합니다.
-11. **[Arrow로 관통하는 E2E 회귀 테스트 파이프라인](closed-loop-regression-with-dora/)** — py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache Arrow 기반 회귀 테스트 구조를 소개합니다.
-12. **[Arrow Flight: gRPC로 이기종 PC 간 데이터를 Zero-Copy에 가깝게 전송하기](arrow-flight-network-transfer/)** — 같은 머신 안에서만 통하던 Arrow의 Zero-Copy를, gRPC 기반 Arrow Flight가 네트워크 너머로 어떻게 확장하는지 정리합니다.
+10. **[NCore V4 입문: NuRec가 읽는 컴포넌트 기반 센서 데이터 포맷](ncore-v4-for-beginners/)** — NVIDIA NCore의 컴포넌트 기반 V4 포맷 구조, Zarr 저장 방식, 카메라/라이다 센서 모델, Python API로 시퀀스를 읽는 방법을 정리합니다.
+11. **[py123d → NVIDIA NuRec(NCore): 자율주행 데이터를 신경 재구성 파이프라인으로](py123d-to-nurec/)** — py123d 표준 포맷을 NCore V4로 변환해 NuRec 신경 재구성 파이프라인에 연결하는 방법을 설명합니다.
+12. **[Arrow로 관통하는 E2E 회귀 테스트 파이프라인](closed-loop-regression-with-dora/)** — py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache Arrow 기반 회귀 테스트 구조를 소개합니다.
+13. **[Arrow Flight: gRPC로 이기종 PC 간 데이터를 Zero-Copy에 가깝게 전송하기](arrow-flight-network-transfer/)** — 같은 머신 안에서만 통하던 Arrow의 Zero-Copy를, gRPC 기반 Arrow Flight가 네트워크 너머로 어떻게 확장하는지 정리합니다.
 
 수천 개 시나리오를 클라우드에서 병렬 실행하는 오케스트레이션은 별도 시리즈로 분리했습니다. **[시뮬레이션 오케스트레이션](../simulation/)**을 참고하세요.

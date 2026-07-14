@@ -9,6 +9,7 @@ description: "py123d로 표준화한 자율주행 데이터를 NVIDIA NuRec(NCor
 
 > 이 글은 [py123d 커스텀 파서 작성법](../py123d-dataset-conversion/)을 먼저 읽고 오면 좋습니다.
 > py123d의 `BaseLogParser` 구조와 `ParsedLidar`, `ParsedCamera` 패턴을 알고 있다고 가정합니다.
+> NCore V4 포맷 자체(컴포넌트 구조, Zarr 저장 방식, 센서 모델)가 처음이라면 [NCore V4 입문](../ncore-v4-for-beginners/)을 먼저 보는 걸 권합니다 — 이 글은 그 포맷을 py123d에서 변환해 넣는 방법에 집중합니다.
 
 ---
 
