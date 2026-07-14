@@ -8,13 +8,13 @@ description: "Reality Gap과 Performance Gap을 구분하는 MCRPG 방법론, 3�
 ---
 
 > 이 글은 [Closing Sim2Real Gaps: A Versatile Development and Validation Platform for Autonomous Driving Stacks](https://www.mdpi.com/1424-8220/26/4/1338)(Sensors, 2026)와 [NeuroNCAP: Photorealistic Closed-loop Safety Testing for Autonomous Driving](https://arxiv.org/abs/2404.07762)를 참고해 작성했습니다.
-> 이 시리즈에서 다룬 [NCore V4](ncore-v4-for-beginners/)·[NuRec](nurec-neural-reconstruction-for-beginners/)의 재구성 파이프라인과 [DORA 회귀 테스트](../dora/dora-rs-av-regression-testing/)의 클로즈 루프 구조를 이미 알고 있다는 걸 전제로 씁니다.
+> 이 시리즈에서 다룬 [NCore V4](../data-infra/ncore-v4-for-beginners/)·[NuRec](../data-infra/nurec-neural-reconstruction-for-beginners/)의 재구성 파이프라인과 [DORA 회귀 테스트](../dora/dora-rs-av-regression-testing/)의 클로즈 루프 구조를 이미 알고 있다는 걸 전제로 씁니다.
 
 ---
 
 ## 1. 문제: 시뮬레이션을 통과했다고 실차에서도 통과할까
 
-[NuRec 입문](nurec-neural-reconstruction-for-beginners/)에서 3D Gaussian Splatting으로 실제 주행 로그를 사진처럼 재구성할 수 있다는 걸 봤고, [DORA 회귀 테스트](../dora/dora-rs-av-regression-testing/)에서 그 재구성된 환경 위에서 클로즈 루프 테스트를 돌리는 파이프라인까지 봤습니다. 그런데 이 파이프라인이 완성되었다고 해서 "시뮬레이션에서 통과한 모델은 실차에서도 안전하다"고 바로 말할 수 있을까요?
+[NuRec 입문](../data-infra/nurec-neural-reconstruction-for-beginners/)에서 3D Gaussian Splatting으로 실제 주행 로그를 사진처럼 재구성할 수 있다는 걸 봤고, [DORA 회귀 테스트](../dora/dora-rs-av-regression-testing/)에서 그 재구성된 환경 위에서 클로즈 루프 테스트를 돌리는 파이프라인까지 봤습니다. 그런데 이 파이프라인이 완성되었다고 해서 "시뮬레이션에서 통과한 모델은 실차에서도 안전하다"고 바로 말할 수 있을까요?
 
 정확히 이 질문에 답하려는 최근 연구들이, 시뮬레이션-실차 간극을 하나의 뭉뚱그린 개념이 아니라 **서로 다른 원인을 가진 두 개의 별도 간극**으로 나눠서 다룹니다.
 
@@ -78,7 +78,7 @@ NeuroNCAP은 NeRF 기반 시뮬레이터로 실제 주행 센서 데이터를 �
 
 | MCRPG 단계 | 이 시리즈에서 대응하는 것 |
 |---|---|
-| 1단계: Digital Twin | [NCore V4](ncore-v4-for-beginners/) 포맷으로 담은 실도로 로그를 [NuRec](nurec-neural-reconstruction-for-beginners/)이 3D Gaussian Splatting으로 재구성 |
+| 1단계: Digital Twin | [NCore V4](../data-infra/ncore-v4-for-beginners/) 포맷으로 담은 실도로 로그를 [NuRec](../data-infra/nurec-neural-reconstruction-for-beginners/)이 3D Gaussian Splatting으로 재구성 |
 | 2단계: Parallel Execution | [DORA-CARLA/NuRec 클로즈 루프 연동](../dora/dora-rs-simulator-integration/)에서 재생과 실시간 센서 스트림을 나란히 비교 |
 | 3단계: Real-World | [DORA를 실차에 올리기](../dora/dora-rs-real-hardware-deployment/)에서 다룬 watchdog·꼬리 지연 검증이 실차 배포 이후의 안전 계층 |
 
@@ -93,3 +93,5 @@ NeuroNCAP은 NeRF 기반 시뮬레이터로 실제 주행 센서 데이터를 �
 - **MNCC** 같은 정량 지표가 "패턴이 얼마나 비슷한가"를 시간 정렬까지 고려해 측정하고, 여기에 안전·승차감·효율을 다루는 성능 지표를 더한 이중 체계로 검증합니다.
 - **NeuroNCAP**은 오픈 루프에서 잘하는 E2E 모델이 클로즈 루프 안전 시나리오에서는 심각하게 실패할 수 있다는 걸 실제로 보여줘서, Performance Gap이 시뮬레이션-실차 사이뿐 아니라 같은 시뮬레이션의 오픈/클로즈 루프 사이에도 존재한다는 걸 확인시켜 줍니다.
 - 이 시리즈가 이미 쌓은 NCore/NuRec 재구성과 DORA 클로즈 루프 파이프라인 위에, MNCC 같은 정량적 Reality Alignment 지표를 CI 회귀 테스트에 추가하는 것이 다음으로 채워야 할 조각입니다.
+
+이 글이 "시뮬레이션 성능이 실차 성능을 예측하는가"를 다뤘다면, 그다음 질문은 "그래서 이 검증 결과가 안전하다는 주장으로 이어지는가"입니다. 이 질문에 답하는 업계 표준 프레임워크(SOTIF, ISO 21448)는 [별도 글](../sotif-safety-validation-for-e2e-av/)에서 다룹니다.

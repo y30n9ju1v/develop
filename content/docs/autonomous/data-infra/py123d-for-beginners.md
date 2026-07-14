@@ -46,7 +46,7 @@ description: "nuScenes, Waymo, Argoverse 2 등 파편화된 자율주행 데이�
 
 ## 3. 모달리티: py123d가 다루는 데이터 종류
 
-이 시리즈의 다른 글들(예: [py123d → NuRec](py123d-to-nurec/))은 `EgoStateSE3`, `ParsedCamera`, `ParsedLidar`, `BoxDetectionsSE3` 네 가지만 주로 다뤘는데, 이건 "특정 파이프라인(NuRec 재구성)에 필요한 최소 요건"으로 고른 부분집합입니다. [py123d GitHub 저장소](https://github.com/kesai-labs/py123d)의 README·체인지로그를 보면 실제로는 이보다 훨씬 다양한 모달리티를 다룹니다.
+이 시리즈의 다른 글들(예: [py123d → NuRec](../py123d-to-nurec/))은 `EgoStateSE3`, `ParsedCamera`, `ParsedLidar`, `BoxDetectionsSE3` 네 가지만 주로 다뤘는데, 이건 "특정 파이프라인(NuRec 재구성)에 필요한 최소 요건"으로 고른 부분집합입니다. [py123d GitHub 저장소](https://github.com/kesai-labs/py123d)의 README·체인지로그를 보면 실제로는 이보다 훨씬 다양한 모달리티를 다룹니다.
 
 | 분류 | 클래스 | 내용 |
 |---|---|---|

@@ -23,6 +23,6 @@ title: "데이터 인프라"
 12. **[py123d → NVIDIA NuRec(NCore): 자율주행 데이터를 신경 재구성 파이프라인으로](py123d-to-nurec/)** — py123d 표준 포맷을 NCore V4로 변환해 NuRec 신경 재구성 파이프라인에 연결하는 방법을 설명합니다.
 13. **[Arrow로 관통하는 E2E 회귀 테스트 파이프라인](closed-loop-regression-with-dora/)** — py123d → FiftyOne → DORA → Rerun으로 이어지는 Apache Arrow 기반 회귀 테스트 구조를 소개합니다.
 14. **[Arrow Flight: gRPC로 이기종 PC 간 데이터를 Zero-Copy에 가깝게 전송하기](arrow-flight-network-transfer/)** — 같은 머신 안에서만 통하던 Arrow의 Zero-Copy를, gRPC 기반 Arrow Flight가 네트워크 너머로 어떻게 확장하는지 정리합니다.
-15. **[Sim-to-Real 검증 방법론](sim-to-real-validation-methodology/)** — Reality Gap과 Performance Gap의 구분, MCRPG의 3단계 검증(Digital Twin/Parallel Execution/Real-World), MNCC 정량 지표, 그리고 오픈 루프 통과가 클로즈 루프 안전성을 보장하지 않는다는 NeuroNCAP의 실증 사례를 정리합니다.
+이 시리즈가 쌓은 파이프라인의 검증·안전성 평가 방법론은 별도 시리즈로 분리했습니다. **[안전성 검증](../safety-validation/)**을 참고하세요.
 
 수천 개 시나리오를 클라우드에서 병렬 실행하는 오케스트레이션은 별도 시리즈로 분리했습니다. **[시뮬레이션 오케스트레이션](../simulation/)**을 참고하세요.
