@@ -170,6 +170,21 @@ int main() {
 
 `read_dora_input_data`가 반환하는 포인터가 Arrow 버퍼를 직접 가리킨다는 점도 짚어야 합니다 — Python의 `to_numpy()`가 그랬듯, 이 포인터도 데이터를 복사하지 않고 원본 메모리를 그대로 가리키는 뷰입니다. 다만 C++에서는 이 포인터가 `free_dora_event`를 호출하는 순간 더 이상 유효하지 않다는 걸 프로그래머가 직접 기억해야 합니다 — Rust의 소유권 검사기나 Python의 GC가 대신 지켜주지 않는 안전성입니다.
 
+> **TIP: `free_dora_event`를 매번 손으로 호출하는 대신 RAII로 감싸기**
+>
+> 위 코드처럼 이벤트를 다 쓴 뒤 `free_dora_event(event)`를 직접 호출하는 방식은, 처리 도중 `continue`나 예외로 그 줄을 건너뛰면 바로 누수로 이어집니다. 모던 C++이라면 `std::unique_ptr`에 커스텀 디리터(deleter)를 지정해서, 스코프를 벗어나는 순간 자동으로 해제되게 만드는 게 더 안전합니다.
+>
+> ```cpp
+> using DoraEventPtr = std::unique_ptr<void, decltype(&free_dora_event)>;
+>
+> DoraEventPtr event(dora_next_event(dora_context), free_dora_event);
+> if (!event) { /* 컨텍스트 종료 */ }
+> // ... event.get()으로 내용을 읽어 처리 ...
+> // 함수를 어떻게 빠져나가든(정상 반환, break, 예외) event가 스코프를 벗어나며 자동으로 free_dora_event가 호출됨
+> ```
+>
+> 이 패턴은 Rust가 스코프를 벗어날 때 자동으로 자원을 정리해주는 것과 정확히 같은 효과를 C++에서 얻는 방법입니다 — `free_dora_context`도 같은 방식으로 `unique_ptr`에 담아두면, 이 절에서 지적한 "반납을 깜빡하는" 실수 자체가 컴파일러 수준에서 구조적으로 방지됩니다.
+
 ---
 
 ## 6. 파이프라인을 YAML로 엮기
