@@ -85,7 +85,7 @@ def factIterMeasured (product counter maxCount : Nat) : Nat :=
 termination_by maxCount + 1 - counter
 ```
 
-두 방식 모두 `partial`을 떼어내지만, 만들어내는 프로세스의 모양(반복적, $\Theta(1)$ 공간)은 전혀 달라지지 않습니다 — 정확히 SICP가 짚는 지점입니다. (Lean/Mathlib 버전에 따라 `termination_by` 뒤에 `decreasing_by omega` 같은 보조 증명이 추가로 필요할 수 있습니다.)
+두 방식 모두 `partial`을 떼어내지만, 만들어내는 프로세스의 모양(반복적, $\Theta(1)$ 공간)은 전혀 달라지지 않습니다 — 정확히 SICP가 짚는 지점입니다. (Lean/Mathlib 버전에 따라 `termination_by` 뒤에 `decreasing_by omega` 같은 보조 증명이 추가로 필요할 수 있습니다. `omega`는 임의의 정성적 통찰 없이도 `maxCount + 1 - counter`처럼 자연수·정수에 대한 선형 부등식(linear arithmetic)만으로 이루어진 감소 조건을 기계적으로 검증하는 결정 절차(decision procedure)입니다 — "이 측정값이 매 호출마다 실제로 줄어드는가"라는 산술적 사실을 사람이 증명할 필요 없이 `omega`가 대신 풀어줍니다.)
 
 **연습문제 1.9 (Lean 버전)**: 아래 두 절차는 각각 `inc`(1 증가)와 `dec`(1 감소)만으로 두 양의 정수를 더하는 방법을 정의합니다. 각각이 `4 + 5`를 계산할 때 어떤 모양의 프로세스를 만드는지 손으로 추적해 보고, 재귀적인지 반복적인지 판단해 보세요.
 

@@ -121,6 +121,27 @@ def primeSumPairDo (list1 list2 : List Nat) : Amb (Nat × Nat) := do
 
 Why `Amb` is a monad becomes visible just from the types now — `pure` and `bind` do exactly what SICP's `analyze-amb` does when it threads a success continuation from one clause to the next. `do` notation is only syntax for that threading; it changes nothing about what `ambBind` was already doing.
 
+### `Amb`와 `List` 모나드: 같은 의미, 다른 시점
+
+`primeSumPairDo`의 `do` 블록을 다시 보면, 이건 사실 `List` 모나드로 짠 것과 겉모습이 거의 똑같습니다.
+
+```lean
+def primeSumPairList (list1 list2 : List Nat) : List (Nat × Nat) := do
+  let a ← list1
+  let b ← list2
+  guard (isPrime (a + b))
+  pure (a, b)
+
+#eval primeSumPairList [1, 3, 5, 8] [20, 35, 110]
+-- [(1, 20), (1, 110), ...] 조건을 만족하는 모든 (a, b) 쌍
+```
+
+`List`의 `bind`(`xs.bind f = xs.flatMap f`)도 "각 원소마다 갈라져서 계속 이어간다"는 점에서 `ambBind`와 의미론적으로 동일한 일을 합니다 — 실제로 두 모나드 법칙(`pure`가 항등원처럼 동작하고, `bind`가 결합법칙을 만족하는 것)도 똑같이 성립합니다. 표준적으로 하스켈이나 Lean에서 비결정적 계산·백트래킹을 모델링하는 가장 흔한 방법이 바로 이 `List` 모나드이고, `Amb`가 하는 일은 근본적으로 그걸 **CPS(continuation-passing style)로 다시 쓴 것**이라고 봐도 됩니다.
+
+다만 둘 사이에 진짜 차이가 하나 있는데, 그건 의미가 아니라 **시점(eagerness)**입니다. `List` 모나드는 `bind`를 호출하는 순간 그 갈래에서 나올 수 있는 모든 경우의 수를 실제로 리스트에 다 채워 넣습니다 — `primeSumPairList`를 실행하면 조건을 만족하는 쌍을 전부 찾을 때까지 계산이 끝나지 않습니다. `Amb`는 반대입니다 — `succeed`/`fail` continuation 쌍 덕분에, `runFirst`가 첫 번째 성공을 받는 순간 나머지 탐색 경로는 아예 실행되지 않습니다. `list1`과 `list2`가 무한히 크더라도(또는 이번 글 앞부분에서 언급한 `anIntegerStartingFrom`처럼 끝이 없는 선택지라도), `Amb`는 첫 해를 찾을 때까지만 일하고 멈출 수 있지만, `List` 모나드는 애초에 리스트 자체를 유한하게 다 만들 수 있어야 계산이 끝납니다.
+
+이 "즉시 다 만드는 것 vs 필요한 만큼만 만드는 것"이라는 대비는 낯설지 않습니다 — [3.5절(Streams)](../3-5-streams/)에서 다룬 즉시 계산되는 `List`와 지연 계산되는 `Stream`의 관계와 정확히 같은 축입니다. `List` 모나드가 이 절의 `List (Nat × Nat)`처럼 모든 해를 미리 다 계산해두는 쪽이라면, `Amb`의 CPS 인코딩은 `Stream`이 그렇듯 "다음 것이 필요해질 때만 계산한다"는 지연성을 탐색이라는 문제에 적용한 것입니다 — 다른 자료구조(스트림)로 지연성을 얻었던 3.5절과, 다른 제어 흐름(continuation)으로 지연성을 얻는 이 절이 결국 같은 아이디어를 두 번 다른 방식으로 보여주는 셈입니다.
+
 ---
 
 ## 4.3.3. 되추적과 부작용 — `IO.Ref`가 다시 등장하는 곳
