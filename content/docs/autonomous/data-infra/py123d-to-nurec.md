@@ -383,6 +383,27 @@ NUSCENES_TO_PAIAV = {
 
 ## 8. 정리
 
+### 8.1 py123d → NCore 변환 시 채워야 할 것
+
+[NCore V4 입문](../ncore-v4-for-beginners/#10-변환에-꼭-필요한-데이터는-무엇인가)에서 다룬 "필수 등급"을 이 글의 변환 코드(5절)와 맞춰보면, py123d 모달리티가 정확히 어느 컴포넌트로, 어떤 등급으로 채워지는지가 이렇게 정리됩니다.
+
+| py123d 모달리티 | NCore 컴포넌트 | 필수 등급 | 출처 |
+|---|---|---|---|
+| `EgoStateSE3` | `PosesComponent` | **필수** (재구성 원리상) | 원본(GPS/IMU/휠 오도메트리) |
+| `ParsedCamera` | `CameraSensorComponent` | **필수** (재구성 원리상) | 원본(카메라 그대로) |
+| 캘리브레이션 메타데이터 | `IntrinsicsComponent` | **필수** (재구성 원리상) | 원본(캘리브레이션 결과) |
+| `ParsedLidar` | `LidarSensorComponent` | 사실상 필수 (AV 도메인) | 원본(라이다 그대로) |
+| `BoxDetectionsSE3` | `CuboidsComponent` | 사실상 필수 (AV 도메인) | **파생** — 이미 있는 인지 스택 출력이나 별도 검출 모델 결과 |
+| (py123d에 대응 없음) | `PointCloudsComponent` | 선택 | **파생** — SfM/Dense MVS 등으로 새로 계산 필요 |
+| (py123d에 대응 없음) | `CameraLabelsComponent` | 선택 | **파생** — 별도 깊이 추정/세그멘테이션 모델 필요 |
+
+두 가지가 눈여겨볼 점입니다.
+
+1. **위 다섯 줄(포즈·카메라·캘리브레이션·라이다·큐보이드)이 5절의 변환 코드가 실제로 다루는 4개 모달리티와 정확히 일치**합니다 — `EgoStateSE3`, `ParsedCamera`, `ParsedLidar`, `BoxDetectionsSE3` 네 가지만 잘 옮기면 재구성에 필요한 최소~실전 요건이 채워집니다.
+2. **`PointCloudsComponent`와 `CameraLabelsComponent`는 py123d에 애초에 대응하는 모달리티가 없습니다.** py123d가 표준화하는 건 원본 센서 로그(카메라/라이다/포즈/박스)까지고, SfM 포인트 클라우드나 깊이/세그멘테이션 라벨은 py123d 파이프라인 바깥에서 별도 모델(깊이 추정, SfM)로 생성해서 채워 넣어야 하는 영역입니다 — "py123d 파서만 잘 짜면 NCore 변환이 끝난다"는 뜻은 아닙니다.
+
+### 8.2 포맷·스키마 차이 요약
+
 | 항목 | py123d | NCore V4 |
 |------|--------|----------|
 | 포즈 기준 | ISO 8855 IMU (center) | rig (rear axle) |
