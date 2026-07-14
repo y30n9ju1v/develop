@@ -13,7 +13,7 @@ description: "Conv-BatchNorm-Relu 세 노드를 하나로 합치는 연산 융�
 
 ## 1. 연산 융합(Operator Fusion): Conv-BatchNorm-Relu를 하나로
 
-2편의 그래프를 다시 보면, Conv의 출력은 오직 BatchNorm 하나에서만 쓰이고, BatchNorm의 출력은 오직 Relu 하나에서만 쓰입니다. 이렇게 "한 연산의 출력이 정확히 다음 연산 하나로만 흘러 들어가는" 관계를 그래프에서 찾아내는 게 융합 pass가 하는 첫 번째 일입니다.
+2편의 그래프를 다시 보면, Conv의 출력은 오직 BatchNorm 하나에서만 쓰이고, BatchNorm의 출력은 오직 Relu 하나에서만 쓰입니다. 이렇게 "한 연산의 출력이 정확히 다음 연산 하나로만 흘러 들어가는" 관계를 그래프에서 찾아내는 게 융합 pass가 하는 첫 번째 일입니다 — 스칼라 변수를 다루는 고전적인 컴파일러의 죽은 코드 제거·데이터플로우 분석([컴파일러(MIT 6.035) 시리즈 8편](../../compilers/08-optimization-dataflow-analysis/#4-지역-최적화-2-죽은-코드-제거)이 다룬 "이 값을 나중에 쓰는 곳이 있는가")과 완전히 같은 질문을 텐서 그래프 노드 단위로 묻는 것입니다.
 
 ```
 패턴 매칭:
@@ -38,7 +38,7 @@ description: "Conv-BatchNorm-Relu 세 노드를 하나로 합치는 연산 융�
 
 ## 2. 상수 접기(Constant Folding): 추론 시점엔 이미 답이 정해진 계산을 미리 해버린다
 
-BatchNorm의 네 파라미터(`scale`, `bias`, `mean`, `var`)는 학습이 끝난 뒤에는 절대 바뀌지 않는 상수입니다. 그런데 BatchNorm의 실제 계산식을 보면,
+BatchNorm의 네 파라미터(`scale`, `bias`, `mean`, `var`)는 학습이 끝난 뒤에는 절대 바뀌지 않는 상수입니다. 이 절이 하는 일은 [컴파일러(MIT 6.035) 시리즈 8편](../../compilers/08-optimization-dataflow-analysis/#3-지역-최적화-1-상수-접기와-상수-전파)에서 다룬 상수 접기(Constant Folding)와 원리가 완전히 같습니다 — "컴파일 타임에 이미 값이 정해지는 계산은 실행 시점까지 미루지 않는다"는 규칙을 딥러닝 그래프의 파라미터에 적용한 것뿐입니다. 그런데 BatchNorm의 실제 계산식을 보면,
 
 $$y = \frac{x - \text{mean}}{\sqrt{\text{var} + \epsilon}} \times \text{scale} + \text{bias}$$
 
