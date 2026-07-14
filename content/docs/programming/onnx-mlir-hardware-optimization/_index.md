@@ -20,3 +20,11 @@ ONNX로 export된 딥러닝 모델 그래프는 "무엇을 계산하는지"만 �
 5. **[벡터화](05-vectorization/)** — 타일 안쪽 반복문이 하드웨어의 SIMD 폭에 맞춰 vector dialect 명령으로 접히는 과정
 6. **[하드웨어별 최종 낮추기: GPU 커널과 커스텀 NPU 명령](06-hardware-backend-lowering/)** — 같은 벡터 표현이 GPU의 스레드 병렬성과 커스텀 가속기의 고정 크기 MAC 배열로 갈라지는 과정, 그리고 양자화가 더하는 새로운 결정
 7. **[더 무거운 연산자: 대형 MatMul과 Attention의 최적화](07-heavier-operators-matmul-attention/)** — 다단계 타일링, softmax의 reduction 병렬화, FlashAttention 스타일의 공격적 융합, 동적 shape, 텐서 코어 매핑까지 — 1~6편의 원리가 더 무거운 연산자로 어떻게 확장되는지
+
+## 더 깊게 파고들기
+
+6편과 4편에서 "별도로 다룰 만큼 큰 주제"로 남겨둔 지점들을 깊게 파고들고, 이 시리즈의 축소 모형이 실전 오픈소스 컴파일러에서는 어떻게 구현되어 있는지 대조합니다.
+
+8. **[버퍼화 딥다이브: One-Shot Bufferize와 메모리 재사용 결정](08-bufferization-and-memory-planning/)** — One-Shot Bufferize가 텐서 SSA use-def 체인을 분석해 in-place 재사용을 안전하게 결정하는 원리와, Destination-Passing Style이 이 분석을 값싸게 만드는 이유를 정리합니다.
+9. **[양자화 딥다이브: quant dialect과 정수 산술로의 변환](09-quantization-deep-dive/)** — MLIR의 `!quant.uniform` 타입과 per-channel 양자화, `qcast`/`dcast`/`scast`가 만드는 QDQ 표현, 그리고 이 표현이 실제 정수 곱셈-누산 연산으로 재작성되는 과정을 정리합니다.
+10. **[실전 비교: IREE·torch-mlir에서는 어떻게 구현되어 있는가](10-iree-torch-mlir-real-world-comparison/)** — 이 시리즈의 onnx→linalg→하드웨어 파이프라인이 torch-mlir의 `torch`/StableHLO dialect, IREE의 flow/stream/hal dialect로 실제 어떻게 대응되는지 정리합니다.
