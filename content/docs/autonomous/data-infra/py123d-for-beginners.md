@@ -44,7 +44,30 @@ description: "nuScenes, Waymo, Argoverse 2 등 파편화된 자율주행 데이�
 
 ---
 
-## 3. 핵심 설계: 독립적인 타임스탬프 스트림
+## 3. 모달리티: py123d가 다루는 데이터 종류
+
+이 시리즈의 다른 글들(예: [py123d → NuRec](py123d-to-nurec/))은 `EgoStateSE3`, `ParsedCamera`, `ParsedLidar`, `BoxDetectionsSE3` 네 가지만 주로 다뤘는데, 이건 "특정 파이프라인(NuRec 재구성)에 필요한 최소 요건"으로 고른 부분집합입니다. [py123d GitHub 저장소](https://github.com/kesai-labs/py123d)의 README·체인지로그를 보면 실제로는 이보다 훨씬 다양한 모달리티를 다룹니다.
+
+| 분류 | 클래스 | 내용 |
+|---|---|---|
+| 센서 | `ParsedCamera` | 여러 카메라 리그의 이미지 데이터 |
+| 센서 | `ParsedLidar` | 라이다 포인트 클라우드 |
+| 센서 | `Radar` | 레이더 데이터 (v0.6.0에서 추가, nuScenes·PAI-AV 파서 지원) |
+| 상태/동역학 | `EgoState`(문서에 `EgoStateSE3`로도 표기됨) | 차량 pose + 속도·가속도 추론(`LogWriter`가 포즈로부터 계산) |
+| 라벨 | `BoxDetectionsSE3` | 3D 바운딩 박스 검출(속도·가속도 추론 포함) |
+| 라벨 | `BoxDetectionsSE2` | SE3 검출을 2D(SE2)로 투영한 버전 |
+| 세그멘테이션 | 카메라 semantic/instance segmentation | KITTI-360, WOD-Perception 등에서 지원 |
+| 세그멘테이션 | 라이다 semantic/instance segmentation | nuScenes, WOD-Perception, PandaSet 등에서 지원 |
+| 지도 | `MapAPI` | HD맵, 차선 토폴로지를 `networkx.DiGraph`(전/후속 차선-차선그룹)로 제공 |
+| 지도/기하 | `Polyline2D` / `PolylineSE2` / `PolylineSE3` | 차선·경로를 폴리라인으로 표현, `subline()` 등 |
+| 지도 | `OccupancyMap2D` | 2D 점유 맵 표현 |
+| 인프라 | 신호등(Traffic Lights) | 시간에 따른 신호 상태 라벨 |
+
+**이름 표기에 주의할 점이 하나 있습니다.** README/체인지로그 원문은 `EgoState`("velocity/acceleration inference in `LogWriter` from poses for `EgoState`")라고 쓰는데, 이 시리즈의 다른 글들은 `EgoStateSE3`라고 써왔습니다. "SE3"가 클래스 이름 자체의 일부인지, 아니면 "SE3 표현을 쓰는 EgoState"라는 설명적 표현인지는 README만으로는 확실히 가르기 어렵습니다 — 실제로 코드를 짤 때는 이 이름을 그대로 믿지 말고 `py123d.datatypes` 모듈을 직접 import해서 정확한 클래스명과 필드를 확인하시길 권합니다.
+
+---
+
+## 4. 핵심 설계: 독립적인 타임스탬프 스트림
 
 py123d의 가장 중요한 설계 결정은 **각 센서를 독립적인 타임스탬프 이벤트 스트림으로 저장**한다는 것입니다.
 
@@ -69,7 +92,7 @@ py123d는 각 센서를 별도 스트림으로 관리합니다.
 
 ---
 
-## 4. 디스크 복사 없음 — 단, 모달리티마다 다르다
+## 5. 디스크 복사 없음 — 단, 모달리티마다 다르다
 
 py123d는 내부적으로 [Apache Arrow](../apache-arrow-internals/) IPC 포맷을 씁니다. 변환 후 만들어지는 Arrow 파일은 원본 센서 파일을 **디스크에 복사하지 않습니다.** 파일의 경로(포인터)만 Arrow 파일에 기록하고, 원본은 제자리에 둡니다.
 
@@ -91,7 +114,7 @@ LRU 캐시로 메모리 사용량이 실제로 접근한 데이터에만 비례�
 
 ---
 
-## 5. 통일된 좌표계
+## 6. 통일된 좌표계
 
 모든 데이터셋의 좌표계를 **ISO 8855** 표준으로 통일합니다.
 
@@ -105,7 +128,7 @@ ISO 8855가 무엇인지, SAE J670·CARLA·ROS와 어떻게 다른지는 [자율
 
 ---
 
-## 6. 설치와 변환
+## 7. 설치와 변환
 
 ```bash
 # 기본 설치
@@ -129,7 +152,7 @@ py123d-conversion dataset=av2-sensor-stream \
 
 ---
 
-## 7. API 사용법
+## 8. API 사용법
 
 변환된 데이터는 `SceneFilter`로 원하는 조건을 걸어 씬을 가져옵니다.
 
@@ -166,7 +189,7 @@ nuScenes를 쓸 때와 Argoverse 2를 쓸 때 코드가 **완전히 동일**합�
 
 ---
 
-## 8. 내장 시각화
+## 9. 내장 시각화
 
 별도 툴 없이 py123d만으로 3D 시각화를 할 수 있습니다.
 
@@ -179,7 +202,7 @@ py123d-viser scene_filter=av2-sensor
 
 ---
 
-## 9. 다른 프레임워크와 비교
+## 10. 다른 프레임워크와 비교
 
 자율주행 데이터를 다루는 프레임워크가 py123d만 있는 건 아닙니다.
 
@@ -194,7 +217,7 @@ py123d의 포지션은 명확합니다. **"어떤 태스크를 하든, 어떤 �
 
 ---
 
-## 10. 정리
+## 11. 정리
 
 | 문제 | py123d의 해법 |
 |------|--------------|
