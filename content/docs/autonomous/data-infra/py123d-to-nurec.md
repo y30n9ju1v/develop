@@ -15,7 +15,7 @@ description: "py123d로 표준화한 자율주행 데이터를 NVIDIA NuRec(NCor
 
 ## 1. NuRec가 뭔가
 
-**NuRec**는 NVIDIA가 개발한 신경 재구성(Neural Reconstruction) 파이프라인입니다. 자율주행 주행 로그에서 NeRF/3DGS 기반으로 주변 환경을 3D로 재구성하고, 그 결과를 시뮬레이션에 씁니다. 실제 도로를 달리며 수집한 데이터로 photorealistic한 가상 환경을 만들 수 있기 때문에, "현실을 시뮬레이터에 복사한다"는 개념으로 이해하면 됩니다.
+**NuRec**는 NVIDIA가 개발한 신경 재구성(Neural Reconstruction) 파이프라인입니다. 자율주행 주행 로그에서 NeRF/3DGS 기반으로 주변 환경을 3D로 재구성하고, 그 결과를 시뮬레이션에 씁니다. 실제 도로를 달리며 수집한 데이터로 photorealistic한 가상 환경을 만들 수 있기 때문에, "현실을 시뮬레이터에 복사한다"는 개념으로 이해하면 됩니다. NuRec이 3D Gaussian Splatting으로 실제로 무엇을 계산하는지, novel view synthesis가 왜 어려운지는 [NuRec 입문](../nurec-neural-reconstruction-for-beginners/)에서 자세히 다룹니다.
 
 NuRec가 입력으로 받는 포맷이 **NCore V4**입니다. NCore는 NVIDIA PhysicalAI-Autonomous-Vehicles(PAI-AV) 데이터셋의 내부 포맷이기도 하며, 하나의 주행 클립을 다음과 같은 구조로 저장합니다.
 

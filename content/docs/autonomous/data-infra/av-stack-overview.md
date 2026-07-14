@@ -161,4 +161,4 @@ py123d가 HD Map을 Arrow IPC로 저장하고 공간 인덱싱으로 실시간 �
 | [py123d](../py123d-for-beginners/) | 학습 데이터와 테스트 시나리오 관리 |
 | [DORA 회귀 테스트](../../dora/dora-rs-av-regression-testing/) | Perception 출력(pred_boxes)을 gt_boxes와 비교 |
 | [CARLA 시뮬레이터](../../dora/dora-rs-simulator-integration/) | 클로즈 루프 — Control 출력이 센서 데이터를 바꿈 |
-| [NuRec](../py123d-to-nurec/) | 실제 주행 데이터로 시뮬레이터 환경 생성 |
+| [NCore](../ncore-v4-for-beginners/) / [NuRec](../nurec-neural-reconstruction-for-beginners/) | 실제 주행 데이터로 시뮬레이터 환경 생성 |
