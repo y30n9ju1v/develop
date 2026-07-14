@@ -198,3 +198,5 @@ def verifyBoundsAdvanced (e : SafecArrayGet) (generatedC : String) : Except Stri
 - **`verifyBounds`가 다루는 경우가 상수 인덱스뿐입니다.** [5편](../05-translation-validation/)에서 다룬 `bounds_proof`/`loop_bound` 같은 PCC 근거나 반복문 케이스는 이 최소 구현에 포함하지 않았습니다. 같은 패턴(다른 필드를 추가하고, `verifyBounds`에 케이스를 하나 더 얹는 것)으로 확장할 수 있습니다.
 
 이 실습의 목적은 진짜 컴파일러를 완성하는 게 아니라, **지금까지 여섯 편에 걸쳐 설명한 "attribute가 정보를 운반하고, conversion pattern이 그 정보로 분기하고, verifier가 그 정보를 재확인한다"는 구조가 손으로 그린 그림이 아니라 실제로 실행 가능한 코드라는 것**을 확인하는 데 있습니다. 여기서 다룬 세 함수(`toMlirText`, `toC`, `verifyBounds`)를 확장해나가는 것이, [4편](../04-mlir-pipeline-integration/) 끝에서 언급한 "가장 현실적인 출발점"의 실제 첫걸음입니다.
+
+[8편](../08-hands-on-systemverilog-emission/)에서는 같은 `SafecArrayGet` 값에서 출발해, 이번엔 [6편](../06-circt-systemverilog/)에서 다룬 SystemVerilog를 실제로 찍어내고 래치 추론 위험을 잡아내는 검사기를 똑같은 방식으로 구현합니다.
