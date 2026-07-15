@@ -30,7 +30,9 @@ jobs:
           extended: true
 
       - name: Install Asciidoctor
-        run: gem install asciidoctor
+        run: |
+          gem install --user-install asciidoctor
+          echo "$(ruby -e 'puts Gem.user_dir')/bin" >> "$GITHUB_PATH"
 
       - name: Build
         run: hugo --minify
