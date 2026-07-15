@@ -30,6 +30,8 @@ theme = "hextra"
   verbose = false
 
 [markup.asciidocExt.attributes]
+  source-highlighter = "rouge"
+  rouge-style = "github"
 
 [security.exec]
   allow = ['^dart-sass-embedded$', '^go$', '^npx$', '^postcss$', '^tailwindcss$', '^asciidoctor$']

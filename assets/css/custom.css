@@ -1,0 +1,61 @@
+/* AsciiDoc (Asciidoctor + Rouge) code blocks styled to match Hextra's markdown code blocks. */
+.listingblock {
+  margin-bottom: 1.5rem;
+}
+
+.listingblock .title {
+  font-size: 0.875em;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  color: var(--tw-prose-headings, inherit);
+}
+
+.listingblock .content pre {
+  margin: 0;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.9em;
+  line-height: 1.25rem;
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.dark .listingblock .content pre {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.listingblock .content pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Rouge token colors (mirrors Hugo/Chroma's "github" style so AsciiDoc and
+   Markdown code blocks look the same in both themes). */
+.rouge .c1, .rouge .cm, .rouge .cs { color: #6a737d } /* Comment */
+.rouge .k, .rouge .kc, .rouge .kd, .rouge .kn, .rouge .kp, .rouge .kr, .rouge .kt { color: #000000; font-weight: bold }
+.rouge .n, .rouge .nb, .rouge .bp { color: #000000 }
+.rouge .nc { color: #445588; font-weight: bold }
+.rouge .nf { color: #900; font-weight: bold }
+.rouge .nn { color: #555 }
+.rouge .no { color: #008080 }
+.rouge .nv, .rouge .vc, .rouge .vg, .rouge .vi { color: #008080 }
+.rouge .o, .rouge .ow { color: #000000; font-weight: bold }
+.rouge .p { color: #000000 }
+.rouge .s, .rouge .s1, .rouge .s2, .rouge .sb, .rouge .sc, .rouge .sd, .rouge .se, .rouge .sh, .rouge .si, .rouge .sx, .rouge .sr, .rouge .ss { color: #d14 }
+.rouge .m, .rouge .mf, .rouge .mh, .rouge .mi, .rouge .mo, .rouge .il { color: #009999 }
+.rouge .err { color: #a61717; background-color: #e3d2d2 }
+
+.dark .rouge .c1, .dark .rouge .cm, .dark .rouge .cs { color: #8b949e }
+.dark .rouge .k, .dark .rouge .kc, .dark .rouge .kd, .dark .rouge .kn, .dark .rouge .kp, .dark .rouge .kr, .dark .rouge .kt { color: #ff7b72; font-weight: normal }
+.dark .rouge .n, .dark .rouge .nb, .dark .rouge .bp { color: #c9d1d9 }
+.dark .rouge .nc { color: #ffa657; font-weight: normal }
+.dark .rouge .nf { color: #d2a8ff; font-weight: normal }
+.dark .rouge .nn { color: #c9d1d9 }
+.dark .rouge .no { color: #79c0ff }
+.dark .rouge .nv, .dark .rouge .vc, .dark .rouge .vg, .dark .rouge .vi { color: #79c0ff }
+.dark .rouge .o, .dark .rouge .ow { color: #ff7b72; font-weight: normal }
+.dark .rouge .p { color: #c9d1d9 }
+.dark .rouge .s, .dark .rouge .s1, .dark .rouge .s2, .dark .rouge .sb, .dark .rouge .sc, .dark .rouge .sd, .dark .rouge .se, .dark .rouge .sh, .dark .rouge .si, .dark .rouge .sx, .dark .rouge .sr, .dark .rouge .ss { color: #a5d6ff }
+.dark .rouge .m, .dark .rouge .mf, .dark .rouge .mh, .dark .rouge .mi, .dark .rouge .mo, .dark .rouge .il { color: #79c0ff }
+.dark .rouge .err { color: #f85149; background-color: transparent }
