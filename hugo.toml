@@ -18,3 +18,18 @@ theme = "hextra"
 [markup.goldmark.extensions.passthrough.delimiters]
   block = [["$$", "$$"]]
   inline = [["$", "$"]]
+
+[markup.asciidocExt]
+  extensions = []
+  workingFolderCurrent = false
+  trace = false
+  failureLevel = "fatal"
+  noHeaderOrFooter = true
+  safeMode = "unsafe"
+  sectionNumbers = false
+  verbose = false
+
+[markup.asciidocExt.attributes]
+
+[security.exec]
+  allow = ['^dart-sass-embedded$', '^go$', '^npx$', '^postcss$', '^tailwindcss$', '^asciidoctor$']
