@@ -1,0 +1,1232 @@
+---
+title: "9. 타입 시스템과 함께하는 함수형 비동기"
+date: 2026-07-15T00:00:00+09:00
+draft: false
+tags: ["functional-programming", "python", "type-system", "book"]
+categories: ["books"]
+description: "타입 힌팅으로 비동기 함수형 코드에 컴파일 타임 안전성을 확보하는 방법을 정리합니다."
+---
+
+
+8장에서는 의존성 주입, 미들웨어, 트랜잭션 등 함수형 프로그래밍의 핵심 개념을 **실제 시스템 아키텍처**에 적용하는 방법을 배웠습니다. 이제 이 견고한 아키텍처 위에 또 하나의 안전장치를 추가할 차례입니다. 바로 **타입 시스템**입니다.
+
+함수형 프로그래밍과 정적 타입 시스템은 떼려야 뗄 수 없는 관계입니다. 1장에서 우리는 "타입은 증명이다"라고 배웠습니다. 함수의 타입 시그니처는 단순한 문서가 아니라, 그 함수가 무엇을 할 수 있고 무엇을 할 수 없는지를 **증명**하는 계약입니다.
+
+파이썬의 타입 힌팅은 이 철학을 코드에 구체화합니다. 타입을 명시하면 코드를 읽는 사람이 함수의 의도를 즉시 이해할 수 있고, mypy 같은 도구로 실행 전에 많은 버그를 잡을 수 있습니다. 이 장에서는 타입 시스템을 활용해서 함수형 비동기 코드를 더욱 안전하고 명확하게 만드는 방법을 배울 것입니다.
+
+**중요**: 이 장의 예제는 Python 3.11 이상을 기준으로 작성되었습니다. `Self`, `Never`, `match` 문 등 최신 타입 기능을 사용합니다.
+
+## 비동기 시스템에서 타입이 구원받는 이유
+
+8장에서 우리는 미들웨어, 트랜잭션, 의존성 주입으로 복잡한 비동기 시스템을 구축했습니다. 하지만 한 가지 문제가 남았습니다. **여러 비동기 작업이 얽혀있을 때, 어떤 함수가 무엇을 반환하는지 추적하기 어렵다**는 점입니다.
+
+```python
+# 이 함수의 반환 타입은 무엇일까요?
+async def fetch_and_process(user_id):
+    user = await fetch_user(user_id)
+    posts = await fetch_posts(user)
+    # ... Result? Optional? 예외를 던질까? 전혀 알 수 없습니다.
+```
+
+타입 시스템은 이런 혼돈에 질서를 가져옵니다. 함수 시그니처만 봐도 **무엇을 받고, 무엇을 반환하고, 실패할 수 있는지**를 알 수 있습니다. 이것은 비동기 코드의 복잡성이 증가할수록 더욱 중요해집니다.
+
+```python
+# 타입 시그니처로 모든 것이 명확해집니다
+async def fetch_and_process(user_id: int) -> Result[dict, str]:
+    # 반환 타입을 보면 실패 가능성(Result)과 성공 시 타입(dict)을 즉시 알 수 있음
+    ...
+```
+
+**1장의 핵심 통찰**을 기억하시나요? "시간을 값으로 만들면, 비동기도 동기처럼 추론할 수 있다". `Awaitable[T]`는 바로 이 아이디어의 타입 표현입니다. "지금은 없지만 미래에 도착할 T 타입의 값"을 타입으로 나타낸 것입니다. 이제 타입 시스템이 어떻게 비동기의 복잡성을 길들이는지 구체적으로 배워봅시다.
+
+## 타입 힌팅의 세 가지 이점
+
+타입 없는 코드의 문제를 먼저 봅시다. 5장에서 만든 Result 타입을 사용하는 함수입니다.
+
+```python
+def divide(a, b):
+    if b == 0:
+        return Err("0으로 나눌 수 없습니다")
+    return Ok(a / b)
+
+def process_result(result):
+    if result.is_ok():
+        return result.unwrap() * 2
+    return 0
+```
+
+이 코드는 작동하지만 몇 가지 질문에 답할 수 없습니다. divide는 어떤 타입을 받을까요? 정수일까요, 실수일까요? 문자열도 받을 수 있을까요? process_result는 어떤 타입을 반환할까요? Result를 반환할까요, 아니면 일반 값일까요? 이런 질문들은 코드를 읽어봐야만, 심지어 실행해봐야만 답할 수 있습니다.
+
+타입 힌팅을 추가하면 모든 것이 명확해집니다.
+
+```python
+from typing import Union
+
+def divide(a: float, b: float) -> Result[float, str]:
+    if b == 0:
+        return Err("0으로 나눌 수 없습니다")
+    return Ok(a / b)
+
+def process_result(result: Result[float, str]) -> float:
+    if result.is_ok():
+        return result.unwrap() * 2
+    return 0.0
+```
+
+이제 모든 것이 명확합니다. divide는 두 개의 float를 받아서 Result[float, str]을 반환합니다. 성공하면 float를, 실패하면 str 에러 메시지를 담고 있다는 뜻입니다. process_result는 Result를 받아서 float를 반환합니다. 함수 시그니처만 봐도 전체 그림이 보입니다.
+
+타입 힌팅의 이점은 세 가지입니다:
+
+1. **문서화**: 타입은 함수가 무엇을 하는지 설명하는 가장 명확한 방법입니다.
+2. **IDE 지원**: 타입이 있으면 자동완성, 리팩토링, 탐색이 훨씬 좋아집니다.
+3. **정적 분석**: mypy 같은 도구로 실행 전에 타입 에러를 잡을 수 있습니다.
+
+이것은 1장에서 말한 "컴파일 타임에 불가능한 상태를 표현할 수 없게 만들기"를 실현하는 도구입니다. **특히 비동기 코드에서는 타입 시스템이 더욱 빛을 발합니다.** 여러 작업이 동시에 실행되고, 각 작업의 결과가 언제 도착할지 모르는 상황에서, 타입 시그니처는 유일한 확실한 계약입니다.
+
+## Generic과 TypeVar: 타입 안전한 추상화
+
+3장에서 만든 Maybe 타입을 기억하시죠? Maybe는 Int도, String도, User 객체도 담을 수 있어야 합니다. 이를 위해 `Generic`과 `TypeVar`를 사용합니다.
+
+```python
+from typing import TypeVar, Generic, Optional
+
+T = TypeVar('T')  # 플레이스홀더 타입 (무엇이든 될 수 있음)
+
+class Maybe(Generic[T]):
+    """제네릭을 사용하여 어떤 타입이든 담을 수 있는 Maybe"""
+    def __init__(self, value: Optional[T]):
+        self._value = value
+
+# 사용 예시
+maybe_int: Maybe[int] = Maybe(42)  # T는 int가 됨
+maybe_str: Maybe[str] = Maybe("hello")  # T는 str이 됨
+```
+
+핵심은 `Generic[T]`입니다. 이것은 "이 클래스는 T라는 타입을 나중에 정해서 쓸 거야"라고 선언하는 것입니다. 이제 mypy는 `maybe_int`에 문자열을 넣으려고 하면 에러를 발생시킵니다.
+
+```python
+# mypy 에러! Maybe[int]에 문자열 할당 불가
+# maybe_int = Maybe("문자열")
+```
+
+### Result 타입과 제네릭의 힘
+
+5장에서 우리는 에러를 값으로 다루기 위해 `Result[T, E]`를 정의했습니다. 예외를 던지는 대신 성공(Ok)과 실패(Err)를 명시적인 타입으로 표현하는 방식이었죠. 여기서 `T`와 `E`가 바로 제네릭 타입 변수입니다.
+
+```python
+# 5장의 정의를 다시 상기해봅시다
+T = TypeVar('T')  # 성공 시의 값 타입
+E = TypeVar('E')  # 실패 시의 에러 타입
+
+class Result(Generic[T, E]):
+    ...
+```
+
+이 선언 한 줄이 갖는 의미는 엄청납니다.
+1. `Result`는 단독으로 쓰일 수 없습니다. 반드시 두 개의 구체적인 타입과 함께 쓰여야 합니다.
+2. `Result[User, str]`이라고 쓰면, 컴파일러는 "성공하면 User 객체가 나오고, 실패하면 문자열이 나온다"는 사실을 **보장**합니다.
+
+```python
+def parse_int(s: str) -> Result[int, str]:
+    """문자열을 정수로 파싱합니다"""
+    try:
+        return Ok(int(s))
+    except ValueError:
+        return Err(f"'{s}'는 정수가 아닙니다")
+
+def validate_positive(n: int) -> Result[int, str]:
+    """양수인지 검증합니다"""
+    if n > 0:
+        return Ok(n)
+    return Err(f"{n}은 양수가 아닙니다")
+```
+
+이제 mypy는 `map`이나 `flatmap`을 사용할 때 타입이 어떻게 변하는지 추적할 수 있습니다.
+
+```python
+# 타입 체크가 작동합니다
+result: Result[int, str] = parse_int("42")
+
+# flatmap을 통과하면서 Result[int, str] 유지
+validated: Result[int, str] = result.flatmap(validate_positive)
+
+# map을 통해 int -> str 변환: 결과는 Result[str, str]이 됨
+message: Result[str, str] = validated.map(lambda n: f"값은 {n}입니다")
+
+# mypy가 이것을 허용하지 않습니다
+# wrong: Result[int, str] = message  # 타입 에러! (str을 int에 할당 불가)
+```
+
+### 공변성과 반공변성: 타입 에러의 원인 이해하기
+
+제네릭(Generic) 타입을 다루다 보면 "왜 이 할당이 타입 에러지?"라는 의문이 생길 때가 있습니다. 간단한 예를 봅시다.
+
+```python
+class Animal: pass
+class Dog(Animal): pass
+class Cat(Animal): pass
+
+def add_cat(animals: list[Animal]) -> None:
+    animals.append(Cat())  # Animal을 추가
+
+dogs: list[Dog] = [Dog(), Dog()]
+# add_cat(dogs)  # ❌ mypy 에러! list는 불변(invariant)
+```
+
+**왜 에러일까요?** `Dog`은 `Animal`의 서브타입인데, `list[Dog]`를 `list[Animal]`에 넣을 수 없다니 이상합니다. 하지만 허용하면 큰 문제가 발생합니다.
+
+```python
+# 만약 허용된다면?
+add_cat(dogs)  # dogs 리스트에 Cat이 들어감!
+# dogs는 list[Dog]인데 Cat이 섞여있음 → 타입 안전성 붕괴
+```
+
+반면 **읽기 전용**이라면 안전합니다.
+
+```python
+from typing import Sequence
+
+def count_animals(animals: Sequence[Animal]) -> int:
+    return len(animals)  # 읽기만 함
+
+dogs: list[Dog] = [Dog(), Dog()]
+count_animals(dogs)  # ✅ OK! Sequence는 읽기 전용이므로 안전
+```
+
+**핵심 규칙**:
+- **가변 컨테이너(list, dict)**: 정확히 같은 타입만 허용 → **불변(invariant)**
+- **읽기 전용(Sequence, Mapping)**: 서브타입 허용 → **공변(covariant)**
+
+실무에서는 이 정도만 알면 충분합니다. 더 깊은 이론(반공변성, 고차 타입)은 고급 타입 시스템 라이브러리를 만들 때나 필요합니다. 타입 에러가 발생했을 때 "가변인가 읽기 전용인가?"를 확인하세요.
+
+**비동기 코드에서의 적용**: `Awaitable`, `AsyncIterator` 같은 비동기 타입도 마찬가지입니다. 읽기 전용이므로 공변으로 동작합니다.
+
+## 구조적 서브타이핑과 Protocol: 동작으로 정의하는 타입
+ 
+ 파이썬은 "오리처럼 걷고 오리처럼 꽥꽥대면 다"라는 덕 타이핑(Duck Typing) 언어입니다. 타입 시스템에서도 이를 지원하기 위해 `Protocol`을 사용합니다. **상속을 받지 않아도, 특정 메서드만 있으면 그 타입으로 인정**해주는 것입니다.
+ 
+ ```python
+ from typing import Protocol
+ 
+ class Awaitable(Protocol):
+     """await 할 수 있는 모든 것"""
+     def __await__(self): ...
+ ```
+ 
+ 비동기 프로그래밍에서 이것이 중요한 이유는, 우리가 `async def`로 만든 코루틴이든, `Future` 객체든, `Task` 객체든, **`__await__` 메서드만 있으면 모두 `await` 뒤에 올 수 있기 때문입니다.**
+ 
+ 즉, 구체적인 구현(클래스)이 아니라 **능력(Capability)**을 타입으로 정의하는 것입니다. 이것이 함수형 프로그래밍의 "동작 중심 사고"와 일치합니다.
+
+## 타입 좁히기: Result를 안전하게 다루기
+
+Result 타입을 사용할 때 가장 흔한 패턴은 성공과 실패를 구분하는 것입니다. is_ok로 체크한 다음 unwrap으로 값을 꺼내죠. 하지만 이것은 위험합니다. is_ok를 깜빡하고 바로 unwrap을 호출하면 런타임 에러가 발생합니다.
+
+타입 가드(type guard)를 사용하면 mypy가 이것을 체크할 수 있습니다.
+
+```python
+from typing import TypeGuard
+
+def is_ok(result: Result[T, E]) -> TypeGuard[Ok[T]]:
+    """Result가 Ok인지 확인합니다 (타입 가드)"""
+    return isinstance(result, Ok)
+
+def is_err(result: Result[T, E]) -> TypeGuard[Err[E]]:
+    """Result가 Err인지 확인합니다 (타입 가드)"""
+    return isinstance(result, Err)
+```
+
+**중요**: 5장에서 정의한 Result 타입을 기억하시나요? `Ok[T]`는 성공 값만 타입 파라미터로 받고, `Err[E]`는 에러 값만 받습니다. 따라서 TypeGuard도 이에 맞춰 `Ok[T]`와 `Err[E]`로 작성합니다.
+
+TypeGuard는 함수가 타입을 좁힌다는 것을 mypy에게 알려줍니다. is_ok가 True를 반환하면 mypy는 그 뒤에서 result가 Ok[T, E]라는 것을 압니다.
+
+```python
+def process(result: Result[int, str]) -> int:
+    if is_ok(result):
+        # 여기서 mypy는 result가 Ok[int]임을 압니다
+        return result.value * 2  # OK, value는 int입니다
+    else:
+        # 여기서 mypy는 result가 Err[str]임을 압니다
+        print(f"에러: {result.error}")  # OK, error는 str입니다
+        return 0
+```
+
+타입 가드 없이 코드를 작성하면 mypy는 result의 정확한 타입을 모릅니다. Result[int, str]이 Ok인지 Err인지 모르므로, value나 error에 접근하는 것을 허용하지 않습니다. 타입 가드를 사용하면 조건문 안에서 타입이 자동으로 좁혀집니다.
+
+match 문(파이썬 3.10 이상)을 사용하면 더욱 우아합니다.
+
+```python
+def process_with_match(result: Result[int, str]) -> int:
+    match result:
+        case Ok(value):
+            # mypy는 value가 int임을 압니다
+            return value * 2
+        case Err(error):
+            # mypy는 error가 str임을 압니다
+            print(f"에러: {error}")
+            return 0
+```
+
+match 문은 패턴 매칭을 지원하고, mypy는 각 케이스에서 타입을 자동으로 좁힙니다. Ok(value) 패턴에 매치되면 value의 타입이 T라는 것을 알고, Err(error) 패턴에 매치되면 error의 타입이 E라는 것을 압니다.
+
+타입 좁히기는 안전성을 크게 높입니다. 런타임에 발생할 수 있는 많은 에러를 컴파일 타임에 잡을 수 있습니다. is_ok를 체크하지 않고 unwrap을 호출하려고 하면 mypy가 경고합니다. Result를 다룰 때 항상 두 케이스를 모두 처리하도록 강제할 수 있습니다.
+
+## 검증하지 말고 파싱하라: 타입으로 증명하기
+
+많은 개발자들이 데이터를 "검증(Validate)"하는 데 익숙합니다. 함수 시작 부분에서 입력값이 올바른지 확인하는 것이죠.
+
+```python
+def process_email(email: str):
+    if not is_valid_email(email):  # 검증
+        raise ValueError("Invalid email")
+    
+    # ... 비즈니스 로직 ...
+    save_to_db(email)
+```
+
+이 방식의 문제는, `is_valid_email`을 통과한 후에도 `email` 변수의 타입은 여전히 `str`이라는 점입니다. 만약 실수로 검증 로직을 빼먹은 `str`을 `save_to_db`에 전달한다면? 타입 체커는 아무런 에러도 뱉지 않습니다. 둘 다 `str`이기 때문입니다.
+
+함수형 프로그래밍에서는 "검증하지 말고 파싱하라(Parse, don't validate)"라는 원칙을 따릅니다. 파싱은 입력을 확인하는 것에서 그치지 않고, 그 입력을 **더 구체적인 타입으로 변환**합니다.
+
+```python
+@dataclass(frozen=True)
+class Email:
+    """검증된 이메일만 이 타입을 가질 수 있음"""
+    value: str
+
+def parse_email(s: str) -> Result[Email, str]:
+    if "@" not in s:
+        return Err("Invalid email format")
+    return Ok(Email(s))
+
+def save_to_db(email: Email):  # Email 타입만 받음
+    ...
+
+# 사용
+result = parse_email(user_input)
+if is_ok(result):
+    email = result.unwrap()  # 이제 타입은 Email
+    save_to_db(email)        # OK
+else:
+    # save_to_db("raw string")  # 타입 에러! str을 Email에 넣을 수 없음
+    ...
+```
+
+이 접근 방식의 핵심은 **불가능한 상태를 표현할 수 없게 만드는 것(Make illegal states unrepresentable)**입니다.
+
+*   **검증(Validation)**: "이 문자열이 이메일 형식인가?"라고 묻습니다. 답은 `Boolean`입니다. 정보가 소실됩니다.
+*   **파싱(Parsing)**: "이 문자열이 이메일이라면 `Email` 타입을 줘"라고 요구합니다. 성공하면 `Email`이라는 **증명**을 얻습니다.
+
+이제 시스템의 나머지 부분은 `str`이 아니라 `Email` 타입을 요구하도록 설계하면 됩니다. 함수 시그니처에 `Email`이 적혀 있다면, 그 함수 내부에서는 다시 이메일 형식을 검증할 필요가 없습니다. 타입 시스템이 이미 그 값이 유효함을 "증명"했기 때문입니다. 이것이 1장에서 말한 "타입은 증명이다"를 실천하는 가장 강력한 방법입니다.
+
+## 비동기 타입: 시간을 값으로 만들기
+
+6장에서 우리는 이벤트 루프의 동작 원리를 배웠고, 7장에서는 asyncio로 실제 비동기 코드를 작성했습니다. 코루틴이 제너레이터 기반으로 동작하며, await가 어떻게 제어권을 양보하는지 이해했죠. 이제 이 비동기 코드에 타입을 추가해봅시다.
+
+1장에서 배운 핵심 통찰을 기억하시나요? **"시간을 값으로 만들면, 비동기도 동기처럼 추론할 수 있다"**. Awaitable[T]는 바로 이 아이디어의 타입 표현입니다. "지금은 없지만 미래에 도착할 T 타입의 값"을 타입으로 나타낸 것입니다.
+
+비동기 함수의 타입을 어떻게 표현할까요? async def로 정의한 함수는 코루틴을 반환합니다. 하지만 타입 힌팅에서는 보통 Awaitable을 사용합니다.
+
+```python
+from typing import Awaitable
+import asyncio
+
+async def fetch_user(user_id: int) -> dict:
+    """사용자를 조회합니다"""
+    await asyncio.sleep(1)
+    return {"id": user_id, "name": f"사용자{user_id}"}
+
+# 함수의 타입은 무엇일까요?
+# fetch_user의 타입: Callable[[int], Coroutine[Any, Any, dict]]
+```
+
+async 함수를 호출하면 코루틴 객체가 반환됩니다. 이 객체를 await해야 실제 값을 얻을 수 있죠. 타입 시스템에서 코루틴은 Coroutine[Any, Any, T]로 표현됩니다. T는 최종적으로 반환되는 값의 타입입니다.
+
+하지만 실무에서는 Coroutine 대신 Awaitable을 많이 사용합니다. Awaitable[T]는 "await할 수 있는 것"을 의미하며, 코루틴뿐만 아니라 Future나 Task도 포함합니다.
+
+```python
+from typing import Awaitable, Callable
+
+async def fetch_user(user_id: int) -> dict:
+    await asyncio.sleep(1)
+    return {"id": user_id, "name": f"사용자{user_id}"}
+
+# 더 나은 타입 표현
+UserFetcher = Callable[[int], Awaitable[dict]]
+
+def make_user_service(fetch_user: UserFetcher):
+    """의존성을 주입받습니다"""
+    async def get_user(user_id: int) -> dict:
+        return await fetch_user(user_id)
+    return get_user
+```
+
+Awaitable을 사용하면 더 유연합니다. 7장에서 배운 것처럼, 실제 구현이 async 함수든, Task를 반환하는 함수든, Future를 반환하는 함수든 상관없이 "await할 수 있다"는 것만 중요합니다.
+
+### TypeAlias: 복잡한 타입에 이름 붙이기
+
+타입이 복잡해지면 별칭을 붙여서 가독성을 높일 수 있습니다. Python 3.10부터 `TypeAlias`를 사용해서 타입 별칭을 명시적으로 선언합니다.
+
+```python
+from typing import TypeAlias, Callable, Awaitable
+
+# 타입 별칭 선언
+UserFetcher: TypeAlias = Callable[[int], Awaitable[dict]]
+AsyncResult: TypeAlias = Awaitable[Result[dict, str]]
+
+# 별칭을 사용하면 시그니처가 깔끔해집니다
+def make_user_service(fetcher: UserFetcher) -> UserFetcher:
+    async def get_user(user_id: int) -> dict:
+        return await fetcher(user_id)
+    return get_user
+```
+
+TypeAlias 없이도 타입 별칭을 만들 수 있지만, 명시적으로 선언하면 mypy가 더 정확하게 체크할 수 있고 코드를 읽는 사람도 의도를 파악하기 쉽습니다.
+
+### Result와 비동기의 결합
+
+5장에서 배운 Result와 비동기를 결합한 타입도 표현할 수 있습니다.
+
+```python
+async def fetch_user_safe(user_id: int) -> Result[dict, str]:
+    """사용자를 조회합니다 (에러를 Result로 반환)"""
+    try:
+        await asyncio.sleep(1)
+        if user_id < 0:
+            return Err("유효하지 않은 사용자 ID")
+        return Ok({"id": user_id, "name": f"사용자{user_id}"})
+    except Exception as e:
+        return Err(str(e))
+
+# 타입: Callable[[int], Awaitable[Result[dict, str]]]
+```
+
+이 함수는 코루틴을 반환하고, 그 코루틴을 await하면 Result[dict, str]을 얻습니다. 타입을 보면 이 함수가 비동기이며 실패할 수 있다는 것을 즉시 알 수 있습니다.
+
+Future 타입도 제네릭으로 정의할 수 있습니다.
+
+```python
+from typing import TypeVar, Generic, Callable, Awaitable
+
+T = TypeVar('T')
+U = TypeVar('U')
+
+class Future(Generic[T]):
+    """비동기 값을 표현합니다"""
+    
+    def __init__(self):
+        self._value: Optional[T] = None
+        self._completed = False
+    
+    def set_result(self, value: T) -> None:
+        """결과를 설정합니다"""
+        self._value = value
+        self._completed = True
+    
+    def map(self, func: Callable[[T], U]) -> 'Future[U]':
+        """값을 변환합니다"""
+        result_future: Future[U] = Future()
+        # 구현...
+        return result_future
+    
+    async def get(self) -> T:
+        """값을 기다립니다"""
+        # 구현...
+        return self._value
+```
+
+Future[T]는 "나중에 도착할 T 타입의 값"을 의미합니다. map은 Future[T]를 Future[U]로 변환하고, get은 await해서 T를 얻습니다. 타입만 봐도 각 메서드가 무엇을 하는지 명확합니다.
+
+### AsyncIterator와 AsyncGenerator: 여러 개의 미래 값
+
+하나의 미래 값(Awaitable[T])을 다뤘다면, 이제 여러 개의 미래 값을 다룰 차례입니다. AsyncIterator와 AsyncGenerator는 "시간에 걸쳐 여러 값이 도착하는 스트림"을 타입으로 표현합니다.
+
+```python
+from typing import AsyncIterator, AsyncGenerator
+import asyncio
+
+async def fetch_pages(url: str, max_pages: int) -> AsyncIterator[dict]:
+    """페이지를 하나씩 가져오는 비동기 이터레이터"""
+    for page in range(max_pages):
+        await asyncio.sleep(0.1)  # 네트워크 요청 시뮬레이션
+        yield {"page": page, "data": f"Content {page}"}
+
+# 사용
+async def process_pages():
+    async for page in fetch_pages("https://api.example.com", 5):
+        print(f"처리 중: {page}")
+```
+
+`AsyncIterator[T]`는 "T 타입의 값들을 비동기로 생성하는 이터레이터"입니다. `async for`로 순회하며, 각 값을 await합니다. 이것은 4장에서 배운 동기 이터레이터의 비동기 버전입니다.
+
+`AsyncGenerator`는 더 구체적입니다. send와 throw를 지원합니다.
+
+```python
+from typing import AsyncGenerator
+
+async def bidirectional_stream() -> AsyncGenerator[int, str]:
+    """값을 받고 보낼 수 있는 비동기 제너레이터"""
+    sent = yield 1
+    print(f"받음: {sent}")
+    sent = yield 2
+    print(f"받음: {sent}")
+
+# AsyncGenerator[YieldType, SendType]
+# YieldType: yield로 보내는 값의 타입
+# SendType: send()로 받는 값의 타입
+```
+
+비동기 스트림 처리를 타입 안전하게 만들 수 있습니다.
+
+```python
+async def map_async_iterator(
+    iterator: AsyncIterator[T],
+    func: Callable[[T], U]
+) -> AsyncIterator[U]:
+    """비동기 이터레이터를 변환합니다"""
+    async for item in iterator:
+        yield func(item)
+
+async def filter_async_iterator(
+    iterator: AsyncIterator[T],
+    predicate: Callable[[T], bool]
+) -> AsyncIterator[T]:
+    """비동기 이터레이터를 필터링합니다"""
+    async for item in iterator:
+        if predicate(item):
+            yield item
+
+# 사용
+async def process():
+    pages = fetch_pages("https://api.example.com", 10)
+    large_pages = filter_async_iterator(
+        pages,
+        lambda p: p["page"] > 5
+    )
+
+    async for page in large_pages:
+        print(page)
+```
+
+이것은 3장에서 배운 map과 filter의 비동기 버전입니다. 타입 시그니처를 보면 동기 버전과 구조가 동일함을 알 수 있습니다. 차이는 `AsyncIterator`와 `async for`뿐입니다. **함수형 추상화는 동기와 비동기를 통일합니다.**
+
+## ParamSpec: 데코레이터의 타입을 정확히 표현하기
+
+함수형 프로그래밍에서 데코레이터는 필수적입니다. 하지만 데코레이터의 타입을 정확히 표현하는 것은 까다롭습니다. 데코레이터는 원래 함수의 시그니처를 보존해야 하는데, 어떻게 "임의의 인자를 받는 함수"를 타입으로 표현할까요?
+
+Python 3.10부터 도입된 `ParamSpec`이 이 문제를 해결합니다.
+
+```python
+from typing import ParamSpec, TypeVar, Callable, Awaitable
+from functools import wraps
+import asyncio
+
+P = ParamSpec('P')  # 매개변수 명세
+R = TypeVar('R')    # 반환 타입
+
+def log_call(func: Callable[P, R]) -> Callable[P, R]:
+    """함수 호출을 로깅하는 데코레이터 (동기 함수용)"""
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        print(f"호출: {func.__name__}")
+        return func(*args, **kwargs)
+    return wrapper
+
+@log_call
+def add(a: int, b: int) -> int:
+    return a + b
+
+# mypy가 정확히 추론합니다
+result: int = add(1, 2)  # OK
+# add("1", "2")  # 타입 에러! int를 기대하는데 str을 전달
+```
+
+`ParamSpec('P')`는 함수의 매개변수 전체를 캡처합니다. `P.args`와 `P.kwargs`로 분해해서 사용할 수 있습니다. 이것 덕분에 데코레이터가 원래 함수의 시그니처를 완벽히 보존합니다.
+
+비동기 함수를 감싸는 데코레이터도 정확히 타입을 표현할 수 있습니다.
+
+```python
+def async_retry(max_attempts: int = 3):
+    """비동기 함수를 재시도하는 데코레이터"""
+    def decorator(
+        func: Callable[P, Awaitable[R]]
+    ) -> Callable[P, Awaitable[R]]:
+        @wraps(func)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    if attempt == max_attempts - 1:
+                        raise
+                    await asyncio.sleep(2 ** attempt)
+            raise RuntimeError("Unreachable")
+        return wrapper
+    return decorator
+
+@async_retry(max_attempts=3)
+async def fetch_data(url: str, timeout: float = 30.0) -> dict:
+    # 구현...
+    pass
+
+# mypy가 시그니처를 정확히 추론합니다
+data: dict = await fetch_data("https://api.example.com", timeout=10.0)
+```
+
+ParamSpec과 Result를 결합하면 에러를 자동으로 캡처하는 데코레이터를 만들 수 있습니다. 이것은 연습 문제에서 직접 구현해볼 것입니다.
+
+## Self 타입: 메서드 체이닝의 정확한 타입
+
+메서드 체이닝은 함수형 프로그래밍에서 흔한 패턴입니다. map, filter, flatmap을 연속으로 호출하죠. 하지만 상속이 있을 때 반환 타입을 정확히 표현하기 어렵습니다.
+
+```python
+class Builder:
+    def with_name(self, name: str) -> 'Builder':
+        self._name = name
+        return self
+
+class UserBuilder(Builder):
+    def with_age(self, age: int) -> 'UserBuilder':
+        self._age = age
+        return self
+
+# 문제: 체이닝 순서에 따라 타입이 달라집니다
+builder = UserBuilder()
+# builder.with_name("철수").with_age(25)  # 타입 에러!
+# with_name이 Builder를 반환하므로 with_age를 호출할 수 없습니다
+```
+
+Python 3.11부터 도입된 `Self` 타입이 이 문제를 해결합니다.
+
+```python
+from typing import Self
+
+class Builder:
+    def with_name(self, name: str) -> Self:
+        self._name = name
+        return self
+
+class UserBuilder(Builder):
+    def with_age(self, age: int) -> Self:
+        self._age = age
+        return self
+
+# 이제 작동합니다!
+builder = UserBuilder()
+result = builder.with_name("철수").with_age(25)  # OK, 타입은 UserBuilder
+```
+
+`Self`는 "현재 클래스의 인스턴스"를 의미합니다. UserBuilder에서 with_name을 호출하면 Self는 UserBuilder가 됩니다. 이것 덕분에 상속 관계에서도 메서드 체이닝이 정확히 작동합니다.
+
+우리가 만든 Maybe나 Result에도 Self를 적용할 수 있습니다.
+
+```python
+from typing import Self
+
+class Maybe(Generic[T]):
+    def or_else(self, default: Self) -> Self:
+        """값이 없으면 대체값을 반환합니다"""
+        if self._value is None:
+            return default
+        return self
+```
+
+## NoReturn: 절대 반환하지 않는 함수
+
+어떤 함수는 정상적으로 반환하지 않습니다. 항상 예외를 던지거나, 무한 루프를 돌거나, 프로그램을 종료합니다. 이런 함수의 반환 타입은 `NoReturn`입니다.
+
+```python
+from typing import NoReturn
+
+def fatal_error(message: str) -> NoReturn:
+    """치명적 에러를 발생시킵니다 (절대 반환하지 않음)"""
+    raise SystemExit(message)
+
+def infinite_loop() -> NoReturn:
+    """무한 루프 (절대 반환하지 않음)"""
+    while True:
+        pass
+```
+
+NoReturn은 Result의 unwrap 메서드에서 유용합니다.
+
+```python
+class Err(Result[T, E]):
+    """실패"""
+    error: E
+
+    def unwrap(self) -> NoReturn:
+        """Err에서 unwrap을 호출하면 항상 예외가 발생합니다"""
+        raise ValueError(f"Err를 unwrap할 수 없습니다: {self.error}")
+```
+
+mypy는 NoReturn을 특별히 처리합니다. NoReturn 함수를 호출한 후의 코드는 "도달 불가능(unreachable)"으로 간주됩니다.
+
+```python
+def process(result: Result[int, str]) -> int:
+    if is_err(result):
+        fatal_error(result.error)  # NoReturn
+        # 이 아래 코드는 도달 불가능
+        print("이 줄은 실행되지 않습니다")  # mypy 경고 없음
+
+    return result.value * 2
+```
+
+Python 3.11부터는 `Never` 타입이 추가되었습니다. `NoReturn`과 비슷하지만, 반환 타입뿐만 아니라 변수 타입에도 사용할 수 있습니다.
+
+```python
+from typing import Never
+
+def assert_never(value: Never) -> NoReturn:
+    """exhaustive check를 위한 헬퍼"""
+    raise AssertionError(f"예상치 못한 값: {value}")
+
+# 모든 케이스를 처리했는지 컴파일 타임에 확인
+def handle_status(status: Literal["ok", "error"]) -> str:
+    match status:
+        case "ok":
+            return "성공"
+        case "error":
+            return "실패"
+        case _ as unreachable:
+            assert_never(unreachable)  # 새 케이스가 추가되면 타입 에러
+```
+
+(참고: 실무 프로젝트에 mypy를 도입하기 위한 설정(`mypy.ini`)과 CI/CD 파이프라인 통합, 그리고 기존 코드베이스에 점진적으로 타입을 추가하는 전략에 대해서는 부록 A에서 자세히 다룹니다.)
+
+## 타입 시스템의 한계와 실전 함정
+
+타입 시스템은 강력하지만 만능은 아닙니다. **실무에서 마주치는 한계와 함정**을 이해하고, 우회 방법을 알아야 합니다.
+
+### 1. mypy가 못 잡는 것들 ⚠️
+
+**함정 1: 런타임 타입 변경**
+
+```python
+# mypy는 통과하지만 런타임에 타입 일관성이 깨짐
+data: dict[str, int] = {"count": 10}
+data["count"] = "문자열"  # ❌ mypy는 체크하지 않음 (dict는 가변)
+
+# 해결: 불변 타입 사용
+from typing import Mapping
+data: Mapping[str, int] = {"count": 10}
+# data["count"] = "문자열"  # ✅ mypy 에러!
+```
+
+**함정 2: Any 타입의 전염성**
+
+```python
+def unsafe_api() -> Any:
+    return {"status": "ok"}
+
+result = unsafe_api()  # result의 타입: Any
+x = result.whatever_method()  # ❌ mypy가 체크하지 않음!
+x.non_existent_attr  # ❌ 모든 것이 허용됨
+```
+
+**해결책**: Any를 최대한 피하고, 외부 API는 Pydantic으로 파싱
+
+```python
+class ApiResponse(BaseModel):
+    status: Literal["ok", "error"]
+
+def safe_api() -> ApiResponse:
+    raw = unsafe_api()
+    return ApiResponse(**raw)  # 경계에서 파싱!
+```
+
+### 2. 타입 체크 비용과 최적화 ⏱️
+
+**문제**: 대규모 프로젝트에서 mypy 실행 시간이 수 분 소요
+
+```bash
+# 100,000줄 프로젝트
+$ mypy .
+# 5분 소요... CI/CD 병목!
+```
+
+**해결책**:
+
+1. **증분 타입 체크 활용**
+```ini
+# mypy.ini
+[mypy]
+incremental = True
+cache_dir = .mypy_cache
+```
+
+2. **병렬 실행**
+```bash
+mypy --parallel .
+```
+
+3. **중요한 파일만 체크**
+```bash
+mypy src/core src/api  # 전체 대신 핵심만
+```
+
+### 3. assert 남용의 위험 🚨
+
+Lines 794에서 사용한 패턴을 기억하시나요?
+
+```python
+# ❌ 위험: 프로덕션에서 assert는 비활성화될 수 있음
+assert maybe._value is not None
+value = maybe._value
+```
+
+**문제**: 파이썬은 `-O` 플래그로 실행 시 모든 assert를 무시합니다.
+
+```bash
+python -O app.py  # 모든 assert가 사라짐!
+```
+
+**권장 해결책**:
+
+```python
+# ✅ 명시적 검사와 예외
+if maybe._value is None:
+    raise RuntimeError("Unreachable: value는 None일 수 없습니다")
+value = maybe._value
+
+# 또는 unwrap 패턴 사용
+value = maybe.get_or_else(
+    lambda: raise_error("Unreachable")
+)
+```
+
+### 4. 타입과 테스트: 상호 보완적 관계
+
+**오해**: "타입 체크하면 테스트 필요 없다"
+
+**진실**: 타입은 **구조적 정확성**만 보장하고, **논리적 정확성**은 보장하지 않습니다.
+
+```python
+def calculate_discount(price: float, rate: float) -> float:
+    # 타입은 맞지만 로직이 틀림
+    return price * rate  # ❌ price * (1 - rate)가 정답
+```
+
+mypy는 통과하지만, 테스트는 실패합니다.
+
+```python
+def test_calculate_discount():
+    assert calculate_discount(100, 0.1) == 90  # 실패!
+```
+
+**교훈**: 타입 체크 + 단위 테스트 + Property-Based Testing(10장)을 함께 사용하세요.
+
+### 5. 타입 힌트와 성능
+
+**오해**: "타입 힌트가 런타임 성능을 느리게 한다"
+
+**진실**: 타입 힌트는 **런타임에 아무 영향도 없습니다**. Python 인터프리터는 타입을 완전히 무시합니다.
+
+```python
+# 타입 힌트는 런타임에 제거됨
+def add(x: int, y: int) -> int:
+    return x + y
+
+# 내부적으로는 이렇게 실행됨
+def add(x, y):
+    return x + y
+```
+
+**단, Pydantic은 예외**: 런타임 검증을 수행하므로 약간의 오버헤드가 있습니다. 하지만 경계에서만 사용하면 전체 성능에 미미한 영향입니다.
+
+### 6. 고급 타입 기능의 브라우저 호환성
+
+Python 3.10+의 `match`, 3.11+의 `Self`, `Never`는 구버전에서 작동하지 않습니다.
+
+**해결책**: `typing_extensions` 백포트 사용
+
+```python
+# Python 3.9에서도 Self 사용
+from typing_extensions import Self
+
+class Builder:
+    def with_name(self, name: str) -> Self:  # OK!
+        ...
+```
+
+---
+
+이 한계들을 이해하면, 타입 시스템을 과신하지 않으면서도 최대한 활용할 수 있습니다. **타입은 강력한 도구이지만, 완벽한 안전망은 아닙니다.** 테스트, 리뷰, 런타임 검증과 함께 사용해야 견고한 시스템을 만들 수 있습니다.
+
+## 정적 타입과 런타임 검증: 경계에서의 파싱
+
+지금까지 배운 타입 힌팅은 **정적 검증**입니다. mypy가 코드를 분석해서 타입 에러를 찾지만, 실행 시에는 아무 일도 일어나지 않습니다. 내부 코드끼리는 이것으로 충분합니다. 타입 시스템이 정확성을 보장하니까요.
+
+하지만 **시스템의 경계(boundary)**에서는 다릅니다. 외부 세계에서 들어오는 데이터는 믿을 수 없습니다. API 요청, 파일 입력, 데이터베이스 쿼리 결과는 우리가 기대하는 형식이 아닐 수 있습니다. 여기서 "검증하지 말고 파싱하라"는 원칙이 빛을 발합니다.
+
+앞에서 배운 `parse_email` 예제를 다시 봅시다. 이것은 경계에서의 파싱입니다. 신뢰할 수 없는 `str`을 받아서, 검증을 거쳐, 타입 시스템이 신뢰할 수 있는 `Email`로 변환합니다. 일단 `Email` 타입을 얻으면, 시스템 내부에서는 다시 검증할 필요가 없습니다. 타입이 곧 증명이니까요.
+
+Pydantic 같은 라이브러리는 이런 경계 파싱을 자동화합니다. 하지만 핵심 아이디어는 라이브러리가 아니라 **타입을 사용해서 불가능한 상태를 표현할 수 없게 만드는 것**입니다. 이것이 1장에서 시작한 함수형 철학의 완성입니다.
+
+### Pydantic으로 경계 파싱 자동화하기
+
+비동기 시스템에서 이것은 더욱 중요합니다. 여러 요청이 동시에 들어오고, 각 요청이 예상치 못한 형식일 수 있습니다. 경계에서 타입으로 파싱하면, 내부 비즈니스 로직은 타입 에러로부터 안전해집니다.
+
+실무에서는 Pydantic을 사용해서 경계 파싱을 자동화합니다. Pydantic은 런타임 검증과 타입 안전성을 동시에 제공합니다.
+
+```python
+from pydantic import BaseModel, EmailStr, ValidationError, field_validator
+from typing import Literal
+
+# 도메인 타입 정의
+class UserRequest(BaseModel):
+    """API 요청 스키마 (경계에서 검증)"""
+    email: EmailStr  # 런타임에 이메일 형식 검증
+    age: int
+    name: str
+
+    @field_validator('age')
+    @classmethod
+    def validate_age(cls, v: int) -> int:
+        if v < 0 or v > 150:
+            raise ValueError('나이는 0~150 사이여야 합니다')
+        return v
+
+# 비동기 API 핸들러
+async def register_user_api(raw_request: dict) -> Response:
+    """경계: 신뢰할 수 없는 dict를 검증된 타입으로 변환"""
+    try:
+        # 파싱: dict → UserRequest (런타임 검증)
+        user_req = UserRequest(**raw_request)
+
+        # 이제 user_req.email은 EmailStr 타입으로 보장됨
+        # 내부 비즈니스 로직은 타입으로 보호받음
+        result = await process_user(user_req)
+
+        if is_ok(result):
+            return success_response(result.unwrap())
+        else:
+            return error_response(result.error)
+
+    except ValidationError as e:
+        # Pydantic이 검증 실패 시 자동으로 상세한 에러 메시지 제공
+        return Response(status=400, body={"errors": e.errors()})
+
+# 내부 비즈니스 로직
+async def process_user(user: UserRequest) -> Result[dict, str]:
+    """타입 안전한 내부 로직 (재검증 불필요)"""
+    # user.email은 이미 검증되었으므로 다시 체크할 필요 없음
+    # 타입 시스템이 보장합니다
+    ...
+```
+
+**Pydantic의 장점**:
+- **런타임 검증**: 외부 입력을 실행 중에 검증
+- **타입 안전**: mypy가 내부 코드를 정적 체크
+- **명확한 에러**: 어떤 필드가 왜 실패했는지 구조화된 메시지
+
+**핵심 패턴**:
+```
+신뢰할 수 없는 외부(dict)
+  → [Pydantic 경계 파싱]
+  → 타입으로 보장된 내부(UserRequest)
+```
+
+Literal 타입과 결합하면 더욱 강력합니다.
+
+```python
+from typing import Literal
+
+TaskStatus = Literal["pending", "running", "completed", "failed"]
+
+class TaskUpdate(BaseModel):
+    task_id: int
+    status: TaskStatus  # 4가지 문자열만 허용
+
+# 잘못된 상태는 파싱 시점에 거부됨
+# TaskUpdate(task_id=1, status="invalid")  # ValidationError!
+```
+
+실무에서는 FastAPI와 Pydantic을 함께 사용하면, API 엔드포인트가 자동으로 경계 파싱을 수행합니다.
+
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+
+@app.post("/users")
+async def register_user(user: UserRequest) -> dict:
+    """FastAPI가 자동으로 dict → UserRequest 파싱"""
+    # 이 함수에 도달했다면 user는 이미 검증된 상태
+    result = await process_user(user)
+    # ...
+```
+
+하지만 기억해야 할 것은 **도구가 아니라 철학**입니다. 타입 시스템을 활용해서 불가능한 상태를 표현할 수 없게 만들고, 경계에서 파싱해서 내부는 타입으로 보호받는 안전한 세계로 만드는 것. 이것이 함수형 타입 시스템의 핵심입니다.
+
+## 타입 안전한 함수형 라이브러리 만들기
+
+지금까지 배운 모든 개념을 종합해서 타입 안전한 함수형 라이브러리를 만들어봅시다. Maybe, Result, Future를 제네릭(Generic)으로 정의하고, Protocol로 추상화하고, mypy로 체크할 수 있도록 만들겠습니다.
+
+**중요**: 이 구현은 5장의 Result 정의와 호환됩니다. `Ok[T]`는 성공 값만, `Err[E]`는 에러 값만 타입 파라미터로 받습니다.
+
+```python
+from typing import TypeVar, Generic, Optional, Callable, Protocol, Union, TypeGuard, Any
+from dataclasses import dataclass
+
+T = TypeVar('T')
+E = TypeVar('E')
+U = TypeVar('U')
+
+# Mappable Protocol (구조적 서브타이핑)
+class Mappable(Protocol[T]):
+    """map 메서드를 가진 타입"""
+    def map(self, func: Callable[[T], Any]) -> 'Mappable[Any]':
+        ...
+
+# Chainable Protocol
+class Chainable(Protocol[T]):
+    """flatmap 메서드를 가진 타입"""
+    def flatmap(self, func: Callable[[T], 'Chainable[Any]']) -> 'Chainable[Any]':
+        ...
+
+# Maybe 구현
+@dataclass
+class Maybe(Generic[T]):
+    """옵셔널 값"""
+    _value: Optional[T]
+    
+    def is_present(self) -> bool:
+        return self._value is not None
+    
+    def map(self, func: Callable[[T], U]) -> 'Maybe[U]':
+        if self._value is None:
+            return Maybe(None)
+        return Maybe(func(self._value))
+    
+    def flatmap(self, func: Callable[[T], 'Maybe[U]']) -> 'Maybe[U]':
+        if self._value is None:
+            return Maybe(None)
+        return func(self._value)
+    
+    def get_or_else(self, default: T) -> T:
+        return self._value if self._value is not None else default
+
+# Result 구현 (5장과 호환되는 시그니처)
+class Result(Generic[T, E]):
+    """성공(Ok[T]) 또는 실패(Err[E])"""
+    pass
+
+@dataclass(frozen=True)
+class Ok(Result[T, E], Generic[T]):
+    """성공 - T만 타입 파라미터로 사용"""
+    value: T
+
+    def is_ok(self) -> bool:
+        return True
+
+    def map(self, func: Callable[[T], U]) -> 'Result[U, E]':
+        return Ok(func(self.value))
+
+    def flatmap(self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
+        return func(self.value)
+
+    def unwrap(self) -> T:
+        return self.value
+
+@dataclass(frozen=True)
+class Err(Result[T, E], Generic[E]):
+    """실패 - E만 타입 파라미터로 사용"""
+    error: E
+
+    def is_ok(self) -> bool:
+        return False
+
+    def map(self, func: Callable[[T], U]) -> 'Result[U, E]':
+        # 타입은 변하지만 에러는 그대로
+        return self  # type: ignore
+
+    def flatmap(self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
+        return self  # type: ignore
+
+    def unwrap(self) -> T:
+        raise ValueError(f"Err를 unwrap할 수 없습니다: {self.error}")
+
+# 타입 가드 (5장 정의와 일치)
+def is_ok(result: Result[T, E]) -> TypeGuard[Ok[T]]:
+    """Result가 Ok인지 확인 (타입을 Ok[T]로 좁힘)"""
+    return isinstance(result, Ok)
+
+def is_err(result: Result[T, E]) -> TypeGuard[Err[E]]:
+    """Result가 Err인지 확인 (타입을 Err[E]로 좁힘)"""
+    return isinstance(result, Err)
+
+# 헬퍼 함수들
+def sequence_results(results: list[Result[T, E]]) -> Result[list[T], E]:
+    """Result 리스트를 Result[list]로 변환합니다"""
+    values: list[T] = []
+    for result in results:
+        if is_err(result):
+            return result
+        values.append(result.value)
+    return Ok(values)
+
+def traverse_maybe(items: list[T], func: Callable[[T], Maybe[U]]) -> Maybe[list[U]]:
+    """리스트의 각 항목에 함수를 적용하고 Maybe[list]로 변환합니다"""
+    results: list[U] = []
+    for item in items:
+        maybe = func(item)
+        if not maybe.is_present():
+            return Maybe(None)
+
+        # is_present()가 True이므로 _value가 None이 아님을 보장
+        # 하지만 mypy는 이것을 추론하지 못합니다.
+        # 명시적 검사로 타입 안전성 확보
+        value = maybe._value
+        if value is None:
+            # Unreachable: is_present()가 True면 value는 None이 아님
+            raise RuntimeError("Unreachable: is_present() 보장 위반")
+        results.append(value)
+    return Maybe(results)
+```
+
+**타입 좁히기 팁**:
+- **`assert` 대신 명시적 검사**: `-O` 플래그로부터 안전
+- **`cast` 최소화**: 런타임 검증 없이 타입만 강제하므로 위험
+- **`TypeGuard` 활용**: mypy가 자연스럽게 추론하도록 유도
+
+이 라이브러리는 완전히 타입 안전합니다. mypy로 체크하면 모든 타입이 정확하다는 것을 확인할 수 있습니다. 사용하는 코드도 타입 체크를 받습니다.
+
+```python
+# 타입 안전한 사용
+def process_numbers(nums: list[str]) -> Result[int, str]:
+    """문자열 숫자들을 파싱하고 합계를 계산합니다"""
+    
+    # 각 문자열을 파싱합니다
+    parsed: list[Result[int, str]] = [parse_int(n) for n in nums]
+    
+    # 모든 파싱이 성공했는지 확인합니다
+    numbers_result: Result[list[int], str] = sequence_results(parsed)
+    
+    # 성공하면 합계를 계산합니다
+    return numbers_result.map(lambda nums: sum(nums))
+
+# mypy가 타입을 체크합니다
+result = process_numbers(["1", "2", "3"])
+if is_ok(result):
+    total: int = result.value  # OK, mypy가 value가 int임을 압니다
+    print(f"합계: {total}")
+```
+
+## 연습 문제
+
+타입 시스템을 직접 활용해보세요.
+
+**기본 문제**: Either 타입을 제네릭으로 구현하세요. Either[L, R]은 Left[L] 또는 Right[R]입니다. Result와 비슷하지만 Left가 에러를 의미하지 않습니다. map과 flatmap을 구현하고 타입 가드를 추가하세요.
+
+```python
+class Either(Generic[L, R]):
+    pass
+
+@dataclass
+class Left(Either[L, R]):
+    value: L
+    # 구현하세요
+
+@dataclass  
+class Right(Either[L, R]):
+    value: R
+    # 구현하세요
+
+def is_left(either: Either[L, R]) -> TypeGuard[Left[L, R]]:
+    # 구현하세요
+    pass
+```
+
+**중급 문제**: async 함수를 Result로 감싸는 데코레이터를 만드세요. 함수가 예외를 던지면 자동으로 Err로 변환하고, 성공하면 Ok로 반환합니다. 타입 힌팅을 정확히 유지해야 합니다.
+
+```python
+from typing import ParamSpec, Concatenate
+
+P = ParamSpec('P')
+R = TypeVar('R')
+
+def result_async(
+    func: Callable[P, Awaitable[R]]
+) -> Callable[P, Awaitable[Result[R, str]]]:
+    """async 함수를 Result를 반환하도록 감쌉니다"""
+    # 구현하세요
+    pass
+
+# 사용
+@result_async
+async def fetch_user(user_id: int) -> dict:
+    # 예외를 던질 수 있습니다
+    pass
+
+# 반환 타입은 Awaitable[Result[dict, str]]입니다
+```
+
+**도전 문제**: Validation 모나드를 구현하세요. Result와 비슷하지만 여러 에러를 수집할 수 있습니다. 검증 실패 시 하나의 에러만 반환하는 것이 아니라 모든 검증 에러를 리스트로 반환합니다.
+
+```python
+@dataclass
+class Valid(Generic[T]):
+    value: T
+
+@dataclass
+class Invalid(Generic[E]):
+    errors: list[E]
+
+Validation = Union[Valid[T], Invalid[E]]
+
+def validate_name(name: str) -> Validation[str, str]:
+    if len(name) < 2:
+        return Invalid(["이름이 너무 짧습니다"])
+    return Valid(name)
+
+def validate_email(email: str) -> Validation[str, str]:
+    if "@" not in email:
+        return Invalid(["이메일 형식이 잘못되었습니다"])
+    return Valid(email)
+
+def combine_validations(
+    validations: list[Validation[T, E]]
+) -> Validation[list[T], E]:
+    """여러 검증을 결합하고 모든 에러를 수집합니다"""
+    errors: list[E] = []
+    values: list[T] = []
+
+    for v in validations:
+        match v:
+            case Valid(val):
+                values.append(val)
+            case Invalid(errs):
+                errors.extend(errs)
+    
+    if errors:
+        return Invalid(errors)
+    return Valid(values)
+```
+
+## 9장 요약: 타입은 증명이다
+
+이번 장에서는 함수형 프로그래밍과 **타입 시스템(Type System)**이 어떻게 완벽한 조화를 이루는지 확인했습니다.
+
+1.  **타입의 역할**: 단순한 주석이 아니라, 프로그램의 동작을 증명하는 **수학적 명세**입니다.
+2.  **핵심 도구**: `Generic`, `Protocol`, `ParamSpec`을 활용하여 유연하고 안전한 추상화를 만들었습니다.
+3.  **검증 vs 파싱**: 데이터를 단순히 검증(`bool`)하지 않고, 더 구체적인 타입으로 변환(`Parse`)하여 **불가능한 상태를 표현할 수 없게** 만들었습니다.
+
+### 1장 → 9장까지의 여정: 컴파일 타임 안전성 확보
+
+우리는 **불변성, 순수 함수, 모나드, 아키텍처**를 거쳐 **타입 시스템**까지 왔습니다. 이제 우리의 코드는 컴파일 타임에(실행하기도 전에) 많은 오류를 걸러낼 수 있습니다. 하지만 컴파일러가 잡아내지 못하는 논리적 오류나 런타임 환경 문제는 어떻게 할까요?
+
+### 다음 10장 예고: 함수형 테스트 전략
+
+다음 장에서는 **테스트(Testing)**를 다룹니다.
+특히 **비동기 코드**와 **함수형 코드**를 어떻게 효과적으로 테스트하는지 배웁니다.
+순수 함수와 부수 효과를 분리한 덕분에, 우리의 코드는 테스트하기가 놀랍도록 쉽습니다. Mocking 지옥에서 벗어나, 데이터 중심의 명확한 테스트를 작성하는 법을 익혀봅시다.
+
+```python
+# 10장 맛보기: Property-Based Testing
+from hypothesis import given, strategies as st
+
+@given(st.integers())
+def test_monad_laws(x):
+    # 모나드 법칙이 모든 정수에 대해 성립함을 증명
+    assert Result.ok(x).map(lambda v: v) == Result.ok(x)
+```

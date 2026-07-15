@@ -1,0 +1,992 @@
+---
+title: "7. Reactive Programming: 시간에 걸친 값들의 스트림"
+date: 2026-07-15T00:00:00+09:00
+draft: false
+tags: ["functional-programming", "python", "reactive-programming", "book"]
+categories: ["books"]
+description: "Observable과 Reactive Programming으로 시간에 걸친 이벤트 스트림을 함수형으로 다루는 방법을 정리합니다."
+---
+
+
+## 1-6장 복습: 여기까지의 여정
+
+7장을 시작하기 전에, 지금까지 배운 개념들을 정리해봅시다.
+
+**1장: 함수형 프로그래밍의 핵심 원칙**
+- 순수 함수: 같은 입력에 항상 같은 출력, 부작용 없음
+- 참조 투명성: 표현식을 그 값으로 대체해도 동작이 같음
+- 합성 가능성: 작은 함수를 조합해서 복잡한 함수를 만듦
+
+**2장: 콜백에서 Promise로**
+- 콜백의 문제: 콜백 지옥, 에러 처리 분산, 흐름 파악 어려움
+- 비동기를 값으로 다루는 발상의 전환
+
+**3장: Functor - 컨텍스트 안의 변환**
+- map 연산: 컨텍스트 안의 값을 변환하되, 컨텍스트는 유지
+- 독립적인 변환들의 합성
+
+**4장: Monad - 순차적 의존성의 합성**
+- flatMap 연산: 이전 결과에 의존하는 연산들을 연결
+- 제너레이터에서 async/await로의 진화
+
+**5장: Result - 에러를 값으로 다루기**
+- 에러도 값으로 다루면 합성 가능해짐
+- Railway-Oriented Programming: 성공/실패 두 트랙
+
+**6장: Applicative Functor - 병렬 합성**
+- 독립적인 작업들을 병렬로 실행
+- asyncio.gather, asyncio.as_completed
+
+이제 우리는 다음 질문에 도달합니다: **시간에 걸쳐 계속 도착하는 여러 값들**을 어떻게 함수형으로 다룰까요?
+
+---
+
+6장에서는 `Applicative Functor`(`asyncio.gather`)를 통해 **독립적인** 비동기 작업들을 **병렬**로 실행하여 시간을 단축했습니다. 하지만 우리가 다룬 것은 여전히 "미래에 도착할 **하나의 값**"(`Future`)이었습니다.
+
+만약 값이 하나가 아니라 **계속해서** 도착한다면 어떨까요? 클릭 이벤트, 채팅 메시지, 주식 가격 변동처럼 말이죠. 이 장에서는 스트림을 함수형으로 다루는 방법을 배울 것입니다.
+
+이 장에서는 스트림을 함수형으로 다루는 방법을 배울 것입니다. 먼저 파이썬의 기본 도구인 asyncio.Queue로 간단한 스트림을 만들어보고, 그 한계를 이해한 다음, Reactive Programming이라는 더 강력한 패러다임으로 나아갈 것입니다.
+
+## 문제의 발견: 계속 도착하는 데이터
+
+간단한 상황을 생각해봅시다. 주식 가격 모니터링 시스템을 만들고 있고, 거래소에서 실시간으로 가격 업데이트가 들어옵니다. 가격이 변할 때마다 새로운 값이 도착하고, 우리는 그 값들을 처리해야 합니다.
+
+Future로는 이것을 표현할 수 없습니다. Future는 하나의 값만 가질 수 있기 때문입니다. set_result를 두 번 호출하면 예외가 발생합니다. 리스트로 표현할 수도 없습니다. 리스트는 모든 값이 메모리에 있어야 하지만, 스트림은 끝이 없을 수도 있습니다. 주식 거래소는 계속 열려있고, 가격은 계속 변합니다.
+
+전통적인 접근은 콜백을 사용하는 것입니다.
+
+```python
+class StockPriceMonitor:
+    """주식 가격 모니터 (콜백 기반)"""
+    
+    def __init__(self):
+        self.callbacks = []
+    
+    def subscribe(self, callback):
+        """새 가격이 도착하면 호출될 콜백을 등록합니다"""
+        self.callbacks.append(callback)
+    
+    def emit_price(self, symbol: str, price: float):
+        """새 가격을 모든 구독자에게 알립니다"""
+        for callback in self.callbacks:
+            callback(symbol, price)
+
+# 사용
+monitor = StockPriceMonitor()
+
+def handle_price(symbol: str, price: float):
+    print(f"{symbol}: ${price:.2f}")
+
+monitor.subscribe(handle_price)
+
+# 가격 업데이트 시뮬레이션
+monitor.emit_price("AAPL", 150.25)
+monitor.emit_price("AAPL", 150.50)
+monitor.emit_price("GOOGL", 2800.00)
+```
+
+이 방식은 작동하지만 2장에서 본 콜백의 모든 문제를 가지고 있습니다. 여러 단계의 변환을 거치려면 콜백이 중첩되고, 에러 처리가 흩어지며, 합성이 어렵습니다. 가격이 10% 이상 변했을 때만 알림을 받고 싶다면 어떻게 해야 할까요? 1초 동안의 평균 가격을 계산하려면요? 콜백 방식으로는 금방 복잡해집니다.
+
+## asyncio.Queue: 스트림의 첫걸음
+
+파이썬의 asyncio는 스트림을 다루는 기본적인 도구를 제공합니다. asyncio.Queue입니다. Queue는 생산자-소비자 패턴을 구현한 것으로, 한쪽에서 값을 넣으면 다른 쪽에서 꺼내서 처리할 수 있습니다.
+
+```python
+import asyncio
+
+async def price_producer(queue: asyncio.Queue):
+    """가격 데이터를 생산합니다"""
+    prices = [
+        ("AAPL", 150.25),
+        ("AAPL", 150.50),
+        ("AAPL", 151.00),
+        ("GOOGL", 2800.00),
+        ("GOOGL", 2805.00),
+    ]
+    
+    for symbol, price in prices:
+        print(f"생산: {symbol} ${price:.2f}")
+        await queue.put((symbol, price))
+        await asyncio.sleep(0.5)  # 가격 업데이트 간격
+    
+    # 종료 신호
+    await queue.put(None)
+
+async def price_consumer(queue: asyncio.Queue):
+    """가격 데이터를 소비합니다"""
+    while True:
+        item = await queue.get()
+        
+        # 종료 신호 확인
+        if item is None:
+            break
+        
+        symbol, price = item
+        print(f"  소비: {symbol} ${price:.2f}")
+
+async def main():
+    queue = asyncio.Queue()
+    
+    # 생산자와 소비자를 동시에 실행
+    await asyncio.gather(
+        price_producer(queue),
+        price_consumer(queue)
+    )
+
+# 실행
+asyncio.run(main())
+```
+
+실행하면 이렇게 출력됩니다.
+
+```
+생산: AAPL $150.25
+  소비: AAPL $150.25
+생산: AAPL $150.50
+  소비: AAPL $150.50
+생산: AAPL $151.00
+  소비: AAPL $151.00
+생산: GOOGL $2800.00
+  소비: GOOGL $2800.00
+생산: GOOGL $2805.00
+  소비: GOOGL $2805.00
+```
+
+Queue는 콜백보다 훨씬 낫습니다. 생산자와 소비자가 분리되어 있고, 백프레셔(backpressure)를 자동으로 처리합니다. 큐가 가득 차면 put이 대기하고, 큐가 비면 get이 대기합니다. 이것은 생산 속도와 소비 속도가 다를 때 시스템을 안정적으로 유지합니다.
+
+### 백프레셔(Backpressure)란?
+
+백프레셔는 스트림 처리에서 매우 중요한 개념입니다. 생산자가 소비자보다 빠를 때 발생하는 문제를 다룹니다.
+
+```
+생산자 (초당 1000개) → [?] → 소비자 (초당 100개)
+```
+
+생산자가 소비자보다 10배 빠르면 어떻게 될까요?
+
+1. **버퍼 무한 증가**: 중간에 데이터가 쌓이면서 메모리가 고갈됨
+2. **데이터 유실**: 처리할 수 없는 데이터를 버림
+3. **생산자 차단**: 소비자가 따라올 때까지 생산을 멈춤 ← 백프레셔
+
+백프레셔는 세 번째 전략입니다. 소비자가 "아직 준비가 안 됐어!"라고 생산자에게 압력(pressure)을 거꾸로(back) 전달하는 것입니다.
+
+```python
+import asyncio
+
+async def fast_producer(queue: asyncio.Queue):
+    """빠른 생산자"""
+    for i in range(100):
+        print(f"생산 시도: {i}")
+        await queue.put(i)  # 큐가 가득 차면 여기서 대기 (백프레셔)
+        print(f"생산 완료: {i}")
+
+async def slow_consumer(queue: asyncio.Queue):
+    """느린 소비자"""
+    while True:
+        item = await queue.get()
+        if item is None:
+            break
+        print(f"  소비: {item}")
+        await asyncio.sleep(0.5)  # 처리가 느림
+
+async def demo_backpressure():
+    # maxsize=3: 최대 3개만 버퍼링, 초과하면 생산자 대기
+    queue = asyncio.Queue(maxsize=3)
+
+    await asyncio.gather(
+        fast_producer(queue),
+        slow_consumer(queue)
+    )
+
+# 결과: 생산자가 3개를 빠르게 넣은 후 소비자를 기다림
+```
+
+Pull 기반 시스템(async generator)은 백프레셔가 자동입니다. 소비자가 요청할 때만 생산하니까요. Push 기반 시스템(Observable)은 백프레셔를 명시적으로 관리해야 합니다.
+
+하지만 Queue에도 한계가 있습니다. 변환이나 필터링을 하려면 명시적인 루프를 작성해야 합니다. AAPL 종목만 필터링하고 싶다면 이렇게 해야 합니다.
+
+```python
+async def filter_symbol(input_queue: asyncio.Queue, output_queue: asyncio.Queue, target_symbol: str):
+    """특정 종목만 필터링합니다"""
+    while True:
+        item = await input_queue.get()
+        
+        if item is None:
+            await output_queue.put(None)
+            break
+        
+        symbol, price = item
+        if symbol == target_symbol:
+            await output_queue.put(item)
+
+async def main_with_filter():
+    input_queue = asyncio.Queue()
+    filtered_queue = asyncio.Queue()
+    
+    await asyncio.gather(
+        price_producer(input_queue),
+        filter_symbol(input_queue, filtered_queue, "AAPL"),
+        price_consumer(filtered_queue)
+    )
+```
+
+여러 단계의 변환을 거치려면 여러 개의 큐와 함수를 연결해야 합니다. 이것은 유닉스 파이프라인과 비슷하지만, 보일러플레이트 코드가 많습니다. 종료 신호를 전달하는 것도 신경 써야 하고, 에러 처리도 각 단계마다 해야 합니다.
+
+## Async Generator: 더 나은 추상화
+
+파이썬 3.6부터 async generator가 추가되었습니다. 이것은 async 함수 안에서 yield를 사용할 수 있게 해줍니다. async generator는 스트림을 표현하는 더 우아한 방법입니다.
+
+```python
+async def stock_price_stream():
+    """주식 가격 스트림을 생성합니다"""
+    prices = [
+        ("AAPL", 150.25),
+        ("AAPL", 150.50),
+        ("AAPL", 151.00),
+        ("GOOGL", 2800.00),
+        ("GOOGL", 2805.00),
+    ]
+    
+    for symbol, price in prices:
+        await asyncio.sleep(0.5)  # 스트림의 시간 간격
+        yield (symbol, price)
+
+async def consume_stream():
+    """스트림을 소비합니다"""
+    async for symbol, price in stock_price_stream():
+        print(f"{symbol}: ${price:.2f}")
+
+# 실행
+asyncio.run(consume_stream())
+```
+
+async generator는 훨씬 깔끔합니다. Queue를 명시적으로 만들 필요가 없고, 종료 신호를 전달할 필요도 없습니다. async for 루프가 자동으로 처리합니다.
+
+변환과 필터링도 더 우아하게 작성할 수 있습니다.
+
+```python
+async def filter_stream(stream, predicate):
+    """스트림을 필터링합니다"""
+    async for item in stream:
+        if predicate(item):
+            yield item
+
+async def map_stream(stream, func):
+    """스트림의 각 항목을 변환합니다"""
+    async for item in stream:
+        yield func(item)
+
+async def consume_with_transformation():
+    """변환된 스트림을 소비합니다"""
+    # AAPL만 필터링
+    aapl_only = filter_stream(
+        stock_price_stream(),
+        lambda item: item[0] == "AAPL"
+    )
+    
+    # 가격만 추출
+    prices_only = map_stream(
+        aapl_only,
+        lambda item: item[1]
+    )
+    
+    # 소비
+    async for price in prices_only:
+        print(f"AAPL 가격: ${price:.2f}")
+
+# 실행
+asyncio.run(consume_with_transformation())
+# AAPL 가격: $150.25
+# AAPL 가격: $150.50
+# AAPL 가격: $151.00
+```
+
+이것은 3장에서 본 Functor의 패턴과 비슷합니다. map_stream은 스트림을 다른 스트림으로 변환하되, 스트림이라는 컨텍스트는 유지합니다. filter_stream은 조건에 맞는 항목만 남깁니다. 이 함수들을 조합해서 복잡한 파이프라인을 만들 수 있습니다.
+
+하지만 async generator에도 한계가 있습니다. 여러 스트림을 병합하거나, 시간 기반 연산(디바운싱, 스로틀링)을 하거나, 에러를 우아하게 처리하는 것이 어렵습니다. 검색창 자동완성 같은 복잡한 시나리오를 생각해봅시다. 사용자가 타이핑할 때마다 이벤트가 발생하는데, 너무 빨리 타이핑하면 매번 검색하지 않고 잠깐 기다렸다가 한 번만 검색하고 싶습니다. 이전 검색이 완료되기 전에 새 검색이 시작되면 이전 것은 취소하고 싶습니다. 이런 로직을 async generator만으로 구현하는 것은 복잡합니다.
+
+---
+
+## 여기까지가 기초입니다
+
+여기까지 우리는 파이썬 표준 라이브러리만으로 스트림을 다루는 방법을 배웠습니다:
+- **asyncio.Queue**: 생산자-소비자 패턴과 백프레셔
+- **Async Generator**: 함수형 스타일로 스트림 변환 (map, filter)
+
+이것만으로도 많은 실무 문제를 해결할 수 있습니다. 간단한 이벤트 처리, 데이터 파이프라인, 실시간 로그 처리 등은 async generator로 충분합니다.
+
+**하지만 더 복잡한 시나리오**를 다루고 싶다면, 예를 들어:
+- 시간 기반 연산 (디바운싱, 스로틀링, 윈도잉)
+- 여러 스트림의 병합 및 조합
+- 복잡한 에러 처리 및 재시도 로직
+- Hot/Cold Observable 구분
+
+이런 경우 **Reactive Programming** 라이브러리가 도움이 됩니다. 다음 섹션부터는 심화 내용으로, RxPY 라이브러리를 사용한 Reactive Programming을 다룹니다.
+
+**선택적으로 읽으세요**: 실무에서 복잡한 이벤트 스트림을 다루지 않는다면, 여기까지만 이해해도 충분합니다. 필요할 때 다시 돌아와서 심화 내용을 학습해도 늦지 않습니다.
+
+---
+
+# 심화: Reactive Programming과 RxPY
+
+## Reactive Programming의 등장
+
+Reactive Programming은 스트림을 일급 객체로 다루는 프로그래밍 패러다임입니다. 핵심 개념은 Observable입니다. Observable은 시간에 걸쳐 여러 값을 방출하는 스트림을 표현합니다. 그리고 이 스트림에 map, filter, merge 같은 연산자를 적용할 수 있습니다.
+
+Observable을 이해하는 가장 좋은 방법은 우리가 이미 배운 개념과 비교하는 것입니다. 리스트는 공간에 걸친 여러 값입니다. 메모리에 동시에 존재하는 값들이죠. Observable은 시간에 걸친 여러 값입니다. 시간이 지나면서 하나씩 도착하는 값들입니다. Future는 미래의 하나의 값이었고, Observable은 미래의 여러 값입니다.
+
+|개념|하나의 값|여러 값|
+|---|---|---|
+|동기|값|리스트|
+|비동기|Future|Observable|
+
+이 표를 보면 Observable의 위치가 명확해집니다. 리스트에 map과 filter를 적용할 수 있듯이, Observable에도 map과 filter를 적용할 수 있습니다. Future에 flatMap을 적용할 수 있듯이, Observable에도 flatMap을 적용할 수 있습니다.
+
+### Observable은 왜 Monad인가?
+
+4장에서 배운 Monad의 핵심을 다시 떠올려봅시다. Monad는 `flatMap`(또는 `bind`) 연산을 제공하고, 모나드 법칙을 만족합니다. Observable도 이를 만족합니다.
+
+```python
+# 4장의 flatMap 패턴
+async def get_user(id: int) -> User:
+    ...
+
+async def get_posts(user: User) -> list[Post]:
+    ...
+
+# Future의 flatMap: 이전 결과에 의존하는 순차 실행
+user = await get_user(1)
+posts = await get_posts(user)  # user 결과에 의존
+```
+
+```python
+# Observable의 flatMap: 각 값에 대해 새 스트림 생성, 평탄화
+from reactivex import of
+from reactivex import operators as op
+
+user_ids = of(1, 2, 3)
+
+# 각 user_id마다 Observable을 생성하고 평탄화
+all_posts = user_ids.pipe(
+    op.flat_map(lambda user_id: get_user_posts_observable(user_id))
+)
+# 결과: 1번 유저의 글들, 2번 유저의 글들, 3번 유저의 글들이 평탄화되어 흐름
+```
+
+패턴이 동일합니다! 차이점은:
+- **Future의 flatMap**: 하나의 값 → 하나의 Future → 하나의 결과
+- **Observable의 flatMap**: 여러 값 → 각각 Observable → 여러 결과가 평탄화
+
+Monad 법칙도 만족합니다:
+
+```python
+# 왼쪽 항등법칙: of(x).flat_map(f) == f(x)
+of(5).pipe(op.flat_map(lambda x: of(x * 2)))
+# == of(10)
+
+# 오른쪽 항등법칙: m.flat_map(of) == m
+of(1, 2, 3).pipe(op.flat_map(lambda x: of(x)))
+# == of(1, 2, 3)
+
+# 결합법칙: m.flat_map(f).flat_map(g) == m.flat_map(lambda x: f(x).flat_map(g))
+```
+
+**Observable은 시간 차원을 추가한 Monad입니다.** 리스트가 "공간에 펼쳐진 여러 값"에 대한 Monad라면, Observable은 "시간에 걸쳐 흐르는 여러 값"에 대한 Monad입니다.
+
+파이썬에서 Reactive Programming을 사용하려면 RxPY 라이브러리를 설치해야 합니다.
+
+```bash
+pip install reactivex
+```
+
+간단한 예제로 시작해봅시다.
+
+```python
+from reactivex import create, operators as op
+import asyncio
+
+def stock_price_observable(observer, scheduler=None):
+    """주식 가격을 방출하는 Observable"""
+    prices = [
+        ("AAPL", 150.25),
+        ("AAPL", 150.50),
+        ("AAPL", 151.00),
+        ("GOOGL", 2800.00),
+        ("GOOGL", 2805.00),
+    ]
+    
+    for symbol, price in prices:
+        observer.on_next((symbol, price))
+    
+    observer.on_completed()
+
+# Observable 생성
+source = create(stock_price_observable)
+
+# 구독
+source.subscribe(
+    on_next=lambda item: print(f"받음: {item[0]} ${item[1]:.2f}"),
+    on_error=lambda e: print(f"에러: {e}"),
+    on_completed=lambda: print("완료")
+)
+```
+
+실행하면 이렇게 출력됩니다.
+
+```
+받음: AAPL $150.25
+받음: AAPL $150.50
+받음: AAPL $151.00
+받음: GOOGL $2800.00
+받음: GOOGL $2805.00
+완료
+```
+
+Observable의 구조를 이해해봅시다. Observable은 세 가지 종류의 알림을 방출할 수 있습니다. on_next는 새 값이 도착했다는 알림이고, on_error는 에러가 발생했다는 알림이며, on_completed는 스트림이 끝났다는 알림입니다. 구독자(observer)는 이 세 가지 알림을 처리하는 콜백을 제공합니다.
+
+이것은 2장에서 본 콜백과 비슷해 보이지만, 중요한 차이가 있습니다. Observable은 연산자를 통해 변환하고 조합할 수 있습니다. 이제 map과 filter를 사용해봅시다.
+
+```python
+# AAPL만 필터링하고 가격을 10% 할인
+result = source.pipe(
+    op.filter(lambda item: item[0] == "AAPL"),
+    op.map(lambda item: (item[0], item[1] * 0.9))
+)
+
+result.subscribe(
+    on_next=lambda item: print(f"할인가: {item[0]} ${item[1]:.2f}"),
+    on_completed=lambda: print("완료")
+)
+```
+
+pipe 메서드로 여러 연산자를 체이닝할 수 있습니다. 이것은 우리가 3장에서 본 map 체이닝과 같은 패턴입니다. 각 연산자는 Observable을 받아서 새로운 Observable을 반환하고, 원본은 변경되지 않습니다. 함수형 프로그래밍의 불변성 원칙을 따릅니다.
+
+## 시간 기반 연산자
+
+Observable의 진정한 힘은 시간 기반 연산자에서 나옵니다. 이것들은 async generator로는 구현하기 어렵거나 불가능한 것들입니다.
+
+debounce는 값이 연속으로 빠르게 도착할 때, 마지막 값만 방출합니다. 사용자가 검색창에 타이핑할 때 매번 검색하지 않고, 타이핑을 멈춘 후에 한 번만 검색하는 것이 대표적인 사용 사례입니다.
+
+```python
+from reactivex import interval
+from reactivex import operators as op
+import time
+
+# 0.1초마다 숫자를 방출하는 스트림
+fast_stream = interval(0.1).pipe(
+    op.take(20)  # 20개만 가져옴
+)
+
+# 0.5초 동안 새 값이 없으면 방출 (디바운싱)
+debounced = fast_stream.pipe(
+    op.debounce(0.5)
+)
+
+print("=== 디바운싱 전 ===")
+fast_stream.subscribe(
+    on_next=lambda x: print(f"빠름: {x}"),
+    on_completed=lambda: print("빠른 스트림 완료\n")
+)
+
+# 참고: RxPY의 기본 스케줄러는 스레드 기반이므로 time.sleep 사용
+# asyncio와 함께 사용하려면 AsyncIOScheduler가 필요합니다
+time.sleep(3)
+
+print("=== 디바운싱 후 ===")
+debounced.subscribe(
+    on_next=lambda x: print(f"느림: {x}"),
+    on_completed=lambda: print("디바운스 스트림 완료")
+)
+
+time.sleep(3)
+```
+
+throttle은 일정 시간 동안 최대 한 개의 값만 방출합니다. 스크롤 이벤트 같이 너무 빈번한 이벤트를 제한할 때 사용합니다.
+
+```python
+# 0.1초마다 방출하지만 1초마다 최대 하나만 통과 (스로틀링)
+throttled = fast_stream.pipe(
+    op.throttle_first(1.0)
+)
+
+throttled.subscribe(
+    on_next=lambda x: print(f"스로틀: {x}"),
+    on_completed=lambda: print("스로틀 스트림 완료")
+)
+```
+
+delay는 스트림의 모든 값을 일정 시간만큼 지연시킵니다.
+
+```python
+# 각 값을 1초 지연
+delayed = source.pipe(
+    op.delay(1.0)
+)
+```
+
+distinct_until_changed는 연속된 중복 값을 제거합니다. 센서 데이터에서 값이 변했을 때만 알림을 받고 싶을 때 유용합니다.
+
+```python
+from reactivex import of
+
+# 중복된 연속 값이 있는 스트림
+values = of(1, 1, 2, 2, 2, 3, 2, 2, 1)
+
+# 연속 중복 제거
+distinct = values.pipe(
+    op.distinct_until_changed()
+)
+
+distinct.subscribe(
+    on_next=lambda x: print(f"변화: {x}")
+)
+# 변화: 1
+# 변화: 2
+# 변화: 3
+# 변화: 2
+# 변화: 1
+```
+
+이 연산자들은 시간이라는 차원을 다룹니다. 값들 사이의 시간 간격을 고려하고, 특정 시간 동안의 동작을 제어합니다. 이것은 리스트나 async generator로는 자연스럽게 표현할 수 없는 개념입니다.
+
+## 스트림 조합하기
+
+여러 Observable을 조합하는 연산자도 있습니다. merge는 여러 스트림을 하나로 합칩니다.
+
+```python
+from reactivex import of, merge
+
+stream1 = of("A", "B", "C")
+stream2 = of("1", "2", "3")
+
+merged = merge(stream1, stream2)
+
+merged.subscribe(
+    on_next=lambda x: print(f"병합: {x}")
+)
+# 순서는 보장되지 않습니다
+```
+
+zip은 여러 스트림의 값을 쌍으로 묶습니다. 두 스트림에서 하나씩 값을 가져와서 튜플로 만듭니다.
+
+```python
+from reactivex import zip
+
+names = of("Alice", "Bob", "Charlie")
+ages = of(25, 30, 35)
+
+people = zip(names, ages)
+
+people.subscribe(
+    on_next=lambda pair: print(f"{pair[0]}는 {pair[1]}세")
+)
+# Alice는 25세
+# Bob는 30세
+# Charlie는 35세
+```
+
+combine_latest는 여러 스트림 중 어느 하나라도 새 값을 방출하면, 모든 스트림의 최신 값을 조합해서 방출합니다. 실시간 대시보드에서 여러 소스의 최신 데이터를 표시할 때 유용합니다.
+
+```python
+from reactivex import combine_latest, interval
+
+# 1초마다 방출
+slow = interval(1.0).pipe(op.take(5))
+
+# 0.5초마다 방출
+fast = interval(0.5).pipe(op.take(10))
+
+combined = combine_latest(slow, fast)
+
+combined.subscribe(
+    on_next=lambda pair: print(f"느림: {pair[0]}, 빠름: {pair[1]}")
+)
+```
+
+flatMap(또는 flat_map)은 4장에서 배운 개념이 Observable에도 적용됩니다. 각 값을 Observable로 변환하고, 모든 Observable을 하나로 평탄화합니다.
+
+```python
+# 각 숫자에 대해 새로운 스트림 생성
+source = of(1, 2, 3)
+
+result = source.pipe(
+    op.flat_map(lambda x: of(x, x * 10, x * 100))
+)
+
+result.subscribe(
+    on_next=lambda x: print(x)
+)
+# 1, 10, 100, 2, 20, 200, 3, 30, 300
+```
+
+switch_map은 flatMap과 비슷하지만, 새 Observable이 시작되면 이전 Observable을 취소합니다. 검색 자동완성에서 매우 중요한 연산자입니다. 사용자가 새로 타이핑하면 이전 검색을 취소하고 새 검색을 시작해야 하기 때문입니다.
+
+## 실전 예제: 검색 자동완성
+
+모든 개념을 종합해서 검색 자동완성을 구현해봅시다. 사용자가 검색창에 타이핑할 때마다 API를 호출해서 추천 검색어를 보여주는 기능입니다. 여러 복잡한 요구사항이 있습니다.
+
+첫째, 사용자가 빠르게 타이핑하면 매번 API를 호출하지 않고 타이핑을 멈춘 후에 호출해야 합니다. 이것은 디바운싱입니다. 둘째, 같은 검색어를 연속으로 입력하면 중복 요청을 보내지 않아야 합니다. 셋째, 이전 검색이 완료되기 전에 새 검색을 시작하면 이전 요청을 취소해야 합니다. 넷째, API 에러를 우아하게 처리해야 합니다. 다섯째, 너무 짧은 검색어(예: 한 글자)는 무시해야 합니다.
+
+이 모든 것을 Observable로 구현하면 놀랍도록 간결합니다.
+
+```python
+from reactivex import create, operators as op
+from reactivex.subject import Subject
+import asyncio
+import aiohttp
+
+class SearchService:
+    """검색 API 서비스"""
+    
+    async def search(self, query: str) -> list[str]:
+        """검색 API를 호출합니다 (시뮬레이션)"""
+        print(f"  → API 호출: '{query}'")
+        await asyncio.sleep(0.5)  # 네트워크 지연
+        
+        # 시뮬레이션: 쿼리에 따라 다른 결과 반환
+        results = {
+            "python": ["python tutorial", "python download", "python documentation"],
+            "java": ["javascript", "java tutorial", "java vs python"],
+            "react": ["react hooks", "react native", "reactjs"],
+        }
+        
+        # 부분 일치하는 결과 찾기
+        matches = []
+        for key, values in results.items():
+            if query.lower() in key:
+                matches.extend(values)
+        
+        print(f"  ← 결과 반환: {len(matches)}개")
+        return matches[:5]  # 최대 5개
+
+class SearchAutocomplete:
+    """검색 자동완성"""
+    
+    def __init__(self, search_service: SearchService):
+        self.search_service = search_service
+        self.search_input = Subject()  # 입력 이벤트를 방출할 Subject
+    
+    def setup(self):
+        """Observable 파이프라인을 설정합니다"""
+        self.search_input.pipe(
+            op.do_action(lambda query: print(f"입력: '{query}'")),
+            
+            # 1. 빈 문자열과 너무 짧은 검색어 필터링
+            op.filter(lambda query: len(query) >= 2),
+            
+            # 2. 연속 중복 제거
+            op.distinct_until_changed(),
+            
+            # 3. 300ms 디바운싱 (타이핑을 멈출 때까지 기다림)
+            op.debounce(0.3),
+            
+            # 4. 각 검색어에 대해 API 호출 (이전 요청은 자동 취소)
+            op.switch_map(lambda query: 
+                create(lambda observer, scheduler: 
+                    self._search_async(observer, query)
+                )
+            ),
+            
+            # 5. 에러를 포착하고 빈 결과로 대체
+            op.catch(lambda error: 
+                print(f"  ! 에러: {error}") or []
+            )
+        ).subscribe(
+            on_next=lambda results: self._display_results(results),
+            on_error=lambda error: print(f"치명적 에러: {error}"),
+            on_completed=lambda: print("검색 완료")
+        )
+    
+    def _search_async(self, observer, query):
+        """비동기 검색을 수행하고 결과를 방출합니다"""
+        async def do_search():
+            try:
+                results = await self.search_service.search(query)
+                observer.on_next(results)
+                observer.on_completed()
+            except Exception as e:
+                observer.on_error(e)
+        
+        asyncio.create_task(do_search())
+    
+    def _display_results(self, results: list[str]):
+        """검색 결과를 표시합니다"""
+        print(f"  ★ 추천 검색어:")
+        for result in results:
+            print(f"    - {result}")
+        print()
+    
+    def type(self, text: str):
+        """사용자가 타이핑합니다"""
+        self.search_input.on_next(text)
+
+# 사용 예제
+async def main():
+    service = SearchService()
+    autocomplete = SearchAutocomplete(service)
+    autocomplete.setup()
+    
+    # 사용자 타이핑 시뮬레이션
+    autocomplete.type("p")       # 너무 짧음, 무시됨
+    await asyncio.sleep(0.1)
+    
+    autocomplete.type("py")      # 디바운싱 전
+    await asyncio.sleep(0.1)
+    
+    autocomplete.type("pyt")     # 디바운싱 전
+    await asyncio.sleep(0.1)
+    
+    autocomplete.type("pyth")    # 디바운싱 전
+    await asyncio.sleep(0.1)
+    
+    autocomplete.type("python")  # 300ms 후 이것만 API 호출
+    await asyncio.sleep(1)       # 결과를 볼 시간
+    
+    autocomplete.type("python")  # 중복, 무시됨
+    await asyncio.sleep(0.5)
+    
+    autocomplete.type("java")    # 새 검색
+    await asyncio.sleep(0.1)
+    
+    autocomplete.type("react")   # 이전 검색 취소, 새 검색 시작
+    await asyncio.sleep(1)
+
+# asyncio.run(main())
+```
+
+이 코드의 아름다움을 보세요. 복잡한 요구사항이 연산자의 체인으로 선언적으로 표현되어 있습니다. filter는 짧은 검색어를 걸러내고, distinct_until_changed는 중복을 제거하고, debounce는 타이핑이 끝날 때까지 기다리고, switch_map은 이전 검색을 취소하고 새 검색을 시작하며, catch는 에러를 처리합니다.
+
+명령형으로 같은 기능을 구현하려면 타이머를 관리하고, 이전 요청을 추적하고, 취소 토큰을 전달하고, 상태를 동기화해야 합니다. 코드가 복잡하고 버그가 생기기 쉽습니다. 하지만 Observable을 사용하면 각 연산자가 하나의 책임만 가지고, 조합해서 복잡한 동작을 만듭니다. 이것이 바로 함수형 프로그래밍의 합성 가능성입니다.
+
+#### RxPY와 asyncio 통합: AsyncIOScheduler
+
+위 예제에서는 `asyncio.create_task`를 사용해서 수동으로 async 함수를 Observable과 통합했습니다. RxPY는 이를 더 쉽게 해주는 `AsyncIOScheduler`를 제공합니다.
+
+```python
+from reactivex.scheduler.eventloop import AsyncIOScheduler
+from reactivex import interval, operators as op
+
+# AsyncIOScheduler 생성
+loop = asyncio.get_event_loop()
+scheduler = AsyncIOScheduler(loop=loop)
+
+# interval에서 스케줄러 사용
+observable = interval(1.0, scheduler=scheduler).pipe(
+    op.map(lambda i: f"tick {i}"),
+    op.take(5)
+)
+
+observable.subscribe(
+    on_next=lambda x: print(x),
+    on_error=lambda e: print(f"Error: {e}"),
+    on_completed=lambda: print("Done")
+)
+
+# asyncio 이벤트 루프와 함께 실행
+# loop.run_forever()
+```
+
+`AsyncIOScheduler`를 사용하면 RxPY의 시간 기반 연산자(`interval`, `debounce`, `delay` 등)가 asyncio 이벤트 루프에서 정확하게 동작합니다. 실무에서 FastAPI나 aiohttp 같은 asyncio 기반 프레임워크와 RxPY를 함께 사용할 때 필수적입니다.
+
+**권장사항**: RxPY를 asyncio 환경에서 사용할 때는 항상 `AsyncIOScheduler`를 명시적으로 전달하세요. 그렇지 않으면 RxPY가 기본 스케줄러(멀티스레드)를 사용해서 asyncio와 충돌할 수 있습니다.
+
+### Hot Observable vs Cold Observable
+
+Observable에는 두 가지 종류가 있습니다. 이 구분을 이해하는 것이 중요합니다.
+
+1.  **Cold Observable**: 구독할 때마다 데이터를 처음부터 새로 생성합니다. (예: 넷플릭스 영화 재생, DB 쿼리)
+2.  **Hot Observable**: 구독 시점과 상관없이 데이터가 계속 흐릅니다. (예: 라이브 방송, 마우스 클릭 이벤트)
+
+실무에서는 보통 이벤트 소스(마우스, 키보드, 웹소켓)가 Hot이고, API 호출이나 데이터베이스 쿼리가 Cold입니다.
+
+Hot Observable을 다룰 때는 `Subject`라는 특수한 형태를 사용합니다. 상황에 따라 다양한 Subject가 있습니다.
+
+| Subject 종류 | 특성 | 사용 사례 |
+|-------------|------|---------|
+| `Subject` | 구독 후 발생하는 값만 전달 | 일반적인 클릭/입력 이벤트 |
+| `BehaviorSubject` | 구독 즉시 '마지막 값'을 전달 | 현재 상태 (로그인 정보, 환경설정) |
+| `ReplaySubject` | 최근 N개의 값을 저장했다가 전달 | 채팅 기록, 최근 로그 |
+
+
+## Async Generator vs Observable
+
+async generator와 Observable을 언제 사용해야 할까요? 각각의 장단점을 비교해봅시다.
+
+| 특성 | Async Generator | Observable |
+|------|-----------------|------------|
+| **의존성** | 파이썬 내장 | 외부 라이브러리 (RxPY) |
+| **Pull/Push** | Pull 기반 (소비자가 요청) | Push 기반 (생산자가 밀어넣음) |
+| **백프레셔** | 자동 (소비자가 느리면 대기) | 수동 관리 필요 |
+| **시간 연산** | 직접 구현 필요 | debounce, throttle 등 내장 |
+| **스트림 조합** | 복잡함 | merge, zip, combine 등 내장 |
+| **취소** | 제한적 | switch_map으로 자동 취소 |
+| **Hot/Cold 구분** | 항상 Cold | Hot, Cold 모두 지원 |
+| **에러 처리** | try/except | catch, retry 연산자 |
+| **학습 곡선** | 낮음 | 높음 |
+
+async generator의 장점은 단순함입니다. 파이썬 내장 기능이므로 추가 라이브러리가 필요 없고, 문법이 직관적입니다. async for 루프로 간단하게 소비할 수 있습니다. 백프레셔도 자동으로 처리됩니다. 소비자가 느리면 생산자가 자동으로 기다립니다.
+
+```python
+async def simple_stream():
+    """간단한 스트림은 async generator가 더 낫습니다"""
+    for i in range(10):
+        await asyncio.sleep(0.1)
+        yield i
+
+async def consume():
+    async for value in simple_stream():
+        # 처리가 느리면 생산자가 기다립니다
+        await asyncio.sleep(0.5)
+        print(value)
+```
+
+Observable의 장점은 강력함입니다. 시간 기반 연산자, 복잡한 조합, 에러 처리, Hot Observable 같은 고급 기능을 제공합니다. 여러 스트림을 조합하거나, 이벤트 기반 UI를 만들거나, 복잡한 비즈니스 로직을 구현할 때 Observable이 훨씬 낫습니다.
+
+일반적인 지침은 이렇습니다. 단순한 비동기 반복이면 async generator를 사용하고, 복잡한 이벤트 처리나 시간 기반 로직이면 Observable을 사용하세요. 데이터베이스 결과를 순회하는 것은 async generator가 적합하고, 사용자 입력 이벤트를 처리하는 것은 Observable이 적합합니다.
+
+
+
+## 에러 처리와 재시도
+
+Observable의 에러 처리는 5장에서 배운 Result와 비슷한 철학을 따릅니다. 에러를 값으로 다루고, 선언적으로 처리합니다.
+
+## 에러 처리와 재시도
+
+Observable의 에러 처리는 5장에서 배운 Result와 비슷한 철학을 따릅니다. 에러를 값으로 다루고, 파이프라인 안에서 선언적으로 처리합니다.
+
+주요 에러 처리 연산자들입니다:
+- `catch`: 에러가 발생하면 다른 Observable로 대체합니다 (try-except와 유사).
+- `retry`: 에러가 발생하면 소스 Observable을 재구독합니다.
+- `timeout`: 일정 시간 안에 값이 안 오면 에러를 발생시킵니다.
+
+이것들을 조합하면 매우 견고한 데이터 파이프라인을 만들 수 있습니다.
+
+```python
+def robust_api_pipeline(url_observable):
+    return url_observable.pipe(
+        # 1. 5초 안에 응답 없으면 에러
+        op.timeout(5.0),
+        
+        # 2. 에러 발생 시 최대 3번 재시도
+        op.retry(3),
+        
+        # 3. 그래도 실패하면 캐시된 데이터나 기본값 사용 (절대 죽지 않음!)
+        op.catch(lambda e: of("캐시된 데이터")),
+        
+        # 4. 결과 출력
+        op.do_action(lambda x: print(f"최종 결과: {x}"))
+    )
+```
+
+명령형 코드로 `try-except`, `loop`, `timestamp check` 등을 뒤섞어 쓰는 것보다 훨씬 명확합니다. "무엇을(what)" 할지만 선언하면, "어떻게(how)"는 연산자들이 처리합니다.
+
+## 연습 문제
+
+Reactive Programming의 개념을 직접 연습해보세요.
+
+**기본 문제**: asyncio.Queue를 사용해서 간단한 스트림 파이프라인을 만드세요. 숫자를 생성하는 생산자, 짝수만 필터링하는 중간 단계, 제곱을 계산하는 소비자를 구현하세요.
+
+```python
+async def number_producer(queue: asyncio.Queue):
+    # 1부터 10까지 생성
+    pass
+
+async def even_filter(input_queue: asyncio.Queue, output_queue: asyncio.Queue):
+    # 짝수만 통과
+    pass
+
+async def square_consumer(queue: asyncio.Queue):
+    # 제곱을 출력
+    pass
+```
+
+**중급 문제**: Observable을 사용해서 마우스 클릭 이벤트를 처리하는 더블클릭 감지기를 만드세요. 두 클릭이 300ms 이내에 발생하면 더블클릭으로 간주합니다.
+
+```python
+from reactivex.subject import Subject
+
+class DoubleClickDetector:
+    def __init__(self):
+        self.clicks = Subject()
+    
+    def setup(self):
+        # buffer_with_time이나 window를 사용하세요
+        pass
+    
+    def click(self):
+        """클릭 이벤트를 방출합니다"""
+        self.clicks.on_next(1)
+```
+
+**도전 문제**: 실시간 주식 가격 모니터를 구현하세요. 여러 종목의 가격이 스트림으로 들어오고, 다음 기능을 제공해야 합니다.
+
+1. 특정 종목만 필터링
+2. 1초 동안의 평균 가격 계산 (window 연산자 사용)
+3. 가격이 5% 이상 변하면 알림
+4. 여러 종목을 동시에 모니터링 (merge 사용)
+
+```python
+class StockMonitor:
+    def __init__(self):
+        self.price_stream = Subject()
+    
+    def setup(self):
+        # 힌트: 종목별로 그룹화 -> 윈도우 연산 -> 평균 계산
+        self.price_stream.pipe(
+            op.group_by(lambda x: x[0]),  # 종목별 그룹화
+            op.flat_map(lambda group: group.pipe(
+                op.window_with_time(1.0),  # 1초 단위 윈도우
+                op.flat_map(lambda window: window.pipe(op.to_iterable())),
+                op.map(lambda prices: (group.key, self.calculate_avg(prices))),
+                op.filter(lambda x: self.is_significant_change(x))
+            ))
+        ).subscribe(
+            on_next=lambda x: print(f"알림: {x}"),
+            on_error=lambda e: print(f"에러: {e}")
+        )
+    
+    def emit_price(self, symbol: str, price: float):
+        """새 가격을 방출합니다"""
+        self.price_stream.on_next((symbol, price))
+        
+    def calculate_avg(self, prices):
+        # 평균 계산 로직 (생략)
+        pass
+
+    def is_significant_change(self, data):
+        # 변화율 체크 로직 (생략)
+        return True
+```
+
+## 7장 요약: 함수형 비동기의 완성
+
+이번 장에서는 단일 값(`Future`)을 넘어, 시간에 걸쳐 발생하는 데이터의 스트림(`Observable`)을 다루는 방법을 배웠습니다.
+
+1.  **스트림 처리의 진화**: `Queue` (수동) → `Async Generator` (Pull 기반) → `Observable` (Push 기반, 강력한 연산자)
+2.  **Observable의 본질**: 시간 차원을 추가한 **Monad**입니다. `map`, `filter`, `flatMap` 등 함수형 도구를 그대로 사용할 수 있습니다.
+3.  **선언적 프로그래밍**: 복잡한 이벤트 로직(디바운싱, 스로틀링, 조합)을 연산자 체인으로 간결하게 표현합니다.
+
+### 1장 → 7장까지의 여정: 핵심 패턴의 진화
+
+| 장 | 핵심 개념 | 데이터 형태 | 주요 연산 |
+|----|---------|------------|---------|
+| **1장** | 순수 함수, 합성 | 동기 값 | 함수 합성 |
+| **3장** | Functor | 컨텍스트 안의 값 | map |
+| **4장** | Monad | 순차 의존성 | flatMap |
+| **5장** | Result | 성공/실패 값 | map, check |
+| **6장** | Applicative | 병렬 독립 작업 | gather |
+| **7장** | Observable | 시간에 걸친 값들 | map, flatMap, 시간 연산자 |
+
+지금까지 우리는 비동기 프로그래밍의 핵심 '도구'들을 모두 배웠습니다. 이제 이 도구들을 가지고 집을 지어볼 차례입니다.
+
+### 다음 8장 예고: 실전 아키텍처 (Dependency Injection)
+
+다음 장부터는 본격적인 **실전 아키텍처**로 들어갑니다. 지금까지 배운 함수형 도구들을 활용하여, FastAPI나 Django 같은 현대적 웹 프레임워크에서 **견고하고 테스트 가능한 애플리케이션 구조**를 잡는 방법을 배웁니다.
+가장 먼저, 부수 효과(DB, 외부 API)를 제어하기 위한 핵심 패턴인 **의존성 주입(Dependency Injection)**을 함수형 관점에서 재해석해봅니다.
+
+```python
+# 8장 맛보기: 함수형 의존성 주입
+# DB 접속 같은 부수 효과를 순수 함수 로직에서 분리해내는 "Reader Monad" 패턴
+def get_user_service(db: Database) -> UserService:
+    return UserService(db)
+```

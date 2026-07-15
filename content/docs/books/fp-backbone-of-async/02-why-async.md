@@ -1,0 +1,933 @@
+---
+title: "2. 비동기 프로그래밍이 필요한 이유"
+date: 2026-07-15T00:00:00+09:00
+draft: false
+tags: ["functional-programming", "python", "async", "book"]
+categories: ["books"]
+description: "블로킹과 콜백 지옥이라는 비동기 프로그래밍의 근본 문제와, 동시성과 병렬성의 차이를 파이썬 asyncio를 기준으로 정리합니다."
+---
+
+
+컴퓨터가 기다리는 시간은 인간의 시간과는 차원이 다릅니다. CPU가 메모리에서 데이터를 읽는 데 걸리는 시간을 1초라고 한다면, 네트워크를 통해 데이터를 받는 데는 약 4년이 걸립니다. 디스크에서 데이터를 읽는 것은 약 1개월에 해당하고요. 이런 엄청난 시간 차이가 바로 비동기 프로그래밍이 필요한 근본적인 이유입니다.
+
+이 장에서는 실제로 코드를 작성하고 실행 시간을 측정하면서, 동기 방식의 한계를 직접 확인해볼 것입니다. 그리고 기존의 해결책들을 시도해보면서 각각의 장단점을 이해하고, 왜 새로운 접근이 필요했는지 깨닫게 될 것입니다.
+
+## 이 장에서 배울 내용
+
+이 장을 마치면 여러분은:
+
+1. **I/O-bound와 CPU-bound**를 구분하고, 각각에 적합한 해결책을 판단합니다
+2. **블로킹의 본질**을 이해하고, 왜 참조 투명성을 깨뜨리는지 알게 됩니다
+3. **멀티스레딩, 콜백**의 한계를 1장의 함수형 원칙으로 분석합니다
+4. 왜 **비동기 계산을 값으로 만들어야 하는지** 깨닫습니다
+
+## 1장에서 배운 것들
+
+시작하기 전에 1장에서 배운 핵심 개념들을 잠시 복습해봅시다. 이 개념들은 이 장 전체를 이해하는 열쇠가 될 것입니다.
+
+**함수 합성(Function Composition)**: 작은 함수들을 조합해서 큰 함수를 만드는 것. `pipeline(f, g, h)` 형태로 여러 단계를 연결할 수 있다는 것이 핵심이었습니다.
+
+**참조 투명성(Referential Transparency)**: 같은 입력에 항상 같은 출력을 반환하고, 표현식을 그 값으로 치환해도 프로그램의 의미가 변하지 않는 성질. 이것은 프로그램을 수학 방정식처럼 추론 가능하게 만듭니다.
+
+**불변성(Immutability)**: 한 번 생성된 값은 절대 변하지 않는다는 원칙. 이것은 동시성 문제를 근본적으로 해결합니다.
+
+**값으로서의 계산**: 계산을 즉시 실행하지 않고 "이런 계산을 할 것이다"는 기술(description)로 표현하면 합성할 수 있다는 통찰.
+
+이 장에서 우리는 이 모든 원칙들이 비동기 프로그래밍에서 **왜 무너지는지**, 그리고 **어떻게 지킬 수 있는지**를 경험하게 될 것입니다. 각 해결 시도가 실패할 때마다, 1장의 개념들을 떠올려보세요. 문제의 본질이 보일 것입니다.
+
+## 문제의 시작: 느린 웹 API 호출
+
+당신이 날씨 정보를 수집하는 애플리케이션을 만든다고 가정해봅시다. 여러 도시의 날씨 정보를 API에서 가져와서 사용자에게 보여주는 간단한 프로그램입니다. 먼저 동기 방식으로 작성해보겠습니다.
+
+```python
+"""
+⏱️ 예상 실행 시간: 약 10초
+이 예제를 실행하려면 requests 라이브러리가 필요합니다:
+pip install requests
+"""
+import requests
+import time
+from typing import Dict, List, Any
+
+def fetch_weather(city: str) -> Dict[str, Any]:
+    """특정 도시의 날씨 정보를 가져옵니다"""
+    # 실제 API 대신 httpbin을 사용해서 네트워크 지연을 시뮬레이션
+    # delay 파라미터로 의도적으로 2초의 지연을 만듭니다
+    url = f"https://httpbin.org/delay/2?city={city}"
+    response = requests.get(url)
+    return {"city": city, "temp": 20 + hash(city) % 15}
+
+def get_weather_for_cities_sync(cities: List[str]) -> List[Dict[str, Any]]:
+    """여러 도시의 날씨를 순차적으로 가져옵니다"""
+    results: List[Dict[str, Any]] = []
+    for city in cities:
+        print(f"{city}의 날씨를 가져오는 중...")
+        weather = fetch_weather(city)
+        results.append(weather)
+    return results
+
+# 다섯 개 도시의 날씨를 가져와봅시다
+cities: List[str] = ["서울", "부산", "대구", "인천", "광주"]
+
+start_time = time.time()
+weather_data = get_weather_for_cities_sync(cities)
+end_time = time.time()
+
+print(f"\n총 소요 시간: {end_time - start_time:.2f}초")
+for weather in weather_data:
+    print(f"{weather['city']}: {weather['temp']}°C")
+```
+
+이 코드를 실행하면 약 10초가 걸립니다. 각 도시마다 2초씩 걸리고, 다섯 개 도시니까 2 × 5 = 10초입니다. 프로그램은 첫 번째 요청이 완료될 때까지 기다리고, 그 다음 두 번째 요청을 보내고 또 기다리고, 이런 식으로 순차적으로 진행됩니다.
+
+하지만 생각해보세요. 각 API 호출은 서로 완전히 독립적입니다. 서울의 날씨를 알기 위해 부산의 날씨를 먼저 알 필요가 없습니다. 우리는 단지 네트워크 응답을 기다리고 있을 뿐이고, 그 사이에 CPU는 아무것도 하지 않고 놀고 있습니다. 이것이 바로 동기 프로그래밍의 근본적인 문제입니다.
+
+실제 상황에서는 이런 비효율이 더욱 심각합니다. 만약 100개 도시의 날씨를 가져와야 한다면 200초, 즉 3분 이상이 걸릴 것입니다. 사용자는 그 시간 동안 화면 앞에서 아무것도 못하고 기다려야 합니다.
+
+## I/O 바운드와 CPU 바운드: 기다림의 두 가지 종류
+
+프로그램이 느린 이유는 크게 두 가지로 나눌 수 있습니다. 하나는 CPU가 정말로 바쁘게 계산하고 있어서 느린 경우이고, 다른 하나는 외부 자원의 응답을 기다리느라 느린 경우입니다. 이 차이를 이해하는 것이 비동기 프로그래밍의 첫 걸음입니다.
+
+먼저 CPU 바운드 작업을 봅시다. 이것은 CPU가 실제로 열심히 일하는 경우입니다.
+
+```python
+# ⏱️ 예상 실행 시간: 약 3-5초
+import time
+
+def calculate_fibonacci(n: int) -> int:
+    """피보나치 수열의 n번째 값을 계산합니다 (재귀 방식)"""
+    if n <= 1:
+        return n
+    return calculate_fibonacci(n - 1) + calculate_fibonacci(n - 2)
+
+def cpu_bound_task() -> int:
+    """CPU를 많이 사용하는 작업"""
+    print("복잡한 계산을 시작합니다...")
+    start = time.time()
+    result = calculate_fibonacci(35)  # 이 계산은 몇 초가 걸립니다
+    end = time.time()
+    print(f"계산 완료! 결과: {result}, 소요 시간: {end - start:.2f}초")
+    return result
+
+# CPU가 실제로 바쁘게 일하는 작업
+cpu_bound_task()
+```
+
+이 코드를 실행하면 CPU 사용률이 높게 올라갑니다. CPU가 실제로 계산을 하고 있기 때문입니다. 이런 작업은 CPU 바운드라고 부릅니다. 병목이 CPU의 처리 속도에 있다는 의미입니다.
+
+이제 I/O 바운드 작업을 다시 살펴봅시다.
+
+```python
+# ⏱️ 예상 실행 시간: 약 2초
+import time
+import requests
+from typing import Dict, Any
+
+def io_bound_task() -> Dict[str, Any]:
+    """I/O를 기다리는 작업"""
+    print("API 호출을 시작합니다...")
+    start = time.time()
+    response = requests.get("https://httpbin.org/delay/2")
+    end = time.time()
+    print(f"응답 받음! 소요 시간: {end - start:.2f}초")
+    return response.json()
+
+# CPU는 대부분 놀고 있고, 네트워크 응답만 기다립니다
+io_bound_task()
+```
+
+이 코드를 실행하는 동안 CPU 사용률을 확인해보면 거의 0%에 가깝습니다. CPU는 놀고 있고, 단지 네트워크로부터 응답이 오기를 기다리고 있을 뿐입니다. 파일을 읽거나 데이터베이스에 쿼리를 보내는 것도 마찬가지입니다. 이런 작업을 I/O 바운드라고 부릅니다. 병목이 입출력 장치의 응답 속도에 있다는 의미입니다.
+
+이 구분이 왜 중요할까요? CPU 바운드 작업은 CPU가 정말로 바쁘기 때문에, 더 빠르게 하려면 더 빠른 CPU가 필요하거나 여러 CPU를 동시에 사용해야 합니다. 하지만 I/O 바운드 작업은 CPU가 놀고 있으므로, 기다리는 동안 다른 일을 할 수 있습니다. 비동기 프로그래밍은 바로 이 I/O 바운드 작업을 효율적으로 다루기 위한 기법입니다.
+
+실제로 대부분의 웹 애플리케이션, 데이터 처리 파이프라인, 크롤러 같은 프로그램들은 I/O 바운드입니다. 데이터베이스 응답을 기다리고, API 응답을 기다리고, 파일 읽기를 기다립니다. 따라서 이런 프로그램들에게 비동기 프로그래밍은 엄청난 성능 향상을 가져다줄 수 있습니다.
+
+## 블로킹: 프로그램이 멈춰있는 이유
+
+앞서 본 날씨 API 예제를 다시 생각해봅시다. `requests.get()`을 호출하는 순간, 프로그램의 실행이 멈춥니다. 정확히 말하면 그 지점에서 블로킹(blocking)됩니다. 응답이 올 때까지 다음 줄로 진행할 수 없습니다.
+
+```python
+# ⏱️ 예상 실행 시간: 약 2초
+import time
+import requests
+from typing import Any
+
+def blocking_example() -> None:
+    print("1. API 호출 전")
+
+    start = time.time()
+    response = requests.get("https://httpbin.org/delay/2")  # 여기서 2초간 블로킹
+    end = time.time()
+
+    print(f"2. API 호출 후 (소요 시간: {end - start:.2f}초)")
+    print("3. 다음 작업 진행")
+
+blocking_example()
+```
+
+실행하면 이렇게 출력됩니다.
+
+```
+1. API 호출 전
+(약 2초 후)
+2. API 호출 후 (소요 시간: 2.00초)
+3. 다음 작업 진행
+```
+
+### 동기와 비동기, 그리고 블로킹과 논블로킹
+
+이 용어들은 자주 혼용되지만, 명확한 차이가 있습니다.
+
+*   **동기(Synchronous)**: 작업이 순차적으로 실행됩니다. 앞의 작업이 끝나야 뒤의 작업이 시작됩니다.
+*   **비동기(Asynchronous)**: 작업이 독립적으로 실행됩니다. 작업의 완료 여부와 상관없이 다음 코드가 실행됩니다.
+*   **블로킹(Blocking)**: 작업이 완료될 때까지 제어권을 반환하지 않습니다. (예: `time.sleep`, `requests.get`)
+*   **논블로킹(Non-blocking)**: 작업 요청 즉시 제어권을 반환합니다. (예: `asyncio.sleep`, `aiohttp.get`)
+
+#### 왜 Asyncio는 I/O에 강할까? (CPU-bound vs I/O-bound)
+
+비동기 프로그래밍이 만능은 아닙니다. 작업의 성격에 따라 다릅니다.
+
+*   **CPU-bound (계산 중심)**: 암호화, 이미지 처리, 복잡한 수학 연산. CPU 코어가 쉴 새 없이 일해야 하므로, 단일 스레드 기반의 `asyncio`로는 성능 향상이 어렵습니다. 오히려 `multiprocessing`이 답입니다.
+*   **I/O-bound (입출력 중심)**: 네트워크 통신, DB 쿼리, 파일 읽기. 대부분의 시간은 "기다리는 시간"입니다. `asyncio`는 이 "기다리는 시간" 동안 다른 작업을 할 수 있게 해줍니다.
+
+현대 웹 애플리케이션의 90%는 I/O-bound입니다. 그래서 `asyncio`가 강력한 무기가 되는 것입니다.
+
+"API 호출 전"과 "API 호출 후" 사이에 2초의 공백이 있습니다. 그 2초 동안 프로그램은 아무것도 하지 않습니다. 다른 작업을 처리할 수도 없고, 사용자 입력을 받을 수도 없습니다. 그냥 기다립니다.
+
+웹 서버를 생각해봅시다. 동기 방식으로 작성된 서버는 한 번에 하나의 요청만 처리할 수 있습니다. 첫 번째 요청이 데이터베이스 응답을 기다리는 동안, 두 번째 요청은 대기해야 합니다. 세 번째, 네 번째 요청도 줄을 서서 기다립니다. 이것은 식당에 요리사가 한 명 밖에 없고, 그 요리사가 한 번에 한 접시만 만들 수 있는 것과 같습니다. 첫 번째 손님의 음식이 완성될 때까지 다른 손님들은 모두 기다려야 합니다.
+
+파일 입출력도 마찬가지입니다. 큰 파일을 읽는 동안 프로그램은 블로킹됩니다.
+
+```python
+# ⏱️ 예상 실행 시간: 약 3초
+import time
+
+def read_large_file_blocking() -> str:
+    """큰 파일을 읽는 동안 다른 일을 할 수 없습니다"""
+    print("파일 읽기 시작...")
+    start = time.time()
+
+    # 가상의 큰 파일 (실제로는 시간 지연으로 시뮬레이션)
+    time.sleep(3)  # 파일 읽기가 3초 걸린다고 가정
+    data = "대용량 데이터..."
+
+    end = time.time()
+    print(f"파일 읽기 완료 (소요 시간: {end - start:.2f}초)")
+
+    # 파일 읽기가 완료되어야만 이 코드가 실행됩니다
+    print("읽은 데이터를 처리합니다...")
+    return data
+
+read_large_file_blocking()
+```
+
+블로킹의 문제는 자원의 낭비입니다. CPU는 일할 준비가 되어 있는데, 외부 장치의 응답을 기다리느라 놀고 있습니다. 여러 작업을 동시에 진행할 수 있는데, 순차적으로만 처리하고 있습니다. 비동기 프로그래밍은 이 블로킹 문제를 해결하는 것이 핵심입니다.
+
+### 블로킹과 부수 효과
+
+1장에서 배운 참조 투명성을 기억하시나요? 블로킹 함수는 **외부 상태에 의존하는 부수 효과**를 가지고 있어, 추론하기 어렵습니다.
+
+```python
+from typing import Dict, Any
+
+# 블로킹 API 호출 - 외부 시스템에 의존하는 부수 효과
+result1: Dict[str, Any] = fetch_weather("서울")  # 오전 10시: 2.1초 소요, 날씨=맑음
+result2: Dict[str, Any] = fetch_weather("서울")  # 오후 3시: 3.5초 소요, 날씨=흐림
+
+# 같은 코드, 같은 입력인데 결과가 다릅니다:
+# - 반환 값이 다릅니다 (외부 상태: 실제 날씨가 바뀜)
+# - 실행 시간이 다릅니다 (외부 상태: 네트워크 지연, 서버 부하)
+# - 예측 불가능합니다 (언제 완료될지 모름)
+```
+
+**핵심 문제들**:
+
+1. **외부 상태 의존**: 같은 입력(`"서울"`)이어도 외부 시스템(날씨 서버, 네트워크)의 상태에 따라 다른 결과를 반환합니다. 1장의 "같은 입력 → 같은 출력" 원칙이 깨집니다.
+
+2. **시간적 부수 효과**: 호출하는 순간 프로그램이 멈추는 시간이 외부 요인(네트워크 지연)에 의존합니다. 이것은 예측 불가능한 부수 효과입니다.
+
+3. **합성의 어려움**: 블로킹 함수를 조합하면 각각의 대기 시간이 **누적**됩니다. 1장에서 배운 함수 합성의 우아함이 사라집니다.
+
+```python
+# 블로킹 함수의 합성: 시간이 누적됨
+def get_weather_and_traffic(city: str) -> Dict[str, Any]:
+    weather = fetch_weather(city)      # 2초 대기 (블로킹!)
+    traffic = fetch_traffic(city)      # 2초 대기 (블로킹!)
+    return {"weather": weather, "traffic": traffic}
+
+# 총 4초 소요 → 비효율적!
+```
+
+이것은 단순히 "느리다"는 문제가 아니라, **프로그램을 추론할 수 없게 만든다**는 더 근본적인 문제입니다.
+
+**해결의 방향**: 비동기 프로그래밍은 이 부수 효과를 **값으로 캡슐화**하여, 외부 상태에 의존하면서도 합성 가능하고 추론 가능하게 만듭니다. (3장에서 자세히 배웁니다)
+
+## 첫 번째 시도: 멀티스레딩
+
+블로킹 문제를 해결하는 전통적인 방법은 멀티스레딩입니다. 하나의 작업이 블로킹되어도, 다른 스레드에서 다른 작업을 진행할 수 있다는 아이디어입니다. 날씨 API 예제를 멀티스레딩으로 다시 작성해봅시다.
+
+```python
+# ⏱️ 예상 실행 시간: 약 2초 (10초 → 2초로 단축!)
+import requests
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, List, Any
+
+def fetch_weather(city: str) -> Dict[str, Any]:
+    """특정 도시의 날씨 정보를 가져옵니다"""
+    print(f"{city}의 날씨를 가져오는 중...")
+    url = f"https://httpbin.org/delay/2?city={city}"
+    response = requests.get(url)
+    print(f"{city} 완료!")
+    return {"city": city, "temp": 20 + hash(city) % 15}
+
+def get_weather_for_cities_threaded(cities: List[str]) -> List[Dict[str, Any]]:
+    """여러 도시의 날씨를 스레드를 사용해서 병렬로 가져옵니다"""
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # 각 도시에 대해 별도의 스레드에서 fetch_weather를 실행
+        results = list(executor.map(fetch_weather, cities))
+    return results
+
+cities: List[str] = ["서울", "부산", "대구", "인천", "광주"]
+
+start_time = time.time()
+weather_data = get_weather_for_cities_threaded(cities)
+end_time = time.time()
+
+print(f"\n총 소요 시간: {end_time - start_time:.2f}초")
+for weather in weather_data:
+    print(f"{weather['city']}: {weather['temp']}°C")
+```
+
+이 코드를 실행하면 놀라운 일이 일어납니다. 약 2초 밖에 걸리지 않습니다! 순차적으로 실행했을 때의 10초에 비해 5배 빨라졌습니다. 각 API 호출이 별도의 스레드에서 동시에 실행되기 때문입니다.
+
+실행 출력을 보면 이렇게 나옵니다.
+
+```
+서울의 날씨를 가져오는 중...
+부산의 날씨를 가져오는 중...
+대구의 날씨를 가져오는 중...
+인천의 날씨를 가져오는 중...
+광주의 날씨를 가져오는 중...
+(약 2초 후, 순서는 다를 수 있음)
+부산 완료!
+서울 완료!
+광주 완료!
+인천 완료!
+대구 완료!
+
+총 소요 시간: 2.15초
+```
+
+다섯 개의 요청이 거의 동시에 시작되고, 거의 동시에 완료됩니다. 이것이 바로 병렬 처리의 힘입니다. 하지만 멀티스레딩에도 문제가 있습니다.
+
+## 멀티스레딩의 함정: 공유 상태와 경쟁 조건
+
+멀티스레딩은 강력하지만 위험합니다. 여러 스레드가 같은 데이터를 동시에 수정하려고 하면 예측할 수 없는 결과가 나올 수 있습니다. 이것을 경쟁 조건이라고 부릅니다.
+
+예를 들어, 여러 스레드가 하나의 카운터 변수를 동시에 증가시킨다면 어떨까요?
+
+```python
+# ⏱️ 예상 실행 시간: 즉시
+import threading
+from typing import List
+
+# 경쟁 조건 발생 예제
+counter: int = 0
+lock = threading.Lock()
+
+def increment_unsafe() -> None:
+    """경쟁 조건이 발생하는 불안전한 증가"""
+    global counter
+    for _ in range(100000):
+        counter += 1  # 읽기 -> 수정 -> 쓰기 (경쟁 조건!)
+
+def increment_safe() -> None:
+    """락을 사용한 안전한 증가"""
+    global counter
+    for _ in range(100000):
+        with lock:
+            counter += 1  # 한 번에 하나의 스레드만 접근
+
+# 불안전한 버전 테스트
+counter = 0
+threads: List[threading.Thread] = [
+    threading.Thread(target=increment_unsafe) for _ in range(2)
+]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+print(f"불안전한 버전 결과: {counter} (예상: 200000)")  # 200000보다 작을 가능성 높음
+
+# 안전한 버전 테스트
+counter = 0
+threads = [threading.Thread(target=increment_safe) for _ in range(2)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+print(f"안전한 버전 결과: {counter} (예상: 200000)")  # 정확히 200000
+```
+
+`counter += 1`은 한 줄의 코드지만, 실제로는 "읽기 -> 수정 -> 쓰기"의 세 단계로 이루어집니다. 두 스레드가 동시에 "읽기"를 수행하면 둘 다 같은 값을 가져가고, 결과적으로 한 번의 증가만 반영되는 문제가 발생합니다.
+
+이 문제를 해결하려면 락(lock)을 사용해야 합니다. 락은 한 번에 하나의 스레드만 데이터에 접근하게 해줍니다. 하지만 락은 새로운 문제를 만듭니다. 락을 잘못 사용하면 데드락(교착 상태)이 발생할 수 있고, 코드가 복잡해지며 성능이 저하될 수 있습니다. 스레드 프로그래밍은 어렵고 버그가 생기기 쉽습니다.
+
+### 1장의 해결책: 불변성
+
+1장에서 배운 불변성을 기억하시나요? **공유 상태를 변경하지 않고 새로운 값을 생성하면 경쟁 조건이 근본적으로 사라집니다.**
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Counter:
+    value: int
+
+def increment(counter: Counter) -> Counter:
+    """새로운 Counter를 반환합니다 (기존 것은 변경 안 함)"""
+    return Counter(counter.value + 1)
+
+# 여러 스레드가 동시에 접근해도 안전합니다
+# 각 스레드는 독립적인 새 값을 만들기 때문입니다
+```
+
+불변 데이터는 공유해도 안전합니다. 락이 필요 없습니다. 하지만 불변성만으로는 비동기 프로그래밍의 모든 문제를 해결할 수 없습니다. 여러 스레드의 **작업 조율**은 여전히 복잡합니다. 독자적인 실행 흐름을 가진 스레드들의 결과를 어떻게 모으고 순서를 제어할까요?
+
+이것이 바로 비동기 프로그래밍에서 더 나은 추상화가 필요한 이유입니다.
+
+### 멀티스레딩의 또 다른 함정: 파이썬의 GIL
+
+파이썬에는 GIL(Global Interpreter Lock)이 있어서, **순수 Python 코드의 CPU 바운드 작업**에서 멀티스레딩이 효과가 없습니다. 한 번에 하나의 스레드만 Python 바이트코드를 실행할 수 있기 때문입니다.
+
+CPU 집약적인 작업을 싱글스레드와 멀티스레드로 실행하면, 멀티스레드가 오히려 느립니다 (스레드 전환 오버헤드 때문). NumPy, Pillow 같은 일부 C 확장 라이브러리는 GIL을 해제하므로 예외입니다.
+
+하지만 **I/O 바운드 작업에서는 멀티스레딩이 효과적**입니다. I/O를 기다리는 동안 GIL이 해제되어 다른 스레드가 실행될 수 있기 때문입니다. 날씨 API 예제가 잘 작동한 이유가 바로 이것입니다. 그러나 여전히 스레드 관리의 복잡성(락, 경쟁 조건)은 남아있습니다.
+
+
+
+## 콜백의 등장: 비동기의 첫 시도
+
+멀티스레딩과 멀티프로세싱의 복잡성을 피하면서도 I/O 바운드 작업을 효율적으로 다루는 방법이 있을까요? 콜백 기반 비동기 프로그래밍이 하나의 답이었습니다. 작업이 완료되면 호출될 함수, 즉 콜백을 등록하고, 프로그램은 계속 진행하는 방식입니다.
+
+간단한 예제로 시작해봅시다. 가상의 비동기 API를 사용한다고 가정하겠습니다.
+
+```python
+# ⏱️ 예상 실행 시간: 약 2초
+import time
+import threading
+import atexit
+from typing import Dict, Callable, Any
+from concurrent.futures import ThreadPoolExecutor
+
+# ⚠️ 리소스 관리 주의: Thread Pool은 반드시 정리되어야 합니다
+_executor = ThreadPoolExecutor(max_workers=10)
+
+# 프로그램 종료 시 자동으로 Thread Pool 정리
+atexit.register(lambda: _executor.shutdown(wait=True))
+
+def fetch_user_async(user_id: int, callback: Callable[[Dict[str, Any]], None]) -> None:
+    """사용자 정보를 비동기로 가져옵니다 (콜백 방식)"""
+    def do_fetch() -> None:
+        # 네트워크 지연 시뮬레이션
+        time.sleep(1)
+        user = {"id": user_id, "name": f"사용자{user_id}"}
+        # 작업이 완료되면 콜백 호출
+        callback(user)
+
+    # Thread Pool을 사용하여 리소스 관리
+    _executor.submit(do_fetch)
+
+def handle_user(user: Dict[str, Any]) -> None:
+    """사용자 정보를 받아서 처리합니다"""
+    print(f"사용자 정보를 받았습니다: {user['name']}")
+
+# 콜백 등록
+print("사용자 정보를 요청합니다...")
+fetch_user_async(123, handle_user)
+print("다른 작업을 진행할 수 있습니다!")
+
+# 콜백이 호출될 때까지 프로그램이 종료되지 않도록 대기
+time.sleep(2)
+
+# 💡 Tip: 실무에서는 Context Manager를 사용하는 것이 더 안전합니다
+# with ThreadPoolExecutor(max_workers=10) as executor:
+#     executor.submit(do_fetch)
+```
+
+실행하면 이렇게 출력됩니다.
+
+```
+사용자 정보를 요청합니다...
+다른 작업을 진행할 수 있습니다!
+(약 1초 후)
+사용자 정보를 받았습니다: 사용자123
+```
+
+중요한 점은 fetch_user_async를 호출한 직후에 바로 다음 줄로 진행할 수 있다는 것입니다. 블로킹되지 않습니다. 사용자 정보가 도착하면 콜백이 호출됩니다. 이것이 비동기 프로그래밍의 핵심 아이디어입니다.
+
+## 콜백 지옥: 악몽의 시작
+
+콜백은 간단한 경우에는 잘 작동하지만, 여러 비동기 작업을 순차적으로 연결해야 할 때 문제가 시작됩니다. 사용자 정보를 가져온 다음, 그 사용자의 게시글 목록을 가져오고, 첫 번째 게시글의 댓글을 가져오는 시나리오를 생각해봅시다.
+
+```python
+import time
+import threading
+
+def fetch_user_async(user_id, callback):
+    """사용자 정보를 비동기로 가져옵니다"""
+    def do_fetch():
+        time.sleep(1)
+        user = {"id": user_id, "name": f"사용자{user_id}"}
+        callback(None, user)  # 에러가 없으면 None, 있으면 에러 객체를 첫 인자로
+    threading.Thread(target=do_fetch).start()
+
+def fetch_posts_async(user_id, callback):
+    """사용자의 게시글을 비동기로 가져옵니다"""
+    def do_fetch():
+        time.sleep(1)
+        posts = [
+            {"id": 1, "title": "첫 번째 글", "user_id": user_id},
+            {"id": 2, "title": "두 번째 글", "user_id": user_id}
+        ]
+        callback(None, posts)
+    threading.Thread(target=do_fetch).start()
+
+def fetch_comments_async(post_id, callback):
+    """게시글의 댓글을 비동기로 가져옵니다"""
+    def do_fetch():
+        time.sleep(1)
+        comments = [
+            {"id": 1, "text": "좋은 글이네요!", "post_id": post_id},
+            {"id": 2, "text": "감사합니다", "post_id": post_id}
+        ]
+        callback(None, comments)
+    threading.Thread(target=do_fetch).start()
+
+# 이제 이 세 가지를 순차적으로 연결해야 합니다
+print("데이터를 가져오기 시작합니다...")
+
+fetch_user_async(123, lambda err, user:
+    print(f"사용자: {user['name']}") or
+    fetch_posts_async(user['id'], lambda err, posts:
+        print(f"게시글 수: {len(posts)}") or
+        fetch_comments_async(posts[0]['id'], lambda err, comments:
+            print(f"첫 번째 글의 댓글 수: {len(comments)}")
+        )
+    )
+)
+
+time.sleep(5)  # 모든 콜백이 완료될 때까지 대기
+```
+
+이 코드를 보면 콜백이 중첩되어 있어서 읽기가 어렵습니다. 하지만 이것도 에러 처리를 제대로 하지 않은 간단한 버전입니다. 실제로는 각 단계에서 에러를 처리해야 합니다.
+
+```python
+print("데이터를 가져오기 시작합니다...")
+
+def handle_final_result(err, comments):
+    if err:
+        print(f"댓글 가져오기 실패: {err}")
+        return
+    print(f"첫 번째 글의 댓글 수: {len(comments)}")
+
+def handle_posts(err, posts):
+    if err:
+        print(f"게시글 가져오기 실패: {err}")
+        return
+    print(f"게시글 수: {len(posts)}")
+    
+    if not posts:
+        print("게시글이 없습니다")
+        return
+    
+    fetch_comments_async(posts[0]['id'], handle_final_result)
+
+def handle_user(err, user):
+    if err:
+        print(f"사용자 가져오기 실패: {err}")
+        return
+    print(f"사용자: {user['name']}")
+    
+    fetch_posts_async(user['id'], handle_posts)
+
+fetch_user_async(123, handle_user)
+
+time.sleep(5)
+```
+
+이제 조금 나아졌지만, 여전히 문제가 있습니다. 콜백 함수들이 흩어져 있어서 전체 흐름을 파악하기 어렵습니다. 코드를 위에서 아래로 읽어도 실제 실행 순서를 이해할 수 없습니다. handle_user가 먼저 정의되어 있지만, 실제로는 fetch_user_async 이후에 호출됩니다.
+
+더 심각한 문제는 에러 처리입니다. 각 콜백마다 에러를 체크하고 처리해야 합니다. 에러 처리 로직이 전체 코드에 흩어져 있어서, 일관성 있게 관리하기 어렵습니다. 만약 중간 단계에서 에러가 발생하면 나머지 작업을 어떻게 취소할까요? 타임아웃은 어떻게 구현할까요?
+
+## 콜백 지옥의 진짜 문제: 합성의 불가능성
+
+1장에서 우리는 함수 합성의 아름다움을 배웠습니다. 작은 함수들을 조합해서 큰 함수를 만드는 것이죠. 하지만 콜백 기반 코드는 합성이 불가능합니다.
+
+동기 코드라면 이렇게 작성할 수 있습니다.
+
+```python
+# 동기 버전 (가상의 코드)
+def get_user_first_post_comments(user_id):
+    user = fetch_user(user_id)
+    posts = fetch_posts(user['id'])
+    if not posts:
+        return []
+    comments = fetch_comments(posts[0]['id'])
+    return comments
+
+# 이것을 다른 함수와 조합할 수 있습니다
+def process_user_data(user_id):
+    comments = get_user_first_post_comments(user_id)
+    return analyze_sentiment(comments)
+```
+
+코드가 위에서 아래로 순차적으로 읽히고, 함수를 조합하기 쉽습니다. 하지만 콜백 버전에서는 이런 합성이 불가능합니다. get_user_first_post_comments를 함수로 추출하려면 어떻게 해야 할까요?
+
+```python
+def get_user_first_post_comments_async(user_id, callback):
+    """콜백 버전은 결과를 반환할 수 없습니다"""
+    fetch_user_async(user_id, lambda err, user:
+        # ... 중첩된 콜백들 ...
+        callback(err, comments)
+    )
+
+# 이것을 다른 함수와 조합하려면?
+def process_user_data_async(user_id, callback):
+    get_user_first_post_comments_async(user_id, lambda err, comments:
+        if err:
+            callback(err, None)
+            return
+        # analyze_sentiment도 비동기라면?
+        analyze_sentiment_async(comments, callback)
+    )
+```
+
+각 함수가 콜백을 받아야 하고, 결과를 반환하는 대신 콜백에 전달해야 합니다. 함수 합성은 불가능하고, 코드는 계속 중첩됩니다. 이것이 콜백 지옥의 본질입니다. 단순히 코드가 들여쓰기가 많아서 보기 싫다는 문제가 아니라, 함수형 프로그래밍의 핵심 원칙인 합성이 불가능해진다는 것입니다.
+
+### 1장의 해답: 계산을 값으로 만들기
+
+1장에서 배운 "값으로서의 계산"을 기억하시나요? 계산을 즉시 실행하지 않고 값으로 표현하면 합성할 수 있다고 했습니다.
+
+**콜백의 근본 문제는 비동기 계산이 값이 아니라는 것**입니다. `fetch_user_async`는 아무것도 반환하지 않습니다(또는 `None`). 대신 미래의 어느 시점에 콜백을 호출합니다. 값이 아니므로 조합할 수 없습니다.
+
+만약 비동기 계산을 값으로 표현할 수 있다면?
+
+```python
+# 상상해봅시다 (다음 장에서 구현합니다)
+user_future = fetch_user(123)          # Future[User] 반환 - 값입니다!
+posts_future = user_future.map(        # map으로 변환 - 합성 가능!
+    lambda user: fetch_posts(user.id)
+)
+comments_future = posts_future.flat_map(  # flat_map으로 연결 - 계속 합성!
+    lambda posts: fetch_comments(posts[0].id)
+)
+
+# 1장에서 배운 pipeline과 같은 원리:
+result = pipeline(
+    fetch_user,
+    lambda u: fetch_posts(u.id),
+    lambda ps: fetch_comments(ps[0].id)
+)
+```
+
+Future는 "나중에 완료될 계산"을 나타내는 **값**입니다. 값이므로 변수에 저장할 수 있고, 함수에 전달할 수 있고, 다른 Future와 조합할 수 있습니다. 이것이 바로 다음 장에서 배울 Functor와 Monad의 핵심입니다.
+
+콜백은 1장의 원칙을 모두 위반합니다:
+- ❌ 합성 불가능 (중첩만 가능)
+- ❌ 값이 아님 (결과를 반환하지 않음)
+- ❌ 참조 투명하지 않음 (콜백이 언제 호출될지 모름)
+
+우리에게 필요한 것은 비동기 계산을 **값으로 다룰 수 있는 타입**, 그리고 그 값들을 **조합할 수 있는 연산자**들입니다.
+
+## 실전 예제: 웹 크롤러
+
+콜백의 문제를 더 명확히 보기 위해, 실용적인 예제를 하나 살펴봅시다. 웹 크롤러를 만든다고 가정해봅시다. 시작 URL에서 페이지를 가져오고, 그 페이지의 링크들을 추출한 다음, 각 링크를 방문하는 크롤러입니다.
+
+```python
+import time
+import threading
+from urllib.parse import urljoin
+
+def fetch_page_async(url, callback):
+    """페이지를 비동기로 가져옵니다"""
+    def do_fetch():
+        time.sleep(0.5)  # 네트워크 지연 시뮬레이션
+        # 가상의 HTML 응답
+        html = f"<html><a href='/page1'>링크1</a><a href='/page2'>링크2</a></html>"
+        callback(None, html)
+    threading.Thread(target=do_fetch).start()
+
+def extract_links(html, base_url):
+    """HTML에서 링크를 추출합니다 (간단한 시뮬레이션)"""
+    # 실제로는 BeautifulSoup 같은 라이브러리를 사용
+    import re
+    links = re.findall(r'href=["\']([^"\']+)["\']', html)
+    return [urljoin(base_url, link) for link in links]
+
+def crawl_page(url):
+    """한 페이지를 크롤링합니다 (콜백 방식)"""
+    print(f"크롤링 시작: {url}")
+    
+    fetch_page_async(url, lambda err, html:
+        if err:
+            print(f"에러 발생: {err}")
+            return
+        
+        print(f"페이지 가져옴: {url}")
+        links = extract_links(html, url)
+        print(f"링크 {len(links)}개 발견")
+        
+        # 각 링크도 크롤링하려면? 콜백이 또 중첩됩니다
+        for link in links:
+            fetch_page_async(link, lambda err, html:
+                if err:
+                    print(f"링크 크롤링 실패: {err}")
+                    return
+                print(f"링크 페이지 가져옴: {link}")
+                # 여기서 또 링크를 추출하고 크롤링하려면?
+                # 콜백이 끝없이 중첩됩니다...
+            )
+    )
+
+crawl_page("https://example.com")
+time.sleep(3)
+```
+
+이 코드의 문제는 명확합니다. 크롤링 깊이를 제어하기 어렵고, 이미 방문한 URL을 추적하기 어렵고, 동시 요청 수를 제한하기 어렵습니다. 모든 상태를 클로저에 담아야 하고, 콜백이 중첩될수록 코드를 이해하기 점점 어려워집니다.
+
+## 타이밍 문제: 콜백은 언제 호출될까?
+
+콜백의 또 다른 문제는 실행 타이밍이 불명확하다는 것입니다. 콜백이 즉시 호출될까요, 아니면 나중에 호출될까요? 같은 스레드에서 호출될까요, 아니면 다른 스레드에서 호출될까요?
+
+```python
+import threading
+import time
+
+def fetch_data_async_immediate(callback):
+    """이미 캐시된 데이터가 있으면 즉시 콜백을 호출합니다"""
+    cached_data = "캐시된 데이터"
+    callback(None, cached_data)  # 즉시 호출!
+
+def fetch_data_async_delayed(callback):
+    """데이터를 가져온 후 콜백을 호출합니다"""
+    def do_fetch():
+        time.sleep(1)
+        callback(None, "가져온 데이터")
+    threading.Thread(target=do_fetch).start()  # 나중에 호출
+
+# 이 두 함수는 같은 인터페이스를 가지지만 동작이 다릅니다
+print("시작")
+fetch_data_async_immediate(lambda err, data: print(f"콜백1: {data}"))
+print("중간")
+fetch_data_async_delayed(lambda err, data: print(f"콜백2: {data}"))
+print("끝")
+
+time.sleep(2)
+```
+
+출력을 보면 혼란스럽습니다.
+
+```
+시작
+콜백1: 캐시된 데이터
+중간
+끝
+(1초 후)
+콜백2: 가져온 데이터
+```
+
+첫 번째 콜백은 즉시 호출되어서 "중간" 전에 실행되고, 두 번째 콜백은 나중에 호출됩니다. 같은 패턴의 함수인데 실행 순서가 예측하기 어렵습니다. 이런 일관성 없는 동작은 버그의 원인이 됩니다.
+
+또한 콜백이 어느 스레드에서 호출되는지도 중요합니다. GUI 프로그램에서는 UI 업데이트가 메인 스레드에서만 가능한데, 콜백이 백그라운드 스레드에서 호출되면 오류가 발생합니다.
+
+실무에서는 작업 취소나 타임아웃 구현이 필수입니다. 하지만 콜백 방식에서 이를 구현하려면 악몽이 시작됩니다. 각 콜백마다 취소 토큰(Cancellation Token)을 확인하는 코드를 넣어야 하고, 타이머 스레드와 작업 스레드 간의 경쟁 조건을 처리해야 합니다.
+
+간단한 타임아웃 기능을 구현하려 해도, 타이머가 울렸을 때 이미 실행 중인 콜백을 어떻게 중단시킬지, 이미 완료된 콜백이 타임아웃 에러를 발생시키지 않게 어떻게 막을지 등 고려해야 할 엣지 케이스가 너무 많습니다. 로직보다 플러밍(plumbing, 배관 공사 같은 기반 작업) 코드가 더 많아지는 주객전도가 발생합니다.
+
+
+## 함수형 사고로 다시 보기
+
+지금까지 본 모든 문제를 1장에서 배운 함수형 철학의 관점에서 정리해봅시다.
+
+### 문제 1: 블로킹은 참조 투명성을 깨뜨립니다
+
+블로킹 함수는 같은 입력에도 실행 환경(네트워크 상태, 시스템 부하)에 따라 다른 시간이 걸리고, 심지어 다른 결과를 반환할 수 있습니다. 1장에서 강조한 참조 투명성이 완전히 무너집니다. 표현식을 그 값으로 치환할 수 없고, 프로그램을 방정식처럼 추론할 수 없습니다.
+
+### 문제 2: 공유 상태는 불변성을 위반합니다
+
+멀티스레딩의 경쟁 조건은 가변 상태를 여러 스레드가 공유하기 때문에 발생합니다. 1장에서 배운 불변성 원칙을 지키면 경쟁 조건이 근본적으로 사라지지만, 작업 조율의 복잡성은 여전히 남습니다.
+
+### 문제 3: 콜백은 합성이 불가능합니다
+
+이것이 가장 치명적입니다. 1장에서 강조했듯이, 함수형 프로그래밍의 핵심은 **합성**입니다. `f(g(x))` 형태로 함수를 조합하고, `pipeline(f, g, h)`처럼 여러 단계를 연결합니다.
+
+하지만 콜백은:
+- 값을 반환하지 않습니다 (결과를 콜백에 전달)
+- 여러 콜백을 조합하는 연산자가 없습니다
+- 중첩만 가능하고 합성은 불가능합니다
+- 에러 처리가 흩어져서 통합할 수 없습니다
+
+### 문제 4: 시간을 값으로 다룰 수 없습니다
+
+1장에서 "시간을 공간으로 변환"하고 "계산을 값으로 만들라"고 했습니다. 하지만 콜백은 시간을 값으로 만들지 못합니다. "2초 후에 완료될 계산"을 표현하는 타입이 없습니다. 계산은 즉시 시작되거나, 언제 완료될지 예측할 수 없는 미래 어느 시점에 콜백으로 통보됩니다.
+
+### 해결의 방향
+
+1장의 철학으로 돌아가면, 필요한 것이 명확해집니다:
+
+1. **비동기 계산을 표현하는 타입**: `Future[T]` - "나중에 T를 줄 값"을 나타냅니다
+2. **합성 연산자**: `map`, `flat_map` - 여러 Future를 조합합니다
+3. **참조 투명성 회복**: Future 자체는 불변, 부수 효과는 값으로 캡슐화합니다
+4. **시간의 값화**: 비동기 계산을 값으로 만들어 동기 코드처럼 추론 가능하게 합니다
+
+이 모든 것이 다음 장에서 배울 Functor, Applicative, Monad로 이어집니다. 이것들은 단순히 "비동기를 다루는 패턴"이 아니라, **함수형 프로그래밍의 핵심 원칙을 비동기 세계로 확장하는 방법**입니다.
+
+## 심화: 비동기 프로그래밍의 함정들
+
+실무에서 비동기 코드를 작성할 때 마주치는 고급 주제들을 살펴봅시다.
+
+### 1. GIL (Global Interpreter Lock)과 성능의 함정
+
+파이썬의 GIL은 한 번에 하나의 스레드만 Python 바이트코드를 실행할 수 있게 제한합니다. 이것은 멀티스레딩의 효과를 제한합니다.
+
+```python
+import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+def cpu_intensive_task(n: int) -> int:
+    """CPU 집약적 작업 (순수 Python 코드)"""
+    result = 0
+    for i in range(n):
+        result += i ** 2
+    return result
+
+# 싱글 스레드
+start = time.time()
+results = [cpu_intensive_task(1_000_000) for _ in range(4)]
+print(f"싱글 스레드: {time.time() - start:.2f}초")
+
+# 멀티 스레드 (GIL 때문에 더 느릴 수 있음!)
+start = time.time()
+with ThreadPoolExecutor(max_workers=4) as executor:
+    results = list(executor.map(cpu_intensive_task, [1_000_000] * 4))
+print(f"멀티 스레드: {time.time() - start:.2f}초")
+```
+
+**핵심**: I/O-bound 작업(네트워크, 파일)에서는 멀티스레딩이 효과적이지만, CPU-bound 작업에서는 `multiprocessing` 모듈을 사용해야 합니다.
+
+### 2. 데드락(Deadlock)과 레이스 컨디션
+
+멀티스레딩의 가장 악명 높은 버그들입니다.
+
+**데드락 예시**: 두 스레드가 서로의 락을 기다리며 영원히 블로킹
+
+```python
+import threading
+
+lock_a = threading.Lock()
+lock_b = threading.Lock()
+
+def thread1():
+    with lock_a:
+        time.sleep(0.1)
+        with lock_b:  # thread2가 lock_b를 잡고 있음!
+            print("Thread 1")
+
+def thread2():
+    with lock_b:
+        time.sleep(0.1)
+        with lock_a:  # thread1이 lock_a를 잡고 있음!
+            print("Thread 2")
+
+# ⚠️ 이 코드는 데드락에 걸려 영원히 멈춥니다
+```
+
+**해결법**: 항상 같은 순서로 락을 획득하거나, `threading.RLock` (재진입 가능 락) 사용
+
+### 3. 타임아웃과 취소 패턴
+
+실무에서는 작업 취소나 타임아웃 구현이 필수입니다. 하지만 콜백 방식에서는 매우 복잡합니다.
+
+```python
+import signal
+from contextlib import contextmanager
+
+@contextmanager
+def timeout(seconds: int):
+    """타임아웃 컨텍스트 매니저"""
+    def timeout_handler(signum, frame):
+        raise TimeoutError(f"{seconds}초 초과")
+
+    old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
+# 사용 예
+try:
+    with timeout(2):
+        time.sleep(5)  # 타임아웃 발생!
+except TimeoutError as e:
+    print(f"작업 취소: {e}")
+```
+
+**문제**: 콜백 기반 코드에서는 타이머 스레드와 작업 스레드 간의 경쟁 조건을 수동으로 처리해야 합니다. 3장에서 배울 Future/Promise는 이를 내장 기능으로 제공합니다.
+
+### 4. asyncio가 CPU-bound에 약한 이유
+
+asyncio는 **협력적 멀티태스킹(cooperative multitasking)**을 사용합니다. 각 태스크가 자발적으로 제어권을 양보(`await`)해야 다른 태스크가 실행됩니다.
+
+```python
+import asyncio
+
+async def cpu_hog():
+    """CPU를 독점하는 나쁜 예"""
+    total = sum(i ** 2 for i in range(10_000_000))  # await 없음!
+    return total
+
+async def polite_task():
+    """다른 태스크에게 기회를 주는 좋은 예"""
+    for i in range(10):
+        # CPU 작업
+        result = sum(j ** 2 for j in range(100_000))
+        await asyncio.sleep(0)  # ← 다른 태스크에게 양보!
+    return result
+```
+
+**핵심**: asyncio는 I/O 대기 시간 동안 다른 작업을 하는 것이지, CPU를 여러 코어에 분산하는 것이 아닙니다. CPU를 계속 점유하면 다른 태스크로 전환할 수 없습니다.
+
+---
+
+## 더 나은 길을 찾아서
+
+이 장에서 우리는 비동기 프로그래밍이 왜 필요한지, 그리고 초기의 해결 시도들이 어떤 한계를 가졌는지 살펴봤습니다. 동기 방식은 I/O 바운드 작업에서 엄청난 시간 낭비를 만듭니다. 멀티스레딩은 공유 상태 관리가 어렵고, 파이썬의 GIL 때문에 CPU 바운드 작업에서는 효과가 없습니다. 멀티프로세싱은 무겁고 오버헤드가 큽니다. 콜백은 합성이 불가능하고, 에러 처리가 흩어지며, 코드 흐름을 파악하기 어렵습니다.
+
+하지만 희망이 있습니다. 1장에서 배운 함수형 프로그래밍의 개념들, 특히 함수 합성과 고차 함수가 이 문제들의 해결책이 됩니다. 다음 장에서는 Functor라는 개념을 통해, 비동기 작업을 어떻게 합성 가능한 방식으로 다룰 수 있는지 배우게 될 것입니다.
+
+콜백의 중첩된 구조가 사실은 더 깊은 문제의 증상이라는 것을 깨닫는 것이 중요합니다. 그 깊은 문제는 바로 비동기 작업을 표현하는 적절한 추상화가 없다는 것입니다. 콜백은 작업이 완료되었을 때 무엇을 할지만 말할 수 있고, 여러 작업을 조합하는 방법을 제공하지 않습니다. 우리에게 필요한 것은 비동기 작업 자체를 값으로 다룰 수 있는 방법, 그리고 그 값들을 조합할 수 있는 연산자들입니다.
+
+## 핵심 요약 및 다음 단계
+
+### 이 장의 핵심 3가지
+
+1. **블로킹은 자원 낭비**: I/O 대기 중에 CPU가 놀면서 참조 투명성도 깨뜨립니다. 컴퓨터의 시간 척도에서 네트워크 응답은 "4년"이나 걸리는 작업입니다.
+2. **멀티스레딩은 복잡함**: 공유 상태 관리(락, 경쟁 조건)와 GIL로 인한 한계가 있습니다. 불변성으로 경쟁 조건을 막을 수 있지만, 작업 조율의 복잡성은 남습니다.
+3. **콜백은 함수 합성 불가능**: 비동기 계산이 "값"이 아니라서 1장의 합성 원칙을 적용할 수 없습니다. 콜백 지옥은 단순히 들여쓰기 문제가 아니라, 합성 불가능성의 증상입니다.
+
+### 다음 장 미리보기: Functor - 비동기를 값으로 만들기
+
+지금까지 "왜 기존 방식이 실패했는가"를 이해했습니다. 3장에서는 해결책을 제시합니다.
+
+- **Functor 타입**: `Future[T]`로 "나중에 완료될 계산"을 값으로 표현
+- **map 연산자**: 비동기 계산을 동기 함수처럼 변환
+- **Python의 asyncio**: `async/await`가 어떻게 Functor 패턴을 구현하는지
+
+3장을 읽고 나면 콜백 지옥이 "타입의 부재" 문제였음을 깨달을 것입니다. Promise와 Future는 단순한 문법 설탕이 아니라, 1장의 함수형 철학을 비동기 세계로 확장한 필연적 결과입니다. 준비되셨나요? 이제 진짜 해법을 배울 시간입니다.

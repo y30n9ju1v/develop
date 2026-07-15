@@ -1,0 +1,1320 @@
+---
+title: "5. 에러 처리: 실패를 타입으로 만들기"
+date: 2026-07-15T00:00:00+09:00
+draft: false
+tags: ["functional-programming", "python", "error-handling", "book"]
+categories: ["books"]
+description: "예외 대신 Result 타입으로 실패를 값으로 다루는 Railway-Oriented Programming을 정리합니다."
+---
+
+
+4장에서 우리는 `flatMap`을 통해 비동기 작업들을 우아하게 **순차적으로** 연결하는 방법을 배웠습니다. 이를 통해 콜백 지옥에서 벗어날 수 있었죠.
+
+하지만 현실 세계는 아름다울 수만은 없습니다. 네트워크가 끊어지고, 파일이 없고, 사용자가 잘못된 입력을 합니다. 언제든지 예외 상황이 발생할 수 있습니다. 문제는 실패 자체가 아니라, 실패를 어떻게 다루느냐입니다. 이 장에서는 전통적인 예외 처리 방식의 한계를 이해하고, 함수형 프로그래밍의 접근 방식인 Result 타입을 통해 "에러를 값으로" 다루는 방법을 배울 것입니다.
+
+## 1-4장에서 배운 것들
+
+먼저 여기까지의 여정을 복습해봅시다.
+
+**1장: 함수형 프로그래밍의 철학**
+- **합성(Composition)**: `compose(f, g)` - 작은 함수를 조합해서 큰 함수 만들기
+- **참조 투명성(Referential Transparency)**: 같은 입력 → 같은 출력, 부작용 없음
+- **값으로서의 계산**: 계산을 즉시 실행하지 않고 값으로 표현하면 합성 가능
+
+**2장: 문제의 발견**
+- **블로킹은 부수 효과를 가집니다**: 실행 시간이 예측 불가능
+- **콜백은 합성이 불가능합니다**: 중첩만 가능, 조합 불가능
+- **해답**: 미래의 값을 타입(Future)으로 표현하기
+
+**3장: Functor - 독립적 변환의 합성**
+- **map**: 컨텍스트 안의 값을 변환하되 컨텍스트 유지
+- **한계**: map 안에서 또 다른 컨텍스트를 반환하면 중첩 발생 (Maybe[Maybe[T]])
+- **Future + map**: 독립적인 비동기 작업의 변환 가능
+
+**4장: Monad - 의존적 합성의 해결**
+- **flatMap**: 의존적 작업의 순차 합성 - 첫 번째 결과에 따라 두 번째 작업 결정
+- **yield from → await**: flatMap의 언어 수준 구현
+- **결론**: `await`는 flatMap의 문법적 설탕
+
+**5장: 에러 처리 - 실패를 합성 가능하게**
+
+4장에서 우리는 flatMap으로 비동기 작업을 순차적으로 합성하는 방법을 배웠습니다. 하지만 실제 프로그램은 성공만 하지 않습니다. 네트워크 요청이 실패하고, 파일이 없고, 데이터가 유효하지 않습니다. 이 장에서는 **실패 가능성을 타입으로 표현**하고, **에러도 합성 가능하게** 만드는 방법을 배웁니다. Result 타입은 Maybe와 마찬가지로 Monad이며, flatMap으로 에러를 우아하게 전파할 수 있습니다.
+
+## try-except의 늪: 중첩된 에러 처리
+
+실무에서 자주 마주치는 상황을 생각해봅시다. 사용자가 업로드한 JSON 파일을 읽어서 데이터베이스에 저장하는 기능을 만들고 있습니다. 파일을 열 수 있어야 하고, JSON 형식이 올바라야 하고, 데이터가 유효해야 하고, 데이터베이스 연결이 성공해야 합니다. 각 단계마다 실패할 수 있습니다.
+
+전통적인 방식으로 작성하면 이렇게 됩니다.
+
+```python
+import json
+
+def process_user_data_file(filename: str) -> bool:
+    """사용자 데이터 파일을 처리합니다"""
+    try:
+        # 파일 읽기
+        with open(filename, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except FileNotFoundError:
+        print(f"에러: 파일을 찾을 수 없습니다 - {filename}")
+        return False
+    except PermissionError:
+        print(f"에러: 파일 접근 권한이 없습니다 - {filename}")
+        return False
+    except Exception as e:
+        print(f"에러: 파일 읽기 실패 - {e}")
+        return False
+    
+    try:
+        data = json.loads(content)
+        # ... 데이터 검증 및 저장 로직 ...
+        save_to_database(data)
+        return True
+    except (json.JSONDecodeError, ConnectionError) as e:
+        print(f"에러: 처리 실패 - {e}")
+        return False
+    except Exception as e:
+        print(f"알 수 없는 에러 - {e}")
+        return False
+
+def save_to_database(data: dict):
+    """데이터베이스에 저장합니다 (시뮬레이션)"""
+    # 실제 구현은 여기에...
+    pass
+
+# 테스트
+process_user_data_file("user_data.json")
+```
+
+이 코드의 문제점이 보이시나요? 첫째, try-except 블록이 중첩되어 있어서 읽기 어렵습니다. 각 단계마다 예외를 잡아야 하므로 들여쓰기가 계속 깊어집니다. 둘째, 에러 처리 로직이 비즈니스 로직과 뒤섞여 있습니다. 실제로 하고 싶은 일, 즉 파일을 읽고 파싱하고 저장하는 로직이 에러 처리 코드 사이에 묻혀버렸습니다.
+
+셋째, 에러 처리가 일관성이 없습니다. 어떤 곳에서는 구체적인 예외를 잡고, 어떤 곳에서는 일반적인 Exception을 잡습니다. 어떤 곳에서는 에러 메시지를 출력하고, 어떤 곳에서는 False를 반환합니다. 이런 비일관성은 코드를 유지보수하기 어렵게 만듭니다.
+
+넷째, 함수 시그니처를 봐서는 어떤 에러가 발생할 수 있는지 알 수 없습니다. process_user_data_file이 bool을 반환한다는 것만 알 수 있을 뿐, 왜 실패했는지, 어떤 종류의 실패가 가능한지는 코드를 읽어봐야만 알 수 있습니다.
+
+조금 더 복잡한 경우를 생각해봅시다. 이 함수를 호출하는 상위 함수가 있고, 그 함수도 에러를 처리해야 한다면 어떻게 될까요?
+
+```python
+def process_multiple_files(filenames: list[str]) -> dict:
+    """여러 파일을 처리하고 결과를 반환합니다"""
+    results = {"success": [], "failed": []}
+    
+    for filename in filenames:
+        try:
+            success = process_user_data_file(filename)
+            if success:
+                results["success"].append(filename)
+            else:
+                results["failed"].append(filename)
+        except Exception as e:
+            # process_user_data_file이 예외를 던질 수도 있습니다
+            print(f"예상치 못한 에러: {filename} - {e}")
+            results["failed"].append(filename)
+    
+    return results
+```
+
+process_user_data_file이 False를 반환할 수도 있고, 예외를 던질 수도 있습니다. 호출하는 쪽에서는 두 가지 경우를 모두 대비해야 합니다. 이것은 에러 처리가 명확하지 않다는 신호입니다.
+
+## Result 타입: 성공과 실패를 명시적으로
+
+함수형 프로그래밍에서는 에러를 예외로 던지는 대신, 값으로 표현합니다. Result 타입을 사용하면 함수가 성공할 수도 있고 실패할 수도 있다는 사실을 타입 시스템에 명시적으로 표현할 수 있습니다.
+
+4장에서 간단한 Result를 봤지만, 이번에는 실무에서 사용할 수 있도록 더욱 완전하게 구현해봅시다.
+
+```python
+from typing import TypeVar, Generic, Callable, Union
+from dataclasses import dataclass
+
+T = TypeVar('T')  # 성공 타입
+E = TypeVar('E')  # 에러 타입
+U = TypeVar('U')
+
+@dataclass(frozen=True)
+class Ok[T]:
+    """
+    성공 값을 담는 Result 타입입니다.
+
+    참고: Ok는 T만 타입 파라미터로 받지만, map/flat_map의 반환 타입은
+    Result[U, E]입니다. 타입 체커는 컨텍스트에서 E를 추론합니다.
+    """
+    value: T
+
+    def is_ok(self) -> bool: return True
+    def is_err(self) -> bool: return False
+    def unwrap(self) -> T: return self.value
+    def unwrap_or(self, default: T) -> T: return self.value
+
+    def map[U](self, func: Callable[[T], U]) -> 'Result[U, E]':
+        return Ok(func(self.value))
+
+    def flat_map[U](self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
+        return func(self.value)
+
+@dataclass(frozen=True)
+class Err[E]:
+    """에러 값을 담는 Result 타입입니다."""
+    error: E
+
+    def is_ok(self) -> bool: return False
+    def is_err(self) -> bool: return True
+    def unwrap(self) -> T: raise ValueError(f"Err: {self.error}")
+    def unwrap_or(self, default: T) -> T: return default
+
+    def map[U](self, func: Callable[[T], U]) -> 'Result[U, E]':
+        return self # 타입은 변하지만 값은 그대로
+
+    def flat_map[U](self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
+        return self
+
+# Result 타입 정의
+Result = Union[Ok[T], Err[E]]
+
+# Result를 다루는 헬퍼 함수들
+def ok(value: T) -> Ok[T]:
+    """성공 결과를 생성합니다"""
+    return Ok(value)
+
+def err(error: E) -> Err[E]:
+    """실패 결과를 생성합니다"""
+    return Err(error)
+
+def is_ok(result: Result[T, E]) -> bool:
+    """성공인지 확인합니다"""
+    return isinstance(result, Ok)
+
+def is_err(result: Result[T, E]) -> bool:
+    """실패인지 확인합니다"""
+    return isinstance(result, Err)
+```
+
+### Python 3.10+ 패턴 매칭 (Structural Pattern Matching)
+
+최신 파이썬을 사용한다면, `is_ok()`/`is_err()` 대신 `match-case`를 사용하는 것이 훨씬 직관적입니다.
+
+```python
+# Result 처리의 현대적 방법
+match process_user_data_file("user.json"):
+    case Ok(user_id):
+        print(f"성공: 사용자 {user_id} 처리 완료")
+    case Err(error):
+        print(f"실패: {error}")
+```
+
+이 방식은 `Result`가 가진 값을 자연스럽게 언팩(Unpack)해주므로 가독성이 뛰어납니다.
+
+이제 Result를 사용하는 기본 패턴을 봅시다.
+
+```python
+def divide(a: float, b: float) -> Result[float, str]:
+    """나눗셈을 수행하고 결과를 Result로 반환합니다"""
+    if b == 0:
+        return err("0으로 나눌 수 없습니다")
+    return ok(a / b)
+
+# 사용
+result1 = divide(10, 2)
+print(result1)  # Ok(5.0)
+
+result2 = divide(10, 0)
+print(result2)  # Err(0으로 나눌 수 없습니다)
+
+# 결과 처리
+if is_ok(result1):
+    print(f"결과: {result1.value}")
+else:
+    print(f"에러: {result1.error}")
+```
+
+함수 시그니처를 봅시다. divide는 Result[float, str]을 반환합니다. 이것은 "성공하면 float를 반환하고, 실패하면 str 에러 메시지를 반환한다"는 의미입니다. 함수 시그니처만 봐도 이 함수가 실패할 수 있다는 것을 알 수 있습니다. 예외를 던지는 함수와 달리, Result를 반환하는 함수는 실패 가능성이 타입에 명시되어 있습니다.
+
+### Result vs Exception: 언제 무엇을 써야 할까?
+
+사실 우리가 매일 사용하는 `Future`(또는 `Promise`)도 내부적으로는 이 `Result` 패턴을 따르고 있습니다. `Future`는 완료 시점에 "성공 값"을 갖거나 "실패 예외"를 갖는 상태 머신입니다. 우리가 `await future`를 할 때 일어나는 일은, 사실상 `Result.unwrap()`과 똑같습니다. 값이 있으면 반환하고, 에러가 있으면 던지는 것이죠.
+
+**함수형 프로그래밍이 비동기 아키텍처에 기여한 핵심이 바로 이것입니다.** 예외를 제어 흐름의 점프(`goto`)로 다루지 않고, 데이터(상태)로 캡처해서 전달한다는 발상입니다.
+
+실무에서 이 두 가지를 섞어 쓸 때의 기준은 다음과 같습니다:
+
+1.  **Result**: **도메인 에러(Domain Error)**. 비즈니스 로직의 일부로서 "예상되는 실패"를 다룰 때 사용합니다.
+    *   예: "사용자를 찾을 수 없음", "잔액 부족", "유효하지 않은 이메일 형식"
+    *   이런 에러는 클라이언트에게 알려줘야 하는 정보이며, 프로그램의 정상적인 흐름의 일부입니다.
+2.  **Exception**: **인프라 에러(Infrastructure Error)**. 프로그램이 복구하기 어렵거나 개발자의 실수인 "예상치 못한 실패"를 다룰 때 사용합니다.
+    *   예: "데이터베이스 연결 끊김", "메모리 부족", "오타로 인한 NameError"
+    *   이런 에러는 보통 상위 레벨에서 로그를 남기고 요청을 중단(500 에러)해야 합니다.
+
+Result는 "이 함수는 실패할 수 있으며, 호출자는 반드시 실패를 처리해야 한다"는 신호입니다. 반면 Exception은 "문제가 생겼으니 실행을 중단하라"는 신호입니다. 두 도구를 적절히 섞어 쓰는 것이 실용적인 Python 함수형 프로그래밍입니다.
+
+### Result와 Either의 관계
+
+함수형 프로그래밍에서 Result는 사실 `Either[E, A]` 타입의 특수화입니다. Either는 "둘 중 하나"를 나타내는 타입으로, Left(왼쪽)와 Right(오른쪽) 두 가지 케이스가 있습니다. 관례적으로 Left는 실패를, Right는 성공을 나타냅니다 ("right"가 "옳다"는 의미도 있으니까요).
+
+```python
+# Either의 일반적 정의
+Either[E, A] = Left[E] | Right[A]
+
+# Result는 Either의 별칭
+Result[A, E] = Either[E, A]
+# Ok = Right (성공)
+# Err = Left (실패)
+```
+
+우리가 구현한 Result는 이 Either 패턴의 특수화입니다. Either는 더 일반적으로 사용될 수 있지만, 에러 처리 맥락에서는 Result라는 이름이 의도를 더 명확하게 표현합니다.
+
+## map과 flatMap: 에러를 우아하게 전파하기
+
+하지만 매번 is_ok로 체크하는 것은 if-else로 None을 체크하는 것과 다를 바가 없습니다. 3장에서 Maybe에 map을 추가했듯이, Result에도 map과 flatMap을 추가해봅시다.
+
+### 4장의 flatMap 패턴이 에러 처리에도 적용됩니다
+
+4장에서 배운 핵심 통찰을 기억하세요. flatMap은 **의존적 작업의 순차 합성**을 가능하게 합니다. Future에서 flatMap은 "첫 번째 비동기 작업이 끝나면 그 결과로 두 번째 작업 시작"을 표현했습니다. Result에서도 같은 패턴이 적용됩니다. "첫 번째 작업이 성공하면 그 결과로 두 번째 작업 시작, 실패하면 바로 에러 반환"입니다.
+
+```python
+def map_result(result: Result[T, E], func: Callable[[T], U]) -> Result[U, E]:
+    """
+    성공인 경우 함수를 적용하고, 실패인 경우 에러를 전달합니다.
+    """
+    if is_ok(result):
+        try:
+            return ok(func(result.value))
+        except Exception as e:
+            return err(str(e))
+    return result
+
+def flatmap_result(
+    result: Result[T, E], 
+    func: Callable[[T], Result[U, E]]
+) -> Result[U, E]:
+    """
+    성공인 경우 함수를 적용하고, 실패인 경우 에러를 전달합니다.
+    함수는 Result를 반환해야 하며, 중첩을 자동으로 평탄화합니다.
+    """
+    if is_ok(result):
+        try:
+            return func(result.value)
+        except Exception as e:
+            return err(str(e))
+    return result
+
+# 사용 예제 (파이썬에 파이프 연산자가 없으므로 함수 호출로 표현)
+step1 = divide(20, 4)                                 # Ok(5.0)
+step2 = map_result(step1, lambda x: x + 10)           # Ok(15.0)
+step3 = map_result(step2, lambda x: x * 2)            # Ok(30.0)
+result = map_result(step3, lambda x: str(x))          # Ok("30.0")
+
+print(result)  # Ok("30.0")
+
+# 에러가 중간에 발생하면 전파됩니다
+err_step1 = divide(10, 0)
+err_step2 = map_result(err_step1, lambda x: x + 10)
+err_step3 = map_result(err_step2, lambda x: x * 2)
+
+print(err_step3)  # Err(0으로 나눌 수 없습니다)
+```
+
+파이썬에는 파이프 연산자가 없으므로 람다로 감싸야 하는 것이 조금 불편합니다. 앞서 정의한 Result 클래스는 이미 메서드 체이닝을 지원하므로 훨씬 깔끔하게 사용할 수 있습니다.
+
+```python
+# 메서드 체이닝
+result = (divide(20, 4)
+    .map(lambda x: x + 10)
+    .map(lambda x: x * 2)
+    .map(lambda x: f"결과: {x}")
+)
+print(result)  # Ok("결과: 30.0")
+
+# 에러 전파
+result_err = (divide(10, 0)
+    .map(lambda x: x + 10)
+    .map(lambda x: x * 2)
+)
+print(result_err)  # Err(0으로 나눌 수 없습니다)
+
+# 안전한 값 추출
+value = result.unwrap_or("기본값")
+print(value)  # "결과: 30.0"
+
+value_err = result_err.unwrap_or("기본값")
+print(value_err)  # "기본값"
+```
+
+map 체인 중간에 에러가 발생하면, 그 이후의 모든 map은 자동으로 건너뛰어집니다. 이것은 3장에서 본 Maybe의 패턴과 정확히 같습니다. 성공 경로와 실패 경로가 자동으로 분리됩니다.
+
+### Python 3.10+의 match 문 활용
+
+Python 3.10부터 도입된 구조적 패턴 매칭을 사용하면 Result를 더 우아하게 처리할 수 있습니다.
+
+```python
+# match 문을 사용한 Result 처리
+result = divide(20, 4).map(lambda x: x + 10)
+
+match result:
+    case Ok(value):
+        print(f"성공: {value}")
+    case Err(error):
+        print(f"실패: {error}")
+
+# 중첩된 패턴 매칭도 가능합니다
+def describe_division(a: float, b: float) -> str:
+    match divide(a, b):
+        case Ok(value) if value > 100:
+            return f"큰 결과: {value}"
+        case Ok(value):
+            return f"결과: {value}"
+        case Err(error):
+            return f"에러 발생: {error}"
+
+print(describe_division(1000, 5))  # "큰 결과: 200.0"
+print(describe_division(10, 2))     # "결과: 5.0"
+print(describe_division(10, 0))     # "에러 발생: 0으로 나눌 수 없습니다"
+```
+
+match 문은 is_ok()/is_err() 체크보다 더 선언적이고, 타입 체커가 모든 케이스를 다루었는지 확인할 수 있어서 안전합니다.
+
+## Railway-Oriented Programming: 두 개의 선로
+
+Result를 사용한 프로그래밍을 Railway-Oriented Programming이라고 부릅니다. 이것은 F# 커뮤니티에서 유명해진 개념으로, 함수를 철도 선로처럼 생각하는 것입니다.
+
+각 함수는 두 개의 출력을 가진 선로입니다. 하나는 성공 선로(Ok)이고, 다른 하나는 실패 선로(Err)입니다. 기차가 성공 선로를 달리다가 어떤 지점에서 실패하면, 실패 선로로 전환됩니다. 그 이후로는 계속 실패 선로를 달립니다. 중간에 다시 성공 선로로 돌아갈 수는 없습니다.
+
+### 4장의 순차 합성과 Railway의 연결
+
+4장에서 배운 flatMap의 핵심은 **순차 합성**이었습니다. Future에서는 "A가 끝나면 B 시작"이었고, Result에서는 "A가 성공하면 B 시작, 실패하면 에러 전파"입니다. Railway 비유로 보면:
+
+- **flatMap으로 연결된 함수들** = 선로 위의 역(station)들
+- **Ok 값** = 기차가 성공 선로를 따라 다음 역으로 이동
+- **Err 값** = 기차가 실패 선로로 전환, 나머지 역을 건너뜀
+
+```
+성공 선로:  [read_file] → [parse_json] → [validate] → [save]
+                 ↓              ↓            ↓          ↓
+실패 선로:     Err ─────────→ Err ────────→ Err ─────→ Err
+```
+
+이것은 4장에서 본 Future.flatMap 체인과 구조적으로 동일합니다. 차이점은 Future는 "시간"을 다루고, Result는 "실패 가능성"을 다룬다는 것입니다.
+
+```python
+def read_file(filename: str) -> Result[str, str]:
+    """파일을 읽습니다"""
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            return Ok(f.read())
+    except FileNotFoundError:
+        return Err(f"파일을 찾을 수 없습니다: {filename}")
+    except PermissionError:
+        return Err(f"파일 접근 권한이 없습니다: {filename}")
+    except Exception as e:
+        return Err(f"파일 읽기 실패: {e}")
+
+def parse_json(content: str) -> Result[dict, str]:
+    """JSON을 파싱합니다"""
+    import json
+    try:
+        return Ok(json.loads(content))
+    except json.JSONDecodeError as e:
+        return Err(f"JSON 파싱 실패: {e}")
+
+def validate_user_data(data: dict) -> Result[dict, str]:
+    """사용자 데이터를 검증합니다"""
+    if not isinstance(data, dict):
+        return Err("데이터가 딕셔너리 형식이 아닙니다")
+    
+    if "name" not in data:
+        return Err("필수 필드 'name'이 없습니다")
+    
+    if "email" not in data:
+        return Err("필수 필드 'email'이 없습니다")
+    
+    if not isinstance(data["email"], str) or "@" not in data["email"]:
+        return Err("이메일 형식이 올바르지 않습니다")
+    
+    return Ok(data)
+
+def save_user(data: dict) -> Result[str, str]:
+    """사용자를 저장합니다"""
+    try:
+        # 데이터베이스 저장 시뮬레이션
+        user_id = f"user_{data['email']}"
+        return Ok(user_id)
+    except Exception as e:
+        return Err(f"데이터베이스 저장 실패: {e}")
+
+# 이제 전체 파이프라인을 flatMap으로 연결합니다
+def process_user_file(filename: str) -> Result[str, str]:
+    """사용자 파일을 처리합니다"""
+    return (read_file(filename)
+        .flat_map(parse_json)        # Result[dict, str]
+        .flat_map(validate_user_data)  # Result[dict, str]
+        .flat_map(save_user)          # Result[str, str]
+    )
+
+# 테스트를 위한 파일 생성
+import json
+with open('valid_user.json', 'w') as f:
+    json.dump({"name": "철수", "email": "chulsoo@example.com"}, f)
+
+with open('invalid_user.json', 'w') as f:
+    json.dump({"name": "영희"}, f)  # email이 없음
+
+# 성공 케이스
+result = process_user_file('valid_user.json')
+print(result)  # Ok("user_chulsoo@example.com")
+
+# 실패 케이스
+result_err = process_user_file('invalid_user.json')
+print(result_err)  # Err("필수 필드 'email'이 없습니다")
+
+result_not_found = process_user_file('nonexistent.json')
+print(result_not_found)  # Err("파일을 찾을 수 없습니다: nonexistent.json")
+```
+
+코드를 봅시다. process_user_file은 네 개의 함수를 flatMap으로 연결합니다. 각 함수는 Result를 반환하고, flatMap은 자동으로 성공과 실패를 처리합니다. 어느 단계에서든 Err가 나오면, 나머지 단계는 모두 건너뛰어지고 그 Err가 최종 결과가 됩니다.
+
+try-except 버전과 비교해보세요. try-except 버전은 각 단계마다 예외를 잡아야 했고, 에러 처리 로직이 비즈니스 로직과 뒤섞여 있었습니다. Result 버전은 각 함수가 독립적이고, 에러 처리는 flatMap이 담당합니다. 각 함수는 단순히 성공하면 Ok를, 실패하면 Err를 반환하면 됩니다.
+
+더 중요한 것은 타입입니다. process_user_file의 타입은 Result[str, str]입니다. 이것은 "성공하면 사용자 ID 문자열을, 실패하면 에러 메시지 문자열을 반환한다"는 의미입니다. 함수 시그니처를 봐도 이 함수가 실패할 수 있다는 것을 알 수 있습니다.
+
+
+
+## 비동기와 Result: 두 세계의 만남
+
+이제 비동기 프로그래밍과 Result를 결합해봅시다. 4장에서 배운 async/await와 이 장에서 배운 Result를 함께 사용하면 어떻게 될까요? 비동기 함수도 실패할 수 있으므로, Result를 반환해야 합니다. asyncio와 Result를 함께 사용하는 패턴을 익혀봅시다.
+
+```python
+import asyncio
+import aiohttp
+
+async def fetch_url_async(url: str) -> Result[str, AppError]:
+    """URL에서 내용을 비동기로 가져옵니다"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                if response.status != 200:
+                    return Err(AppError(
+                        ErrorKind.NETWORK_ERROR,
+                        f"HTTP {response.status}",
+                        {"url": url, "status": response.status}
+                    ))
+                content = await response.text()
+                return Ok(content)
+    except asyncio.TimeoutError:
+        return Err(AppError(
+            ErrorKind.NETWORK_ERROR,
+            "요청 시간 초과",
+            {"url": url}
+        ))
+    except Exception as e:
+        return Err(AppError(
+            ErrorKind.NETWORK_ERROR,
+            str(e),
+            {"url": url}
+        ))
+
+async def parse_json_async(content: str) -> Result[dict, AppError]:
+    """JSON을 비동기로 파싱합니다"""
+    # 파싱은 CPU 작업이지만, 일관성을 위해 async 함수로 만듭니다
+    return parse_json_v2(content)
+
+async def process_api_data(url: str) -> Result[dict, AppError]:
+    """API 데이터를 처리하는 전체 파이프라인"""
+    # 먼저 데이터를 가져옵니다
+    fetch_result = await fetch_url_async(url)
+    
+    # Result를 flatmap으로 처리합니다
+    # 하지만 파이썬의 async/await는 직접적인 flatmap을 지원하지 않으므로
+    # 수동으로 체크해야 합니다
+    if fetch_result.is_err():
+        return fetch_result
+    
+    content = fetch_result.unwrap()
+    
+    # JSON 파싱
+    parse_result = await parse_json_async(content)
+    if parse_result.is_err():
+        return parse_result
+    
+    data = parse_result.unwrap()
+    
+    # 검증
+    return validate_user_data_v2(data)
+
+# 실행
+async def main():
+    result = await process_api_data("https://jsonplaceholder.typicode.com/users/1")
+    if result.is_ok():
+        print(f"성공: {result.unwrap()}")
+    else:
+        print(f"실패: {result.error}")
+
+# asyncio.run(main())
+```
+
+비동기와 Result를 함께 사용할 때 한 가지 불편한 점이 있습니다. flatMap을 메서드 체이닝으로 사용할 수 없다는 것입니다. await는 Result가 아니라 코루틴을 기다리므로, Result.flat_map을 async 함수와 직접 조합할 수 없습니다.
+
+실무에서는 보통 두 가지 패턴을 사용합니다.
+
+패턴 1: async 함수 안에서 Result를 수동으로 체크합니다. (가장 흔함)
+```python
+async def process_api_data(url: str) -> Result[dict, str]:
+    # 1. 비동기 호출 (Result 반환)
+    fetch_result = await fetch_url_async(url)
+    
+    # 2. 실패 체크 (수동)
+    if isinstance(fetch_result, Err):
+        return fetch_result
+    
+    # 3. 성공 값 추출
+    content = fetch_result.unwrap()
+    
+    # 4. 다음 단계 진행
+    return parse_json_v2(content)
+```
+
+약간 번거로워 보이지만, 명시적이고 읽기 쉽습니다. 파이썬의 async/await 문법은 이런 절차적 스타일을 장려합니다.
+
+패턴 2: 예외를 던지는 async 함수를 만들고, 최상위에서 Result로 감쌉니다.
+```python
+
+
+async def fetch_url_raises(url: str) -> str:
+    """URL에서 내용을 가져옵니다 (예외를 던집니다)"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+            response.raise_for_status()
+            return await response.text()
+
+async def parse_json_raises(content: str) -> dict:
+    """JSON을 파싱합니다 (예외를 던집니다)"""
+    import json
+    return json.loads(content)
+
+async def validate_user_data_raises(data: dict) -> dict:
+    """데이터를 검증합니다 (예외를 던집니다)"""
+    if "email" not in data:
+        raise ValueError("필수 필드 'email'이 없습니다")
+    return data
+
+# 예외를 Result로 변환하는 래퍼
+async def try_async(
+    func: Callable[[], Awaitable[T]]
+) -> Result[T, AppError]:
+    """async 함수를 실행하고 예외를 Result로 변환합니다"""
+    try:
+        value = await func()
+        return Ok(value)
+    except aiohttp.ClientError as e:
+        return Err(AppError(ErrorKind.NETWORK_ERROR, str(e)))
+    except json.JSONDecodeError as e:
+        return Err(parse_error(str(e)))
+    except ValueError as e:
+        return Err(AppError(ErrorKind.VALIDATION_ERROR, str(e)))
+    except Exception as e:
+        return Err(AppError(ErrorKind.DATABASE_ERROR, str(e)))
+
+# 사용
+async def process_api_data_v4(url: str) -> Result[dict, AppError]:
+    """예외를 Result로 변환하는 버전"""
+    async def pipeline():
+        content = await fetch_url_raises(url)
+        data = await parse_json_raises(content)
+        return await validate_user_data_raises(data)
+
+    return await try_async(pipeline)
+```
+
+이 접근의 장점은 async 함수들이 일반적인 방식으로 작성되고, 예외 처리는 최상위에서 한 번만 한다는 것입니다. 단점은 예외가 어디서 발생했는지 추적하기 어렵고, 함수 시그니처에 실패 가능성이 표현되지 않는다는 것입니다.
+
+실무에서는 보통 이 두 접근을 섞어서 사용합니다. 도메인 경계에서는 Result를 사용하고, 내부 구현에서는 예외를 사용합니다. 예를 들어, API 엔드포인트는 Result를 반환하지만, 그 안에서 호출하는 함수들은 예외를 던집니다.
+
+## 여러 Result 조합하기
+
+때로는 여러 독립적인 작업을 수행하고, 모두 성공했을 때만 다음으로 진행하고 싶을 때가 있습니다. 두 파일을 모두 읽어야 하거나, 여러 API를 모두 호출해야 하는 경우입니다.
+
+### asyncio.gather를 활용한 병렬 실행
+
+여러 Result를 반환하는 비동기 작업을 병렬로 실행하고 싶을 때는 `asyncio.gather`를 사용합니다.
+
+```python
+async def read_files_parallel(filenames: list[str]) -> Result[list[str], str]:
+    """여러 파일을 병렬로 읽고 결과를 합칩니다"""
+    
+    # 1. 모든 비동기 작업 시작 (Result 반환)
+    tasks = [read_file_async(f) for f in filenames]
+    
+    # 2. 병렬 실행 및 대기
+    # results는 [Ok("내용1"), Err("에러"), Ok("내용3")] 형태
+    results = await asyncio.gather(*tasks)
+    
+    # 3. 결과 수집 (하나라도 실패면 전체 실패)
+    success_values = []
+    for res in results:
+        if isinstance(res, Err):
+            return res  # 첫 번째 에러 반환
+        success_values.append(res.unwrap())
+        
+    return Ok(success_values)
+```
+
+
+```python
+def combine_results(
+    result1: Result[T, E],
+    result2: Result[U, E],
+    combiner: Callable[[T, U], V]
+) -> Result[V, E]:
+    """
+    두 Result가 모두 성공이면 combiner를 적용하고,
+    하나라도 실패면 첫 번째 실패를 반환합니다.
+    """
+    if result1.is_err():
+        return result1
+    if result2.is_err():
+        return result2
+    return Ok(combiner(result1.unwrap(), result2.unwrap()))
+
+# 사용
+file1 = read_file_v2("file1.json")
+file2 = read_file_v2("file2.json")
+
+combined = combine_results(
+    file1,
+    file2,
+    lambda content1, content2: content1 + "\n" + content2
+)
+
+print(combined)
+```
+
+세 개 이상의 Result를 조합하려면 어떻게 할까요? 일반화된 함수를 만들 수 있습니다.
+
+```python
+def sequence_results(results: list[Result[T, E]]) -> Result[list[T], E]:
+    """
+    Result 리스트를 Result[list]로 변환합니다.
+    모두 성공이면 Ok(값들의 리스트)를, 하나라도 실패면 첫 번째 Err를 반환합니다.
+    """
+    values = []
+    for result in results:
+        if result.is_err():
+            return result
+        values.append(result.unwrap())
+    return Ok(values)
+
+# 사용
+files = ["file1.json", "file2.json", "file3.json"]
+results = [read_file_v2(f) for f in files]
+combined_result = sequence_results(results)
+
+if combined_result.is_ok():
+    all_contents = combined_result.unwrap()
+    print(f"{len(all_contents)}개의 파일을 모두 읽었습니다")
+else:
+    print(f"파일 읽기 실패: {combined_result.error}")
+```
+
+이것은 6장에서 배울 Applicative Functor의 개념입니다. 여러 독립적인 작업의 결과를 조합하는 패턴입니다.
+
+## 실전 예제: 사용자 등록 API
+
+모든 개념을 종합해서 실용적인 예제를 만들어봅시다. 사용자 등록 API를 Result와 async를 함께 사용해서 구현하겠습니다.
+
+```python
+import asyncio
+import re
+from dataclasses import dataclass
+
+@dataclass
+class User:
+    """사용자 모델"""
+    name: str
+    email: str
+    age: int
+
+@dataclass
+class RegistrationRequest:
+    """등록 요청"""
+    name: str
+    email: str
+    age: str  # 문자열로 받습니다 (검증 필요)
+
+def validate_name(name: str) -> Result[str, AppError]:
+    """이름을 검증합니다"""
+    if not name or len(name.strip()) == 0:
+        return Err(validation_error("name", "이름이 비어있습니다"))
+    if len(name) > 50:
+        return Err(validation_error("name", "이름이 너무 깁니다 (최대 50자)"))
+    return Ok(name.strip())
+
+def validate_email(email: str) -> Result[str, AppError]:
+    """이메일을 검증합니다"""
+    email = email.strip().lower()
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(pattern, email):
+        return Err(validation_error("email", "이메일 형식이 올바르지 않습니다"))
+    return Ok(email)
+
+def validate_age(age_str: str) -> Result[int, AppError]:
+    """나이를 검증합니다"""
+    try:
+        age = int(age_str)
+    except ValueError:
+        return Err(validation_error("age", "나이는 숫자여야 합니다"))
+    
+    if age < 0:
+        return Err(validation_error("age", "나이는 0 이상이어야 합니다"))
+    if age > 150:
+        return Err(validation_error("age", "나이가 유효하지 않습니다"))
+    
+    return Ok(age)
+
+async def check_email_exists(email: str) -> Result[bool, AppError]:
+    """이메일이 이미 존재하는지 확인합니다 (DB 조회 시뮬레이션)"""
+    await asyncio.sleep(0.1)  # DB 조회 시뮬레이션
+    
+    # 시뮬레이션: test@example.com은 이미 존재한다고 가정
+    if email == "test@example.com":
+        return Ok(True)
+    return Ok(False)
+
+async def save_user_to_db(user: User) -> Result[str, AppError]:
+    """사용자를 데이터베이스에 저장합니다"""
+    await asyncio.sleep(0.1)  # DB 저장 시뮬레이션
+    
+    try:
+        # 실제로는 여기서 DB에 저장합니다
+        user_id = f"user_{user.email}"
+        return Ok(user_id)
+    except Exception as e:
+        return Err(AppError(ErrorKind.DATABASE_ERROR, str(e)))
+
+async def register_user(request: RegistrationRequest) -> Result[str, AppError]:
+    """사용자를 등록합니다"""
+    # 1단계: 각 필드 검증 (동기)
+    name_result = validate_name(request.name)
+    if name_result.is_err():
+        return name_result
+    
+    email_result = validate_email(request.email)
+    if email_result.is_err():
+        return email_result
+    
+    age_result = validate_age(request.age)
+    if age_result.is_err():
+        return age_result
+    
+    name = name_result.unwrap()
+    email = email_result.unwrap()
+    age = age_result.unwrap()
+    
+    # 2단계: 이메일 중복 확인 (비동기)
+    exists_result = await check_email_exists(email)
+    if exists_result.is_err():
+        return exists_result
+    
+    if exists_result.unwrap():
+        return Err(validation_error("email", "이미 사용 중인 이메일입니다"))
+    
+    # 3단계: 사용자 생성 및 저장 (비동기)
+    user = User(name=name, email=email, age=age)
+    return await save_user_to_db(user)
+
+# 테스트
+async def main():
+    print("=== 사용자 등록 테스트 ===\n")
+    
+    # 성공 케이스
+    request1 = RegistrationRequest(
+        name="김철수",
+        email="chulsoo@example.com",
+        age="25"
+    )
+    result1 = await register_user(request1)
+    print(f"케이스 1: {result1}")
+    # Ok("user_chulsoo@example.com")
+    
+    # 검증 실패
+    request2 = RegistrationRequest(
+        name="",
+        email="invalid-email",
+        age="not-a-number"
+    )
+    result2 = await register_user(request2)
+    print(f"케이스 2: {result2}")
+    # Err(validation_error: 이름이 비어있습니다 ({'field': 'name'}))
+    
+    # 이메일 중복
+    request3 = RegistrationRequest(
+        name="김영희",
+        email="test@example.com",
+        age="30"
+    )
+    result3 = await register_user(request3)
+    print(f"케이스 3: {result3}")
+    # Err(validation_error: 이미 사용 중인 이메일입니다 ({'field': 'email'}))
+
+# asyncio.run(main())
+```
+
+이 예제는 실무의 패턴을 잘 보여줍니다. 동기 검증과 비동기 작업이 섞여있고, 각 단계마다 실패할 수 있습니다. Result를 사용하면 각 단계의 실패 가능성이 명시적으로 표현되고, 에러 처리가 체계적입니다.
+
+register_user 함수를 봅시다. 각 검증 단계에서 is_err를 체크하고, 에러면 바로 반환합니다. 성공이면 unwrap으로 값을 꺼내서 다음 단계로 진행합니다. 이것은 Railway-Oriented Programming의 수동 버전입니다. flatmap_async를 사용하면 더 깔끔하게 만들 수 있지만, 수동 버전도 충분히 읽기 쉽습니다.
+
+## 타입 힌팅으로 안전성 높이기
+
+파이썬의 타입 힌팅을 활용하면 Result를 더욱 안전하게 사용할 수 있습니다. mypy 같은 타입 체커를 사용하면 컴파일 타임에 많은 실수를 잡을 수 있습니다.
+
+```python
+from typing import TypeVar, Generic, Union, Callable
+
+T = TypeVar('T')
+E = TypeVar('E')
+U = TypeVar('U')
+
+# Result의 타입을 명확히 합니다
+def divide_typed(a: float, b: float) -> Result[float, str]:
+    """나눗셈을 수행합니다"""
+    if b == 0:
+        return Err("0으로 나눌 수 없습니다")
+    return Ok(a / b)
+
+# 타입 체커는 이것을 감지합니다
+result: Result[float, str] = divide_typed(10, 2)
+
+# 올바른 사용
+if result.is_ok():
+    value: float = result.unwrap()  # 타입 체커가 이것이 float임을 압니다
+    print(value * 2)
+
+# 잘못된 사용 (타입 체커가 경고합니다)
+# value: str = result.unwrap()  # 타입 오류!
+```
+
+제네릭 함수를 작성할 때도 타입 힌팅이 도움이 됩니다.
+
+```python
+def map_result_typed(
+    result: Result[T, E],
+    func: Callable[[T], U]
+) -> Result[U, E]:
+    """Result의 성공 값을 변환합니다"""
+    if result.is_ok():
+        return Ok(func(result.unwrap()))
+    return result
+
+# 타입 추론이 작동합니다
+int_result: Result[int, str] = Ok(42)
+str_result: Result[str, str] = map_result_typed(int_result, lambda x: f"Value: {x}")
+# str_result의 타입은 Result[str, str]입니다
+```
+
+타입 힌팅의 진정한 가치는 대규모 코드베이스에서 드러납니다. 함수가 Result를 반환한다는 것을 타입 시그니처로 명시하면, 호출하는 쪽에서 반드시 에러를 처리해야 한다는 것을 알 수 있습니다. 타입 체커는 unwrap을 호출하기 전에 is_ok를 체크했는지 확인할 수 있습니다. 이것은 런타임 에러를 줄이는 강력한 도구입니다.
+
+## 심화: Result 패턴의 실전 주의점
+
+Result 패턴은 강력하지만, 실무에서 무분별하게 사용하면 오히려 생산성을 떨어뜨릴 수 있습니다. 이 섹션에서는 Result를 도입할 때 반드시 알아야 할 함정들과 트레이드오프를 다룹니다.
+
+### 1. Result의 성능 오버헤드
+
+Result는 모든 성공/실패를 객체로 감싸기 때문에 메모리와 CPU 오버헤드가 발생합니다.
+
+```python
+# 예외 버전: 객체 할당 없음 (성공 시)
+def divide_exception(a: float, b: float) -> float:
+    if b == 0:
+        raise ValueError("0으로 나눌 수 없습니다")
+    return a / b
+
+# Result 버전: 항상 Ok 객체 할당
+def divide_result(a: float, b: float) -> Result[float, str]:
+    if b == 0:
+        return Err("0으로 나눌 수 없습니다")
+    return Ok(a / b)  # 성공해도 객체 생성
+
+# 벤치마크 (1백만 번 호출)
+import timeit
+
+t1 = timeit.timeit(lambda: divide_exception(10, 2), number=1000000)
+# 약 0.15초
+
+t2 = timeit.timeit(lambda: divide_result(10, 2), number=1000000)
+# 약 0.35초 (2배 이상 느림)
+```
+
+**가이드라인**:
+- **핫패스(Hot Path)** (초당 수천~수만 번 호출되는 내부 루프)에서는 예외를 사용하고, 상위 레벨에서만 Result로 감싸세요.
+- **I/O 바운드 작업** (네트워크, 파일, DB)은 이미 느리므로 Result의 오버헤드는 무시할 수 있습니다. 적극 사용하세요.
+- **도메인 경계** (API 엔드포인트, 라이브러리 public API)에서는 명시성이 더 중요하므로 Result를 사용하세요.
+
+```python
+# 좋은 예: API 레벨에서 Result, 내부는 예외
+async def api_register_user(request: dict) -> Result[User, ApiError]:
+    """API 엔드포인트 - Result 사용"""
+    try:
+        # 내부에서는 예외를 던지는 빠른 함수 사용
+        user = await _register_user_internal(request)  # 예외 던질 수 있음
+        return Ok(user)
+    except ValidationError as e:
+        return Err(ApiError.from_validation(e))
+    except DatabaseError as e:
+        return Err(ApiError.from_database(e))
+```
+
+### 2. unwrap()의 위험성과 대안
+
+`unwrap()`은 편리하지만, Err에서 호출하면 예외를 던지므로 Result의 장점이 사라집니다.
+
+```python
+# 나쁜 예: unwrap() 남용 - 결국 예외 발생 가능
+def bad_example(filename: str) -> str:
+    result = read_file(filename)
+    content = result.unwrap()  # Err이면 여기서 예외 발생!
+    return content.upper()
+
+# 차라리 예외를 쓰는 게 나음
+def exception_example(filename: str) -> str:
+    with open(filename) as f:
+        return f.read().upper()
+```
+
+**더 안전한 대안**:
+
+```python
+# 1. unwrap_or() - 기본값 제공
+def safe_with_default(filename: str) -> str:
+    result = read_file(filename)
+    content = result.unwrap_or("기본 내용")  # Err여도 안전
+    return content.upper()
+
+# 2. match로 명시적 처리
+def safe_with_match(filename: str) -> str:
+    match read_file(filename):
+        case Ok(content):
+            return content.upper()
+        case Err(error):
+            logger.error(f"파일 읽기 실패: {error}")
+            return ""
+
+# 3. map으로 체이닝 (unwrap 필요 없음)
+def safe_with_map(filename: str) -> Result[str, str]:
+    return read_file(filename).map(lambda c: c.upper())
+```
+
+**가이드라인**:
+- `unwrap()`은 테스트 코드나 프로토타입에서만 사용하세요.
+- 프로덕션 코드에서는 `unwrap_or()`, `unwrap_or_else()`, `match`, `map` 등을 사용하세요.
+- unwrap()을 쓸 수밖에 없다면, 주석으로 "왜 이것이 절대 Err가 될 수 없는지" 설명하세요.
+
+```python
+# unwrap()이 정당화되는 유일한 경우
+result = divide(10, 2)  # 2는 0이 아니므로 절대 실패하지 않음
+value = result.unwrap()  # 하지만 이것도 map을 쓰는 게 더 나음
+```
+
+### 3. 제네릭 타입 중첩의 복잡성
+
+비동기 + Result를 조합하면 타입 시그니처가 복잡해집니다.
+
+```python
+# 타입 시그니처가 점점 복잡해짐
+async def fetch_user(id: str) -> Result[User, ApiError]:
+    ...
+
+async def fetch_posts(user: User) -> Result[list[Post], ApiError]:
+    ...
+
+async def fetch_comments(post: Post) -> Result[list[Comment], ApiError]:
+    ...
+
+# 이 함수의 타입은?
+async def fetch_user_timeline(id: str) -> Result[list[tuple[Post, list[Comment]]], ApiError]:
+    # Result[list[tuple[Post, Result[list[Comment], ApiError]]], ApiError]???
+    ...
+```
+
+이런 중첩은 코드를 읽기 어렵게 만들고, 타입 체커도 느려집니다.
+
+**해결 방법**:
+
+```python
+# 1. 도메인 타입으로 감싸기
+@dataclass
+class Timeline:
+    posts: list[Post]
+    comments_by_post: dict[str, list[Comment]]
+
+async def fetch_user_timeline(id: str) -> Result[Timeline, ApiError]:
+    # 타입이 훨씬 명확해짐
+    ...
+
+# 2. 단계별로 나누기
+async def fetch_user_timeline(id: str) -> Result[Timeline, ApiError]:
+    user_result = await fetch_user(id)
+    if user_result.is_err():
+        return user_result  # 타입은 Result[Timeline, ApiError]로 자동 변환
+
+    user = user_result.unwrap()
+    posts_result = await fetch_posts(user)
+    # ... 각 단계를 명시적으로 처리
+```
+
+**가이드라인**:
+- Result가 3단계 이상 중첩되면(Result[Result[Result[...]]]) 설계를 재검토하세요.
+- 타입 별칭(Type Alias)을 적극 활용해서 복잡한 타입에 이름을 부여하세요.
+  ```python
+  UserResult = Result[User, ApiError]
+  PostsResult = Result[list[Post], ApiError]
+  ```
+
+### 4. 비동기와 Result의 에르고노믹스 문제
+
+파이썬의 `async/await`는 예외 기반으로 설계되었으므로, Result와 자연스럽게 조합되지 않습니다.
+
+```python
+# Rust는 ? 연산자로 간결하게 작성
+# fn process() -> Result<User, Error> {
+#     let file = read_file(path)?;      // Err이면 바로 리턴
+#     let data = parse_json(file)?;     // Err이면 바로 리턴
+#     let user = validate(data)?;       // Err이면 바로 리턴
+#     Ok(user)
+# }
+
+# 파이썬은 이런 문법이 없으므로 반복적임
+async def process() -> Result[User, Error]:
+    file_result = await read_file(path)
+    if file_result.is_err():
+        return file_result
+    file = file_result.unwrap()
+
+    data_result = await parse_json(file)
+    if data_result.is_err():
+        return data_result
+    data = data_result.unwrap()
+
+    user_result = await validate(data)
+    if user_result.is_err():
+        return user_result
+    return user_result
+```
+
+이 보일러플레이트는 피할 수 없습니다. 파이썬에는 Rust의 `?` 연산자나 Haskell의 do-notation이 없기 때문입니다.
+
+**실용적 해결책**:
+
+```python
+# 1. 예외 던지는 버전을 먼저 작성하고, 최상위에서 Result로 감싸기
+async def _process_internal(path: str) -> User:
+    """예외를 던지는 내부 함수"""
+    file = await read_file_raises(path)   # 예외 던짐
+    data = await parse_json_raises(file)  # 예외 던짐
+    return await validate_raises(data)    # 예외 던짐
+
+async def process(path: str) -> Result[User, Error]:
+    """공개 API - Result 반환"""
+    try:
+        user = await _process_internal(path)
+        return Ok(user)
+    except FileNotFoundError as e:
+        return Err(Error.file_not_found(e))
+    except JSONDecodeError as e:
+        return Err(Error.parse_error(e))
+    except ValidationError as e:
+        return Err(Error.validation_error(e))
+```
+
+이 방식은 내부에서는 간결한 예외 기반 코드를 유지하면서, API 경계에서만 명시적인 Result를 제공합니다.
+
+**가이드라인**:
+- **라이브러리 경계**: 외부에 노출되는 public API는 Result를 반환하세요 (명시적 에러 처리).
+- **내부 구현**: 같은 모듈 내부에서는 예외를 사용해서 간결성을 유지하세요.
+- **프레임워크 통합**: FastAPI, Django 같은 프레임워크는 예외 기반이므로, 미들웨어에서 Result를 예외로 변환하세요.
+
+```python
+# FastAPI 예제: Result를 HTTP 응답으로 변환
+from fastapi import FastAPI, HTTPException
+
+app = FastAPI()
+
+@app.post("/users")
+async def register_user(request: UserRequest):
+    result = await register_user_service(request)
+
+    match result:
+        case Ok(user):
+            return {"user_id": user.id, "status": "success"}
+        case Err(error):
+            # Result를 HTTP 예외로 변환
+            raise HTTPException(status_code=error.status_code, detail=error.message)
+```
+
+### 정리: Result를 언제 사용할 것인가?
+
+| 상황 | 권장 | 이유 |
+|------|------|------|
+| **API 엔드포인트** | Result | 에러가 API 계약의 일부 |
+| **도메인 로직** (검증, 비즈니스 규칙) | Result | 예상되는 실패, 타입에 명시 |
+| **I/O 작업** (파일, DB, 네트워크) | Result | 실패가 흔하고 복구 가능 |
+| **내부 헬퍼 함수** | 예외 | 간결성, 성능 |
+| **프레임워크 통합** | 예외 → Result 변환 | 기존 생태계와 호환 |
+| **퍼포먼스 크리티컬** | 예외 | 객체 할당 오버헤드 회피 |
+
+Result는 **만능이 아닙니다**. 타입 시스템의 도움으로 에러 처리를 명시적으로 만드는 도구일 뿐입니다. 예외와 Result를 적재적소에 섞어 쓰는 것이 파이썬에서의 실용적인 함수형 프로그래밍입니다.
+
+## 연습 문제
+
+Result 타입을 사용한 에러 처리를 직접 연습해보세요.
+
+**기본 문제**: 세 개의 숫자를 입력받아서 평균을 계산하는 함수를 작성하세요. 각 입력이 문자열이므로 파싱이 필요하고, 숫자가 아니면 에러를 반환해야 합니다. Result와 flatMap을 사용하세요.
+
+```python
+def parse_number(s: str) -> Result[float, str]:
+    # 문자열을 숫자로 파싱합니다
+    pass
+
+def calculate_average(a: str, b: str, c: str) -> Result[float, str]:
+    # 세 문자열을 파싱하고 평균을 계산합니다
+    # flatMap을 사용하세요
+    pass
+
+# 테스트
+print(calculate_average("10", "20", "30"))  # Ok(20.0)
+print(calculate_average("10", "abc", "30"))  # Err("숫자가 아닙니다: abc")
+```
+
+**중급 문제**: 여러 파일을 병렬로 읽어서 내용을 합치는 async 함수를 작성하세요. 모든 파일을 성공적으로 읽었을 때만 Ok를 반환하고, 하나라도 실패하면 Err를 반환해야 합니다.
+
+```python
+async def read_files_parallel(filenames: list[str]) -> Result[str, AppError]:
+    """
+    여러 파일을 병렬로 읽고 내용을 합칩니다.
+    asyncio.gather와 sequence_results를 사용하세요.
+    """
+    pass
+```
+
+**도전 문제**: 재시도 로직을 구현하세요. 함수가 Err를 반환하면 최대 n번까지 재시도하고, 그래도 실패하면 마지막 에러를 반환합니다. 각 재시도 사이에 지연을 둘 수 있어야 합니다.
+
+```python
+async def retry_async(
+    func: Callable[[], Awaitable[Result[T, E]]],
+    max_attempts: int,
+    delay_seconds: float = 0
+) -> Result[T, E]:
+    """
+    async 함수를 재시도합니다.
+    max_attempts번 시도하고, 각 시도 사이에 delay_seconds만큼 대기합니다.
+    """
+    pass
+
+# 테스트
+attempt = 0
+async def flaky_function() -> Result[str, str]:
+    global attempt
+    attempt += 1
+    if attempt < 3:
+        return Err(f"시도 {attempt} 실패")
+    return Ok("성공!")
+
+result = await retry_async(flaky_function, max_attempts=5, delay_seconds=0.1)
+print(result)  # Ok("성공!")
+```
+
+## 1-5장 개념의 통합: Result도 Monad입니다
+
+이 장에서 배운 Result가 4장의 Monad와 어떻게 연결되는지 정리해봅시다.
+
+### Result는 Maybe와 Future의 사촌입니다
+
+| 타입 | 컨텍스트 | map의 의미 | flatMap의 의미 |
+|------|----------|-----------|---------------|
+| **Maybe[T]** | 값이 있거나 없음 | 값이 있으면 변환 | 값이 있으면 다음 작업 |
+| **Future[T]** | 미래에 완료될 값 | 완료되면 변환 | 완료되면 다음 비동기 작업 |
+| **Result[T, E]** | 성공 또는 실패 | 성공이면 변환 | 성공이면 다음 작업 |
+
+세 가지 모두 **같은 패턴**입니다:
+1. 어떤 **컨텍스트**(없음/미래/실패) 안에 값을 담음
+2. **map**으로 컨텍스트를 유지하며 값을 변환
+3. **flatMap**으로 의존적인 작업을 순차 합성
+
+### Monad 법칙과 Result
+
+4장에서 배운 Monad 법칙이 Result에도 적용됩니다.
+
+```python
+# 왼쪽 항등 법칙: Ok(x).flatmap(f) == f(x)
+def double_result(x):
+    return Ok(x * 2)
+
+assert Ok(5).flatmap(double_result).unwrap() == double_result(5).unwrap()
+
+# 오른쪽 항등 법칙: m.flatmap(Ok) == m
+m = Ok(42)
+assert m.flatmap(Ok).unwrap() == m.unwrap()
+
+# 결합 법칙: m.flatmap(f).flatmap(g) == m.flatmap(lambda x: f(x).flatmap(g))
+def f(x): return Ok(x * 2)
+def g(x): return Ok(x + 10)
+
+m = Ok(5)
+assert m.flatmap(f).flatmap(g).unwrap() == m.flatmap(lambda x: f(x).flatmap(g)).unwrap()
+```
+
+이 법칙들이 보장하는 것은 4장과 같습니다: **리팩토링 안정성**입니다. Result 체인을 재구성해도 결과가 같습니다.
+
+## 5장 요약: 실패도 값이다
+
+이번 장에서는 에러를 예외(`Exception`)가 아닌 값(`Result`)으로 다루는 방법을 배웠습니다.
+
+1.  **Result 타입**: 성공(`Ok`)과 실패(`Err`)를 명시적으로 표현하여, 함수의 실패 가능성을 타입 시스템에 알립니다.
+2.  **Railway-Oriented Programming**: `flat_map`을 통해 성공 경로와 실패 경로를 분리하고, 에러를 우아하게 전파합니다.
+3.  **참조 투명성**: 예외를 던지는 부수 효과 대신, 에러 값을 반환함으로써 함수의 순수성을 유지하고 합성을 가능하게 합니다.
+
+### 1장 → 5장까지의 여정
+
+- **1장**: 합성 (순수 함수)
+- **2장**: 비동기의 좌절 (콜백 지옥)
+- **3장**: **Functor** (`map`) - 독립적 변환
+- **4장**: **Monad** (`flatMap/await`) - 의존적 합성 (순차)
+- **5장**: **Result** - 실패 가능성의 합성
+
+우리는 이제 성공과 실패를 모두 값으로 다룰 수 있게 되었습니다. 하지만 지금까지의 모든 합성은 **순차적**이었습니다.
+`fetch_user`가 끝나야 `fetch_posts`가 시작되는 식이죠. 만약 두 작업이 독립적이라면?
+
+### 5장과 6장의 연결: 순차에서 병렬로
+
+5장에서 우리는 Result와 Railway-Oriented Programming을 통해 **에러를 값으로 다루며 순차적으로 합성**하는 방법을 배웠습니다. `read_file → parse_json → validate → save` 파이프라인은 각 단계가 **의존적**이었습니다. 이전 단계의 결과가 있어야 다음 단계를 시작할 수 있었죠.
+
+```python
+# 5장의 패턴: 순차적 합성 (flatMap)
+result = (read_file(filename)
+    .flat_map(parse_json)        # read가 끝나야 parse 시작
+    .flat_map(validate_user_data) # parse가 끝나야 validate 시작
+    .flat_map(save_user)          # validate가 끝나야 save 시작
+)
+```
+
+하지만 실무에서는 **독립적인 작업**도 많습니다. 세 개의 API를 동시에 호출하거나, 여러 파일을 병렬로 읽거나, 독립적인 DB 쿼리를 실행하는 경우입니다. 이런 작업들은 서로를 기다릴 필요가 없습니다.
+
+```python
+# 문제: 이 세 작업은 독립적인데, 순차적으로 실행하면 비효율적입니다
+user_result = await fetch_user(user_id)        # 100ms
+posts_result = await fetch_posts(user_id)      # 150ms
+profile_result = await fetch_profile(user_id)  # 120ms
+# 총 시간: 100 + 150 + 120 = 370ms
+
+# 해결: 병렬로 실행하면 훨씬 빠릅니다
+user, posts, profile = await asyncio.gather(
+    fetch_user(user_id),
+    fetch_posts(user_id),
+    fetch_profile(user_id)
+)
+# 총 시간: max(100, 150, 120) = 150ms
+```
+
+**핵심 질문**: `asyncio.gather`는 어떻게 여러 비동기 작업을 안전하게 병렬 실행하고 결과를 조합할까요? 에러는 어떻게 처리될까요? 이것이 함수형 프로그래밍의 어떤 패턴에서 비롯된 것일까요?
+
+6장에서는 이 질문에 답합니다. **Applicative Functor**라는 개념을 통해 독립적인 작업들을 병렬로 합성하는 방법을 배웁니다. `flatMap`이 순차 합성의 도구였다면, Applicative는 병렬 합성의 도구입니다.
+
+### 다음 6장 예고: Applicative Functor (병렬성)
+
+다음 장에서는 **독립적인 작업들을 병렬로 실행**하고 결과를 조합하는 **Applicative Functor**를 다룹니다.
+`asyncio.gather`의 원리가 바로 여기에 있습니다. 순차 합성을 넘어, 병렬 합성의 세계로 나아갑시다.
