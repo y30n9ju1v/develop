@@ -8,7 +8,7 @@ description: "async/await의 근본 원리인 Continuation과 Algebraic Effects,
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../11-performance-and-debugging/[성능과 디버깅]_
+_link:../[전체 목차] · 이전: link:../11-performance-and-debugging/[성능과 디버깅] · 다음: link:../13-algebra-and-automaton/[대수와 오토마타: 두 개의 렌즈로 다시 보는 비동기]_
 
 '''
 
@@ -124,6 +124,11 @@ print(next(gen))  # "2단계" 출력, 2 반환 (저장된 Continuation에서 재
 async/await는 이 제너레이터 메커니즘 위에 구축되었습니다. 초기에는 제너레이터 기반 코루틴(``@asyncio.coroutine``)을 사용했지만, Python 3.5부터는 ``async/await`` 문법을 통한 **네이티브 코루틴(Native Coroutine)**으로 발전했습니다. 여전히 내부적으로는 상태 머신으로 동작하지만, 언어 차원에서 비동기 흐름을 일급 시민으로 지원하게 된 것입니다.
 
 우리가 async/await를 사용할 때, 파이썬은 우리 대신 Continuation을 관리하고 있는 것입니다.
+
+[NOTE]
+====
+*정확히 말하면*: 여기서 다룬 파이썬 코루틴의 Continuation은 프로그래밍 언어 이론(PL Theory)에서 말하는 **얕은/스택리스 컨티뉴에이션(Shallow/Stackless Continuation)**에 해당합니다 — 제너레이터 프레임 자기 자신만 멈췄다가 그 자리에서 재개할 수 있을 뿐, 그 프레임을 호출한 바깥 함수의 콜스택까지 함께 캡처하지는 못합니다. 이건 Scheme의 ``call/cc``나 이펙트 핸들러 언어들이 제공하는 **일급/한정 컨티뉴에이션(First-class / Delimited Continuation)**과는 다른 개념입니다 — 그쪽은 임의의 실행 지점에서 콜스택 전체를(또는 한정된 구간을) 값으로 캡처해 나중에, 심지어 여러 번, 다시 실행할 수 있습니다. 파이썬 코루틴이 ``await``할 수 있는 지점이 "그 코루틴 함수 자기 자신 안"으로 제한되는 이유가 바로 이 차이 때문입니다 — 코루틴은 임의의 콜스택 깊이에서 멈췄다가 완전히 다른 곳에서 재개되는 진짜 일급 컨티뉴에이션이 아니라, 자기 프레임 안에서만 유효한 얕은 버전입니다.
+====
 
 Continuation의 진정한 힘은 **제어 흐름을 일급 객체로 만드는 것**입니다. 프로그램의 나머지를 값처럼 다룰 수 있다면, 그것을 저장하고, 복사하고, 전달하고, 심지어 여러 번 실행할 수 있습니다. 이것은 비동기뿐만 아니라 예외 처리, 백트래킹, 비결정적 계산 같은 다양한 제어 흐름을 우아하게 표현할 수 있게 해줍니다.
 
@@ -338,27 +343,13 @@ class TestEffectHandler(EffectHandler):
 
 === contextvars는 이미 Effect System입니다
 
-우리가 link:../11-performance-and-debugging/[11장]에서 배운 ``contextvars``를 기억하시나요? 요청 ID를 전역 변수처럼 편하게 쓰면서도, 스레드나 태스크 간의 격리를 보장했었죠. 사실 이것이 바로 **Reader Effect**입니다. "읽기 전용 환경(Environment)을 제공한다"는 부수 효과를 추상화한 것이죠.
+link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 실행 문맥을 암묵적으로 전달하는 방법을 실용적인 관점에서 다뤘습니다. 이제 그 메커니즘을 이론적으로 한 단계 확장해봅시다 — ``contextvars``가 **왜** Reader Effect의 실제 사례인지, 그리고 그게 왜 지금 이야기하는 Algebraic Effects라는 더 큰 그림의 한 조각인지입니다.
 
-[source,python]
-----
-import contextvars
-import asyncio
+8장의 ``ContextVar``를 다시 뜯어보면, 우리가 하고 있던 일은 정확히 두 단계였습니다 — **Effect 설정**(``request_id.set(...)``, "이 환경을 앞으로 쓰겠다"는 선언)과 **Effect 사용**(``request_id.get()``, "그 환경을 읽는다"는 요청). Reader Effect의 정의가 바로 이겁니다 — "읽기 전용 환경(Environment)을 제공한다"는 부수 효과 하나를 추상화한 것입니다. 즉 8장에서 우리는 이미 코드로 Effect System을 쓰고 있었는데, 그때는 "암묵적 의존성을 해결하는 실용적 도구"로만 보였을 뿐입니다.
 
-# Reader Effect의 실제 사례
-request_id = contextvars.ContextVar("request_id", default="unknown")
+이게 바로 Algebraic Effects의 핵심 아이디어와 정확히 만나는 지점입니다 — **어떤 부수 효과든, "이 효과를 선언한다"와 "이 효과를 실행한다"를 분리할 수 있다면, 그 효과는 Effect System의 한 인스턴스입니다.** ``contextvars``는 이 원리를 "환경 읽기"라는 딱 한 가지 효과에만 적용한 특수 사례이고, 뒤에서 볼 ``Effect``/``EffectHandler`` 패턴은 이 원리를 로깅, 상태, 예외 같은 임의의 효과로 일반화한 것입니다.
 
-async def process_with_context(req_id: str) -> None:
-    # Effect 설정: 환경 제공
-    request_id.set(req_id)
-
-    # Effect 사용: 환경 읽기
-    print(f"[{request_id.get()}] 처리 시작")
-    await asyncio.sleep(0.1)
-    print(f"[{request_id.get()}] 처리 완료")
-----
-
-알게 모르게 우리는 이미 Effect System의 혜택을 보고 있었던 것입니다.
+알게 모르게 우리는 8장에서부터 이미 Effect System의 혜택을 보고 있었던 것입니다.
 
 === 추상화의 계층: 1-12장의 전체 그림
 
@@ -466,6 +457,7 @@ def load_api_key(file_path: str) -> Result[str, str | Exception]:
 2. *합성 가능*: ``bind``, ``map``, ``flow``로 파이프라인 구축
 3. *테스트 용이*: IO를 분리하여 순수 함수 테스트 간단
 
+*실무 주의보: 파이썬에는 꼬리 재귀 최적화(TCO)가 없습니다.* 위 ``flow`` 예제처럼 ``bind``/``map``을 **순차적으로 이어붙이는 체이닝**은 각 호출이 완료되고 반환된 뒤 다음 호출이 시작되므로 스택이 누적되지 않습니다 — 체인이 아무리 길어도 안전합니다. 위험한 건 이런 순차 체이닝이 아니라, 하스켈이나 스칼라에서 흔히 쓰는 **재귀적으로 정의된 순회/폴드**를 파이썬으로 그대로 옮길 때입니다. 예를 들어 긴 리스트를 한 원소씩 재귀 호출로 처리하며 ``Result``를 누적하는 함수를 쓰면, 리스트 길이만큼 콜스택이 쌓여 파이썬의 재귀 한도(기본 1000)를 금방 넘길 수 있습니다. 5장의 ``sequence_results``가 재귀 대신 ``for`` 루프로 ``Result`` 리스트를 순회했던 게 우연이 아닙니다 — TCO가 있는 언어라면 재귀로 표현주고 넘어갈 부분을, 파이썬에서는 처음부터 반복문으로 짜야 스택 오버플로우를 피할 수 있습니다. 정말 재귀적 구조(트리 순회 등)를 다뤄야 한다면, 재귀를 명시적인 스택으로 흉내 내는 **트램펄린(trampoline)** 기법으로 우회하는 방법도 있습니다.
 
 === effect 라이브러리: 실험적 Algebraic Effects
 
@@ -615,7 +607,7 @@ main = do
 
 '''''
 
-== 12장 요약 및 에필로그: 끝이 아닌 시작
+== 12장 요약: 끝이 아닌 시작
 
 이번 장에서는 현재 사용 중인 기술의 기반 원리와 미래의 발전 방향을 확인했습니다.
 
@@ -626,53 +618,5 @@ main = do
 . *Algebraic Effects*: 부수 효과(Effect)를 값으로 다루면, 프로그램의 의미(What)와 실행(How)을 완전히 분리할 수 있습니다. ``contextvars``는 이미 우리가 쓰고 있는 Reader Effect입니다.
 . *실전*: ``dry-python/returns``로 파이썬에서 지금 당장 Effect 패턴을 사용할 수 있습니다. 점진적으로 도입하세요.
 
-=== 1장 → 12장까지의 여정: 복잡성을 제어하는 힘
-
-우리의 긴 여정을 되돌아봅시다.
-
-* *link:../01-functional-thinking/[1장]*: 순수 함수와 불변성으로 **예측 가능성**을 확보했습니다.
-* *link:../04-monad/[4장]*: 모나드로 **비동기 흐름**을 우아하게 제어했습니다.
-* *link:../06-concurrency-and-parallelism/[6장]*: Applicative로 **독립적 작업을 병렬**로 실행했습니다.
-* *link:../08-practical-patterns/[8장]*: 함수형 아키텍처로 **의존성**을 관리했습니다.
-* *link:../11-performance-and-debugging/[11장]*: 성능 최적화로 **현실의 문제**를 해결했습니다.
-* *link:../12-toward-the-future/[12장]*: Effect System으로 **부수 효과의 완전한 제어**를 꿈꾸었습니다.
-
-
-이제 여러분의 손에는 강력한 무기가 들려 있습니다. 복잡성이라는 파도는 여전히 거세지만, 이제 여러분은 그 파도에 휩쓸리는 대신 **체계적으로 대응할 수 있는 기술**을 가졌습니다.
-
-코드가 복잡해질 때마다 기억하세요.
-
-*나누고(Divide), 정복하고(Conquer), 합성하라(Compose).*
-
-우리의 여정은 여기서 끝나지만, 여러분의 코드는 이제 막 시작되었습니다.
-부디 여러분의 코드가 어제보다 조금 더 **순수(Pure)**하고, **합성 가능(Composable)**하기를 바랍니다.
-
-감사합니다.
-
-[source,python]
-----
-# 에필로그: 멈추지 않는 성장
-# (이것은 의사 코드입니다 - 개념적 표현)
-
-from typing import TypeVar
-
-T = TypeVar('T')
-
-class Developer: pass
-class Wisdom: pass
-
-def developer_journey(you: Developer) -> Future[Wisdom]:
-    """
-    당신의 성장은 멈추지 않는 비동기 여정입니다.
-    """
-    return (
-        read_book(you)
-        .flat_map(practice_coding)
-        .flat_map(share_knowledge)
-        .map(lambda experience: Wisdom(experience))
-    )
-
-# 이 Future는 영원히 완료되지 않습니다.
-# 배움에는 끝이 없으니까요.
-----
+사실 지금까지는 async/await를 줄곧 **대수**(Functor, Monad, Applicative)로 읽어왔습니다. 그런데 방금 위에서 본 Continuation은 사실 정반대 방향의 렌즈 — **상태 기계** — 를 살짝 보여준 것이었습니다. 같은 현상을 이 두 번째 렌즈로 완전히 다시 읽으면 무엇이 보일까요? 이 책의 진짜 마지막 장, link:../13-algebra-and-automaton/[13장]에서 그 질문에 답하고, 지금까지의 전체 여정도 그곳에서 되돌아봅니다.
 // end::body[]

@@ -998,6 +998,53 @@ async def api_register_user(request: dict) -> Result[User, ApiError]:
         return Err(ApiError.from_database(e))
 ----
 
+*하지만 이 비교는 절반만 본 것입니다.* 위 벤치마크는 **성공 경로**만 쟀습니다 — 예외가 아예 발생하지 않을 때는 Result의 객체 할당이 예외보다 손해입니다. 반대로 **실패 경로**(실제로 예외가 발생하거나 ``Err``이 반환되는 경우)를 재보면 결과가 뒤집힙니다. 예외가 던져지는 순간 파이썬은 트레이스백(traceback) 객체를 만들고 콜스택을 거슬러 올라가며 그 정보를 채우는데, 이게 단순히 튜플이나 객체 하나를 반환하는 것보다 훨씬 비쌉니다.
+
+[source,python]
+----
+import timeit
+
+class ValidationError(Exception):
+    pass
+
+def validate_age_exception(age: int) -> int:
+    if not (0 <= age <= 150):
+        raise ValidationError(f"invalid age: {age}")
+    return age
+
+def validate_age_result(age: int) -> tuple:
+    if not (0 <= age <= 150):
+        return ("Err", f"invalid age: {age}")
+    return ("Ok", age)
+
+def run_exception_failure():
+    try:
+        return validate_age_exception(-1)
+    except ValidationError as e:
+        return str(e)
+
+def run_result_failure():
+    return validate_age_result(-1)
+
+N = 200_000
+t_exc = timeit.timeit(run_exception_failure, number=N)
+t_res = timeit.timeit(run_result_failure, number=N)
+print(f"exception (raise+catch): {t_exc/N*1e6:.3f} us/call")
+print(f"Result:                  {t_res/N*1e6:.3f} us/call")
+print(f"ratio: {t_exc/t_res:.2f}x")
+----
+
+CPython 3.9 기준 실제 실행 결과입니다 (환경에 따라 절대값은 달라지지만 비율은 대체로 유지됩니다).
+
+[source,text]
+----
+exception (raise+catch): 0.243 us/call
+Result:                  0.118 us/call
+ratio: 2.05x
+----
+
+즉 **"실패가 예외적으로 드문 경우"에는 성공 경로 오버헤드(Result가 불리)가 지배적이고, "실패가 자주 일어나는 경로"에서는 예외 전파 비용(예외가 불리)이 지배적**입니다. 이게 앞서 다룬 가이드라인 — 핫패스에서는 예외, 실패가 흔하고 명시성이 중요한 도메인 경계에서는 Result — 이 단순한 취향이 아니라 실제 성능 특성에 근거한다는 걸 보여줍니다. 특히 검증(validation)처럼 "실패가 예외적 상황이 아니라 정상적으로 자주 발생하는 흐름"에서 Result가 유리한 이유가 바로 이 트레이스백 생성 비용에 있습니다.
+
 === 2. unwrap()의 위험성과 대안
 
 ``unwrap()``은 편리하지만, Err에서 호출하면 예외를 던지므로 Result의 장점이 사라집니다.

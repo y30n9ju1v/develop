@@ -360,9 +360,11 @@ flatMap은 "이전 결과를 사용해서 다음 작업 결정"이라는 의미�
 
 === Python에서의 Applicative
 
-파이썬에는 Applicative를 위한 전용 문법(``ap`` 연산자 등)이 없지만, ``asyncio.gather``가 그 역할을 완벽하게 수행합니다.
+파이썬에는 Applicative를 위한 전용 문법(``ap`` 연산자 등)이 없지만, ``asyncio.gather``가 그 역할을 상당 부분 수행합니다.
 
-``gather``는 여러 개의 Future를 받아서, 그것들을 동시에 실행하고(병렬성), 모든 결과를 모아서 하나의 Future로 반환합니다(조합). 이것이 바로 Applicative Functor의 핵심인 **"독립적인 컨텍스트들의 결합"**입니다.
+``gather``는 여러 개의 Future를 받아서, 그것들을 동시에 실행하고(병렬성), 모든 결과를 모아서 하나의 Future로 반환합니다(조합). 이것이 바로 Applicative Functor의 핵심인 **"독립적인 컨텍스트들의 결합"**과 같은 모양입니다.
+
+*정직하게 짚고 넘어가면*: "``gather`` = Applicative"라는 표현도 근사입니다. 진짜 Applicative Functor는 ``pure``(평범한 값을 컨텍스트에 넣기)와 ``ap``(컨텍스트에 담긴 함수를 컨텍스트에 담긴 값에 적용하기)라는 두 연산으로 정의되는데, 파이썬에는 이 두 연산에 대응하는 전용 문법이나 타입이 없습니다. ``gather``는 "독립적인 여러 비동기 값을 병렬로 모아 하나로 합친다"는 Applicative의 **효과**만 그대로 재현할 뿐, 그 밑바탕의 대수적 구조(``pure``/``ap``와 그것들이 만족해야 할 법칙)를 실제로 구현하고 있는 건 아닙니다. 이 장에서 "Applicative"라는 이름을 쓰는 건 그 개념이 왜 필요한지 직관을 주기 위해서지, 파이썬 표준 라이브러리가 범주론적으로 엄밀한 Applicative 인스턴스를 제공한다는 뜻은 아닙니다.
 
 === Monad vs Applicative: 핵심 차이
 
@@ -527,6 +529,23 @@ async def fetch_user_data(user_id: int):
 이 패턴은 함수형 프로그래밍의 *Bracket Pattern* (자원 할당 -++>++ 사용 -++>++ 해제)과 일맥상통하며, 비동기 작업의 흐름을 훨씬 예측 가능하게 만듭니다. *함수형 언어에서 "부작용의 범위(Scope of side-effects)"를 엄격하게 제한하는 철학이, 비동기 프로그래밍에서는 "작업의 생명주기(Lifecycle of tasks)"를 엄격하게 제한하는 구조적 동시성으로 발전한 것입니다.*
 
 최신 Python(3.11{plus})을 사용한다면 ``gather``보다 ``TaskGroup``을 사용하는 것이 더 안전하고 함수형적인 방식입니다. TaskGroup은 컨텍스트 매니저로 작업의 생명주기를 명확히 하고, 예외 처리를 자동화하며, 작업 누수를 방지합니다.
+
+=== TaskGroup은 Bracket/Resource Monad의 파이썬 버전입니다
+
+Haskell이나 Scala의 ZIO/Cats Effect 같은 고급 FP 생태계는 "자원을 열었으면 반드시, 어떤 경우에도(정상 종료든 예외든) 닫는다"는 보장을 언어 차원에서 강제하기 위해 **Bracket 패턴**(또는 ``Resource``/``Managed`` Monad)을 씁니다. 구조는 항상 세 단계입니다.
+
+[cols="1,2,2"]
+|===
+|단계 |Bracket/Resource (Haskell, ZIO) |``TaskGroup`` (파이썬)
+
+|*획득(acquire)* |자원을 여는 액션 |``async with TaskGroup()``에 진입, 자식 태스크들을 ``create_task``로 생성
+|*사용(use)* |열린 자원으로 실제 작업 수행 |``async with`` 블록 안에서 태스크들이 실행됨
+|*해제(release)* |성공/실패 여부와 무관하게 반드시 실행 |블록을 벗어날 때 자동으로 모든 자식 태스크의 완료를 기다리거나, 하나가 실패하면 나머지를 **취소(cancel)**
+|===
+
+핵심은 마지막 행입니다 — Bracket이 "release는 acquire가 성공했다면 예외가 나든 안 나든 반드시 실행된다"고 보장하는 것처럼, ``TaskGroup``은 "블록 안의 태스크 하나가 실패하면, 나머지 태스크에 자동으로 취소 신호(``CancelledError``)를 전파하고, 그 취소가 실제로 완료될 때까지 기다린 뒤에야 예외를 바깥으로 던진다"고 보장합니다. 둘 다 "정리(cleanup)를 개발자가 ``finally``로 손수 챙기는 대신, 스코프를 벗어나는 순간 언어/런타임이 대신 보장해준다"는 같은 아이디어의 서로 다른 구현입니다.
+
+차이도 있습니다 — Haskell/ZIO의 Bracket은 **값**(Resource 객체 하나)의 생명주기를 감싸는 범용 패턴이라 파일 핸들, 커넥션, 락 등 무엇에든 똑같이 적용됩니다. 반면 ``TaskGroup``은 파이썬 언어와 ``asyncio`` 런타임에 특화되어 **동시 실행되는 태스크들의 집합**이라는 한 가지 경우만 다룹니다. 범용성은 낮지만, 그만큼 "태스크 취소 전파"라는 비동기 특유의 까다로운 문제를 언어 문법(``async with``) 수준에서 직접 지원한다는 실용적 이점이 있습니다.
 
 == asyncio.wait: 더 세밀한 제어
 
@@ -1139,6 +1158,54 @@ async def type_safe_gather():
 - 프로덕션 코드에서는 ``Result`` 타입으로 에러를 명시적으로 처리하세요.
 - 또는 ``try-except``로 각 작업을 감싸서 예외를 값으로 변환하세요.
 
+=== 5. PEP 703: GIL이 사라지면 불변성은 선택이 아니라 필수가 됩니다
+
+지금까지 이 장은 "CPU-bound 작업은 ``ProcessPoolExecutor``로 GIL을 피해야 한다"는 전제로 서술했습니다. 그런데 Python 3.13부터 실험적으로, 그리고 이후 버전에서 점차 안정화되는 **Free-threaded Python(PEP 703)**은 이 전제 자체를 바꿉니다 — GIL 없이 여러 OS 스레드가 진짜로 동시에 파이썬 바이트코드를 실행할 수 있게 됩니다.
+
+[source,python]
+----
+# Free-threaded 빌드(python3.13t)에서는
+# 아래 스레드들이 실제로 여러 코어에서 동시에 실행됩니다
+import threading
+
+def compute_hash_thread(data: bytes) -> str:
+    for _ in range(10000):
+        hash_obj = hashlib.sha256(data)
+        hash_obj.update(b"salt")
+    return hash_obj.hexdigest()
+
+threads = [threading.Thread(target=compute_hash_thread, args=(b"data",)) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+# GIL이 있던 시절: 4개 스레드가 번갈아 실행 (진정한 병렬 아님)
+# Free-threaded: 4개 스레드가 실제로 4개 코어에서 동시 실행
+----
+
+문제는 이게 공짜로 얻어지는 성능이 아니라는 점입니다. GIL이 사라지면, 지금까지 GIL이 암묵적으로 막아주던 **데이터 레이스(data race)**가 그대로 노출됩니다. 여러 스레드가 같은 가변 객체를 동시에 읽고 쓰면, 락 없이는 결과를 예측할 수 없습니다.
+
+바로 여기서 이 책이 1장부터 강조해온 **불변성(immutability)**과 **순수 함수**가 진가를 발휘합니다. 값이 애초에 바뀌지 않는다면, 여러 스레드가 그 값을 동시에 읽어도 레이스 컨디션이 발생할 수 없습니다 — 막아야 할 "동시 쓰기"라는 상황 자체가 존재하지 않기 때문입니다.
+
+[source,python]
+----
+# ❌ 위험: 가변 상태를 여러 스레드가 공유 (Free-threaded에서 진짜 레이스 발생)
+counter = {"value": 0}
+
+def unsafe_increment():
+    for _ in range(100_000):
+        counter["value"] += 1  # 읽기-수정-쓰기가 원자적이지 않음
+
+# ✅ 안전: 각 스레드가 자신만의 불변 값을 다루고, 결과만 합친다
+def safe_partial_sum(n: int) -> int:
+    return sum(range(n))  # 순수 함수, 공유 가변 상태 없음
+
+with concurrent.futures.ThreadPoolExecutor() as executor:
+    partials = list(executor.map(safe_partial_sum, [100_000] * 4))
+    total = sum(partials)  # 조합도 순수하게
+----
+
+즉 Free-threaded Python은 "``ProcessPoolExecutor``로 GIL을 우회한다"는 이 장의 해결책을, "불변 데이터와 순수 함수로 애초에 레이스가 불가능한 코드를 짠다"는 더 근본적인 해결책으로 대체할 잠재력을 갖고 있습니다. 프로세스 간 통신(pickling, IPC)의 오버헤드 없이 진짜 멀티코어 병렬성을 스레드 수준에서 얻으면서도, 이 책이 줄곧 강조한 함수형 원칙(불변성, 순수 함수, 부수 효과 배제) 없이는 그 병렬성이 오히려 새로운 버그의 온상이 됩니다. GIL이 사라지는 미래일수록, 이 책 1장의 "왜 함수형 사고가 필요한가"라는 질문이 더 절실해지는 셈입니다.
 
 === 정리: 병렬 실행 체크리스트
 
