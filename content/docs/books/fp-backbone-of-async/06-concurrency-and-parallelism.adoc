@@ -364,7 +364,11 @@ flatMap은 "이전 결과를 사용해서 다음 작업 결정"이라는 의미�
 
 ``gather``는 여러 개의 Future를 받아서, 그것들을 동시에 실행하고(병렬성), 모든 결과를 모아서 하나의 Future로 반환합니다(조합). 이것이 바로 Applicative Functor의 핵심인 **"독립적인 컨텍스트들의 결합"**과 같은 모양입니다.
 
-*정직하게 짚고 넘어가면*: "``gather`` = Applicative"라는 표현도 근사입니다. 진짜 Applicative Functor는 ``pure``(평범한 값을 컨텍스트에 넣기)와 ``ap``(컨텍스트에 담긴 함수를 컨텍스트에 담긴 값에 적용하기)라는 두 연산으로 정의되는데, 파이썬에는 이 두 연산에 대응하는 전용 문법이나 타입이 없습니다. ``gather``는 "독립적인 여러 비동기 값을 병렬로 모아 하나로 합친다"는 Applicative의 **효과**만 그대로 재현할 뿐, 그 밑바탕의 대수적 구조(``pure``/``ap``와 그것들이 만족해야 할 법칙)를 실제로 구현하고 있는 건 아닙니다. 이 장에서 "Applicative"라는 이름을 쓰는 건 그 개념이 왜 필요한지 직관을 주기 위해서지, 파이썬 표준 라이브러리가 범주론적으로 엄밀한 Applicative 인스턴스를 제공한다는 뜻은 아닙니다.
+[NOTE]
+.정직하게 짚고 넘어가면: 비유이지 동치가 아닙니다
+====
+"``gather`` = Applicative"라는 표현도 근사입니다. 진짜 Applicative Functor는 ``pure``(평범한 값을 컨텍스트에 넣기)와 ``ap``(컨텍스트에 담긴 함수를 컨텍스트에 담긴 값에 적용하기)라는 두 연산으로 정의되는데, 파이썬에는 이 두 연산에 대응하는 전용 문법이나 타입이 없습니다. ``gather``는 "독립적인 여러 비동기 값을 병렬로 모아 하나로 합친다"는 Applicative의 **효과**만 그대로 재현할 뿐, 그 밑바탕의 대수적 구조(``pure``/``ap``와 그것들이 만족해야 할 법칙)를 실제로 구현하고 있는 건 아닙니다. 이 장에서 "Applicative"라는 이름을 쓰는 건 그 개념이 왜 필요한지 직관을 주기 위해서지, 파이썬 표준 라이브러리가 범주론적으로 엄밀한 Applicative 인스턴스를 제공한다는 뜻은 아닙니다.
+====
 
 === Monad vs Applicative: 핵심 차이
 
@@ -441,17 +445,20 @@ asyncio.run(test_gather_return_exceptions())
 
 하지만 때로는 일부 작업이 실패해도 다른 작업의 결과를 받고 싶을 때가 있습니다. 예를 들어, 여러 소스에서 데이터를 가져오는데 일부가 실패해도 가능한 것들은 보여주고 싶은 경우입니다. 이럴 때 ``return++_++exceptions=True``를 사용합니다.
 
-*주의: ``return++_++exceptions=True``를 사용할 때는 반드시 결과 타입을 확인해야 합니다!*
+[WARNING]
+.``return_exceptions=True``를 쓸 때는 반드시 결과 타입을 확인하세요
+====
 반환된 리스트에는 성공한 값과 예외 객체(``Exception``)가 섞여 있습니다.
 
 [source,python]
 ----
 results = await asyncio.gather(task1(), task2(), return_exceptions=True)
 valid_results = [
-    r for r in results 
+    r for r in results
     if not isinstance(r, Exception)
 ]  # 예외 필터링 필수
 ----
+====
 
 gather의 또 다른 특징은 취소입니다. gather를 취소하면 모든 하위 Task가 취소됩니다.
 
@@ -515,16 +522,15 @@ gather를 취소하면 아직 완료되지 않은 모든 Task가 취소됩니다
 [source,python]
 ----
 async def fetch_user_data(user_id: int):
-    async with asyncio.TaskGroup() as tg:
-        # 이 블록 안에서 생성된 task들은 tg에 속합니다
-        task1 = tg.create_task(fetch_user(user_id))
-        task2 = tg.create_task(fetch_user_posts(user_id))
-    
-    # 블록을 벗어나는 순간, 모든 task가 완료되었음이 보장됩니다.
-    # [중요] 만약 task1에서 예외가 발생하면, task2는 즉시 자동으로 취소(Cancel)됩니다.
-    # 예외는 블록 밖으로 전파됩니다. 이것이 바로 "구조적 동시성"입니다.
-    return task1.result(), task2.result()
+    async with asyncio.TaskGroup() as tg:  # <1>
+        task1 = tg.create_task(fetch_user(user_id))       # <2>
+        task2 = tg.create_task(fetch_user_posts(user_id))  # <2>
+
+    return task1.result(), task2.result()  # <3>
 ----
+<1> 스코프 진입 — 이 블록 안에서 생성된 태스크들은 모두 ``tg``에 귀속됩니다.
+<2> 이 블록 안에서 생성된 태스크들은 서로 독립적으로 동시에 실행됩니다.
+<3> 스코프 탈출 — 이 지점에 도달했다는 것 자체가 두 태스크 모두 완료되었다는 보장입니다. 만약 ``task1``에서 예외가 발생하면 ``task2``는 즉시 자동으로 취소(cancel)되고, 그 취소가 완료된 뒤에야 예외가 블록 밖으로 전파됩니다 — 이것이 "구조적 동시성"입니다.
 
 이 패턴은 함수형 프로그래밍의 *Bracket Pattern* (자원 할당 -++>++ 사용 -++>++ 해제)과 일맥상통하며, 비동기 작업의 흐름을 훨씬 예측 가능하게 만듭니다. *함수형 언어에서 "부작용의 범위(Scope of side-effects)"를 엄격하게 제한하는 철학이, 비동기 프로그래밍에서는 "작업의 생명주기(Lifecycle of tasks)"를 엄격하게 제한하는 구조적 동시성으로 발전한 것입니다.*
 
@@ -1152,11 +1158,13 @@ async def type_safe_gather():
                 print(f"실패: {error}")
 ----
 
-*가이드라인*:
-
+[TIP]
+.가이드라인
+====
 - ``return++_++exceptions=True``는 프로토타입에서만 사용하세요.
 - 프로덕션 코드에서는 ``Result`` 타입으로 에러를 명시적으로 처리하세요.
 - 또는 ``try-except``로 각 작업을 감싸서 예외를 값으로 변환하세요.
+====
 
 === 5. PEP 703: GIL이 사라지면 불변성은 선택이 아니라 필수가 됩니다
 

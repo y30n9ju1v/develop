@@ -976,11 +976,13 @@ t2 = timeit.timeit(lambda: divide_result(10, 2), number=1000000)
 # 약 0.35초 (2배 이상 느림)
 ----
 
-*가이드라인*:
-
+[TIP]
+.가이드라인
+====
 - *핫패스(Hot Path)* (초당 수천~수만 번 호출되는 내부 루프)에서는 예외를 사용하고, 상위 레벨에서만 Result로 감싸세요.
 - *I/O 바운드 작업* (네트워크, 파일, DB)은 이미 느리므로 Result의 오버헤드는 무시할 수 있습니다. 적극 사용하세요.
 - *도메인 경계* (API 엔드포인트, 라이브러리 public API)에서는 명시성이 더 중요하므로 Result를 사용하세요.
+====
 
 
 [source,python]
@@ -1087,11 +1089,13 @@ def safe_with_map(filename: str) -> Result[str, str]:
     return read_file(filename).map(lambda c: c.upper())
 ----
 
-*가이드라인*:
-
+[TIP]
+.가이드라인
+====
 - ``unwrap()``은 테스트 코드나 프로토타입에서만 사용하세요.
 - 프로덕션 코드에서는 ``unwrap++_++or()``, ``unwrap++_++or++_++else()``, ``match``, ``map`` 등을 사용하세요.
 - unwrap()을 쓸 수밖에 없다면, 주석으로 "왜 이것이 절대 Err가 될 수 없는지" 설명하세요.
+====
 
 
 [source,python]
@@ -1150,12 +1154,18 @@ async def fetch_user_timeline(id: str) -> Result[Timeline, ApiError]:
     # ... 각 단계를 명시적으로 처리
 ----
 
-*가이드라인*:
-
+[TIP]
+.가이드라인
+====
 - Result가 3단계 이상 중첩되면(Result++[++Result++[++Result++[++...++]]]++) 설계를 재검토하세요.
 - 타입 별칭(Type Alias)을 적극 활용해서 복잡한 타입에 이름을 부여하세요.
 
-``python   UserResult = Result++[++User, ApiError++]++   PostsResult = Result++[++list++[++Post++]++, ApiError++]++``
+[source,python]
+----
+UserResult = Result[User, ApiError]
+PostsResult = Result[list[Post], ApiError]
+----
+====
 
 === 4. 비동기와 Result의 에르고노믹스 문제
 
@@ -1217,11 +1227,13 @@ async def process(path: str) -> Result[User, Error]:
 
 이 방식은 내부에서는 간결한 예외 기반 코드를 유지하면서, API 경계에서만 명시적인 Result를 제공합니다.
 
-*가이드라인*:
-
+[TIP]
+.가이드라인
+====
 - *라이브러리 경계*: 외부에 노출되는 public API는 Result를 반환하세요 (명시적 에러 처리).
 - *내부 구현*: 같은 모듈 내부에서는 예외를 사용해서 간결성을 유지하세요.
 - *프레임워크 통합*: FastAPI, Django 같은 프레임워크는 예외 기반이므로, 미들웨어에서 Result를 예외로 변환하세요.
+====
 
 
 [source,python]

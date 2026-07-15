@@ -38,10 +38,13 @@ _link:../[전체 목차] · 이전: link:../12-toward-the-future/[미래를 향�
 [source,python]
 ----
 async def fetch_user_flow(user_id):
-    user = await fetch_user(user_id)       # 상태 A: user 대기
-    posts = await fetch_posts(user["id"])  # 상태 B: posts 대기
-    return summarize(user, posts)          # 상태 C: 완료
+    user = await fetch_user(user_id)       # <1>
+    posts = await fetch_posts(user["id"])  # <2>
+    return summarize(user, posts)          # <3>
 ----
+<1> 상태 A: ``user`` 대기
+<2> 상태 B: ``posts`` 대기
+<3> 상태 C: 완료
 
 이 함수 하나가 실제로는 세 개의 상태를 가진 오토마타입니다.
 
