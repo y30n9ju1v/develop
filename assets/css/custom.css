@@ -25,7 +25,10 @@
 }
 
 .listingblock .content pre code {
+  display: block;
   background: none;
+  border: none;
+  border-radius: 0;
   padding: 0;
   font-size: inherit;
 }
