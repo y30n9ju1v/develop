@@ -103,9 +103,9 @@ partial def countDistinct (visited : IO.Ref (List Nat)) : Option (IO.Ref Cell) �
 
 == 3.3.2. 큐를 표현하기
 
-SICP builds an $\Theta(1)$-insertion queue out of a pair of pointers — one to the front of a chain of cells, one to the rear — and gets constant-time insertion by mutating the rear cell's ``cdr`` in place rather than walking the whole list to find the end. Lean's ``List`` can't do that trick without mutation, since appending to the end of an immutable singly-linked list is unavoidably $\Theta(n)$: there's no way to "reach" the last cons cell and rewrite it without first walking to it, and once you've walked to it there's nothing to overwrite.
+SICP builds an stem:[\Theta(1)]-insertion queue out of a pair of pointers — one to the front of a chain of cells, one to the rear — and gets constant-time insertion by mutating the rear cell's ``cdr`` in place rather than walking the whole list to find the end. Lean's ``List`` can't do that trick without mutation, since appending to the end of an immutable singly-linked list is unavoidably stem:[\Theta(n)]: there's no way to "reach" the last cons cell and rewrite it without first walking to it, and once you've walked to it there's nothing to overwrite.
 
-SICP는 셀 사슬의 앞쪽을 가리키는 포인터와 뒤쪽을 가리키는 포인터, 이렇게 포인터 한 쌍으로 $\Theta(1)$ 삽입이 되는 큐를 만듭니다 — 리스트 끝을 찾아 전체를 훑는 대신 마지막 셀의 ``cdr``을 제자리에서 바꿔서 상수 시간 삽입을 달성합니다. Lean의 ``List``는 변경 없이는 이 트릭을 쓸 수 없습니다 — 불변 단일 연결 리스트의 끝에 원소를 추가하는 것은 어쩔 수 없이 $\Theta(n)$이기 때문입니다. 마지막 ``cons`` 셀에 "도달"해서 다시 쓸 방법이 없고, 설령 도달했다 해도 덮어쓸 수 있는 것이 없습니다.
+SICP는 셀 사슬의 앞쪽을 가리키는 포인터와 뒤쪽을 가리키는 포인터, 이렇게 포인터 한 쌍으로 stem:[\Theta(1)] 삽입이 되는 큐를 만듭니다 — 리스트 끝을 찾아 전체를 훑는 대신 마지막 셀의 ``cdr``을 제자리에서 바꿔서 상수 시간 삽입을 달성합니다. Lean의 ``List``는 변경 없이는 이 트릭을 쓸 수 없습니다 — 불변 단일 연결 리스트의 끝에 원소를 추가하는 것은 어쩔 수 없이 stem:[\Theta(n)]이기 때문입니다. 마지막 ``cons`` 셀에 "도달"해서 다시 쓸 방법이 없고, 설령 도달했다 해도 덮어쓸 수 있는 것이 없습니다.
 
 Two honest ways to recover the SICP queue's asymptotics exist in Lean, and they represent the two poles of this whole section. The first keeps mutation, using ``IO.Ref`` exactly the way SICP uses ``set-cdr!`` — front and rear pointers into a chain of mutable cells, where inserting reaches the current rear cell and overwrites its ``next`` field in place, reusing the same ``IO.Ref``-linked-cell shape as ``Cell`` from link:#[Exercise 3.16] above:
 
@@ -158,7 +158,7 @@ def queueDemoPtr : IO Unit := do
 -- front after delete: some 'b'
 ----
 
-``insert``가 뒤쪽 셀의 ``next``를 직접 덮어쓰므로 리스트를 훑거나 뒤집는 과정이 전혀 없습니다 — SICP의 포인터 변경 그대로, 매 삽입이 진짜 $\Theta(1)$입니다. (이 스니펫은 이 시리즈의 다른 ``IO.Ref`` 예제들과 같은 패턴을 따르지만, 별도로 컴파일해서 확인하지는 않았습니다.)
+``insert``가 뒤쪽 셀의 ``next``를 직접 덮어쓰므로 리스트를 훑거나 뒤집는 과정이 전혀 없습니다 — SICP의 포인터 변경 그대로, 매 삽입이 진짜 stem:[\Theta(1)]입니다. (이 스니펫은 이 시리즈의 다른 ``IO.Ref`` 예제들과 같은 패턴을 따르지만, 별도로 컴파일해서 확인하지는 않았습니다.)
 
 The second way gives up pointer identity for the front/rear cells and represents the whole queue as a plain, immutable pair of lists — no ``IO.Ref`` inside the queue itself at all:
 
@@ -202,9 +202,9 @@ def queueDemo : IO Unit := do
 -- front after delete: some 'b'
 ----
 
-This is the classic _two-list (Banker's) queue_: ``insert`` conses onto ``rear`` in $\Theta(1)$, and ``delete`` pops from ``front`` in $\Theta(1)$ — except on the rare occasion ``front`` runs dry, when it pays a one-time $\Theta(n)$ cost to reverse ``rear`` into the new ``front``. That cost is real but _amortized_ away over a long sequence of operations, which is the standard trick for getting SICP's pointer-mutation performance out of a purely immutable representation — no ``IO.Ref`` required at all, _if_ you don't need the queue's identity to persist across calls the way ``MutQueuePtr`` does (which is exactly why ``queueDemo`` above still has to wrap it in one — the queue's own logic is pure, but sharing one growing queue across multiple call sites still needs a place to hold "the current queue," and that place is a reference).
+This is the classic _two-list (Banker's) queue_: ``insert`` conses onto ``rear`` in stem:[\Theta(1)], and ``delete`` pops from ``front`` in stem:[\Theta(1)] — except on the rare occasion ``front`` runs dry, when it pays a one-time stem:[\Theta(n)] cost to reverse ``rear`` into the new ``front``. That cost is real but _amortized_ away over a long sequence of operations, which is the standard trick for getting SICP's pointer-mutation performance out of a purely immutable representation — no ``IO.Ref`` required at all, _if_ you don't need the queue's identity to persist across calls the way ``MutQueuePtr`` does (which is exactly why ``queueDemo`` above still has to wrap it in one — the queue's own logic is pure, but sharing one growing queue across multiple call sites still needs a place to hold "the current queue," and that place is a reference).
 
-이것이 바로 고전적인 _투 리스트(Banker's) 큐_입니다 — ``insert``는 ``rear``에 $\Theta(1)$로 붙이고, ``delete``는 ``front``에서 $\Theta(1)$로 꺼냅니다. 예외는 ``front``가 바닥났을 때뿐인데, 이때는 ``rear``를 뒤집어 새 ``front``로 만드는 데 한 번 $\Theta(n)$ 비용을 치릅니다. 이 비용은 실재하지만 긴 연산 시퀀스에 걸쳐 _상각(amortize)_됩니다 — 이것이 순수 불변 표현으로도 SICP의 포인터 변경 수준의 성능을 얻는 표준적인 트릭입니다. ``MutQueuePtr``처럼 큐의 정체성이 호출 사이에 유지될 필요가 없다_면_ ``IO.Ref``는 큐 내부에는 아예 필요 없습니다(그런데도 위 ``queueDemo``가 여전히 ``IO.Ref``로 감싸는 이유는, 큐 자신의 로직은 순수하더라도 여러 호출 지점에 걸쳐 하나의 자라나는 큐를 공유하려면 "지금의 큐"를 담아둘 자리가 필요하고, 그 자리가 곧 참조이기 때문입니다).
+이것이 바로 고전적인 _투 리스트(Banker's) 큐_입니다 — ``insert``는 ``rear``에 stem:[\Theta(1)]로 붙이고, ``delete``는 ``front``에서 stem:[\Theta(1)]로 꺼냅니다. 예외는 ``front``가 바닥났을 때뿐인데, 이때는 ``rear``를 뒤집어 새 ``front``로 만드는 데 한 번 stem:[\Theta(n)] 비용을 치릅니다. 이 비용은 실재하지만 긴 연산 시퀀스에 걸쳐 _상각(amortize)_됩니다 — 이것이 순수 불변 표현으로도 SICP의 포인터 변경 수준의 성능을 얻는 표준적인 트릭입니다. ``MutQueuePtr``처럼 큐의 정체성이 호출 사이에 유지될 필요가 없다_면_ ``IO.Ref``는 큐 내부에는 아예 필요 없습니다(그런데도 위 ``queueDemo``가 여전히 ``IO.Ref``로 감싸는 이유는, 큐 자신의 로직은 순수하더라도 여러 호출 지점에 걸쳐 하나의 자라나는 큐를 공유하려면 "지금의 큐"를 담아둘 자리가 필요하고, 그 자리가 곧 참조이기 때문입니다).
 
 The ``insert``/``delete`` functions above never recurse, so there's no termination question there; the one place recursion shows up is ``List.reverse`` inside ``frontItem``/``delete``, which is ordinary structural recursion over a strictly shrinking list — no ``partial``, no ``termination_by``.
 
@@ -214,9 +214,9 @@ The ``insert``/``delete`` functions above never recurse, so there's no terminati
 
 == 3.3.3. 테이블을 표현하기와 메모이제이션
 
-SICP builds a table as a headed, mutable association list, so that ``insert!`` can splice a new record onto the front in $\Theta(1)$ without the caller ever needing a new pointer to "the table" — the header cell's identity is the table's identity. Lean's ecosystem already has the tool this section is building by hand: ``Std.HashMap`` (mutable-feeling but implemented as a persistent structure under the hood) gives $\Theta(1)$-amortized lookup and insert without any hand-rolled backbone-and-header trick.
+SICP builds a table as a headed, mutable association list, so that ``insert!`` can splice a new record onto the front in stem:[\Theta(1)] without the caller ever needing a new pointer to "the table" — the header cell's identity is the table's identity. Lean's ecosystem already has the tool this section is building by hand: ``Std.HashMap`` (mutable-feeling but implemented as a persistent structure under the hood) gives stem:[\Theta(1)]-amortized lookup and insert without any hand-rolled backbone-and-header trick.
 
-SICP는 헤더가 달린 가변 연관 리스트로 테이블을 만듭니다. 그래야 ``insert!``가 새 레코드를 $\Theta(1)$로 앞에 이어붙이면서도, 호출자가 "그 테이블"을 가리키는 새 포인터를 받을 필요가 없습니다 — 헤더 셀의 정체성이 곧 테이블의 정체성입니다. Lean 생태계에는 이 절이 손으로 만들고 있는 도구가 이미 있습니다 — ``Std.HashMap``은 (겉보기엔 가변적이지만 내부적으로는 영속 구조로 구현된) $\Theta(1)$ 상각 조회·삽입을, 손으로 만든 백본-헤더 트릭 없이 제공합니다.
+SICP는 헤더가 달린 가변 연관 리스트로 테이블을 만듭니다. 그래야 ``insert!``가 새 레코드를 stem:[\Theta(1)]로 앞에 이어붙이면서도, 호출자가 "그 테이블"을 가리키는 새 포인터를 받을 필요가 없습니다 — 헤더 셀의 정체성이 곧 테이블의 정체성입니다. Lean 생태계에는 이 절이 손으로 만들고 있는 도구가 이미 있습니다 — ``Std.HashMap``은 (겉보기엔 가변적이지만 내부적으로는 영속 구조로 구현된) stem:[\Theta(1)] 상각 조회·삽입을, 손으로 만든 백본-헤더 트릭 없이 제공합니다.
 
 [source,lean]
 ----
@@ -264,7 +264,7 @@ The inner ``fib`` recurses structurally on ``n`` and would pass Lean's terminati
 
 내부 ``fib``은 ``n``에 대해 구조적으로 재귀하며, 평범한 함수로 써도 Lean의 종료성 검사기를 그대로 통과했을 것입니다 — 이 함수가 ``do`` 표기법 안에서 ``IO``를 통해 쓰이는 이유는 종료성 때문이 아니라, ``cache``를 읽고 쓰는 것이 모든 호출의 타입에 드러나야 하는 효과이기 때문입니다. 이 시리즈 첫 글의 순수하고 메모이제이션 없는 ``fib``과 비교해보세요 — 재귀 형태도, 종료성 논증도 같지만 시그니처 어디에도 ``IO``가 없습니다. 호출 사이에 아무것도 기억할 필요가 없었기 때문입니다.
 
-*연습문제 3.27 (Lean 버전).* SICP는 ``(memoize fib)``처럼 이미 정의된 순수 재귀 ``fib``을 감싸는 것과, ``memo-fib``이 자기 자신을 재귀 호출하도록 처음부터 다시 쓰는 것의 차이를 물어봅니다. Lean에서 이 차이는 타입에 그대로 드러납니다 — 위 ``mkMemoFib``의 내부 ``fib``은 재귀 호출 ``fib (n - 1)``이 _같은_ 캐시를 참조하는 ``IO``액션이기 때문에 $\Theta(n)$입니다. 만약 순수 ``def fib : Nat → Nat``(이 시리즈 1.2절의 그 함수)을 밖에서 감싸는 ``memoize``를 만든다면, 캐시는 최상위 호출 하나만 기억할 뿐 그 함수가 자기 자신을 호출할 때 만드는 재귀 호출들은 여전히 캐시를 모르는 순수 ``fib``을 타므로, 여전히 지수 시간이 됩니다 — 메모이제이션의 효과를 보려면 재귀 구조 자체가 캐시를 아는 버전을 참조해야 한다는 것이 핵심입니다.
+*연습문제 3.27 (Lean 버전).* SICP는 ``(memoize fib)``처럼 이미 정의된 순수 재귀 ``fib``을 감싸는 것과, ``memo-fib``이 자기 자신을 재귀 호출하도록 처음부터 다시 쓰는 것의 차이를 물어봅니다. Lean에서 이 차이는 타입에 그대로 드러납니다 — 위 ``mkMemoFib``의 내부 ``fib``은 재귀 호출 ``fib (n - 1)``이 _같은_ 캐시를 참조하는 ``IO``액션이기 때문에 stem:[\Theta(n)]입니다. 만약 순수 ``def fib : Nat → Nat``(이 시리즈 1.2절의 그 함수)을 밖에서 감싸는 ``memoize``를 만든다면, 캐시는 최상위 호출 하나만 기억할 뿐 그 함수가 자기 자신을 호출할 때 만드는 재귀 호출들은 여전히 캐시를 모르는 순수 ``fib``을 타므로, 여전히 지수 시간이 됩니다 — 메모이제이션의 효과를 보려면 재귀 구조 자체가 캐시를 아는 버전을 참조해야 한다는 것이 핵심입니다.
 
 '''
 

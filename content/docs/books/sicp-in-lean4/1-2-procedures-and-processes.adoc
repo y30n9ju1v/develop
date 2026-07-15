@@ -24,9 +24,9 @@ A procedure only describes the _local_ rule for how one step of a computation le
 
 == 1.2.1. 선형 재귀와 선형 반복
 
-Factorial has an obvious recursive definition — $n!$ is $n$ times $(n-1)!$ — which translates directly into a procedure that calls itself on a smaller argument:
+Factorial has an obvious recursive definition — stem:[n!] is stem:[n] times stem:[(n-1)!] — which translates directly into a procedure that calls itself on a smaller argument:
 
-팩토리얼에는 뚜렷한 재귀적 정의가 있습니다 — $n!$은 $n$ 곱하기 $(n-1)!$입니다 — 그리고 이는 더 작은 인자로 자기 자신을 호출하는 절차로 곧바로 옮겨집니다.
+팩토리얼에는 뚜렷한 재귀적 정의가 있습니다 — stem:[n!]은 stem:[n] 곱하기 stem:[(n-1)!]입니다 — 그리고 이는 더 작은 인자로 자기 자신을 호출하는 절차로 곧바로 옮겨집니다.
 
 [source,lean]
 ----
@@ -42,13 +42,13 @@ Because each call's argument is structurally smaller than the one before it — 
 
 각 호출의 인자가 바로 앞 호출보다 구조적으로 더 작기 때문에 — ``n + 1``이 ``factorial n``을 호출합니다 — Lean의 종료성 검사기는 ``partial`` 키워드 없이도 이 정의를 자동으로 받아들입니다. 이 점은 눈여겨볼 만합니다 — 이 시리즈에서 처음으로, 타입 검사기가 SICP의 치환 모델 추적이 비형식적으로만 보여주던 것 — 미뤄진 곱셈의 사슬이 유한하다는 것 — 을 독립적으로 확인해주는 절차입니다.
 
-Watching this run by hand reveals a shape of _expansion followed by contraction_: a chain of deferred multiplications builds up until the base case is hit, then the chain collapses back down as each multiplication actually happens. A process with this shape is a _recursive process_, and since the chain here grows in direct proportion to $n$, it's specifically a _linear recursive process_.
+Watching this run by hand reveals a shape of _expansion followed by contraction_: a chain of deferred multiplications builds up until the base case is hit, then the chain collapses back down as each multiplication actually happens. A process with this shape is a _recursive process_, and since the chain here grows in direct proportion to stem:[n], it's specifically a _linear recursive process_.
 
-이를 손으로 추적해보면 _팽창 후 수축_하는 모양이 드러납니다 — 기저 사례에 도달할 때까지 미뤄진 곱셈의 사슬이 쌓이다가, 각 곱셈이 실제로 수행되면서 그 사슬이 다시 접혀 들어갑니다. 이런 모양의 프로세스를 _재귀적 프로세스(recursive process)_라고 부르는데, 여기서 사슬이 $n$에 정비례해서 자라나므로 특히 _선형 재귀 프로세스(linear recursive process)_입니다.
+이를 손으로 추적해보면 _팽창 후 수축_하는 모양이 드러납니다 — 기저 사례에 도달할 때까지 미뤄진 곱셈의 사슬이 쌓이다가, 각 곱셈이 실제로 수행되면서 그 사슬이 다시 접혀 들어갑니다. 이런 모양의 프로세스를 _재귀적 프로세스(recursive process)_라고 부르는데, 여기서 사슬이 stem:[n]에 정비례해서 자라나므로 특히 _선형 재귀 프로세스(linear recursive process)_입니다.
 
-There's a second way to compute the same function that doesn't build up any chain at all: keep a running product and a counter, and update both simultaneously at every step until the counter passes $n$.
+There's a second way to compute the same function that doesn't build up any chain at all: keep a running product and a counter, and update both simultaneously at every step until the counter passes stem:[n].
 
-같은 함수를 계산하는 두 번째 방법이 있는데, 이번에는 어떤 사슬도 전혀 쌓지 않습니다 — 누적곱과 카운터를 유지하면서, 카운터가 $n$을 넘을 때까지 매 단계마다 둘을 동시에 갱신합니다.
+같은 함수를 계산하는 두 번째 방법이 있는데, 이번에는 어떤 사슬도 전혀 쌓지 않습니다 — 누적곱과 카운터를 유지하면서, 카운터가 stem:[n]을 넘을 때까지 매 단계마다 둘을 동시에 갱신합니다.
 
 [source,lean]
 ----
@@ -98,7 +98,7 @@ def factIterMeasured (product counter maxCount : Nat) : Nat :=
 termination_by maxCount + 1 - counter
 ----
 
-두 방식 모두 ``partial``을 떼어내지만, 만들어내는 프로세스의 모양(반복적, $\Theta(1)$ 공간)은 전혀 달라지지 않습니다 — 정확히 SICP가 짚는 지점입니다. (Lean/Mathlib 버전에 따라 ``termination_by`` 뒤에 ``decreasing_by omega`` 같은 보조 증명이 추가로 필요할 수 있습니다. ``omega``는 임의의 정성적 통찰 없이도 ``maxCount + 1 - counter``처럼 자연수·정수에 대한 선형 부등식(linear arithmetic)만으로 이루어진 감소 조건을 기계적으로 검증하는 결정 절차(decision procedure)입니다 — "이 측정값이 매 호출마다 실제로 줄어드는가"라는 산술적 사실을 사람이 증명할 필요 없이 ``omega``가 대신 풀어줍니다.)
+두 방식 모두 ``partial``을 떼어내지만, 만들어내는 프로세스의 모양(반복적, stem:[\Theta(1)] 공간)은 전혀 달라지지 않습니다 — 정확히 SICP가 짚는 지점입니다. (Lean/Mathlib 버전에 따라 ``termination_by`` 뒤에 ``decreasing_by omega`` 같은 보조 증명이 추가로 필요할 수 있습니다. ``omega``는 임의의 정성적 통찰 없이도 ``maxCount + 1 - counter``처럼 자연수·정수에 대한 선형 부등식(linear arithmetic)만으로 이루어진 감소 조건을 기계적으로 검증하는 결정 절차(decision procedure)입니다 — "이 측정값이 매 호출마다 실제로 줄어드는가"라는 산술적 사실을 사람이 증명할 필요 없이 ``omega``가 대신 풀어줍니다.)
 
 *연습문제 1.9 (Lean 버전)*: 아래 두 절차는 각각 ``inc``(1 증가)와 ``dec``(1 감소)만으로 두 양의 정수를 더하는 방법을 정의합니다. 각각이 ``4 + 5``를 계산할 때 어떤 모양의 프로세스를 만드는지 손으로 추적해 보고, 재귀적인지 반복적인지 판단해 보세요.
 
@@ -136,9 +136,9 @@ def fib : Nat → Nat
 -- 55
 ----
 
-Both recursive calls are on structurally smaller arguments, so once again Lean accepts this without ``partial``. But tracing the calls reveals a _tree_ rather than a chain — ``fib 5`` calls ``fib 4`` and ``fib 3``, ``fib 4`` calls ``fib 3`` and ``fib 2``, and the entire subtree for ``fib 3`` gets computed twice, independently, with no memory of the first computation. The number of leaves in this tree — and hence the number of steps — grows exponentially with $n$, even though the space needed at any moment (how deep the current branch goes) only grows linearly.
+Both recursive calls are on structurally smaller arguments, so once again Lean accepts this without ``partial``. But tracing the calls reveals a _tree_ rather than a chain — ``fib 5`` calls ``fib 4`` and ``fib 3``, ``fib 4`` calls ``fib 3`` and ``fib 2``, and the entire subtree for ``fib 3`` gets computed twice, independently, with no memory of the first computation. The number of leaves in this tree — and hence the number of steps — grows exponentially with stem:[n], even though the space needed at any moment (how deep the current branch goes) only grows linearly.
 
-두 재귀 호출 모두 구조적으로 더 작은 인자에 대한 것이므로, 이번에도 Lean은 ``partial`` 없이 받아들입니다. 하지만 호출을 추적해보면 사슬이 아니라 _트리_가 드러납니다 — ``fib 5``는 ``fib 4``와 ``fib 3``을 호출하고, ``fib 4``는 ``fib 3``과 ``fib 2``를 호출하며, ``fib 3``에 대한 서브트리 전체가 이전 계산에 대한 기억 없이 독립적으로 두 번 계산됩니다. 이 트리의 잎(leaf) 개수 — 곧 단계 수 — 는 $n$에 대해 지수적으로 자라나지만, 어느 순간에 필요한 공간(현재 가지가 얼마나 깊이 내려갔는지)은 선형으로만 자랍니다.
+두 재귀 호출 모두 구조적으로 더 작은 인자에 대한 것이므로, 이번에도 Lean은 ``partial`` 없이 받아들입니다. 하지만 호출을 추적해보면 사슬이 아니라 _트리_가 드러납니다 — ``fib 5``는 ``fib 4``와 ``fib 3``을 호출하고, ``fib 4``는 ``fib 3``과 ``fib 2``를 호출하며, ``fib 3``에 대한 서브트리 전체가 이전 계산에 대한 기억 없이 독립적으로 두 번 계산됩니다. 이 트리의 잎(leaf) 개수 — 곧 단계 수 — 는 stem:[n]에 대해 지수적으로 자라나지만, 어느 순간에 필요한 공간(현재 가지가 얼마나 깊이 내려갔는지)은 선형으로만 자랍니다.
 
 The same numbers can also be produced by an iterative process, carrying a running pair forward instead of branching:
 
@@ -162,9 +162,9 @@ def fib' (n : Nat) : Nat := fibIter 0 1 n
 
 === 예제: 거스름돈의 경우의 수
 
-Counting the ways to make change is a second, less obvious example of tree recursion: the number of ways to change amount $a$ using $n$ kinds of coins splits into "ways that don't use the first kind of coin" plus "ways that do," with three degenerate base cases (amount exactly zero, amount negative, no kinds of coins left).
+Counting the ways to make change is a second, less obvious example of tree recursion: the number of ways to change amount stem:[a] using stem:[n] kinds of coins splits into "ways that don't use the first kind of coin" plus "ways that do," with three degenerate base cases (amount exactly zero, amount negative, no kinds of coins left).
 
-거스름돈의 경우의 수를 세는 것은 트리 재귀의 두 번째, 그리고 덜 명백한 예입니다 — 금액 $a$를 $n$종류의 동전으로 바꾸는 방법의 수는 "첫 번째 종류의 동전을 쓰지 않는 방법들"과 "쓰는 방법들"로 나뉘고, 세 가지 퇴화 기저 사례(금액이 정확히 0, 금액이 음수, 남은 동전 종류가 없음)를 가집니다.
+거스름돈의 경우의 수를 세는 것은 트리 재귀의 두 번째, 그리고 덜 명백한 예입니다 — 금액 stem:[a]를 stem:[n]종류의 동전으로 바꾸는 방법의 수는 "첫 번째 종류의 동전을 쓰지 않는 방법들"과 "쓰는 방법들"로 나뉘고, 세 가지 퇴화 기저 사례(금액이 정확히 0, 금액이 음수, 남은 동전 종류가 없음)를 가집니다.
 
 Because the amount can legitimately go negative mid-computation (that's how the base case "less than 0" gets triggered), this is a case where Lean's ``Nat`` — which clamps subtraction at zero instead of going negative — would silently corrupt the algorithm. We reach for ``Int`` for the amount instead:
 
@@ -199,21 +199,21 @@ The two recursive calls shrink different things — one shrinks ``kindsOfCoins``
 
 == 1.2.3. 증가 차수
 
-To compare processes without drowning in implementation-specific detail, SICP introduces _order of growth_: if a process needs $R(n)$ units of some resource (steps, memory) for a problem of size $n$, we write $R(n) = \Theta(f(n))$ when $R(n)$ stays sandwiched between $k_1 f(n)$ and $k_2 f(n)$ for some constants $k_1, k_2$ and all sufficiently large $n$. It's a deliberately coarse tool — it can't distinguish $n^2$ steps from $1000n^2$ steps — but it's exactly precise enough to predict how a process's resource use will change as the problem grows.
+To compare processes without drowning in implementation-specific detail, SICP introduces _order of growth_: if a process needs stem:[R(n)] units of some resource (steps, memory) for a problem of size stem:[n], we write stem:[R(n) = \Theta(f(n))] when stem:[R(n)] stays sandwiched between stem:[k_1 f(n)] and stem:[k_2 f(n)] for some constants stem:[k_1, k_2] and all sufficiently large stem:[n]. It's a deliberately coarse tool — it can't distinguish stem:[n^2] steps from stem:[1000n^2] steps — but it's exactly precise enough to predict how a process's resource use will change as the problem grows.
 
-구현의 세부 사항에 빠지지 않고 프로세스를 비교하기 위해, SICP는 _증가 차수(order of growth)_를 도입합니다 — 크기 $n$의 문제에 대해 어떤 자원(단계 수, 메모리)이 $R(n)$만큼 필요한 프로세스가 있을 때, 충분히 큰 모든 $n$에 대해 $R(n)$이 어떤 상수 $k_1, k_2$에 대해 $k_1 f(n)$과 $k_2 f(n)$ 사이에 낀다면 $R(n) = \Theta(f(n))$이라고 씁니다. 이는 일부러 거친 도구입니다 — $n^2$ 단계와 $1000n^2$ 단계를 구분하지 못합니다 — 하지만 문제가 커질 때 프로세스의 자원 사용이 어떻게 변할지 예측하는 데는 정확히 딱 필요한 만큼만 정밀합니다.
+구현의 세부 사항에 빠지지 않고 프로세스를 비교하기 위해, SICP는 _증가 차수(order of growth)_를 도입합니다 — 크기 stem:[n]의 문제에 대해 어떤 자원(단계 수, 메모리)이 stem:[R(n)]만큼 필요한 프로세스가 있을 때, 충분히 큰 모든 stem:[n]에 대해 stem:[R(n)]이 어떤 상수 stem:[k_1, k_2]에 대해 stem:[k_1 f(n)]과 stem:[k_2 f(n)] 사이에 낀다면 stem:[R(n) = \Theta(f(n))]이라고 씁니다. 이는 일부러 거친 도구입니다 — stem:[n^2] 단계와 stem:[1000n^2] 단계를 구분하지 못합니다 — 하지만 문제가 커질 때 프로세스의 자원 사용이 어떻게 변할지 예측하는 데는 정확히 딱 필요한 만큼만 정밀합니다.
 
-The processes we've built so far already span a useful range: ``factorial``'s linear recursion is $\Theta(n)$ in both steps and space, ``factIter``'s linear iteration is $\Theta(n)$ in steps but only $\Theta(1)$ in space, and ``fib``'s tree recursion is $\Theta(\varphi^n)$ in steps (where $\varphi$ is the golden ratio) but only $\Theta(n)$ in space, since only the current branch of the tree needs to be remembered at any moment.
+The processes we've built so far already span a useful range: ``factorial``'s linear recursion is stem:[\Theta(n)] in both steps and space, ``factIter``'s linear iteration is stem:[\Theta(n)] in steps but only stem:[\Theta(1)] in space, and ``fib``'s tree recursion is stem:[\Theta(\varphi^n)] in steps (where stem:[\varphi] is the golden ratio) but only stem:[\Theta(n)] in space, since only the current branch of the tree needs to be remembered at any moment.
 
-지금까지 만든 프로세스들만 해도 유용한 범위를 아우릅니다 — ``factorial``의 선형 재귀는 단계와 공간 모두 $\Theta(n)$이고, ``factIter``의 선형 반복은 단계는 $\Theta(n)$이지만 공간은 $\Theta(1)$뿐이며, ``fib``의 트리 재귀는 단계 수는 $\Theta(\varphi^n)$($\varphi$는 황금비)이지만 공간은 $\Theta(n)$뿐입니다. 어느 순간이든 트리의 현재 가지만 기억하면 되기 때문입니다.
+지금까지 만든 프로세스들만 해도 유용한 범위를 아우릅니다 — ``factorial``의 선형 재귀는 단계와 공간 모두 stem:[\Theta(n)]이고, ``factIter``의 선형 반복은 단계는 stem:[\Theta(n)]이지만 공간은 stem:[\Theta(1)]뿐이며, ``fib``의 트리 재귀는 단계 수는 stem:[\Theta(\varphi^n)](stem:[\varphi]는 황금비)이지만 공간은 stem:[\Theta(n)]뿐입니다. 어느 순간이든 트리의 현재 가지만 기억하면 되기 때문입니다.
 
 '''
 
 == 1.2.4. 거듭제곱
 
-Exponentiation gives us a compact case study in how a small change to the recursive rule can move an entire process from linear to logarithmic. The obvious definition, $b^n = b \cdot b^{n-1}$, produces linear recursion:
+Exponentiation gives us a compact case study in how a small change to the recursive rule can move an entire process from linear to logarithmic. The obvious definition, stem:[b^n = b \cdot b^{n-1}], produces linear recursion:
 
-거듭제곱은 재귀 규칙을 조금만 바꿔도 프로세스 전체가 선형에서 로그로 옮겨갈 수 있음을 보여주는 압축된 사례 연구를 제공합니다. 뻔한 정의인 $b^n = b \cdot b^{n-1}$은 선형 재귀를 만들어냅니다.
+거듭제곱은 재귀 규칙을 조금만 바꿔도 프로세스 전체가 선형에서 로그로 옮겨갈 수 있음을 보여주는 압축된 사례 연구를 제공합니다. 뻔한 정의인 stem:[b^n = b \cdot b^{n-1}]은 선형 재귀를 만들어냅니다.
 
 [source,lean]
 ----
@@ -225,9 +225,9 @@ def expt : Nat → Nat → Nat
 -- 1024
 ----
 
-But $b^n$ can also be computed by _successive squaring_: if $n$ is even, $b^n = (b^{n/2})^2$; if $n$ is odd, $b^n = b \cdot b^{n-1}$. Each recursive call at least halves the exponent, so the number of multiplications needed grows only with $\log n$ rather than $n$ itself — for $n = 1000$, that's roughly 14 multiplications instead of 1000.
+But stem:[b^n] can also be computed by _successive squaring_: if stem:[n] is even, stem:[b^n = (b^{n/2})^2]; if stem:[n] is odd, stem:[b^n = b \cdot b^{n-1}]. Each recursive call at least halves the exponent, so the number of multiplications needed grows only with stem:[\log n] rather than stem:[n] itself — for stem:[n = 1000], that's roughly 14 multiplications instead of 1000.
 
-하지만 $b^n$은 _반복 제곱(successive squaring)_으로도 계산할 수 있습니다 — $n$이 짝수면 $b^n = (b^{n/2})^2$이고, $n$이 홀수면 $b^n = b \cdot b^{n-1}$입니다. 각 재귀 호출이 지수를 최소 절반으로 줄이므로, 필요한 곱셈 횟수는 $n$이 아니라 $\log n$에 비례해서만 자랍니다 — $n = 1000$이라면 1000번이 아니라 대략 14번의 곱셈이면 됩니다.
+하지만 stem:[b^n]은 _반복 제곱(successive squaring)_으로도 계산할 수 있습니다 — stem:[n]이 짝수면 stem:[b^n = (b^{n/2})^2]이고, stem:[n]이 홀수면 stem:[b^n = b \cdot b^{n-1}]입니다. 각 재귀 호출이 지수를 최소 절반으로 줄이므로, 필요한 곱셈 횟수는 stem:[n]이 아니라 stem:[\log n]에 비례해서만 자랍니다 — stem:[n = 1000]이라면 1000번이 아니라 대략 14번의 곱셈이면 됩니다.
 
 [source,lean]
 ----
@@ -265,9 +265,9 @@ termination_by n
 
 == 1.2.5. 최대공약수
 
-Euclid's algorithm computes the GCD of two integers by repeatedly replacing the pair $(a, b)$ with $(b, a \bmod b)$ until the second element reaches zero — at which point the first element is the answer. It's often cited as the oldest nontrivial algorithm still in common use.
+Euclid's algorithm computes the GCD of two integers by repeatedly replacing the pair stem:[(a, b)] with stem:[(b, a \bmod b)] until the second element reaches zero — at which point the first element is the answer. It's often cited as the oldest nontrivial algorithm still in common use.
 
-유클리드 알고리즘은 두 정수의 최대공약수를, 두 번째 원소가 0에 도달할 때까지 $(a, b)$ 쌍을 $(b, a \bmod b)$로 계속 바꿔가며 계산합니다 — 그 시점에서 첫 번째 원소가 답입니다. 지금도 쓰이는 알고리즘 중 가장 오래된 축에 속한다고 흔히 인용됩니다.
+유클리드 알고리즘은 두 정수의 최대공약수를, 두 번째 원소가 0에 도달할 때까지 stem:[(a, b)] 쌍을 stem:[(b, a \bmod b)]로 계속 바꿔가며 계산합니다 — 그 시점에서 첫 번째 원소가 답입니다. 지금도 쓰이는 알고리즘 중 가장 오래된 축에 속한다고 흔히 인용됩니다.
 
 [source,lean]
 ----
@@ -286,9 +286,9 @@ Lean 표준 라이브러리에는 이미 ``Nat.gcd``가 있는데, 같은 방식
 
 == 1.2.6. 예제: 소수 판정
 
-The straightforward way to test primality is to search for the smallest divisor greater than 1, stopping as soon as the candidate divisor's square exceeds $n$ (if $n$ has no divisor up to $\sqrt{n}$, it has none at all):
+The straightforward way to test primality is to search for the smallest divisor greater than 1, stopping as soon as the candidate divisor's square exceeds stem:[n] (if stem:[n] has no divisor up to stem:[\sqrt{n}], it has none at all):
 
-소수를 판정하는 직접적인 방법은 1보다 큰 가장 작은 약수를 찾는 것인데, 후보 약수의 제곱이 $n$을 넘는 순간 멈춥니다($n$이 $\sqrt{n}$까지 약수를 갖지 않는다면, 아예 약수가 없는 것입니다).
+소수를 판정하는 직접적인 방법은 1보다 큰 가장 작은 약수를 찾는 것인데, 후보 약수의 제곱이 stem:[n]을 넘는 순간 멈춥니다(stem:[n]이 stem:[\sqrt{n}]까지 약수를 갖지 않는다면, 아예 약수가 없는 것입니다).
 
 [source,lean]
 ----
@@ -307,9 +307,9 @@ def isPrime (n : Nat) : Bool := n == smallestDivisor n
 -- true
 ----
 
-This runs in $\Theta(\sqrt{n})$ steps. A completely different, much faster approach comes from Fermat's Little Theorem: if $n$ is prime, then $a^n \bmod n = a$ for every $a < n$. Checking this for a handful of random $a$ gives a test that's only _probably_ correct (some composite numbers, called Carmichael numbers, fool it for every $a$), but the check itself runs in $\Theta(\log n)$ via the same successive-squaring trick as ``fastExpt``:
+This runs in stem:[\Theta(\sqrt{n})] steps. A completely different, much faster approach comes from Fermat's Little Theorem: if stem:[n] is prime, then stem:[a^n \bmod n = a] for every stem:[a < n]. Checking this for a handful of random stem:[a] gives a test that's only _probably_ correct (some composite numbers, called Carmichael numbers, fool it for every stem:[a]), but the check itself runs in stem:[\Theta(\log n)] via the same successive-squaring trick as ``fastExpt``:
 
-이는 $\Theta(\sqrt{n})$ 단계로 동작합니다. 완전히 다른, 훨씬 빠른 접근은 페르마의 소정리에서 나옵니다 — $n$이 소수라면 모든 $a < n$에 대해 $a^n \bmod n = a$입니다. 무작위로 고른 몇 개의 $a$에 대해 이를 확인하면 _아마도_ 맞는 테스트를 얻는데(카마이클 수라고 불리는 일부 합성수는 모든 $a$에 대해 이 테스트를 속입니다), 검사 자체는 ``fastExpt``와 같은 반복 제곱 기법을 통해 $\Theta(\log n)$으로 동작합니다.
+이는 stem:[\Theta(\sqrt{n})] 단계로 동작합니다. 완전히 다른, 훨씬 빠른 접근은 페르마의 소정리에서 나옵니다 — stem:[n]이 소수라면 모든 stem:[a < n]에 대해 stem:[a^n \bmod n = a]입니다. 무작위로 고른 몇 개의 stem:[a]에 대해 이를 확인하면 _아마도_ 맞는 테스트를 얻는데(카마이클 수라고 불리는 일부 합성수는 모든 stem:[a]에 대해 이 테스트를 속입니다), 검사 자체는 ``fastExpt``와 같은 반복 제곱 기법을 통해 stem:[\Theta(\log n)]으로 동작합니다.
 
 [source,lean]
 ----
@@ -363,9 +363,9 @@ Notice the type: ``smallestDivisor``-based ``isPrime`` is ``Nat → Bool``, a pu
 [cols="1,1,1,1",options="header"]
 |===
 |SICP 개념 |프로세스 모양 |Lean 예시 |Lean에서 ``partial``이 필요한 이유
-|선형 재귀 |팽창 후 수축, $\Theta(n)$ 공간 |``factorial`` |불필요 — ``n → n-1``이 구조적
-|선형 반복 |상태 변수 고정, $\Theta(1)$ 공간 |``factIter`` |필요 — ``counter``가 위로 셈
-|트리 재귀 |가지치는 트리, $\Theta(\varphi^n)$ 단계 |``fib``, ``countChange`` |``fib``는 불필요, ``countChange``는 필요(두 인자가 각각 감소)
+|선형 재귀 |팽창 후 수축, stem:[\Theta(n)] 공간 |``factorial`` |불필요 — ``n → n-1``이 구조적
+|선형 반복 |상태 변수 고정, stem:[\Theta(1)] 공간 |``factIter`` |필요 — ``counter``가 위로 셈
+|트리 재귀 |가지치는 트리, stem:[\Theta(\varphi^n)] 단계 |``fib``, ``countChange`` |``fib``는 불필요, ``countChange``는 필요(두 인자가 각각 감소)
 |로그 프로세스 |반복 제곱 |``fastExpt``, ``expmod`` |필요 — ``n / 2``는 구조적 패턴이 아님
 |정초 재귀 |감소하는 측정값으로 증명 |``Nat.gcd`` |표준 라이브러리에서 이미 증명됨
 |확률적 프로세스 |실행마다 다른 결과 |``fastPrime`` |``partial`` + ``IO``, 타입 자체가 비결정성을 드러냄

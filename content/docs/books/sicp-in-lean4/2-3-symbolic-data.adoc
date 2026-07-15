@@ -86,9 +86,9 @@ The point Lean makes visible here is one that Scheme's own footnote already gest
 
 == 2.3.2. 예제: 기호 미분
 
-Symbolic differentiation is the first real payoff of representing _expressions themselves_ as data: given a syntax tree for something like $ax^2 + bx + c$ and a variable to differentiate with respect to, walk the tree and produce a new tree for the derivative. SICP's strategy is to write the differentiation rules against an abstract interface — ``sum?``, ``addend``, ``make-sum``, and so on — before committing to any particular representation, exactly as it did for rational numbers. In Lean, that abstract interface is naturally an inductive type, and the "wishful thinking" selectors and constructors SICP asks the reader to imagine become ordinary pattern matches and constructor applications:
+Symbolic differentiation is the first real payoff of representing _expressions themselves_ as data: given a syntax tree for something like stem:[ax^2 + bx + c] and a variable to differentiate with respect to, walk the tree and produce a new tree for the derivative. SICP's strategy is to write the differentiation rules against an abstract interface — ``sum?``, ``addend``, ``make-sum``, and so on — before committing to any particular representation, exactly as it did for rational numbers. In Lean, that abstract interface is naturally an inductive type, and the "wishful thinking" selectors and constructors SICP asks the reader to imagine become ordinary pattern matches and constructor applications:
 
-기호 미분은 _표현식 자체_를 데이터로 표현했을 때 얻는 첫 번째 진짜 성과입니다 — $ax^2 + bx + c$ 같은 것의 구문 트리와 미분할 변수가 주어지면, 트리를 순회하며 도함수를 나타내는 새 트리를 만들어냅니다. SICP의 전략은 특정 표현을 확정하기 전에 ``sum?``, ``addend``, ``make-sum`` 같은 추상 인터페이스에 대해 먼저 미분 규칙을 작성하는 것인데, 유리수 때와 정확히 같은 방식입니다. Lean에서는 이 추상 인터페이스가 자연스럽게 귀납 타입이 되고, SICP가 독자에게 상상해보라고 요청하는 선택자·생성자들은 평범한 패턴 매치와 생성자 적용이 됩니다.
+기호 미분은 _표현식 자체_를 데이터로 표현했을 때 얻는 첫 번째 진짜 성과입니다 — stem:[ax^2 + bx + c] 같은 것의 구문 트리와 미분할 변수가 주어지면, 트리를 순회하며 도함수를 나타내는 새 트리를 만들어냅니다. SICP의 전략은 특정 표현을 확정하기 전에 ``sum?``, ``addend``, ``make-sum`` 같은 추상 인터페이스에 대해 먼저 미분 규칙을 작성하는 것인데, 유리수 때와 정확히 같은 방식입니다. Lean에서는 이 추상 인터페이스가 자연스럽게 귀납 타입이 되고, SICP가 독자에게 상상해보라고 요청하는 선택자·생성자들은 평범한 패턴 매치와 생성자 적용이 됩니다.
 
 [source,lean]
 ----
@@ -147,7 +147,7 @@ Notice what the type of ``AExp`` already ruled out before any ``deriv`` code ran
 
 ``AExp``의 타입이 어떤 ``deriv`` 코드가 실행되기도 전에 이미 배제해버린 것에 주목하세요 — ``exp``가 숫자도 변수도 합도 곱도 아닐 때 도달하는 SICP의 실행 시점 ``error "unknown expression type: DERIV"`` 분기는 여기엔 대응물이 없습니다. Lean에서 귀납 타입에 대한 패턴 매치는 모든 생성자를 다뤄야 하고, ``AExp``에는 정확히 네 개의 생성자가 있으니 이 타입의 값이 취할 수 있는 다섯 번째 모양은 없습니다. "알 수 없는 표현식" 경우는 방어적으로 처리된 게 아니라 구성 자체에서 배제된 것입니다.
 
-*연습문제 2.56 (Lean 버전):* 거듭제곱 규칙 $\frac{d(u^n)}{dx} = nu^{n-1}\frac{du}{dx}$를 추가해 봅시다. ``AExp``에 새 생성자 ``pow : AExp → Int → AExp``를 더하면, 컴파일러가 ``deriv``의 패턴 매치에서 ``pow`` 경우가 빠졌다고 즉시 알려줍니다 — "존재를 잊어버린 케이스"가 실행 시점 오류 대신 컴파일 시점 완전성 검사(exhaustiveness check)로 잡히는 사례입니다.
+*연습문제 2.56 (Lean 버전):* 거듭제곱 규칙 stem:[\frac{d(u^n)}{dx} = nu^{n-1}\frac{du}{dx}]를 추가해 봅시다. ``AExp``에 새 생성자 ``pow : AExp → Int → AExp``를 더하면, 컴파일러가 ``deriv``의 패턴 매치에서 ``pow`` 경우가 빠졌다고 즉시 알려줍니다 — "존재를 잊어버린 케이스"가 실행 시점 오류 대신 컴파일 시점 완전성 검사(exhaustiveness check)로 잡히는 사례입니다.
 
 [source,lean]
 ----
@@ -199,9 +199,9 @@ def intersectUnordered [DecidableEq α] : List α → List α → List α
 -- [2, 3]
 ----
 
-Both functions recurse on the leading argument's tail, so both are accepted as structural recursion with no annotation; the $\Theta(n)$ cost of ``elemUnordered`` and the $\Theta(n^2)$ cost of ``intersectUnordered`` (an ``elemUnordered`` scan for every element of the first list) are exactly the complexity bounds SICP derives, and Lean's termination story has nothing to add here — the type checker confirms these functions _finish_, not that they finish _quickly_.
+Both functions recurse on the leading argument's tail, so both are accepted as structural recursion with no annotation; the stem:[\Theta(n)] cost of ``elemUnordered`` and the stem:[\Theta(n^2)] cost of ``intersectUnordered`` (an ``elemUnordered`` scan for every element of the first list) are exactly the complexity bounds SICP derives, and Lean's termination story has nothing to add here — the type checker confirms these functions _finish_, not that they finish _quickly_.
 
-두 함수 모두 앞쪽 인자의 꼬리에 대해 재귀하므로 둘 다 아무 주석 없이 구조적 재귀로 받아들여집니다. ``elemUnordered``의 $\Theta(n)$ 비용과 ``intersectUnordered``의 $\Theta(n^2)$ 비용(첫 리스트의 각 원소마다 ``elemUnordered`` 스캔)은 SICP가 유도한 복잡도 상한과 정확히 같고, Lean의 종료성 이야기가 여기에 더 보탤 것은 없습니다 — 타입 검사기는 이 함수들이 _끝난다_는 것을 확인해주지, _빨리_ 끝난다는 것을 확인해주진 않습니다.
+두 함수 모두 앞쪽 인자의 꼬리에 대해 재귀하므로 둘 다 아무 주석 없이 구조적 재귀로 받아들여집니다. ``elemUnordered``의 stem:[\Theta(n)] 비용과 ``intersectUnordered``의 stem:[\Theta(n^2)] 비용(첫 리스트의 각 원소마다 ``elemUnordered`` 스캔)은 SICP가 유도한 복잡도 상한과 정확히 같고, Lean의 종료성 이야기가 여기에 더 보탤 것은 없습니다 — 타입 검사기는 이 함수들이 _끝난다_는 것을 확인해주지, _빨리_ 끝난다는 것을 확인해주진 않습니다.
 
 Ordering the list lets ``elemOrdered`` bail out early once it passes where the target would be, and it lets ``intersectOrdered`` walk both lists in lockstep instead of rescanning:
 

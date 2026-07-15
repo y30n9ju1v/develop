@@ -32,6 +32,7 @@ theme = "hextra"
 [markup.asciidocExt.attributes]
   source-highlighter = "rouge"
   rouge-style = "github"
+  stem = "latexmath"
 
 [security.exec]
   allow = ['^dart-sass-embedded$', '^go$', '^npx$', '^postcss$', '^tailwindcss$', '^asciidoctor$']

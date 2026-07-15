@@ -150,9 +150,9 @@ def makeAccumulator (initial : Int) : IO (Int → IO Int) := do
 
 == 3.1.2. 배정을 도입해서 얻는 이득
 
-``set!``을 쓰지 않고도 같은 난수열을 얻을 수는 있습니다 — ``rand-update``를 직접 호출하면 됩니다. 문제는 그러면 난수를 쓰는 프로그램의 모든 부분이 현재 시드 값을 명시적으로 기억해서 다음 호출에 넘겨야 한다는 것입니다. SICP는 이를 몬테카를로 시뮬레이션으로 보여줍니다 — 두 정수를 무작위로 골라 최대공약수가 1인 비율로 $\pi$를 근사하는 것입니다.
+``set!``을 쓰지 않고도 같은 난수열을 얻을 수는 있습니다 — ``rand-update``를 직접 호출하면 됩니다. 문제는 그러면 난수를 쓰는 프로그램의 모든 부분이 현재 시드 값을 명시적으로 기억해서 다음 호출에 넘겨야 한다는 것입니다. SICP는 이를 몬테카를로 시뮬레이션으로 보여줍니다 — 두 정수를 무작위로 골라 최대공약수가 1인 비율로 stem:[\pi]를 근사하는 것입니다.
 
-You could get the same sequence of numbers without ``set!`` at all, simply by calling ``rand-update`` directly. The catch is that then every part of the program using random numbers has to explicitly remember the current seed and thread it through to the next call. SICP demonstrates the cost with Monte Carlo simulation — estimating $\pi$ from the fraction of randomly-chosen integer pairs whose GCD is 1.
+You could get the same sequence of numbers without ``set!`` at all, simply by calling ``rand-update`` directly. The catch is that then every part of the program using random numbers has to explicitly remember the current seed and thread it through to the next call. SICP demonstrates the cost with Monte Carlo simulation — estimating stem:[\pi] from the fraction of randomly-chosen integer pairs whose GCD is 1.
 
 Lean lets us build both versions side by side, and the type signatures end up telling the whole story. First, the version with hidden state, where ``rand`` is an ``IO`` action that returns a new number (and mutates its seed) every time it's run:
 

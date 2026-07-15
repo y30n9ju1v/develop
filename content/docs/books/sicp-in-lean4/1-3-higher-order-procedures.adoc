@@ -20,9 +20,9 @@ link:../1-2-procedures-and-processes/[이전 글]은 프로세스가 실행되�
 
 == 1.3.1. 인자로서의 절차
 
-Three procedures — summing plain integers, summing their cubes, summing the reciprocal-product series that converges to $\pi/8$ — turn out to share an identical skeleton once you squint: each is ``0`` at the base case, and otherwise "compute a term from the current index, then add it to the sum of the rest." The only things that differ are _which_ term function is used and _how_ the index advances. Mathematicians noticed this same pattern centuries ago and gave it a name and notation — $\sum$ — precisely so they could reason about summation itself, independent of any one series.
+Three procedures — summing plain integers, summing their cubes, summing the reciprocal-product series that converges to stem:[\pi/8] — turn out to share an identical skeleton once you squint: each is ``0`` at the base case, and otherwise "compute a term from the current index, then add it to the sum of the rest." The only things that differ are _which_ term function is used and _how_ the index advances. Mathematicians noticed this same pattern centuries ago and gave it a name and notation — stem:[\sum] — precisely so they could reason about summation itself, independent of any one series.
 
-정수를 더하는 절차, 그 세제곱을 더하는 절차, $\pi/8$로 수렴하는 역수곱 급수를 더하는 절차 — 이 셋을 자세히 보면 똑같은 뼈대를 공유합니다. 기저 사례에서는 ``0``이고, 그렇지 않으면 "현재 인덱스에서 항을 계산하고, 나머지의 합에 더한다"는 것입니다. 다른 것은 오직 _어떤_ 항 함수를 쓰는지와 인덱스가 _어떻게_ 전진하는지뿐입니다. 수학자들은 수백 년 전에 이미 같은 패턴을 발견하고, 합산 자체를 개별 급수와 무관하게 추론할 수 있도록 이름과 표기법($\sum$)을 붙였습니다.
+정수를 더하는 절차, 그 세제곱을 더하는 절차, stem:[\pi/8]로 수렴하는 역수곱 급수를 더하는 절차 — 이 셋을 자세히 보면 똑같은 뼈대를 공유합니다. 기저 사례에서는 ``0``이고, 그렇지 않으면 "현재 인덱스에서 항을 계산하고, 나머지의 합에 더한다"는 것입니다. 다른 것은 오직 _어떤_ 항 함수를 쓰는지와 인덱스가 _어떻게_ 전진하는지뿐입니다. 수학자들은 수백 년 전에 이미 같은 패턴을 발견하고, 합산 자체를 개별 급수와 무관하게 추론할 수 있도록 이름과 표기법(stem:[\sum])을 붙였습니다.
 
 We can do the same thing procedurally, by turning the varying pieces of the shared skeleton into formal parameters — ``term`` and ``next`` become ordinary arguments, just like any number would be:
 
@@ -126,9 +126,9 @@ A ``fun`` expression can be applied immediately, without ever being named:
 -- 12.000000
 ----
 
-``lambda`` has a second job in Scheme: introducing local variables, via ``let``. SICP's example computes $f(x,y) = xa^2 + yb + ab$ where $a = 1+xy$ and $b = 1-y$ are intermediate names worth giving to avoid repeating the expressions:
+``lambda`` has a second job in Scheme: introducing local variables, via ``let``. SICP's example computes stem:[f(x,y) = xa^2 + yb + ab] where stem:[a = 1+xy] and stem:[b = 1-y] are intermediate names worth giving to avoid repeating the expressions:
 
-Scheme에서 ``lambda``는 두 번째 역할도 합니다 — ``let``을 통해 지역 변수를 도입하는 것입니다. SICP의 예제는 $f(x,y) = xa^2 + yb + ab$를 계산하는데, 여기서 $a = 1+xy$와 $b = 1-y$는 표현식을 반복하지 않기 위해 이름 붙일 만한 중간값입니다.
+Scheme에서 ``lambda``는 두 번째 역할도 합니다 — ``let``을 통해 지역 변수를 도입하는 것입니다. SICP의 예제는 stem:[f(x,y) = xa^2 + yb + ab]를 계산하는데, 여기서 stem:[a = 1+xy]와 stem:[b = 1-y]는 표현식을 반복하지 않기 위해 이름 붙일 만한 중간값입니다.
 
 [source,lean]
 ----
@@ -175,9 +175,9 @@ Higher-order procedures let us express not just particular computations but _gen
 
 === 이분법
 
-If $f(a) < 0 < f(b)$ for a continuous $f$, there must be a zero somewhere between $a$ and $b$. Checking the sign of $f$ at the midpoint tells us which half to recurse into, and each step halves the interval of uncertainty:
+If stem:[f(a) < 0 < f(b)] for a continuous stem:[f], there must be a zero somewhere between stem:[a] and stem:[b]. Checking the sign of stem:[f] at the midpoint tells us which half to recurse into, and each step halves the interval of uncertainty:
 
-연속 함수 $f$에 대해 $f(a) < 0 < f(b)$라면, $a$와 $b$ 사이 어딘가에 근이 있어야 합니다. 중점에서 $f$의 부호를 확인하면 어느 절반으로 재귀할지 알 수 있고, 각 단계마다 불확실한 구간이 절반으로 줄어듭니다.
+연속 함수 stem:[f]에 대해 stem:[f(a) < 0 < f(b)]라면, stem:[a]와 stem:[b] 사이 어딘가에 근이 있어야 합니다. 중점에서 stem:[f]의 부호를 확인하면 어느 절반으로 재귀할지 알 수 있고, 각 단계마다 불확실한 구간이 절반으로 줄어듭니다.
 
 [source,lean]
 ----
@@ -195,9 +195,9 @@ partial def search (f : Float → Float) (negPoint posPoint : Float) : Float :=
     else midpoint
 ----
 
-Scheme's ``half-interval-method`` guards against being handed two points where $f$ doesn't actually change sign by calling ``error``, which aborts the whole computation with a message. Lean tends to prefer making "this might not produce an answer" visible in the _type_ rather than as an ambient runtime abort — the same instinct we saw with ``IO`` for the Fermat test in the previous post. Here, ``Option Float`` fits naturally: ``none`` means "these points don't bracket a root," and the caller is forced by the type system to handle that case rather than being able to forget it:
+Scheme's ``half-interval-method`` guards against being handed two points where stem:[f] doesn't actually change sign by calling ``error``, which aborts the whole computation with a message. Lean tends to prefer making "this might not produce an answer" visible in the _type_ rather than as an ambient runtime abort — the same instinct we saw with ``IO`` for the Fermat test in the previous post. Here, ``Option Float`` fits naturally: ``none`` means "these points don't bracket a root," and the caller is forced by the type system to handle that case rather than being able to forget it:
 
-Scheme의 ``half-interval-method``는 $f$가 실제로 부호를 바꾸지 않는 두 점이 주어졌을 때 ``error``를 호출해 전체 계산을 메시지와 함께 중단시켜 방어합니다. Lean은 "답이 나오지 않을 수도 있다"는 것을 주변 런타임 중단이 아니라 _타입_에 드러내는 쪽을 선호하는 경향이 있습니다 — 이전 글에서 페르마 테스트에 ``IO``를 썼을 때와 같은 본능입니다. 여기서는 ``Option Float``가 자연스럽게 들어맞습니다 — ``none``은 "이 두 점이 근을 감싸지 않는다"는 뜻이고, 타입 시스템이 호출하는 쪽에서 이 경우를 잊지 못하고 반드시 처리하도록 강제합니다.
+Scheme의 ``half-interval-method``는 stem:[f]가 실제로 부호를 바꾸지 않는 두 점이 주어졌을 때 ``error``를 호출해 전체 계산을 메시지와 함께 중단시켜 방어합니다. Lean은 "답이 나오지 않을 수도 있다"는 것을 주변 런타임 중단이 아니라 _타입_에 드러내는 쪽을 선호하는 경향이 있습니다 — 이전 글에서 페르마 테스트에 ``IO``를 썼을 때와 같은 본능입니다. 여기서는 ``Option Float``가 자연스럽게 들어맞습니다 — ``none``은 "이 두 점이 근을 감싸지 않는다"는 뜻이고, 타입 시스템이 호출하는 쪽에서 이 경우를 잊지 못하고 반드시 처리하도록 강제합니다.
 
 [source,lean]
 ----
@@ -217,9 +217,9 @@ def halfIntervalMethod (f : Float → Float) (a b : Float) : Option Float :=
 
 === 고정점 탐색
 
-A number $x$ is a _fixed point_ of $f$ if $f(x) = x$; for many functions, repeatedly applying $f$ to a starting guess homes in on such a point. This gives us a second general-purpose search procedure, parameterized by the function whose fixed point we want and a starting guess:
+A number stem:[x] is a _fixed point_ of stem:[f] if stem:[f(x) = x]; for many functions, repeatedly applying stem:[f] to a starting guess homes in on such a point. This gives us a second general-purpose search procedure, parameterized by the function whose fixed point we want and a starting guess:
 
-$f(x) = x$를 만족하면 $x$는 $f$의 _고정점(fixed point)_입니다. 많은 함수에 대해, 시작 추측값에 $f$를 반복 적용하면 그런 점으로 수렴합니다. 이는 고정점을 찾을 함수와 시작 추측값으로 매개변수화된 두 번째 범용 탐색 절차를 줍니다.
+stem:[f(x) = x]를 만족하면 stem:[x]는 stem:[f]의 _고정점(fixed point)_입니다. 많은 함수에 대해, 시작 추측값에 stem:[f]를 반복 적용하면 그런 점으로 수렴합니다. 이는 고정점을 찾을 함수와 시작 추측값으로 매개변수화된 두 번째 범용 탐색 절차를 줍니다.
 
 [source,lean]
 ----
@@ -239,9 +239,9 @@ partial def fixedPoint (f : Float → Float) (firstGuess : Float) : Float :=
 -- 1.258727
 ----
 
-Square roots turn out to be a fixed point of $y \mapsto x/y$ — but searching for that fixed point directly oscillates forever without converging, since each guess just flips back to the previous one. Averaging the guess with $x/y$ instead of jumping straight to it damps the oscillation, and this _average damping_ trick recovers exactly the same sequence of approximations as the Newton's-method square root from the first post in this series:
+Square roots turn out to be a fixed point of stem:[y \mapsto x/y] — but searching for that fixed point directly oscillates forever without converging, since each guess just flips back to the previous one. Averaging the guess with stem:[x/y] instead of jumping straight to it damps the oscillation, and this _average damping_ trick recovers exactly the same sequence of approximations as the Newton's-method square root from the first post in this series:
 
-제곱근은 $y \mapsto x/y$의 고정점임이 드러납니다 — 하지만 이 고정점을 곧바로 찾으려 하면 각 추측값이 그저 이전 값으로 되돌아가면서 영원히 진동하며 수렴하지 않습니다. $x/y$로 곧장 뛰는 대신 추측값과 $x/y$의 평균을 내면 진동이 감쇠되는데, 이 _평균 감쇠(average damping)_ 기법은 이 시리즈 첫 글의 뉴턴법 제곱근과 정확히 같은 근사 수열을 재현합니다.
+제곱근은 stem:[y \mapsto x/y]의 고정점임이 드러납니다 — 하지만 이 고정점을 곧바로 찾으려 하면 각 추측값이 그저 이전 값으로 되돌아가면서 영원히 진동하며 수렴하지 않습니다. stem:[x/y]로 곧장 뛰는 대신 추측값과 stem:[x/y]의 평균을 내면 진동이 감쇠되는데, 이 _평균 감쇠(average damping)_ 기법은 이 시리즈 첫 글의 뉴턴법 제곱근과 정확히 같은 근사 수열을 재현합니다.
 
 [source,lean]
 ----
@@ -256,9 +256,9 @@ def sqrtFP (x : Float) : Float :=
 
 == 1.3.4. 값으로 반환되는 절차
 
-Passing procedures as arguments was already powerful; letting a procedure _return_ another procedure opens up a further layer. Average damping itself is a reusable transformation — given any $f$, it produces a new function whose value at $x$ is the average of $x$ and $f(x)$:
+Passing procedures as arguments was already powerful; letting a procedure _return_ another procedure opens up a further layer. Average damping itself is a reusable transformation — given any stem:[f], it produces a new function whose value at stem:[x] is the average of stem:[x] and stem:[f(x)]:
 
-절차를 인자로 넘기는 것만으로도 이미 강력했지만, 절차가 _다른 절차를 반환하게_ 하면 한 층이 더 열립니다. 평균 감쇠 자체가 재사용 가능한 변환입니다 — 어떤 $f$가 주어지든, $x$에서의 값이 $x$와 $f(x)$의 평균인 새 함수를 만들어냅니다.
+절차를 인자로 넘기는 것만으로도 이미 강력했지만, 절차가 _다른 절차를 반환하게_ 하면 한 층이 더 열립니다. 평균 감쇠 자체가 재사용 가능한 변환입니다 — 어떤 stem:[f]가 주어지든, stem:[x]에서의 값이 stem:[x]와 stem:[f(x)]의 평균인 새 함수를 만들어냅니다.
 
 [source,lean]
 ----
@@ -269,9 +269,9 @@ def averageDamp (f : Float → Float) : Float → Float :=
 -- 55.000000
 ----
 
-The type of ``averageDamp`` — ``(Float → Float) → (Float → Float)`` — says out loud exactly what SICP's prose says: this is a procedure that eats a function and hands back a function. With it, the square-root fixed-point search from the last section can be rephrased so that its three ideas — fixed-point search, average damping, and the function $y \mapsto x/y$ — are each named separately instead of tangled together:
+The type of ``averageDamp`` — ``(Float → Float) → (Float → Float)`` — says out loud exactly what SICP's prose says: this is a procedure that eats a function and hands back a function. With it, the square-root fixed-point search from the last section can be rephrased so that its three ideas — fixed-point search, average damping, and the function stem:[y \mapsto x/y] — are each named separately instead of tangled together:
 
-``averageDamp``의 타입 — ``(Float → Float) → (Float → Float)`` — 은 SICP의 산문이 말하는 것을 그대로 소리 내어 말해줍니다. 함수를 먹고 함수를 돌려주는 절차라는 것입니다. 이걸 쓰면, 앞 절의 제곱근 고정점 탐색을 세 가지 아이디어 — 고정점 탐색, 평균 감쇠, 함수 $y \mapsto x/y$ — 가 뒤엉키지 않고 각각 이름 붙은 채로 다시 표현할 수 있습니다.
+``averageDamp``의 타입 — ``(Float → Float) → (Float → Float)`` — 은 SICP의 산문이 말하는 것을 그대로 소리 내어 말해줍니다. 함수를 먹고 함수를 돌려주는 절차라는 것입니다. 이걸 쓰면, 앞 절의 제곱근 고정점 탐색을 세 가지 아이디어 — 고정점 탐색, 평균 감쇠, 함수 stem:[y \mapsto x/y] — 가 뒤엉키지 않고 각각 이름 붙은 채로 다시 표현할 수 있습니다.
 
 [source,lean]
 ----
@@ -284,9 +284,9 @@ def cubeRoot (x : Float) : Float :=
 
 === 뉴턴법
 
-Newton's method, introduced informally back in the first post, is really the fixed-point search applied to a specific transform: a zero of $g$ is a fixed point of $x \mapsto x - g(x)/Dg(x)$, where $Dg$ is $g$'s derivative. "Derivative," like average damping, is itself a function-to-function transformation, which we can approximate directly from its limit definition:
+Newton's method, introduced informally back in the first post, is really the fixed-point search applied to a specific transform: a zero of stem:[g] is a fixed point of stem:[x \mapsto x - g(x)/Dg(x)], where stem:[Dg] is stem:[g]'s derivative. "Derivative," like average damping, is itself a function-to-function transformation, which we can approximate directly from its limit definition:
 
-첫 글에서 비공식적으로 소개했던 뉴턴법은 사실 특정 변환에 적용된 고정점 탐색입니다 — $g$의 근은 $x \mapsto x - g(x)/Dg(x)$의 고정점이고, 여기서 $Dg$는 $g$의 도함수입니다. "도함수"는 평균 감쇠와 마찬가지로 함수를 함수로 바꾸는 변환 자체이며, 극한 정의로부터 직접 근사할 수 있습니다.
+첫 글에서 비공식적으로 소개했던 뉴턴법은 사실 특정 변환에 적용된 고정점 탐색입니다 — stem:[g]의 근은 stem:[x \mapsto x - g(x)/Dg(x)]의 고정점이고, 여기서 stem:[Dg]는 stem:[g]의 도함수입니다. "도함수"는 평균 감쇠와 마찬가지로 함수를 함수로 바꾸는 변환 자체이며, 극한 정의로부터 직접 근사할 수 있습니다.
 
 [source,lean]
 ----
@@ -334,7 +334,7 @@ def sqrtB (x : Float) : Float :=
 
 ``fixedPointOfTransform``의 두 번째 매개변수 타입은 ``(Float → Float) → (Float → Float)``입니다 — 함수를 받아 함수를 돌려주는 함수이고, 그 자체가 다른 함수에 평범한 인자로 전달됩니다. 이런 타입을 기꺼이 쓸 수 있다는 것이야말로 SICP가 말하는 _일급(first-class)_ 지위의 의미입니다 — 절차는 이름 붙일 수 있고, 인자로 넘길 수 있고, 결과로 반환할 수 있고, 데이터 구조에 담을 수 있으며, 그중 어느 것도 이등 시민이 아닙니다. Lean의 타입 시스템은 이를 허용하는 데서 그치지 않고, 중첩의 매 층마다 정확히 어떤 종류의 함수가 어디로 흐르는지를 명시하도록 요구합니다 — 고차 절차를 이렇게까지 명시적으로 만드는 데 따르는 대가(이자 안전장치)입니다.
 
-*연습문제 1.42 (Lean 버전)*: 두 함수 $f$와 $g$의 합성 $f \circ g$는 $x \mapsto f(g(x))$입니다.
+*연습문제 1.42 (Lean 버전)*: 두 함수 stem:[f]와 stem:[g]의 합성 stem:[f \circ g]는 stem:[x \mapsto f(g(x))]입니다.
 
 [source,lean]
 ----
@@ -345,7 +345,7 @@ def compose (f g : Float → Float) : Float → Float :=
 -- 49.000000
 ----
 
-*연습문제 1.43 (Lean 버전)*: 함수 $f$를 $n$번 반복 적용한 함수를 만듭니다. ``compose``를 재사용해 정의할 수 있습니다.
+*연습문제 1.43 (Lean 버전)*: 함수 stem:[f]를 stem:[n]번 반복 적용한 함수를 만듭니다. ``compose``를 재사용해 정의할 수 있습니다.
 
 [source,lean]
 ----

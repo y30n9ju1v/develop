@@ -177,9 +177,9 @@ def sumOddSquares (xs : List Nat) : Nat :=
 
 ``foldr``/``foldl`` 자체도 종료성 관점에서 짚어볼 만합니다. Lean 코어 라이브러리의 ``List.foldl``은 리스트 인자에 대한 구조적 재귀로 직접 정의되어 있고, ``List.foldr``도 마찬가지입니다(다만 끝까지 간 다음 결합하는 방식이라, 진행하며 누적하는 ``foldl``과는 순서가 다릅니다). 둘 다 평범한 구조적 재귀이고 ``partial``이 낄 자리가 없습니다 — ``List``는 패턴 매칭으로 파고들수록 항상 짧아질 수밖에 없기 때문입니다.
 
-The nested-loop case — generating every ordered pair $(i, j)$ with $j < i \le n$ and keeping the ones whose sum is prime — is where ``flatMap`` (SICP's ``flatmap``) earns its keep, replacing what would otherwise be two hand-written nested recursive loops:
+The nested-loop case — generating every ordered pair stem:[(i, j)] with stem:[j < i \le n] and keeping the ones whose sum is prime — is where ``flatMap`` (SICP's ``flatmap``) earns its keep, replacing what would otherwise be two hand-written nested recursive loops:
 
-$j < i \le n$인 모든 순서쌍 $(i, j)$를 만들고 그중 합이 소수인 것만 남기는, 중첩 루프에 해당하는 경우가 바로 ``flatMap``(SICP의 ``flatmap``)이 진가를 발휘하는 대목입니다. 이게 없다면 손으로 짠 이중 재귀 루프 두 개가 필요했을 것입니다.
+stem:[j < i \le n]인 모든 순서쌍 stem:[(i, j)]를 만들고 그중 합이 소수인 것만 남기는, 중첩 루프에 해당하는 경우가 바로 ``flatMap``(SICP의 ``flatmap``)이 진가를 발휘하는 대목입니다. 이게 없다면 손으로 짠 이중 재귀 루프 두 개가 필요했을 것입니다.
 
 [source,lean]
 ----

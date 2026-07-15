@@ -216,9 +216,9 @@ This mechanism is exactly what makes the recursive machines in the next section 
 
 == 스택으로 재귀 구현하기
 
-An iterative process needs only registers, because at any point the machine's state is completely captured by their current contents. A recursive process like factorial is different: computing $n!$ needs $(n-1)!$, but unlike GCD-reduces-to-GCD, the answer to the subproblem isn't the final answer — it still has to be multiplied by $n$ once the subproblem returns. Naively "looping back" the way the GCD machine does would clobber the very value of ``n`` needed to finish the outer computation.
+An iterative process needs only registers, because at any point the machine's state is completely captured by their current contents. A recursive process like factorial is different: computing stem:[n!] needs stem:[(n-1)!], but unlike GCD-reduces-to-GCD, the answer to the subproblem isn't the final answer — it still has to be multiplied by stem:[n] once the subproblem returns. Naively "looping back" the way the GCD machine does would clobber the very value of ``n`` needed to finish the outer computation.
 
-반복적 프로세스는 레지스터만 있으면 됩니다 — 어느 시점이든 머신의 상태가 현재 레지스터 내용만으로 완전히 포착되기 때문입니다. 팩토리얼 같은 재귀적 프로세스는 다릅니다 — $n!$을 계산하려면 $(n-1)!$이 필요한데, GCD가 GCD로 환원되는 것과 달리 부분 문제의 답이 최종 답이 아닙니다 — 부분 문제가 반환된 뒤에도 여전히 $n$을 곱해야 합니다. GCD 머신처럼 그냥 "되돌아 도는" 방식을 순진하게 쓰면, 바깥 계산을 마무리하는 데 필요한 바로 그 ``n`` 값을 덮어써버립니다.
+반복적 프로세스는 레지스터만 있으면 됩니다 — 어느 시점이든 머신의 상태가 현재 레지스터 내용만으로 완전히 포착되기 때문입니다. 팩토리얼 같은 재귀적 프로세스는 다릅니다 — stem:[n!]을 계산하려면 stem:[(n-1)!]이 필요한데, GCD가 GCD로 환원되는 것과 달리 부분 문제의 답이 최종 답이 아닙니다 — 부분 문제가 반환된 뒤에도 여전히 stem:[n]을 곱해야 합니다. GCD 머신처럼 그냥 "되돌아 도는" 방식을 순진하게 쓰면, 바깥 계산을 마무리하는 데 필요한 바로 그 ``n`` 값을 덮어써버립니다.
 
 The fix is a _stack_: before recursing, ``save`` whatever registers will be needed after the subproblem returns (``n`` and ``continue``), then ``restore`` them on the way back. Our ``Instr.save``/``Instr.restore`` already push and pop ``m.stack``, so the factorial machine is a direct transcription:
 
@@ -308,7 +308,7 @@ Step back and look at what ``save``/``restore``/``continue`` actually built: a c
 
 == 연습문제
 
-*연습문제 5.1 (Lean 버전).* SICP는 $b^n$을 계산하는 재귀적 지수 계산 머신을 설계해보라고 합니다. ``factorialProgram``과 정확히 같은 뼈대 — 종료 조건에서 ``branch``로 빠져나가고, 그렇지 않으면 재귀하기 전에 ``continue``와 되돌아온 뒤 필요한 레지스터를 ``save``해두는 것 — 을 그대로 재사용하면 됩니다. 다만 ``expt``는 재귀가 반환된 뒤 곱셈 한 번만 남는다는 점에서 팩토리얼과 데이터 흐름이 같고, 반대로 반복적으로(레지스터만으로, 스택 없이) 짤 수도 있다는 점에서 GCD 머신과도 같은 문제를 두 방식으로 다시 풀어보는 셈입니다. 재귀 버전을 아래처럼 작성해 보고, ``continue``/``base`` 중 어느 레지스터를 ``save``해야 하는지 스스로 정당화해 보세요.
+*연습문제 5.1 (Lean 버전).* SICP는 stem:[b^n]을 계산하는 재귀적 지수 계산 머신을 설계해보라고 합니다. ``factorialProgram``과 정확히 같은 뼈대 — 종료 조건에서 ``branch``로 빠져나가고, 그렇지 않으면 재귀하기 전에 ``continue``와 되돌아온 뒤 필요한 레지스터를 ``save``해두는 것 — 을 그대로 재사용하면 됩니다. 다만 ``expt``는 재귀가 반환된 뒤 곱셈 한 번만 남는다는 점에서 팩토리얼과 데이터 흐름이 같고, 반대로 반복적으로(레지스터만으로, 스택 없이) 짤 수도 있다는 점에서 GCD 머신과도 같은 문제를 두 방식으로 다시 풀어보는 셈입니다. 재귀 버전을 아래처럼 작성해 보고, ``continue``/``base`` 중 어느 레지스터를 ``save``해야 하는지 스스로 정당화해 보세요.
 
 [source,lean]
 ----

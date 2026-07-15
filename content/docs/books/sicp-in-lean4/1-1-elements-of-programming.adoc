@@ -266,9 +266,9 @@ def sumSquaresOfTwoLargest (x y z : Float) : Float :=
 
 == 1.1.7. 예제: 뉴턴법으로 제곱근 구하기
 
-Mathematical functions describe _what_ a value is; procedures describe _how_ to compute it. "The $y \geq 0$ such that $y^2 = x$" is a perfectly good definition of square root as a mathematical object, but it gives an interpreter no way to actually find that $y$. Newton's method turns this declarative description into an imperative one: starting from any guess, average the guess with the radicand divided by the guess, and the result is a strictly better guess. Repeat until the guess is good enough.
+Mathematical functions describe _what_ a value is; procedures describe _how_ to compute it. "The stem:[y \geq 0] such that stem:[y^2 = x]" is a perfectly good definition of square root as a mathematical object, but it gives an interpreter no way to actually find that stem:[y]. Newton's method turns this declarative description into an imperative one: starting from any guess, average the guess with the radicand divided by the guess, and the result is a strictly better guess. Repeat until the guess is good enough.
 
-수학 함수는 값이 _무엇_인지를 기술하고, 절차는 그것을 _어떻게_ 계산하는지를 기술합니다. "$y^2 = x$를 만족하는 $y \geq 0$"은 제곱근을 수학적 대상으로서 완벽하게 정의하지만, 인터프리터에게 그 $y$를 실제로 찾아낼 방법은 전혀 알려주지 않습니다. 뉴턴법은 이 선언적인 기술을 명령적인 기술로 바꿔줍니다 — 임의의 추측값에서 시작해, 추측값과 (피제수를 그 추측값으로 나눈 값)의 평균을 내면 반드시 더 나은 추측값이 됩니다. 이를 충분히 좋아질 때까지 반복합니다.
+수학 함수는 값이 _무엇_인지를 기술하고, 절차는 그것을 _어떻게_ 계산하는지를 기술합니다. "stem:[y^2 = x]를 만족하는 stem:[y \geq 0]"은 제곱근을 수학적 대상으로서 완벽하게 정의하지만, 인터프리터에게 그 stem:[y]를 실제로 찾아낼 방법은 전혀 알려주지 않습니다. 뉴턴법은 이 선언적인 기술을 명령적인 기술로 바꿔줍니다 — 임의의 추측값에서 시작해, 추측값과 (피제수를 그 추측값으로 나눈 값)의 평균을 내면 반드시 더 나은 추측값이 됩니다. 이를 충분히 좋아질 때까지 반복합니다.
 
 [NOTE]
 .부동소수점 비교는 구조적으로 감소하는 인자가 아닙니다
