@@ -1,0 +1,200 @@
+---
+title: "SICP in Lean 4"
+---
+
+*Structure and Interpretation of Computer Programs*(SICP)의 아이디어를 챕터·절 순서대로 따라가며, 모든 Scheme 코드를 Lean 4로 다시 작성해보는 시리즈입니다. 정적 타입 시스템과 종료성 증명 요구가 SICP의 원래 논의에 무엇을 더하고, 무엇을 바꾸는지에 초점을 둡니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 절별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+*1부: 프로그램을 만드는 요소*
+
+* *link:1-1-elements-of-programming/[1.1. 프로그래밍의 요소]*
+* *link:1-2-procedures-and-processes/[1.2. 절차와 절차가 만들어내는 프로세스]*
+* *link:1-3-higher-order-procedures/[1.3. 고차 절차로 추상화 정식화하기]*
+
+*2부: 데이터를 만드는 요소*
+
+* *link:2-1-introduction-to-data-abstraction/[2.1. 데이터 추상화 입문]*
+* *link:2-2-hierarchical-data-and-closure/[2.2. 계층적 데이터와 닫힘 성질]*
+* *link:2-3-symbolic-data/[2.3. 기호 데이터]*
+* *link:2-4-multiple-representations-for-abstract-data/[2.4. 추상 데이터의 다중 표현]*
+* *link:2-5-generic-operations/[2.5. 일반 연산을 가진 시스템]*
+
+*3부: 모듈성, 객체, 상태*
+
+* *link:3-1-assignment-and-local-state/[3.1. 배정과 지역 상태]*
+* *link:3-2-environment-model-of-evaluation/[3.2. 평가의 환경 모델]*
+* *link:3-3-modeling-with-mutable-data/[3.3. 가변 데이터로 모델링하기]*
+* *link:3-4-concurrency/[3.4. 동시성: 시간이 중요해지다]*
+* *link:3-5-streams/[3.5. 스트림]*
+
+*4부: 메타언어적 추상화*
+
+* *link:4-1-the-metacircular-evaluator/[4.1. 메타순환 평가기]*
+* *link:4-2-lazy-evaluation/[4.2. 스킴의 변주 — 지연 평가]*
+* *link:4-3-nondeterministic-computing/[4.3. 스킴의 변주 — 비결정적 계산]*
+* *link:4-4-logic-programming/[4.4. 논리 프로그래밍]*
+
+*5부: 레지스터 머신에서의 계산*
+
+* *link:5-1-designing-register-machines/[5.1. 레지스터 머신 설계하기]*
+* *link:5-2-a-register-machine-simulator/[5.2. 레지스터 머신 시뮬레이터]*
+* *link:5-3-storage-allocation-and-garbage-collection/[5.3. 저장소 할당과 가비지 컬렉션]*
+* *link:5-4-the-explicit-control-evaluator/[5.4. 명시적 제어 평가기]*
+* *link:5-5-compilation/[5.5. 컴파일]*
+
+'''
+
+[#chapter-1-1-elements-of-programming]
+== 1.1. 프로그래밍의 요소
+
+include::1-1-elements-of-programming.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-2-procedures-and-processes]
+== 1.2. 절차와 절차가 만들어내는 프로세스
+
+include::1-2-procedures-and-processes.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-3-higher-order-procedures]
+== 1.3. 고차 절차로 추상화 정식화하기
+
+include::1-3-higher-order-procedures.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-1-introduction-to-data-abstraction]
+== 2.1. 데이터 추상화 입문
+
+include::2-1-introduction-to-data-abstraction.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-2-hierarchical-data-and-closure]
+== 2.2. 계층적 데이터와 닫힘 성질
+
+include::2-2-hierarchical-data-and-closure.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-3-symbolic-data]
+== 2.3. 기호 데이터
+
+include::2-3-symbolic-data.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-4-multiple-representations-for-abstract-data]
+== 2.4. 추상 데이터의 다중 표현
+
+include::2-4-multiple-representations-for-abstract-data.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-5-generic-operations]
+== 2.5. 일반 연산을 가진 시스템
+
+include::2-5-generic-operations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-1-assignment-and-local-state]
+== 3.1. 배정과 지역 상태
+
+include::3-1-assignment-and-local-state.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-2-environment-model-of-evaluation]
+== 3.2. 평가의 환경 모델
+
+include::3-2-environment-model-of-evaluation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-3-modeling-with-mutable-data]
+== 3.3. 가변 데이터로 모델링하기
+
+include::3-3-modeling-with-mutable-data.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-4-concurrency]
+== 3.4. 동시성: 시간이 중요해지다
+
+include::3-4-concurrency.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-5-streams]
+== 3.5. 스트림
+
+include::3-5-streams.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-4-1-the-metacircular-evaluator]
+== 4.1. 메타순환 평가기
+
+include::4-1-the-metacircular-evaluator.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-4-2-lazy-evaluation]
+== 4.2. 스킴의 변주 — 지연 평가
+
+include::4-2-lazy-evaluation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-4-3-nondeterministic-computing]
+== 4.3. 스킴의 변주 — 비결정적 계산
+
+include::4-3-nondeterministic-computing.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-4-4-logic-programming]
+== 4.4. 논리 프로그래밍
+
+include::4-4-logic-programming.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-5-1-designing-register-machines]
+== 5.1. 레지스터 머신 설계하기
+
+include::5-1-designing-register-machines.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-5-2-a-register-machine-simulator]
+== 5.2. 레지스터 머신 시뮬레이터
+
+include::5-2-a-register-machine-simulator.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-5-3-storage-allocation-and-garbage-collection]
+== 5.3. 저장소 할당과 가비지 컬렉션
+
+include::5-3-storage-allocation-and-garbage-collection.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-5-4-the-explicit-control-evaluator]
+== 5.4. 명시적 제어 평가기
+
+include::5-4-the-explicit-control-evaluator.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-5-5-compilation]
+== 5.5. 컴파일
+
+include::5-5-compilation.adoc[tag=body,leveloffset=+1]

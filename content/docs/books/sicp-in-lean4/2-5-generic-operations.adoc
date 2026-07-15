@@ -1,0 +1,243 @@
+---
+title: "2.5. 일반 연산을 가진 시스템 (Systems with Generic Operations)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "generic-programming", "type-classes"]
+categories: ["books"]
+description: "SICP 2장 5절의 아이디어(일반 산술 연산, 타입 태그와 데이터 지향 디스패치, 강제 변환, 타입의 계층, 다항식 예제)를 Lean 4의 귀납 타입·타입클래스로 다시 짜 봅니다."
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../2-4-multiple-representations-for-abstract-data/[2.4. 추상 데이터의 다중 표현] · 다음: link:../3-1-assignment-and-local-state/[3.1. 배정과 지역 상태]_
+
+'''
+
+The link:../2-2-hierarchical-data-and-closure/[previous post] showed how the same operation can be made to work across several _representations_ of one kind of data. This section pushes the idea one step further: an operation generic not just over representations, but over entirely different _kinds_ of arguments — one ``add`` that works whether it's handed two plain numbers, two rationals, two complex numbers, or a mix. Scheme does this by tagging every value with its type and looking up the right procedure in a runtime table. Lean already has a language feature purpose-built for exactly this problem, and this post is largely about the gap between "generic dispatch we build by hand" and "generic dispatch the type system does for us."
+
+link:../2-2-hierarchical-data-and-closure/[이전 글]은 같은 연산이 한 종류의 데이터에 대한 여러 _표현_ 방식을 가로질러 동작하게 만드는 법을 다뤘습니다. 이번 절은 여기서 한 걸음 더 나아갑니다 — 표현뿐 아니라 완전히 다른 _종류_의 인자에 대해서도 일반적인 연산을 만드는 것입니다. 하나의 ``add``가 평범한 숫자 두 개를 받든, 유리수 두 개를 받든, 복소수 두 개를 받든, 아니면 섞인 것을 받든 동작해야 합니다. Scheme은 모든 값에 타입 태그를 붙이고 런타임 테이블에서 알맞은 절차를 찾아 이를 해결합니다. Lean에는 정확히 이 문제를 위해 만들어진 언어 기능이 이미 있고, 이번 글은 대체로 "손으로 만든 일반 디스패치"와 "타입 시스템이 대신해주는 일반 디스패치" 사이의 간극에 관한 것입니다.
+
+'''
+
+== 2.5.1. 일반 산술 연산
+
+Scheme's approach is to attach a tag (a symbol like ``scheme-number``, ``rational``, or ``complex``) to every value, and have a single ``apply-generic`` procedure look up, in a table keyed by ``(operation types)``, which concrete procedure to run. Building this out means writing an ``install-*-package`` procedure for each kind of number that populates the table.
+
+Scheme의 접근은 모든 값에 태그(``scheme-number``, ``rational``, ``complex`` 같은 심볼)를 붙이고, 하나의 ``apply-generic`` 절차가 ``(연산 타입들)``을 키로 하는 테이블에서 실행할 구체적인 절차를 찾아보게 하는 것입니다. 이를 만드는 것은 각 숫자 종류마다 테이블을 채우는 ``install-*-package`` 절차를 작성하는 일입니다.
+
+In Lean, the tag _is_ the constructor of an ``inductive`` type, and the lookup table _is_ pattern matching — we don't need to build either piece by hand:
+
+Lean에서는 태그가 곧 ``inductive`` 타입의 생성자이고, 조회 테이블은 곧 패턴 매칭입니다 — 둘 중 어느 것도 손으로 만들 필요가 없습니다.
+
+[source,lean]
+----
+inductive Num where
+  | int (n : Int)
+  | rat (n d : Int)
+  | complex (re im : Float)
+  deriving Repr
+
+def addNum : Num → Num → Num
+  | .int a, .int b => .int (a + b)
+  | .rat n1 d1, .rat n2 d2 => .rat (n1 * d2 + n2 * d1) (d1 * d2)
+  | .complex a b, .complex c d => .complex (a + c) (b + d)
+  | .int a, .complex c d => .complex (Float.ofInt a + c) d
+  | .complex c d, .int a => .complex (c + Float.ofInt a) d
+  | .rat n d, .complex c dd => .complex (Float.ofInt n / Float.ofInt d + c) dd
+  | .complex c dd, .rat n d => .complex (c + Float.ofInt n / Float.ofInt d) dd
+  | .int a, .rat n d => .rat (a * d + n) d
+  | .rat n d, .int a => .rat (n + a * d) d
+
+#eval addNum (.int 3) (.rat 1 2)
+-- Num.rat 7 2
+----
+
+Notice what happened here: ``addNum``'s pattern match has to cover all nine combinations of the three tags, and Lean's compiler _rejects the definition outright_ if any combination is missing. Scheme's ``apply-generic`` has no such guarantee — a missing table entry for, say, ``(rational complex)`` is discovered only when someone actually calls ``add`` on that combination, at which point ``apply-generic`` raises "no method for these types" at runtime. In Lean, the equivalent gap is a compile error before the program ever runs.
+
+여기서 무슨 일이 일어났는지 눈여겨보세요 — ``addNum``의 패턴 매칭은 세 태그의 아홉 가지 조합을 모두 다뤄야 하고, Lean 컴파일러는 어느 조합이라도 빠지면 정의 자체를 곧바로 거부합니다. Scheme의 ``apply-generic``에는 이런 보장이 없습니다 — 예를 들어 ``(rational complex)``에 대한 테이블 항목이 빠져 있으면, 누군가 실제로 그 조합에 ``add``를 호출할 때에야 발견되고, 그 시점에 ``apply-generic``이 런타임에 "이 타입들에 대한 메서드가 없다"는 오류를 냅니다. Lean에서는 이에 상응하는 빈틈이 프로그램이 실행되기도 전에 컴파일 오류가 됩니다.
+
+We don't have to stop at a top-level ``addNum`` function, either — Lean lets us hook our tagged type directly into the ``+`` operator via the ``HAdd`` type class, so callers write ordinary infix arithmetic instead of calling a named ``add``:
+
+``addNum``이라는 최상위 함수에서 멈출 필요도 없습니다 — Lean은 ``HAdd`` 타입클래스를 통해 태그가 붙은 타입을 ``+`` 연산자에 직접 연결할 수 있게 해주므로, 호출하는 쪽은 이름 붙은 ``add``를 부르는 대신 평범한 중위 산술을 씁니다.
+
+[source,lean]
+----
+instance : HAdd Num Num Num := ⟨addNum⟩
+
+#eval Num.int 3 + Num.rat 1 2
+-- Num.rat 7 2
+----
+
+This is, in effect, exactly what SICP is asking for with generic ``add``: from the caller's perspective there is one operation, and it works uniformly across every kind of number the system knows about — except here that uniformity is Lean's own operator-overloading mechanism, not a table we populated ourselves.
+
+이는 사실상 SICP가 일반 ``add``로 요구하는 것과 정확히 같습니다 — 호출하는 쪽에서 보면 연산이 하나이고, 시스템이 아는 모든 종류의 숫자에 대해 균일하게 동작합니다. 다만 여기서 그 균일성은 우리가 채운 테이블이 아니라 Lean 자체의 연산자 오버로딩 메커니즘입니다.
+
+*연습문제 2.79/2.80 (Lean 버전)*: ``equ?``와 ``=zero?``에 해당하는 일반 술어는 ``Num``에 대해 패턴 매칭 몇 줄이면 끝납니다 — 별도의 테이블을 채울 필요가 없습니다.
+
+[source,lean]
+----
+def equNum : Num → Num → Bool
+  | .int a, .int b => a == b
+  | .rat n1 d1, .rat n2 d2 => n1 * d2 == n2 * d1
+  | .complex a b, .complex c d => a == c && b == d
+  | _, _ => false  -- 서로 다른 태그는 비교 전에 강제 변환이 필요합니다 (다음 절에서 다룹니다)
+
+def isZeroNum : Num → Bool
+  | .int a => a == 0
+  | .rat n _ => n == 0
+  | .complex re im => re == 0 && im == 0
+----
+
+(위 ``equNum``의 마지막 절은 일부러 어설프게 남겨뒀습니다 — 서로 다른 태그의 값을 비교하려면 먼저 같은 태그로 맞춰야 하는데, 그게 바로 다음 절의 주제인 강제 변환입니다.)
+
+'''
+
+== 2.5.2. 서로 다른 타입의 데이터 결합하기
+
+Handling every pairwise combination of tags by hand, as ``addNum`` does above, doesn't scale — adding a fourth number type means writing (at least) seven more cases just for ``add``, and again for ``sub``, ``mul``, ``div``. SICP's fix is _coercion_: write one procedure per pair of types that converts one representation into the other, and let a modified ``apply-generic`` try coercing before giving up.
+
+``addNum``이 위에서 했던 것처럼 태그의 모든 쌍별 조합을 손으로 처리하는 것은 확장되지 않습니다 — 네 번째 숫자 타입을 추가하면 ``add`` 하나만을 위해서도 (최소) 일곱 개의 경우를 더 써야 하고, ``sub``, ``mul``, ``div``에도 똑같이 반복해야 합니다. SICP의 해법은 _강제 변환(coercion)_입니다 — 타입 쌍마다 한 표현을 다른 표현으로 바꾸는 절차를 하나씩 작성하고, 수정된 ``apply-generic``이 포기하기 전에 강제 변환을 시도하게 합니다.
+
+Our three number types happen to form a natural _tower_: an integer is a special case of a rational number, and a rational number is a special case of a complex number (with zero imaginary part). We can express this directly as a ``raise`` function that lifts a value one level up the tower:
+
+우리의 세 숫자 타입은 마침 자연스러운 _탑(tower)_을 이룹니다 — 정수는 유리수의 특수한 경우이고, 유리수는 복소수(허수부가 0인)의 특수한 경우입니다. 이를 값을 탑에서 한 단계 위로 들어올리는 ``raise`` 함수로 곧바로 표현할 수 있습니다.
+
+[source,lean]
+----
+def rank : Num → Nat
+  | .int _ => 0
+  | .rat .. => 1
+  | .complex .. => 2
+
+def raise : Num → Num
+  | .int n => .rat n 1
+  | .rat n d => .complex (Float.ofInt n / Float.ofInt d) 0
+  | .complex re im => .complex re im
+----
+
+Now a generic combiner can handle the "same tag" cases directly and, for anything else, raise whichever argument is lower in the tower and try again:
+
+이제 일반 결합자는 "같은 태그" 경우를 직접 처리하고, 그 외의 경우에는 탑에서 더 낮은 쪽 인자를 들어올려 다시 시도하면 됩니다.
+
+[source,lean]
+----
+partial def addNumTower (x y : Num) : Num :=
+  match x, y with
+  | .int a, .int b => .int (a + b)
+  | .rat n1 d1, .rat n2 d2 => .rat (n1 * d2 + n2 * d1) (d1 * d2)
+  | .complex a b, .complex c d => .complex (a + c) (b + d)
+  | _, _ =>
+    if rank x < rank y then addNumTower (raise x) y
+    else addNumTower x (raise y)
+
+#eval addNumTower (.int 3) (.complex 1.5 2.0)
+-- Num.complex 4.500000 2.000000
+----
+
+[NOTE]
+.왜 ``partial``인가: 줄어드는 건 합이 아니라 격차
+====
+Note that it's the _gap_ between the two ranks — not their sum — that shrinks with every raise: raising always lifts whichever argument is lower, so ``rank x + rank y`` actually climbs toward its ceiling of 4 as the two converge, while the distance between them drops by exactly 1 each time, hitting 0 exactly when one of the three matching-tag base cases fires. So this is ``partial`` only because Lean's default structural checker doesn't see that shrinking gap automatically — a well-founded measure on the difference between the ranks, in the same spirit as link:../1-2-procedures-and-processes/[1.2절]의 ``factIter`` 예시, would let us drop it, though spelling out the exact ``termination_by`` syntax for a two-sided gap like this is fiddlier than the single-variable measures we used there, so we leave ``addNumTower`` as ``partial`` here rather than risk an unverified snippet.
+
+여기서 매 호출마다 줄어드는 것은 두 순위의 _합_이 아니라 _격차_라는 점에 주의하세요 — 들어올리는 것은 항상 더 낮은 쪽 인자를 들어올리므로, ``rank x + rank y``는 오히려 두 값이 수렴하면서 최댓값인 4를 향해 올라갑니다. 반면 둘 사이의 거리는 매번 정확히 1씩 줄어들어, 세 가지 "같은 태그" 기저 사례 중 하나가 발동하는 순간 0이 됩니다. 그래서 이 정의가 ``partial``인 것은 Lean의 기본 구조적 검사기가 이 줄어드는 격차를 자동으로 보지 못하기 때문일 뿐입니다 — link:../1-2-procedures-and-processes/[1.2절]의 ``factIter`` 예시와 같은 정신으로 두 순위의 격차에 대한 정초 측정값을 주면 뗄 수 있지만, 이런 양방향 격차에 대한 정확한 ``termination_by`` 문법은 앞서 썼던 단일 변수 측정값보다 까다로워서, 검증되지 않은 스니펫을 내놓는 위험을 피해 여기서는 ``addNumTower``를 ``partial``로 남겨둡니다.
+====
+
+[WARNING]
+.탑은 우리 예제가 봐준 특수한 경우일 뿐이다
+====
+SICP goes on to note the messier reality: most type systems in practice don't form a clean tower. A shape hierarchy might have a type with several subtypes (triangles _and_ quadrilaterals are polygons) and several supertypes (an isosceles right triangle is both isosceles and right), and there's no single well-defined direction to "raise" in. Our three number types dodge this problem entirely by construction; a general solution needs something closer to a graph search over the type relationships, which is a genuinely hard design problem no type system — Lean's included — makes trivial.
+
+SICP는 이어서 더 지저분한 현실을 짚습니다 — 실제로는 대부분의 타입 시스템이 깔끔한 탑을 이루지 않습니다. 도형 계층에서는 하나의 타입이 여러 서브타입을 가질 수 있고(삼각형_과_ 사각형 모두 다각형입니다), 여러 슈퍼타입을 가질 수도 있어서(이등변 직각삼각형은 이등변삼각형이면서 동시에 직각삼각형입니다), "들어올릴" 단일하고 명확한 방향이 없습니다. 우리의 세 숫자 타입은 구성상 이 문제를 완전히 피해가지만, 일반적인 해법은 타입 관계에 대한 그래프 탐색에 가까운 무언가가 필요하며, 이는 Lean을 포함한 어떤 타입 시스템도 간단하게 만들어주지 않는 진짜 어려운 설계 문제입니다.
+====
+
+'''
+
+== 2.5.3. 예제: 기호 대수
+
+The most striking consequence of building arithmetic generically shows up in polynomials whose coefficients are themselves numbers of some generic type — including, recursively, other polynomials. We'll represent a polynomial as a variable name plus a sparse list of terms, each an order and a coefficient:
+
+산술을 일반적으로 만든 것의 가장 인상적인 결과는, 계수 자체가 어떤 일반 타입의 숫자인 — 재귀적으로는 다른 다항식일 수도 있는 — 다항식에서 나타납니다. 다항식을 변수 이름과 항의 성긴(sparse) 목록으로 표현하겠습니다. 각 항은 차수와 계수입니다.
+
+[source,lean]
+----
+structure Term (α : Type) where
+  order : Nat
+  coeff : α
+
+abbrev TermList (α : Type) := List (Term α)
+
+def adjoinTerm [Zero α] [BEq α] (t : Term α) (ts : TermList α) : TermList α :=
+  if t.coeff == (0 : α) then ts else t :: ts
+----
+
+Addition merges two term lists by order, just like the ordered-set merge from the link:../2-2-hierarchical-data-and-closure/[previous post], and multiplication distributes one term list over another:
+
+덧셈은 link:../2-2-hierarchical-data-and-closure/[이전 글]의 정렬된 집합 병합과 마찬가지로 차수에 따라 두 항 목록을 병합하고, 곱셈은 한 항 목록을 다른 항 목록에 분배합니다.
+
+[source,lean]
+----
+partial def addTerms [Add α] [Zero α] [BEq α] : TermList α → TermList α → TermList α
+  | [], l2 => l2
+  | l1, [] => l1
+  | t1 :: r1, t2 :: r2 =>
+    if t1.order > t2.order then t1 :: addTerms r1 (t2 :: r2)
+    else if t1.order < t2.order then t2 :: addTerms (t1 :: r1) r2
+    else adjoinTerm ⟨t1.order, t1.coeff + t2.coeff⟩ (addTerms r1 r2)
+
+partial def mulTermByAll [Mul α] [Zero α] [BEq α] (t : Term α) : TermList α → TermList α
+  | [] => []
+  | t2 :: rest => adjoinTerm ⟨t.order + t2.order, t.coeff * t2.coeff⟩ (mulTermByAll t rest)
+
+partial def mulTerms [Add α] [Mul α] [Zero α] [BEq α] : TermList α → TermList α → TermList α
+  | [], _ => []
+  | t1 :: rest, l2 => addTerms (mulTermByAll t1 l2) (mulTerms rest l2)
+
+structure Poly (α : Type) where
+  «variable» : String
+  terms : TermList α
+
+instance [Add α] [Zero α] [BEq α] : Add (Poly α) where
+  add p1 p2 := ⟨p1.variable, addTerms p1.terms p2.terms⟩
+
+instance [Add α] [Mul α] [Zero α] [BEq α] : Mul (Poly α) where
+  mul p1 p2 := ⟨p1.variable, mulTerms p1.terms p2.terms⟩
+----
+
+(이 정의는 두 다항식의 변수가 같다고 가정합니다 — 실전 구현이라면 link:../2-1-introduction-to-data-abstraction/[2.1절]의 ``divIntervalSafe``처럼 ``Option (Poly α)``를 반환해 이 가정이 깨졌을 때를 타입으로 드러내야 합니다.)
+
+``addTerms``/``mulTerms``'s crucial move is calling the generic ``+``/``*`` on coefficients — ``[Add α]`` and ``[Mul α]`` are the _only_ things this code assumes about the coefficient type. With ``α := Int``, the polynomials below are exactly SICP's example:
+
+``addTerms``/``mulTerms``의 결정적인 동작은 계수에 대해 일반 ``+``/``*``를 호출한다는 것입니다 — ``[Add α]``와 ``[Mul α]``가 이 코드가 계수 타입에 대해 가정하는 _유일한_ 것입니다. ``α := Int``로 두면, 아래 다항식은 정확히 SICP의 예제입니다.
+
+[source,lean]
+----
+def px : Poly Int := ⟨"x", [⟨2, 5⟩, ⟨1, 3⟩, ⟨0, 7⟩]⟩  -- 5x^2 + 3x + 7
+def qx : Poly Int := ⟨"x", [⟨2, 1⟩]⟩                   -- x^2
+
+#eval (px + qx).terms
+-- [{ order := 2, coeff := 6 }, { order := 1, coeff := 3 }, { order := 0, coeff := 7 }]
+
+#eval (px * qx).terms
+-- [{ order := 4, coeff := 5 }, { order := 3, coeff := 3 }, { order := 2, coeff := 7 }]
+----
+
+SICP's punchline is that if the coefficient type ``α`` is itself ``Poly β`` for some ``β``, this all keeps working with no changes — the generic ``+``/``*`` calls inside ``addTerms``/``mulTerms`` dispatch to our ``Add (Poly β)``/``Mul (Poly β)`` instances, which recurse into ``addTerms``/``mulTerms`` at the coefficient level, and so on for as many levels of "polynomial whose coefficients are polynomials" as the data actually has. Wiring this up fully in Lean means also supplying ``Zero (Poly β)`` and ``BEq (Poly β)`` instances (so that ``adjoinTerm`` can recognize a zero-coefficient polynomial and ``TermList (Poly β)`` type-checks at all) — mechanical but a bit of extra scaffolding we won't spell out here, since the essential mechanism (typeclass-directed recursion falling out of ``Add``/``Mul`` alone) is already visible above.
+
+SICP가 강조하는 핵심은, 계수 타입 ``α``가 그 자체로 어떤 ``β``에 대한 ``Poly β``라 해도 아무 변경 없이 이 모든 것이 계속 동작한다는 것입니다 — ``addTerms``/``mulTerms`` 안의 일반 ``+``/``*`` 호출이 우리의 ``Add (Poly β)``/``Mul (Poly β)`` 인스턴스로 디스패치되고, 이는 다시 계수 수준의 ``addTerms``/``mulTerms``로 재귀하며, "계수가 다항식인 다항식"이 실제로 몇 단계이든 그만큼 계속됩니다. 이를 Lean에서 완전히 배선하려면 ``Zero (Poly β)``와 ``BEq (Poly β)`` 인스턴스도 제공해야 하는데(그래야 ``adjoinTerm``이 0-계수 다항식을 인식하고 ``TermList (Poly β)``가 애초에 타입 검사를 통과합니다) — 기계적이지만 약간의 추가 배선이 필요하므로 여기서는 자세히 쓰지 않습니다. 핵심 메커니즘(오직 ``Add``/``Mul``만으로 타입클래스가 재귀를 이끌어내는 것)은 이미 위에서 드러났기 때문입니다.
+
+'''
+
+== 정리
+
+[cols="1,1,1",options="header"]
+|===
+|SICP 개념 |Scheme |Lean 4
+|타입 태그 |``attach-tag``로 붙인 심볼 |``inductive``의 생성자
+|데이터 지향 디스패치 |``put``/``get`` 런타임 테이블 + ``apply-generic`` |``match``(컴파일 시점 전수성 검사) 또는 타입클래스 인스턴스 탐색
+|누락된 케이스 |런타임 오류("no method for these types") |컴파일 오류(패턴 매칭이 전수적이지 않음)
+|강제 변환 |타입 쌍마다 하나씩 짠 변환 절차 + 강제 변환 테이블 |``raise`` 함수 하나 + 순위(rank) 비교
+|타입의 탑 |``raise``로 한 단계씩 승격 |동일 — 종료성 근거는 순위의 _합_이 아니라 _격차_가 줄어드는 것
+|일반 산술을 쓰는 다항식 |``add``/``mul``을 계수에 재사용 |``[Add α] [Mul α]`` 제약을 가진 타입클래스 인스턴스
+|===
+
+이 절에서 SICP가 만들어낸 ``put``/``get``/``apply-generic`` 삼종세트는, Lean에서는 대부분 ``inductive`` + ``match``와 타입클래스가 이미 언어 차원에서 제공하는 것으로 대체됩니다. 다만 공짜는 아닙니다 — 패턴 매칭의 전수성 검사가 "빠진 케이스"를 컴파일 타임에 잡아주는 대신, 타입 하나를 추가할 때마다 그 전수성을 다시 만족시켜야 합니다. 다음 글에서는 2.5절을 마무리하는 다항식 나눗셈과, 3장으로 넘어가기 전 2장 전체를 관통하는 데이터 추상화 이야기를 정리합니다.
+// end::body[]

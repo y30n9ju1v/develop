@@ -1,0 +1,225 @@
+---
+title: "5.2. 레지스터 머신 시뮬레이터 (A Register-Machine Simulator)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "interpreters", "mutable-state", "termination", "partial"]
+categories: ["books"]
+description: "SICP 5장 2절의 아이디어(레지스터, 스택, 어셈블러, 실행 절차 생성)를 Lean 4의 IO.Ref 기반 상태와 partial 종료성 관점에서 다시 짜 봅니다."
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../5-1-designing-register-machines/[5.1. 레지스터 머신 설계하기] · 다음: link:../5-3-storage-allocation-and-garbage-collection/[5.3. 저장소 할당과 가비지 컬렉션]_
+
+'''
+
+Every register machine sketched by hand in the previous chapter was a diagram — boxes for registers, arrows for data paths, a controller drawn as a flowchart. This section stops drawing and starts building: a program that takes a machine's description as data and actually runs it, one instruction at a time, so a design can be tested by executing it rather than by tracing it with a finger. The interesting design choice SICP makes is to split this work into two phases with very different concerns — an _assembler_ that walks the instruction text once, resolving labels and pre-parsing each instruction's syntax, and an _execution procedure_ per instruction that does none of that parsing again, only the runtime effect. Lean's story about this split turns out to be less about the split itself, which translates directly, and more about a fact the split can't paper over: a general instruction-dispatch loop is exactly the shape of function where Lean's termination checker has nothing to say, because a register machine can genuinely run forever, and the checker would be wrong to claim otherwise.
+
+앞 장에서 손으로 스케치했던 모든 레지스터 머신은 다이어그램이었습니다 — 레지스터를 나타내는 상자들, 데이터 경로를 나타내는 화살표들, 순서도로 그려진 컨트롤러. 이 절은 그리기를 멈추고 만들기 시작합니다 — 머신의 기술(description)을 데이터로 받아 실제로 한 번에 한 명령씩 실행하는 프로그램을 만들어서, 설계를 손가락으로 추적하는 대신 실행함으로써 검증할 수 있게 합니다. SICP가 하는 흥미로운 설계 선택은 이 작업을 관심사가 매우 다른 두 단계로 나누는 것입니다 — 명령어 텍스트를 한 번 훑으며 레이블을 해소하고 각 명령의 구문을 미리 파싱하는 _어셈블러_, 그리고 그 파싱을 다시 하지 않고 오직 실행 시점의 효과만 수행하는 명령마다의 _실행 절차_입니다. 이 분리에 대한 Lean의 이야기는 분리 자체 — 이는 그대로 옮겨집니다 — 보다는, 그 분리로도 덮을 수 없는 사실에 관한 것입니다 — 일반적인 명령어 디스패치 루프는 정확히 Lean의 종료성 검사기가 할 말이 없는 함수의 모양입니다. 레지스터 머신은 정말로 영원히 실행될 수 있고, 검사기가 그렇지 않다고 주장한다면 그것이 틀린 것이기 때문입니다.
+
+'''
+
+== 5.2.1. 머신 모델
+
+SICP represents a register as a message-passing closure over a mutable cell, and a machine as a closure over a register table and a stack — the same technique chapter 3 used for bank accounts. This is the ``IO.Ref``-based encoding from earlier posts in this series, applied to a genuinely new kind of object: instead of one balance, a whole table of named cells, plus a distinguished ``pc`` cell that drives the entire simulation forward.
+
+SICP는 레지스터를 가변 셀에 대한 메시지 패싱 클로저로, 머신을 레지스터 테이블과 스택에 대한 클로저로 나타냅니다 — 3장이 은행 계좌에 썼던 것과 같은 기법입니다. 이는 이 시리즈의 앞선 글들에서 나온 ``IO.Ref`` 기반 인코딩을 정말로 새로운 종류의 객체에 적용한 것입니다 — 잔액 하나 대신, 이름 붙은 셀들의 테이블 전체와, 시뮬레이션 전체를 앞으로 몰아가는 특별한 ``pc`` 셀입니다.
+
+[source,lean]
+----
+abbrev Register := IO.Ref Value
+
+structure MachineModel where
+  registers : IO.Ref (List (String × Register))
+  pc : Register
+  flag : Register
+  stack : IO.Ref (List Value)
+
+def getRegister (m : MachineModel) (name : String) : IO Register := do
+  let regs ← m.registers.get
+  match regs.lookup name with
+  | some r => pure r
+  | none => panic! s!"Unknown register: {name}"
+
+def allocateRegister (m : MachineModel) (name : String) : IO Unit := do
+  let r ← IO.mkRef Value.unassigned
+  m.registers.modify (fun regs => (name, r) :: regs)
+----
+
+``Register`` is just ``IO.Ref Value`` — nothing new is invented here, because the "place that holds a mutable value" idea from the environment-model post is exactly what a register is. What's new to this section is ``pc``: an ordinary register in every respect, except that the machine's execution loop reads and writes it on every single step, using it as the thing that decides what runs next.
+
+``Register``는 그냥 ``IO.Ref Value``입니다 — 여기서 새로 발명된 것은 없습니다. "가변 값을 담는 자리"라는 발상이 환경 모델 글에서 나온 것과 정확히 같은 것이 레지스터이기 때문입니다. 이 절에서 새로운 것은 ``pc``입니다 — 모든 면에서 평범한 레지스터이지만, 머신의 실행 루프가 매 단계마다 이를 읽고 써서 다음에 무엇이 실행될지를 결정하는 데 쓴다는 점만 다릅니다.
+
+The stack, likewise, is just a mutable ``List Value``, ``push`` and ``pop`` acting on it exactly as SICP describes:
+
+스택도 마찬가지로 그냥 가변 ``List Value``이고, ``push``와 ``pop``은 SICP가 기술하는 그대로 동작합니다.
+
+[source,lean]
+----
+def push (m : MachineModel) (v : Value) : IO Unit :=
+  m.stack.modify (v :: ·)
+
+def pop (m : MachineModel) : IO Value := do
+  match ← m.stack.get with
+  | [] => panic! "Empty stack: POP"
+  | v :: rest => m.stack.set rest; pure v
+----
+
+The execution loop is where the machine model earns its own subsection rather than being just another ``IO.Ref`` example. Each instruction is compiled, once, into a value of type ``IO Unit`` — a _thunk of an effect_, not a value — and ``execute`` simply runs whichever one ``pc`` currently points to, over and over, until ``pc`` runs off the end of the list:
+
+실행 루프는 이 머신 모델이 단순히 또 하나의 ``IO.Ref`` 예제가 아니라 자기만의 절을 가질 만한 이유입니다. 각 명령어는 한 번에 걸쳐 ``IO Unit`` 타입의 값 — 값이 아니라 _효과의 thunk_ — 으로 컴파일되고, ``execute``는 ``pc``가 리스트의 끝을 벗어날 때까지 ``pc``가 현재 가리키는 것을 그저 반복해서 실행합니다.
+
+[source,lean]
+----
+partial def execute (m : MachineModel) (instructions : Array (IO Unit)) : IO Unit := do
+  let i ← (← m.pc.get).asIndex
+  if i ≥ instructions.size then
+    pure ()
+  else
+    instructions[i]!
+    execute m instructions
+----
+
+``execute`` needs ``partial``, and — unlike almost every ``partial`` marker in this series so far — there is no ``termination_by`` waiting in the wings to rescue it. ``factIter`` from the very first post needed ``partial`` only because its counter counted _up_; flipping the direction made it structural. Here, flipping anything doesn't help: ``i``, the index ``pc`` currently points to, is read fresh from a mutable register on every iteration, and _any_ instruction's effect might change it to a smaller value, a larger value, or leave it exactly where it was forever (an infinite loop, deliberately — some perfectly correct register machines never halt). There is no measure Lean, or anyone, could supply that decreases on every call, because whether one exists depends on the semantics of the _particular program being interpreted_, not on the shape of ``execute`` itself.
+
+``execute``는 ``partial``이 필요하고, 이 시리즈에서 지금까지 나온 거의 모든 ``partial`` 표시와 달리 그것을 구해줄 ``termination_by``가 대기하고 있지 않습니다. 이 시리즈의 첫 글에 나온 ``factIter``는 카운터가 _올라가기_ 때문에만 ``partial``이 필요했고, 방향을 뒤집으면 구조적이 됐습니다. 여기서는 무엇을 뒤집어도 도움이 되지 않습니다 — ``pc``가 현재 가리키는 인덱스 ``i``는 매 반복마다 가변 레지스터에서 새로 읽히고, _어떤_ 명령의 효과든 그것을 더 작은 값으로, 더 큰 값으로, 아니면 영원히 그대로(의도된 무한 루프 — 완전히 정확한 어떤 레지스터 머신들은 결코 멈추지 않습니다) 바꿀 수 있습니다. Lean이든 누구든 매 호출마다 감소한다고 보증할 수 있는 척도가 없는데, 그런 게 존재하는지는 ``execute`` 자체의 모양이 아니라 _해석되고 있는 특정 프로그램_의 의미론에 달려 있기 때문입니다.
+
+This is worth pausing on because it's a genuinely different kind of ``partial`` from everything earlier in this series: ``decodeMessage`` from the streams post was partial because Lean's checker merely couldn't _see_ a structural argument that (with enough manual work) does exist. ``execute`` is partial because, for an arbitrary machine, no such argument exists to find — some machines halt, some don't, and only running the machine (or reasoning about that specific program's specific instructions) can tell you which. ``partial`` here isn't a compromise on a proof we were too lazy to write; it's the correct, permanent classification for what an interpreter loop actually is.
+
+이는 잠시 멈춰 생각해볼 가치가 있는데, 이 시리즈의 앞선 모든 경우와 진짜로 다른 종류의 ``partial``이기 때문입니다 — 스트림 글의 ``decodeMessage``가 partial이었던 이유는 Lean의 검사기가 (충분한 수작업을 들이면) 실제로 존재하는 구조적 논증을 그저 _보지 못했기_ 때문이었습니다. ``execute``가 partial인 이유는, 임의의 머신에 대해서는 찾아낼 그런 논증이 애초에 존재하지 않기 때문입니다 — 어떤 머신은 멈추고 어떤 머신은 멈추지 않으며, 오직 머신을 실행해보거나(또는 그 특정 프로그램의 특정 명령들에 대해 추론해봐야만) 어느 쪽인지 알 수 있습니다. 여기서 ``partial``은 우리가 게을러서 쓰지 않은 증명에 대한 타협이 아니라, 인터프리터 루프가 실제로 무엇인지에 대한 올바르고 영구적인 분류입니다.
+
+'''
+
+== 5.2.2. 어셈블러
+
+The assembler's job is to turn controller text into two things: a table mapping each label to a position, and a list of instructions with labels stripped out — built in one pass over the text, since a label's meaning (which instruction it points to) can only be known once every instruction before it has been counted. This is a genuinely structural recursion over the instruction list, with no mutable machine state involved at all, and it type-checks with no ``partial`` needed:
+
+어셈블러의 일은 컨트롤러 텍스트를 두 가지로 바꾸는 것입니다 — 각 레이블을 위치에 대응시키는 테이블, 그리고 레이블이 제거된 명령어 리스트입니다. 텍스트에 대한 한 번의 훑기로 만들어지는데, 레이블의 의미(그것이 어느 명령을 가리키는지)는 그 앞의 모든 명령이 세어진 후에야 알 수 있기 때문입니다. 이는 가변적인 머신 상태가 전혀 관여하지 않는, 명령 리스트에 대한 진짜 구조적 재귀이고, ``partial`` 없이 타입 검사를 통과합니다.
+
+[source,lean]
+----
+inductive ControllerText where
+  | label : String → ControllerText
+  | inst : RawInst → ControllerText
+
+def extractLabels : List ControllerText → List RawInst × List (String × Nat)
+  | [] => ([], [])
+  | .label name :: rest =>
+    let (insts, labels) := extractLabels rest
+    (insts, (name, insts.length) :: labels)
+  | .inst i :: rest =>
+    let (insts, labels) := extractLabels rest
+    (i :: insts, labels)
+----
+
+``extractLabels`` recurses on the tail of its input list at every call, the same structural shape as ``memberOf`` from the symbolic-data post, so Lean accepts it immediately. Notice what this buys, matching SICP's own point about separating analysis from runtime: the position recorded for a label is computed exactly once, at assembly time, by walking ``insts.length`` as it accumulates — no ``goto`` or ``branch`` instruction re-searches the label table while the machine is actually running.
+
+``extractLabels``는 매 호출마다 입력 리스트의 꼬리에 대해 재귀하는데, 이는 기호 데이터 글의 ``memberOf``와 같은 구조적 모양이라 Lean이 곧바로 받아들입니다. 분석과 실행 시점을 분리한다는 SICP 자신의 요점과 맞아떨어지는 것을 눈여겨보세요 — 레이블에 기록되는 위치는 ``insts.length``가 누적되는 것을 훑으며 어셈블리 시점에 정확히 한 번 계산됩니다 — 머신이 실제로 실행되는 동안에는 어떤 ``goto``나 ``branch`` 명령도 레이블 테이블을 다시 검색하지 않습니다.
+
+*연습문제 5.8 (Lean 버전):* 원문은 같은 레이블 이름이 두 번 정의된 컨트롤러 텍스트를 다루며, 어셈블러가 오류를 내도록 ``extract-labels``를 수정해 보라고 합니다. ``extractLabels``가 순수 함수(전혀 ``IO``가 아님)이므로, 오류를 낸다는 것은 예외를 던지는 게 아니라 반환 타입 자체가 실패 가능성을 표현해야 한다는 뜻입니다.
+
+[source,lean]
+----
+def extractLabelsChecked : List ControllerText → Except String (List RawInst × List (String × Nat))
+  | [] => pure ([], [])
+  | .label name :: rest => do
+    let (insts, labels) ← extractLabelsChecked rest
+    if labels.any (fun (n, _) => n = name) then
+      throw s!"Duplicate label: {name}"
+    else
+      pure (insts, (name, insts.length) :: labels)
+  | .inst i :: rest => do
+    let (insts, labels) ← extractLabelsChecked rest
+    pure (i :: insts, labels)
+----
+
+``Except String α`` is doing here exactly what SICP's ``error`` call does at the Scheme level, but visibly: the return type itself now says "this can fail," so a caller can't accidentally forget to handle the duplicate-label case the way a Scheme caller could forget to catch an ``error``. And because the recursion is on the same list tail as before, adding this error handling costs nothing in termination-checking terms — ``extractLabelsChecked`` is exactly as structurally total as ``extractLabels`` was.
+
+``Except String α``는 여기서 SICP의 ``error`` 호출이 Scheme 수준에서 하는 일을 눈에 보이게 정확히 수행합니다 — 반환 타입 자체가 이제 "이것은 실패할 수 있다"고 말하므로, 호출자는 Scheme 호출자가 ``error``를 잡는 것을 잊을 수 있는 것과 달리 중복 레이블 경우를 처리하는 것을 실수로 빠뜨릴 수 없습니다. 그리고 재귀가 이전과 같은 리스트 꼬리에 대한 것이므로, 이 오류 처리를 추가하는 데 종료성 검사 측면에서는 아무 비용도 들지 않습니다 — ``extractLabelsChecked``는 ``extractLabels``와 정확히 같은 만큼 구조적으로 전역(total)입니다.
+
+'''
+
+== 5.2.3. 명령어에 대한 실행 절차 생성하기
+
+``make-execution-procedure`` dispatches on instruction type and builds a closure for each, doing all label lookups and register lookups once, at assembly time — the same "analyze once, run many times" split chapter 4's fast evaluator used. Compiling an ``assign`` instruction into a Lean ``IO Unit`` looks like this:
+
+``make-execution-procedure``는 명령어 타입에 대해 분기하며 각각에 대해 클로저를 만드는데, 모든 레이블 조회와 레지스터 조회를 어셈블리 시점에 한 번만 수행합니다 — 4장의 빠른 평가기가 썼던 것과 같은 "한 번 분석하고 여러 번 실행하기" 분리입니다. ``assign`` 명령을 Lean의 ``IO Unit``으로 컴파일하면 다음과 같습니다.
+
+[source,lean]
+----
+def makeAssign (m : MachineModel) (target : Register) (valueProc : IO Value) : IO Unit :=
+  valueProc >>= target.set
+
+def compileInst (m : MachineModel) (labelTable : List (String × Nat)) : RawInst → IO (IO Unit)
+  | .assign regName expr => do
+    let target ← getRegister m regName
+    let valueProc ← compileExp m labelTable expr
+    pure (makeAssign m target valueProc)
+  | .goto (.label name) => do
+    let dest := labelTable.lookup name |>.getD (panic! s!"Undefined label: {name}")
+    pure (Value.mkIndex dest >>= m.pc.set)
+  | .goto (.reg regName) => do
+    let r ← getRegister m regName
+    pure (r.get >>= m.pc.set)
+  -- test, branch, save, restore, perform은 SICP의 구조를 그대로 따른다
+----
+
+``compileInst`` runs inside ``IO``, but only to perform register/label lookups — a finite, always-terminating amount of work per instruction, done once when the machine is assembled. This is worth contrasting directly with ``execute``: ``compileInst`` is called exactly ``instructions.length`` times total, so even though it's written monadically, nothing about it resembles the open-ended, program-dependent looping that forced ``execute`` to be ``partial``. Assembly always finishes; running the assembled machine might not — and the type system doesn't distinguish these two ``IO Unit``-producing functions from each other, which is precisely why the ``partial`` marker, sitting only on ``execute``, is the one piece of documentation that does distinguish them.
+
+``compileInst``는 ``IO`` 안에서 실행되지만, 레지스터/레이블 조회를 수행하기 위해서일 뿐입니다 — 명령당 유한하고 항상 종료하는 만큼의 작업이며, 머신이 조립될 때 한 번 수행됩니다. 이를 ``execute``와 직접 대조해볼 가치가 있습니다 — ``compileInst``는 정확히 ``instructions.length``번만 호출되므로, 모나딕하게 작성되었더라도 ``execute``를 ``partial``로 만들었던, 프로그램에 의존하는 열린 루핑을 전혀 닮지 않았습니다. 조립은 언제나 끝나지만, 조립된 머신을 실행하는 것은 끝나지 않을 수도 있습니다 — 그리고 타입 시스템은 이 두 ``IO Unit``을 만들어내는 함수들을 서로 구별해주지 않는데, 바로 그래서 오직 ``execute``에만 붙는 ``partial`` 표시가 이 둘을 구별해주는 유일한 문서인 것입니다.
+
+'''
+
+== 5.2.4. 머신 성능 모니터링
+
+Adding instruction or stack-operation counting to the simulator means threading one more ``IO.Ref Nat`` alongside the existing state, incremented at exactly the points SICP's ``push`` and ``pop`` already touch the stack — no new termination question is raised by this at all, since counting is orthogonal to whether ``execute`` halts.
+
+시뮬레이터에 명령어나 스택 연산 카운팅을 추가한다는 것은 기존 상태와 나란히 ``IO.Ref Nat``을 하나 더 실어 나르며, SICP의 ``push``와 ``pop``이 이미 스택을 건드리는 바로 그 지점에서 증가시키는 것을 뜻합니다 — 카운팅은 ``execute``가 멈추는지와 무관하므로 여기서 새로운 종료성 질문은 전혀 제기되지 않습니다.
+
+[source,lean]
+----
+structure StackStats where
+  numPushes : IO.Ref Nat
+  maxDepth : IO.Ref Nat
+  currentDepth : IO.Ref Nat
+
+def pushCounted (m : MachineModel) (stats : StackStats) (v : Value) : IO Unit := do
+  push m v
+  stats.numPushes.modify (· + 1)
+  stats.currentDepth.modify (· + 1)
+  let d ← stats.currentDepth.get
+  stats.maxDepth.modify (max · d)
+----
+
+*연습문제 5.14/5.15 (Lean 버전, 결합):* 팩토리얼 머신을 시뮬레이션하며 $n$에 따른 총 push 횟수와 최대 스택 깊이를 재는 것과, 실행된 명령어 수를 세는 것을 함께 계측해 봅시다. 두 계측 모두 같은 패턴입니다 — 기존 ``IO.Ref`` 상태 옆에 카운터용 ``IO.Ref Nat``을 하나 더 놓고, 이미 존재하는 연산 지점(스택 연산, ``execute``의 명령어 실행 지점)에서 그것을 증가시키는 것입니다.
+
+[source,lean]
+----
+structure InstrumentedMachine extends MachineModel where
+  instructionCount : IO.Ref Nat
+  stackStats : StackStats
+
+partial def executeCounted (m : InstrumentedMachine) (instructions : Array (IO Unit)) : IO Unit := do
+  let i ← (← m.pc.get).asIndex
+  if i ≥ instructions.size then
+    pure ()
+  else
+    instructions[i]!
+    m.instructionCount.modify (· + 1)
+    executeCounted m instructions
+
+def printStats (m : InstrumentedMachine) : IO Unit := do
+  IO.println s!"instructions executed: {← m.instructionCount.get}"
+  IO.println s!"total pushes: {← m.stackStats.numPushes.get}"
+  IO.println s!"max stack depth: {← m.stackStats.maxDepth.get}"
+----
+
+``executeCounted`` is still ``partial``, for exactly the same reason ``execute`` was — adding a counter changes nothing about whether the loop terminates, only about what gets recorded on the way. This is the cleanest illustration in this section of ``partial`` being a fact about the _shape of the recursion_, entirely independent of what side effects ride along with it: instrument the loop as heavily as you like, log every register, print every instruction, and the termination question stays exactly as open as it was for the three-line version, because it was never a question the _counting code_ could have answered.
+
+``executeCounted``는 여전히 ``partial``인데, ``execute``가 그랬던 것과 정확히 같은 이유입니다 — 카운터를 추가해도 루프가 종료하는지에 대해서는 아무것도 바뀌지 않고, 오직 그 과정에서 무엇이 기록되는지만 바뀝니다. 이는 이 절에서 ``partial``이 그것과 함께 실려가는 부작용과는 완전히 무관하게 _재귀의 모양_에 관한 사실이라는 것을 보여주는 가장 깔끔한 예시입니다 — 루프를 아무리 무겁게 계측하고, 모든 레지스터를 로깅하고, 모든 명령을 출력해도, 종료성 질문은 세 줄짜리 버전과 정확히 똑같이 열려 있는 채로 남습니다. 그것은 애초에 _카운팅 코드_가 답할 수 있는 질문이 아니었기 때문입니다.
+
+'''
+
+Stepping back: this section's real subject is what changes and what doesn't when an interpreter's control loop is written in a language with a termination checker looking over its shoulder. Everything SICP builds around the loop — the assembler, the label table, the per-instruction compilation, the performance counters — is genuinely structural, and Lean accepts every one of those pieces with no ``partial`` at all, for the same reasons ``deriv`` and ``elemOfTree`` needed none earlier in this series. The loop itself is the one place where that changes, and it changes for a reason with nothing to do with Lean's limitations: an interpreter for an arbitrary machine language is supposed to be able to not halt, because some of the machines it's asked to run genuinely won't. ``partial`` here isn't Lean falling short of proving something true; it's Lean correctly declining to prove something false.
+
+물러서서 보면, 이 절의 진짜 주제는 인터프리터의 제어 루프를 종료성 검사기가 어깨너머로 지켜보는 언어로 작성할 때 무엇이 바뀌고 무엇이 바뀌지 않는가입니다. 루프 주변에 SICP가 짓는 모든 것 — 어셈블러, 레이블 테이블, 명령어별 컴파일, 성능 카운터 — 은 진짜로 구조적이고, Lean은 이 조각들 전부를 ``partial`` 없이 받아들입니다. 이 시리즈 앞부분에서 ``deriv``와 ``elemOfTree``가 그것이 필요 없었던 것과 같은 이유로요. 그것이 달라지는 유일한 곳이 루프 자체이고, Lean의 한계와는 무관한 이유로 달라집니다 — 임의의 머신 언어에 대한 인터프리터는 멈추지 않을 수 있어야 하는데, 그것이 실행하도록 요청받는 머신들 중 일부는 정말로 멈추지 않기 때문입니다. 여기서 ``partial``은 Lean이 참인 것을 증명하는 데 실패한 게 아니라, 거짓인 것을 증명하기를 올바르게 거절하는 것입니다.
+// end::body[]

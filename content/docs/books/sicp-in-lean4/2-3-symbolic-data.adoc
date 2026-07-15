@@ -1,0 +1,399 @@
+---
+title: "2.3. 기호 데이터 (Symbolic Data)"
+date: 2026-07-10T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "scheme", "data-abstraction", "symbolic-computation", "termination"]
+categories: ["books"]
+description: "SICP 2장 3절의 아이디어(인용, 기호 미분, 집합의 표현, 허프만 부호화 트리)를 Lean 4의 귀납적 타입과 종료성 증명 관점에서 다시 짜 봅니다."
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../2-2-hierarchical-data-and-closure/[2.2. 계층적 데이터와 닫힘 성질] · 다음: link:../2-4-multiple-representations-for-abstract-data/[2.4. 추상 데이터의 다중 표현]_
+
+'''
+
+Every compound data object built so far — pairs, lists, rational numbers — ultimately bottomed out in numbers. This section asks what happens once the leaves of a data structure can themselves be arbitrary names rather than quantities: expressions that look like code, sets whose membership test depends entirely on how you choose to lay out the collection, and finally a genuinely new application, compressing a message by giving frequent symbols short codes. Lean's static type system turns out to reshape almost every one of these problems, because "a symbol" and "a list containing anything" mean something much more specific to a type checker than they do to an untyped Lisp reader.
+
+지금까지 만들어온 복합 데이터 객체 — 쌍, 리스트, 유리수 — 는 결국 모두 숫자로 귀결됐습니다. 이 절은 데이터 구조의 잎이 수량이 아니라 임의의 이름 자체일 수 있게 되면 무슨 일이 벌어지는지를 묻습니다 — 코드처럼 보이는 표현식, 멤버십 검사가 컬렉션을 어떻게 배치하느냐에 전적으로 좌우되는 집합, 그리고 마지막으로는 완전히 새로운 응용 사례로서 자주 나오는 기호에 짧은 부호를 부여해 메시지를 압축하는 문제까지 다룹니다. Lean의 정적 타입 시스템은 이 문제들 거의 전부를 다시 빚어내는데, "기호 하나"와 "아무거나 담은 리스트"가 타입 검사기에게는 타입 없는 Lisp 리더에게보다 훨씬 더 구체적인 의미를 갖기 때문입니다.
+
+'''
+
+== 2.3.1. 인용
+
+Scheme needs a mechanism to talk about ``(a b c)`` as _data_ rather than as an expression to evaluate, and it borrows the same trick natural language uses when it puts a word in quotation marks: a leading ``'`` tells the reader "don't evaluate what follows, just hand it back as a structure." This distinction — between a name and the value that name is currently bound to — barely exists as a runtime concern in Lean, because Lean separates the two at compile time instead. ``a`` in a Lean expression is always a reference to a binding; if you want the identifier itself as a piece of data, you reach for a dedicated inductive type of symbols, not a special evaluator mode.
+
+Scheme는 ``(a b c)``를 평가할 표현식이 아니라 _데이터_로 다룰 방법이 필요했고, 자연어가 단어를 따옴표로 감싸는 것과 같은 수법을 빌려옵니다 — 앞에 붙은 ``'``는 리더에게 "뒤에 오는 것을 평가하지 말고 구조 그대로 돌려줘"라고 말합니다. 이름과 그 이름이 현재 묶여있는 값 사이의 이 구분은, Lean에서는 실행 시점의 관심사로 거의 존재하지 않습니다. Lean이 이 둘을 컴파일 시점에 이미 갈라놓기 때문입니다. Lean 표현식에서 ``a``는 언제나 어떤 바인딩에 대한 참조이고, 식별자 그 자체를 데이터 조각으로 갖고 싶다면 특별한 평가 모드가 아니라 전용 기호 귀납 타입을 씁니다.
+
+[source,lean]
+----
+inductive Sym where
+  | a | b | c | d | x | y
+  deriving Repr, DecidableEq
+
+def someSymbols : List Sym := [.a, .b, .c, .d]
+
+#eval someSymbols
+-- [Sym.a, Sym.b, Sym.c, Sym.d]
+----
+
+There's no analogue of Scheme's ``(list a b)`` versus ``(list 'a 'b)`` ambiguity here at all: ``a``, spelled with a lowercase leading letter inside ``Sym``, denotes the constructor ``Sym.a``, full stop, and there is no local variable named ``a`` floating around to compete with it for the same name in this snippet. The quote character solved a problem born from letting one syntax (``a``) denote two different kinds of thing (a value versus a name); a typed inductive constructor never had that ambiguity to begin with, so nothing needs to be invented to remove it.
+
+Scheme의 ``(list a b)``와 ``(list 'a 'b)`` 사이의 모호함에 대응하는 것이 여기엔 아예 없습니다 — ``Sym`` 안에서 소문자로 시작하는 ``a``는 그저 생성자 ``Sym.a``를 가리킬 뿐이고, 이 스니펫에는 같은 이름을 두고 경쟁할 지역 변수 ``a``가 애초에 존재하지 않습니다. 인용 부호는 하나의 구문(``a``)이 두 종류의 서로 다른 것(값 대 이름)을 가리키게 놔둔 데서 생긴 문제를 풀어준 것이었는데, 타입이 있는 귀납적 생성자에는 그런 모호함이 처음부터 없으므로 그것을 없애기 위해 따로 뭔가를 발명할 필요가 없습니다.
+
+Equality between symbols — the role ``eq?`` plays in Scheme — is just structural equality on an inductive type, and Lean can derive a decidable instance for it automatically rather than the language needing to define what "the same symbol" even means:
+
+기호 사이의 동등성 비교 — Scheme에서 ``eq?``가 맡던 역할 — 은 귀납 타입에 대한 구조적 동등성일 뿐이고, "같은 기호"가 무엇을 뜻하는지 언어가 따로 정의할 필요 없이 Lean이 자동으로 결정 가능한 인스턴스를 도출해줍니다.
+
+[source,lean]
+----
+def memberOf (item : Sym) : List Sym → Option (List Sym)
+  | [] => none
+  | x :: rest => if item = x then some (x :: rest) else memberOf item rest
+
+#eval memberOf .a [.x, .b]
+-- none
+
+#eval memberOf .a [.x, .a, .b]
+-- some [Sym.a, Sym.b]
+----
+
+``memberOf`` recurses on a list argument that gets strictly shorter with every call — the tail ``rest`` of the incoming list — so Lean's structural-recursion checker accepts it outright, with no ``partial`` marker and no ``termination_by`` needed. That's the pattern to keep an eye on throughout this section: whenever the recursive call operates on a syntactic subpart of what came in, Lean's checker settles the termination question for free, in exchange for demanding that the shape of the data actually get smaller, which a hand-wavy Scheme ``cond`` never has to prove.
+
+``memberOf``는 매 호출마다 엄격히 더 짧아지는 리스트 인자 — 들어온 리스트의 꼬리 ``rest`` — 에 대해 재귀하므로, Lean의 구조적 재귀 검사기가 ``partial`` 표시도 ``termination_by``도 없이 곧바로 받아들입니다. 이것이 이 절 전체에서 눈여겨볼 패턴입니다 — 재귀 호출이 들어온 것의 구문적 부분에 대해 이뤄질 때마다 Lean의 검사기는 종료성 문제를 공짜로 해결해주는 대신, 데이터의 모양이 실제로 작아진다는 것을 요구합니다. 손짓만으로 넘어가는 Scheme의 ``cond``는 그것을 증명할 필요가 전혀 없습니다.
+
+*연습문제 2.55 (Lean 버전):* 원문에서는 ``''abracadabra``를 평가하면 인터프리터가 뜻밖에도 ``abracadabra``가 아니라 ``quote``를 되돌려주는 이유를 설명하라고 묻습니다(이중 인용이 ``(quote (quote abracadabra))``로 펼쳐지고, 그 ``car``가 ``quote``라는 기호이기 때문입니다). Lean에는 인용이라는 구문적 장치 자체가 없으므로 똑같은 함정에 빠질 수 없다는 점을 직접 타입으로 확인해 봅시다. 다음 타입을 정의하고, ``Expr.quote (Expr.quote (Expr.sym .abracadabra))``의 "car에 해당하는" 첫 번째 구성 요소를 추출하는 함수를 작성해, 그 결과가 원본 기호가 아니라 _바깥쪽 quote 생성자 자체를 가리키는 값_임을 타입으로 드러내 보세요.
+
+[source,lean]
+----
+inductive Expr where
+  | sym : Sym → Expr
+  | quote : Expr → Expr
+  deriving Repr
+
+def outerTag : Expr → String
+  | .sym _ => "sym"
+  | .quote _ => "quote"
+
+#eval outerTag (.quote (.quote (.sym .a)))
+-- "quote"
+----
+
+The point Lean makes visible here is one that Scheme's own footnote already gestures at: ``(quote (quote a))`` genuinely has ``quote`` as its outermost constructor, and ``car`` merely reports the immediate structure it's given — nothing "unwraps" an extra layer just because a human reader expected the inner meaning to shine through. The ``Expr`` type turns this into a pattern-match fact instead of a surprising REPL result.
+
+여기서 Lean이 드러내는 것은 사실 Scheme 자신의 각주가 이미 가리키던 것과 같습니다 — ``(quote (quote a))``는 정말로 최상위 생성자가 ``quote``이고, ``car``는 그저 주어진 즉각적인 구조를 보고할 뿐입니다. 사람이 읽을 때 안쪽 의미가 비쳐 보이길 기대한다고 해서 한 겹이 저절로 "벗겨지지"는 않습니다. ``Expr`` 타입은 이것을 뜻밖의 REPL 결과가 아니라 패턴 매치 사실로 바꿔줍니다.
+
+'''
+
+== 2.3.2. 예제: 기호 미분
+
+Symbolic differentiation is the first real payoff of representing _expressions themselves_ as data: given a syntax tree for something like $ax^2 + bx + c$ and a variable to differentiate with respect to, walk the tree and produce a new tree for the derivative. SICP's strategy is to write the differentiation rules against an abstract interface — ``sum?``, ``addend``, ``make-sum``, and so on — before committing to any particular representation, exactly as it did for rational numbers. In Lean, that abstract interface is naturally an inductive type, and the "wishful thinking" selectors and constructors SICP asks the reader to imagine become ordinary pattern matches and constructor applications:
+
+기호 미분은 _표현식 자체_를 데이터로 표현했을 때 얻는 첫 번째 진짜 성과입니다 — $ax^2 + bx + c$ 같은 것의 구문 트리와 미분할 변수가 주어지면, 트리를 순회하며 도함수를 나타내는 새 트리를 만들어냅니다. SICP의 전략은 특정 표현을 확정하기 전에 ``sum?``, ``addend``, ``make-sum`` 같은 추상 인터페이스에 대해 먼저 미분 규칙을 작성하는 것인데, 유리수 때와 정확히 같은 방식입니다. Lean에서는 이 추상 인터페이스가 자연스럽게 귀납 타입이 되고, SICP가 독자에게 상상해보라고 요청하는 선택자·생성자들은 평범한 패턴 매치와 생성자 적용이 됩니다.
+
+[source,lean]
+----
+inductive AExp where
+  | num : Int → AExp
+  | var : Sym → AExp
+  | add : AExp → AExp → AExp
+  | mul : AExp → AExp → AExp
+  deriving Repr
+
+def sameVar : Sym → Sym → Bool
+  | v1, v2 => v1 = v2
+
+def makeSum : AExp → AExp → AExp
+  | .num 0, e => e
+  | e, .num 0 => e
+  | .num m, .num n => .num (m + n)
+  | e1, e2 => .add e1 e2
+
+def makeProduct : AExp → AExp → AExp
+  | .num 0, _ => .num 0
+  | _, .num 0 => .num 0
+  | .num 1, e => e
+  | e, .num 1 => e
+  | .num m, .num n => .num (m * n)
+  | e1, e2 => .mul e1 e2
+
+def deriv (var : Sym) : AExp → AExp
+  | .num _ => .num 0
+  | .var v => if sameVar v var then .num 1 else .num 0
+  | .add u v => makeSum (deriv var u) (deriv var v)
+  | .mul u v => makeSum (makeProduct u (deriv var v)) (makeProduct (deriv var u) v)
+----
+
+``deriv`` recurses on ``u`` and ``v``, both structurally smaller subterms of the ``AExp`` handed to ``add`` or ``mul``, so — just like ``memberOf`` above — Lean's structural-recursion checker accepts the whole function without complaint. The interesting part is that ``makeSum`` and ``makeProduct`` fold the "simplify while you build" step directly into the constructors, exactly as SICP's ``=number?``-based rewrite does, so ``deriv`` itself never has to change to get simplified output; only the two constructor functions did.
+
+``deriv``는 ``add``나 ``mul``에 주어진, ``AExp``의 구조적으로 더 작은 하위 항인 ``u``와 ``v``에 대해 재귀하므로 — 위의 ``memberOf``와 마찬가지로 — Lean의 구조적 재귀 검사기가 아무 불평 없이 함수 전체를 받아들입니다. 흥미로운 부분은 ``makeSum``과 ``makeProduct``가 "만들면서 단순화하기" 단계를 생성자 안에 직접 접어 넣는다는 점입니다. SICP의 ``=number?`` 기반 재작성과 정확히 같은 방식이라, ``deriv`` 자체는 단순화된 출력을 얻기 위해 전혀 바뀔 필요가 없습니다. 바뀐 것은 오직 두 생성자 함수뿐입니다.
+
+[source,lean]
+----
+def x : AExp := .var .x
+def y : AExp := .var .y
+
+#eval deriv .x (makeSum x (.num 3))
+-- AExp.num 1
+
+#eval deriv .x (makeProduct x y)
+-- AExp.var Sym.y
+
+#eval deriv .x (makeProduct (makeProduct x y) (makeSum x (.num 3)))
+-- AExp.add (AExp.mul (AExp.var Sym.x) (AExp.var Sym.y))
+--          (AExp.mul (AExp.var Sym.y) (AExp.add (AExp.var Sym.x) (AExp.num 3)))
+----
+
+Notice what the type of ``AExp`` already ruled out before any ``deriv`` code ran: SICP's runtime ``error "unknown expression type: DERIV"`` branch, reached whenever ``exp`` is neither a number, a variable, a sum, nor a product, has no equivalent here. Lean's pattern match on an inductive type must cover every constructor, and ``AExp`` has exactly four, so there is no fifth shape a value of this type could ever take — the "unknown expression" case isn't handled defensively, it's excluded by construction.
+
+``AExp``의 타입이 어떤 ``deriv`` 코드가 실행되기도 전에 이미 배제해버린 것에 주목하세요 — ``exp``가 숫자도 변수도 합도 곱도 아닐 때 도달하는 SICP의 실행 시점 ``error "unknown expression type: DERIV"`` 분기는 여기엔 대응물이 없습니다. Lean에서 귀납 타입에 대한 패턴 매치는 모든 생성자를 다뤄야 하고, ``AExp``에는 정확히 네 개의 생성자가 있으니 이 타입의 값이 취할 수 있는 다섯 번째 모양은 없습니다. "알 수 없는 표현식" 경우는 방어적으로 처리된 게 아니라 구성 자체에서 배제된 것입니다.
+
+*연습문제 2.56 (Lean 버전):* 거듭제곱 규칙 $\frac{d(u^n)}{dx} = nu^{n-1}\frac{du}{dx}$를 추가해 봅시다. ``AExp``에 새 생성자 ``pow : AExp → Int → AExp``를 더하면, 컴파일러가 ``deriv``의 패턴 매치에서 ``pow`` 경우가 빠졌다고 즉시 알려줍니다 — "존재를 잊어버린 케이스"가 실행 시점 오류 대신 컴파일 시점 완전성 검사(exhaustiveness check)로 잡히는 사례입니다.
+
+[source,lean]
+----
+inductive AExp2 where
+  | num : Int → AExp2
+  | var : Sym → AExp2
+  | add : AExp2 → AExp2 → AExp2
+  | mul : AExp2 → AExp2 → AExp2
+  | pow : AExp2 → Int → AExp2
+  deriving Repr
+
+def makeExpt : AExp2 → Int → AExp2
+  | _, 0 => .num 1
+  | e, 1 => e
+  | e, n => .pow e n
+
+def derivPow (var : Sym) : AExp2 → AExp2
+  | .num _ => .num 0
+  | .var v => if sameVar v var then .num 1 else .num 0
+  | .add u v => .add (derivPow var u) (derivPow var v)  -- makeSum 생략, 지면 절약
+  | .mul u v => .add (.mul u (derivPow var v)) (.mul (derivPow var u) v)
+  | .pow u n => .mul (.mul (.num n) (makeExpt u (n - 1))) (derivPow var u)
+----
+
+'''
+
+== 2.3.3. 예제: 집합 표현
+
+A set is defined purely by the operations it supports — membership, insertion, union, intersection — and SICP walks through three representations that satisfy the same interface with wildly different performance. This is the clearest illustration in the whole book of data abstraction paying rent, and Lean's type system adds one more twist: since ``List α`` and a hand-rolled binary tree are genuinely different types, "swapping representations" in Lean means swapping which functions a client calls, not silently reinterpreting the same list differently, so the abstraction boundary is enforced rather than merely a matter of programmer discipline.
+
+집합은 그것이 지원하는 연산 — 멤버십, 삽입, 합집합, 교집합 — 만으로 정의되고, SICP는 같은 인터페이스를 만족하면서도 성능이 극적으로 다른 세 가지 표현을 훑어봅니다. 이는 책 전체에서 데이터 추상화가 실제로 값을 하는 가장 뚜렷한 사례이고, Lean의 타입 시스템은 한 가지 반전을 더 얹습니다 — ``List α``와 손으로 만든 이진 트리는 정말로 서로 다른 타입이므로, Lean에서 "표현을 바꾼다"는 것은 같은 리스트를 몰래 다르게 재해석하는 게 아니라 클라이언트가 어떤 함수를 호출하는지를 바꾸는 것을 뜻하고, 그래서 추상화 경계가 프로그래머의 규율에만 맡겨지는 게 아니라 실제로 강제됩니다.
+
+[source,lean]
+----
+def elemUnordered [DecidableEq α] (x : α) : List α → Bool
+  | [] => false
+  | y :: rest => x = y || elemUnordered x rest
+
+def adjoinUnordered [DecidableEq α] (x : α) (s : List α) : List α :=
+  if elemUnordered x s then s else x :: s
+
+def intersectUnordered [DecidableEq α] : List α → List α → List α
+  | [], _ => []
+  | x :: rest, s2 =>
+    if elemUnordered x s2 then x :: intersectUnordered rest s2
+    else intersectUnordered rest s2
+
+#eval intersectUnordered [1, 2, 3] [2, 3, 4]
+-- [2, 3]
+----
+
+Both functions recurse on the leading argument's tail, so both are accepted as structural recursion with no annotation; the $\Theta(n)$ cost of ``elemUnordered`` and the $\Theta(n^2)$ cost of ``intersectUnordered`` (an ``elemUnordered`` scan for every element of the first list) are exactly the complexity bounds SICP derives, and Lean's termination story has nothing to add here — the type checker confirms these functions _finish_, not that they finish _quickly_.
+
+두 함수 모두 앞쪽 인자의 꼬리에 대해 재귀하므로 둘 다 아무 주석 없이 구조적 재귀로 받아들여집니다. ``elemUnordered``의 $\Theta(n)$ 비용과 ``intersectUnordered``의 $\Theta(n^2)$ 비용(첫 리스트의 각 원소마다 ``elemUnordered`` 스캔)은 SICP가 유도한 복잡도 상한과 정확히 같고, Lean의 종료성 이야기가 여기에 더 보탤 것은 없습니다 — 타입 검사기는 이 함수들이 _끝난다_는 것을 확인해주지, _빨리_ 끝난다는 것을 확인해주진 않습니다.
+
+Ordering the list lets ``elemOrdered`` bail out early once it passes where the target would be, and it lets ``intersectOrdered`` walk both lists in lockstep instead of rescanning:
+
+리스트를 정렬해두면 ``elemOrdered``는 대상이 있어야 할 지점을 지나치는 순간 곧바로 멈출 수 있고, ``intersectOrdered``는 다시 스캔하는 대신 두 리스트를 나란히 걸어갈 수 있습니다.
+
+[source,lean]
+----
+def elemOrdered (x : Int) : List Int → Bool
+  | [] => false
+  | y :: rest => if x = y then true else if x < y then false else elemOrdered x rest
+
+def intersectOrdered : List Int → List Int → List Int
+  | [], _ => []
+  | _, [] => []
+  | x :: xs, y :: ys =>
+    if x = y then x :: intersectOrdered xs ys
+    else if x < y then intersectOrdered xs (y :: ys)
+    else intersectOrdered (x :: xs) ys
+
+#eval intersectOrdered [1, 3, 6, 10] [3, 6]
+-- [3, 6]
+----
+
+``intersectOrdered`` needs a moment's thought to see why Lean accepts it: the third branch recurses on ``(x :: xs) (ys)``, holding the _first_ list unchanged and shrinking only the second, while the second branch shrinks only the first. Lean's structural checker tracks this correctly because each recursive call is structurally smaller in _at least one_ of the two positions Lean is watching, jointly — this is really a well-founded recursion on the pair ``(xs.length, ys.length)`` under lexicographic-ish shrinking, and Lean's built-in structural analysis is smart enough to see it without a manual ``termination_by``, though writing one out — ``xs.length + ys.length`` decreasing at every branch — makes the same argument explicit and is worth doing whenever the automatic checker's success feels like luck rather than a plan.
+
+``intersectOrdered``가 왜 Lean에 받아들여지는지는 잠깐 생각해볼 만합니다 — 세 번째 분기는 ``(x :: xs) (ys)``에 대해 재귀하면서 _첫 번째_ 리스트는 그대로 두고 두 번째만 줄이고, 두 번째 분기는 첫 번째만 줄입니다. Lean의 구조적 검사기가 이를 정확히 추적하는 이유는 각 재귀 호출이 Lean이 함께 지켜보는 두 위치 중 _적어도 하나_에서 구조적으로 더 작기 때문입니다 — 사실상 쌍 ``(xs.length, ys.length)``에 대한 정초 재귀(well-founded recursion)이고, Lean의 내장 구조적 분석은 수동 ``termination_by`` 없이도 이를 알아챌 만큼 똑똑합니다. 다만 매 분기에서 ``xs.length + ys.length``가 줄어든다는 것을 직접 써보는 것은, 자동 검사기의 성공이 계획이 아니라 운처럼 느껴질 때마다 해볼 가치가 있습니다.
+
+The binary-search-tree representation is where the ordering that made ``intersectOrdered`` interesting drops away, and ``adjoinTree``'s recursive calls descend into ``l`` or ``r`` — genuine substructures of the ``Tree`` inductive type itself, exactly the shape that lets Lean's structural checker settle termination for free, without ``partial`` or ``termination_by``:
+
+이진 탐색 트리 표현에서는 ``intersectOrdered``를 흥미롭게 만들었던 순서 논증이 빠지고, ``adjoinTree``의 재귀 호출은 ``l``이나 ``r`` — ``Tree`` 귀납 타입 자체가 만들어낸 진짜 하위 구조 — 로 내려갑니다. 정확히 Lean의 구조적 검사기가 ``partial``도 ``termination_by``도 없이 종료성을 공짜로 해결해주는 모양입니다.
+
+[source,lean]
+----
+inductive Tree where
+  | leaf : Tree
+  | node : Int → Tree → Tree → Tree
+  deriving Repr
+
+def elemOfTree (x : Int) : Tree → Bool
+  | .leaf => false
+  | .node e l r =>
+    if x = e then true
+    else if x < e then elemOfTree x l
+    else elemOfTree x r
+
+def adjoinTree (x : Int) : Tree → Tree
+  | .leaf => .node x .leaf .leaf
+  | .node e l r =>
+    if x = e then .node e l r
+    else if x < e then .node e (adjoinTree x l) r
+    else .node e l (adjoinTree x r)
+
+#eval elemOfTree 5 (adjoinTree 5 (adjoinTree 3 (adjoinTree 1 .leaf)))
+-- true
+----
+
+This one, unlike the earlier examples, needs no ``partial`` and no ``termination_by`` at all — and the reason is worth spelling out, because it looks superficially like the same shape as ``intersectOrdered``. ``Tree.node e l r`` stores ``l`` and ``r`` as genuine substructures produced by the ``Tree`` inductive definition itself, so recursing from ``.node e l r`` into ``l`` (or ``r``) _is_ a structural recursion on ``Tree``, in exactly the same sense ``deriv``'s recursion into a subterm of ``AExp`` was. The ``partial`` keyword only becomes necessary when a function's decreasing measure lives _outside_ the shape of the inductive argument — as with ``factIter``'s counter counting up in the earlier post — not merely because a function is recursive.
+
+이 함수는 앞의 예들과 달리 ``partial``도 ``termination_by``도 전혀 필요 없습니다 — 그리고 그 이유는 짚어볼 가치가 있는데, 언뜻 ``intersectOrdered``와 같은 모양처럼 보이기 때문입니다. ``Tree.node e l r``는 ``l``과 ``r``을 ``Tree`` 귀납적 정의 자체가 만들어낸 진짜 하위 구조로 저장하므로, ``.node e l r``에서 ``l``(또는 ``r``)로 재귀하는 것은 정확히 ``deriv``가 ``AExp``의 하위 항으로 재귀했던 것과 같은 의미에서 ``Tree``에 대한 구조적 재귀_입니다_. ``partial`` 키워드는 함수가 재귀적이라는 사실만으로 필요해지는 게 아니라, 그 함수의 감소 척도가 귀납 인자의 모양 _바깥_에 있을 때 — 이전 글의 ``factIter``에서 카운터가 올라가던 경우처럼 — 비로소 필요해집니다.
+
+*연습문제 2.66 (Lean 버전):* 레코드가 정수 키를 갖는 이진 탐색 트리로 구조화됐을 때 ``lookup`` 절차를 구현해 보세요. ``elemOfTree``와 같은 구조적 재귀 모양이므로 ``partial``이 필요 없다는 것을 직접 확인해 보는 것이 이 연습의 핵심입니다.
+
+[source,lean]
+----
+structure Record where
+  key : Int
+  value : String
+  deriving Repr
+
+inductive RTree where
+  | leaf : RTree
+  | node : Record → RTree → RTree → RTree
+
+def lookup (k : Int) : RTree → Option Record
+  | .leaf => none
+  | .node r l right =>
+    if k = r.key then some r
+    else if k < r.key then lookup k l
+    else lookup k right
+
+#eval lookup 2 (.node ⟨2, "b"⟩ .leaf .leaf)
+-- some { key := 2, value := "b" }
+----
+
+'''
+
+== 2.3.4. 예제: 허프만 부호화 트리
+
+Huffman coding closes the section by using the exact same tree-of-sets idea for something with no arithmetic content at all: compressing a message by giving frequent symbols shorter bit-strings than rare ones, while keeping the code prefix-free so decoding never has to guess where one symbol's code ends and the next begins. Representing a Huffman tree in Lean is a chance to let the type itself carry the invariant SICP's list-based ``(symbol left right)`` encoding leaves informal — that leaves hold exactly one symbol and one weight, while internal nodes hold a merged weight and the set of symbols reachable beneath them:
+
+허프만 부호화는 산술적 내용이 전혀 없는 것에 똑같은 "집합의 트리" 발상을 적용하면서 이 절을 마무리합니다 — 자주 나오는 기호에 드문 기호보다 짧은 비트열을 부여해 메시지를 압축하되, 부호가 접두어 없는(prefix-free) 성질을 유지해서 복호화할 때 한 기호의 부호가 어디서 끝나고 다음이 어디서 시작하는지 추측할 필요가 없게 합니다. Lean에서 허프만 트리를 표현하는 것은, SICP의 리스트 기반 ``(symbol left right)`` 인코딩이 비형식적으로 남겨두는 불변량 — 잎은 정확히 하나의 기호와 하나의 가중치를 갖고, 내부 노드는 병합된 가중치와 그 아래에 도달 가능한 기호 집합을 갖는다는 것 — 을 타입 자체가 짊어지게 할 기회입니다.
+
+[source,lean]
+----
+inductive HTree where
+  | leaf : Sym → Nat → HTree
+  | node : HTree → HTree → List Sym → Nat → HTree
+
+def weight : HTree → Nat
+  | .leaf _ w => w
+  | .node _ _ _ w => w
+
+def symbols : HTree → List Sym
+  | .leaf s _ => [s]
+  | .node _ _ syms _ => syms
+
+def makeCodeTree (left right : HTree) : HTree :=
+  .node left right (symbols left ++ symbols right) (weight left + weight right)
+----
+
+Encoding walks down toward a target symbol, appending a ``0`` for every left turn and a ``1`` for every right turn, and terminates because each recursive call moves to a strictly smaller subtree — the same structural argument that made ``elemOfTree`` termination-check for free:
+
+부호화는 목표 기호를 향해 내려가면서 왼쪽으로 갈 때마다 ``0``을, 오른쪽으로 갈 때마다 ``1``을 덧붙이고, 각 재귀 호출이 엄격히 더 작은 하위 트리로 옮겨가기 때문에 종료합니다 — ``elemOfTree``의 종료성 검사를 공짜로 만들어줬던 것과 같은 구조적 논증입니다.
+
+[source,lean]
+----
+partial def encodeSymbol (s : Sym) : HTree → List Nat
+  | .leaf sym _ => if sym = s then [] else panic! "symbol not in tree"
+  | .node l r _ _ =>
+    if symbols l |>.contains s then 0 :: encodeSymbol s l
+    else 1 :: encodeSymbol s r
+----
+
+This one needed ``partial`` even though the recursion genuinely does descend into ``l`` or ``r``, both real substructures of the ``HTree`` handed in — the same shape that let ``elemOfTree`` and ``adjoinTree`` check automatically. The difference is the ``panic!`` branch: Lean's checker requires every branch of every match to type-check as returning ``List Nat``, and ``panic!`` technically has type ``α`` for any ``α``, but a leaf whose symbol doesn't match ``s`` isn't a case the _type_ ``HTree`` rules out (nothing stops constructing a leaf for the wrong symbol), so this function is partial in SICP's sense too — it's not total over all inputs, only over inputs where ``s`` really is one of ``symbols tree``. A fully honest fix would thread that fact as a hypothesis, ``s ∈ symbols tree``, through the signature so the impossible branch disappears rather than getting silently panicked past.
+
+이 함수는 재귀가 정말로 ``l``이나 ``r``로 내려가고 둘 다 주어진 ``HTree``의 진짜 하위 구조인데도 ``partial``이 필요했습니다 — ``elemOfTree``와 ``adjoinTree``를 자동으로 검사하게 해줬던 것과 같은 모양인데도요. 차이는 ``panic!`` 분기에 있습니다 — Lean의 검사기는 모든 매치의 모든 분기가 ``List Nat``을 반환하는 것으로 타입 검사되길 요구하고, ``panic!``은 기술적으로는 임의의 ``α``에 대해 ``α`` 타입을 갖지만, 기호가 ``s``와 일치하지 않는 잎은 _타입_ ``HTree``가 배제해주는 경우가 아닙니다(잘못된 기호를 가진 잎을 만드는 걸 막는 게 없습니다). 그래서 이 함수는 SICP적인 의미에서도 부분 함수입니다 — 모든 입력에 대해 전역(total)인 게 아니라, ``s``가 정말로 ``symbols tree``의 원소인 입력에 대해서만 전역입니다. 완전히 정직한 수정이라면 ``s ∈ symbols tree``라는 가정을 시그니처에 실어서, 불가능한 분기가 팬닉으로 얼버무려지는 대신 아예 사라지게 만들어야 합니다.
+
+``panic!`` 없이도 같은 문제를 피해가는 더 가벼운 방법은, "못 찾음"이라는 경우 자체를 ``Option``으로 타입에 드러내는 것입니다 — link:../2-1-introduction-to-data-abstraction/[2.1절]의 ``divIntervalSafe``와 같은 패턴입니다. 이렇게 하면 실패 가능성이 있는 분기가 임의의 타입을 가장하는 ``panic!`` 대신 진짜 반환 타입 ``Option (List Nat)``의 일부가 되어, ``partial`` 없이도 구조적 재귀로 받아들여집니다.
+
+[source,lean]
+----
+def encodeSymbolSafe (s : Sym) : HTree → Option (List Nat)
+  | .leaf sym _ => if sym = s then some [] else none
+  | .node l r _ _ =>
+    if symbols l |>.contains s then
+      (encodeSymbolSafe s l).map (0 :: ·)
+    else
+      (encodeSymbolSafe s r).map (1 :: ·)
+----
+
+[NOTE]
+.왜 인코딩은 구조적 재귀인데 디코딩은 ``partial``인가
+====
+Decoding, by contrast, is where a genuine ``partial`` becomes necessary for a different reason: each step in the bit-consuming loop is well-founded on the _shrinking bit list_, but the inner "walk to a leaf, then restart from the root" helper takes a variable-length chunk of bits per symbol, and expressing "the total bits consumed across the whole decode strictly decreases" needs an explicit ``termination_by`` on the length of the remaining bit list rather than relying on structural descent through the tree, since the helper alternates between descending the tree and _not_ touching the outer bit list at every single step:
+
+반면 복호화는 진짜로 ``partial``이 필요해지는 지점인데, 이유가 다릅니다 — 비트를 소비하는 바깥 루프의 각 단계는 _줄어드는 비트 리스트_에 대해 정초되어(well-founded) 있지만, "잎에 도달할 때까지 걷다가 루트에서 다시 시작하는" 내부 헬퍼는 기호마다 가변 길이의 비트 조각을 소비하고, "전체 복호화에서 소비된 비트 총합이 엄격히 줄어든다"는 것을 표현하려면 트리를 통한 구조적 하강에 의존하는 대신 남은 비트 리스트의 길이에 대한 명시적 ``termination_by``가 필요합니다. 헬퍼가 매 단계마다 트리를 내려가는 것과 바깥 비트 리스트를 _건드리지 않는_ 것 사이를 오가기 때문입니다.
+====
+
+[source,lean]
+----
+partial def decodeSymbol (bits : List Nat) (tree : HTree) : Sym × List Nat :=
+  match tree, bits with
+  | .leaf s _, remaining => (s, remaining)
+  | .node l r _ _, 0 :: rest => decodeSymbol rest l
+  | .node l r _ _, 1 :: rest => decodeSymbol rest r
+  | .node .., [] => panic! "ran out of bits mid-symbol"
+  | _, _ => panic! "malformed bit stream"
+
+partial def decodeMessage (bits : List Nat) (tree : HTree) : List Sym :=
+  match bits with
+  | [] => []
+  | _ => let (s, rest) := decodeSymbol bits tree
+         s :: decodeMessage rest tree
+----
+
+Given a concrete alphabet — the same weights SICP uses for its worked example — the pieces assemble into a working round-trip:
+
+구체적인 알파벳 — SICP의 예제와 같은 가중치 — 이 주어지면, 이 조각들은 실제로 동작하는 왕복(인코딩→디코딩) 변환으로 조립됩니다.
+
+[source,lean]
+----
+def leafA : HTree := .leaf .a 8
+def leafB : HTree := .leaf .b 3
+def leafC : HTree := .leaf .c 1
+def leafD : HTree := .leaf .d 1
+
+def cd : HTree := makeCodeTree leafC leafD
+def bcd : HTree := makeCodeTree leafB cd
+def sampleTree : HTree := makeCodeTree leafA bcd
+
+#eval encodeSymbol .d sampleTree
+-- [1, 1, 1]
+
+#eval decodeMessage [1, 1, 1] sampleTree
+-- [Sym.d]
+----
+
+``decodeMessage``'s own recursion is structurally on nothing at all as far as Lean's checker can see mechanically — it calls itself on ``rest``, a bit list produced by an _opaque function call_ to ``decodeSymbol``, not by pattern-matching a constructor off the input ``bits`` directly, so Lean has no automatic way to see that ``rest`` is shorter than ``bits`` without either inlining the definition or supplying a manual well-founded proof. ``partial`` is the honest admission that proving termination here costs real work — work that would pay off if this were library code meant to be trusted rather than a worked example, but which SICP's original Scheme version never had to do at all, since Scheme's evaluator doesn't ask the question in the first place.
+
+``decodeMessage`` 자신의 재귀는 Lean 검사기가 기계적으로 볼 수 있는 한 아무런 구조에도 기대지 않습니다 — 자기 자신을 ``rest``에 대해 호출하는데, 이는 입력 ``bits``를 생성자로 직접 패턴 매치해서 얻은 게 아니라 ``decodeSymbol``이라는 _불투명한 함수 호출_이 만들어낸 비트 리스트입니다. 그래서 Lean은 정의를 인라인하거나 수동으로 정초 증명을 제공하지 않고서는 ``rest``가 ``bits``보다 짧다는 것을 자동으로 볼 방법이 없습니다. ``partial``은 여기서 종료성을 증명하는 데 실제로 품이 든다는 것을 정직하게 인정하는 것입니다 — 이것이 신뢰받아야 할 라이브러리 코드였다면 그 품은 값어치를 했겠지만, SICP의 원래 Scheme 버전은 그 질문 자체를 물을 필요가 애초에 없었습니다. Scheme의 평가기는 그런 질문을 던지지 않기 때문입니다.
+
+That asymmetry is a fitting place to leave this section: symbolic data lets a language talk about its own expressions as values, and the moment a data structure encodes "a variable-length walk that eventually stops," proving it actually stops becomes exactly as much work in Lean as proving anything else does — no more, no less, but also no free pass just because the walk happens to look like tree traversal.
+
+이 비대칭성은 이 절을 마무리하기에 알맞은 지점입니다 — 기호 데이터는 언어가 자기 자신의 표현식을 값으로서 이야기할 수 있게 해주고, 데이터 구조가 "언젠가는 멈추는 가변 길이의 걷기"를 인코딩하는 순간, 그것이 실제로 멈춘다는 것을 증명하는 일은 Lean에서 다른 무엇을 증명하는 것과 정확히 같은 만큼의 품이 듭니다 — 더도 덜도 아니고, 걷는 모양이 트리 순회처럼 보인다고 해서 공짜로 통과되지도 않습니다.
+// end::body[]
