@@ -7,32 +7,41 @@ categories: ["books"]
 description: "Functor와 map 연산으로 컨텍스트 안의 값을 안전하게 변환하는 원리를 정리합니다."
 ---
 
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-why-async/[비동기 프로그래밍이 필요한 이유] · 다음: link:../04-monad/[Monad]_
+
+'''
 
 데이터베이스에서 사용자를 조회했는데 그 사용자가 존재하지 않을 수도 있습니다. API를 호출했는데 응답이 아직 도착하지 않았을 수도 있습니다. 리스트 안에 원소가 하나일 수도 있고 여러 개일 수도 있습니다. 프로그래밍에서 우리가 다루는 값은 종종 어떤 컨텍스트 안에 담겨 있습니다. 이 장에서는 그런 컨텍스트 안의 값을 우아하게 다루는 방법을 배울 것입니다.
 
-## 1-2장에서 배운 것들
+== 1-2장에서 배운 것들
 
 여기까지 우리는 중요한 여정을 거쳐왔습니다.
 
-**1장: 함수형 프로그래밍의 철학**
-- **합성(Composition)**: 작은 함수를 조합해서 큰 함수를 만드는 것
-- **참조 투명성(Referential Transparency)**: 같은 입력이면 항상 같은 출력, 부작용 없음
-- **값으로서의 계산**: 계산 자체를 값처럼 다루면 합성이 가능해짐
+*link:../01-functional-thinking/[1장]: 함수형 프로그래밍의 철학*
 
-**2장: 왜 비동기가 필요한가**
-- **블로킹은 참조 투명성을 깨뜨립니다**: 실행 시간이 외부 요인에 의존하므로
-- **콜백은 합성이 불가능합니다**: 중첩된 콜백은 함수처럼 조합할 수 없음
-- **해답은 "미래의 값"을 값으로 만드는 것**: 아직 도착하지 않은 값을 타입으로 표현하면 다시 합성이 가능해짐
+- *합성(Composition)*: 작은 함수를 조합해서 큰 함수를 만드는 것
+- *참조 투명성(Referential Transparency)*: 같은 입력이면 항상 같은 출력, 부작용 없음
+- *값으로서의 계산*: 계산 자체를 값처럼 다루면 합성이 가능해짐
 
-이 장에서는 그 해답의 핵심 메커니즘을 배웁니다. **"컨텍스트 안의 값"을 어떻게 다루는가?** 값이 없을 수도 있는 Maybe, 여러 개가 있는 리스트, 미래에 도착할 Future. 이들은 모두 **Functor**라는 패턴으로 통일됩니다. 그리고 이 Functor의 핵심 연산 `map`이 바로 **1장의 합성을 컨텍스트 안으로 확장하는 방법**입니다.
+
+*link:../02-why-async/[2장]: 왜 비동기가 필요한가*
+
+- *블로킹은 참조 투명성을 깨뜨립니다*: 실행 시간이 외부 요인에 의존하므로
+- *콜백은 합성이 불가능합니다*: 중첩된 콜백은 함수처럼 조합할 수 없음
+- *해답은 "미래의 값"을 값으로 만드는 것*: 아직 도착하지 않은 값을 타입으로 표현하면 다시 합성이 가능해짐
+
+
+이 장에서는 그 해답의 핵심 메커니즘을 배웁니다. *"컨텍스트 안의 값"을 어떻게 다루는가?* 값이 없을 수도 있는 Maybe, 여러 개가 있는 리스트, 미래에 도착할 Future. 이들은 모두 **Functor**라는 패턴으로 통일됩니다. 그리고 이 Functor의 핵심 연산 ``map``이 바로 **link:../01-functional-thinking/[1장]의 합성을 컨텍스트 안으로 확장하는 방법**입니다.
 
 먼저 가장 친숙한 문제부터 시작해봅시다. None 체크를 반복해야 하는 코드의 불편함입니다.
 
-## None의 고통: 반복되는 체크
+== None의 고통: 반복되는 체크
 
 사용자 프로필을 표시하는 함수를 작성한다고 가정해봅시다. 사용자 정보를 데이터베이스에서 가져오고, 그 사용자의 주소를 찾고, 주소의 우편번호를 추출하려고 합니다. 하지만 각 단계마다 값이 없을 수 있습니다.
 
-```python
+[source,python]
+----
 def get_user_zipcode_uppercase(user_id):
     """사용자의 우편번호를 대문자로 반환합니다"""
     # 데이터베이스 시뮬레이션
@@ -59,20 +68,23 @@ def get_user_zipcode_uppercase(user_id):
 print(get_user_zipcode_uppercase(1))  # "ABC123"
 print(get_user_zipcode_uppercase(2))  # None
 print(get_user_zipcode_uppercase(99)) # None
-```
+----
 
-**문제점**:
-1. **반복되는 None 체크**: 각 단계마다 `if ... is None` 패턴이 반복됩니다
-2. **비즈니스 로직이 묻힘**: 우리가 정말 하고 싶은 일(우편번호 추출 → 대문자 변환)이 None 체크 사이에 묻혀버립니다
-3. **확장성 부족**: 변환 단계를 추가할 때마다 None 체크도 추가해야 합니다
+*문제점*:
+
+1. *반복되는 None 체크*: 각 단계마다 ``if ... is None`` 패턴이 반복됩니다
+2. *비즈니스 로직이 묻힘*: 우리가 정말 하고 싶은 일(우편번호 추출 → 대문자 변환)이 None 체크 사이에 묻혀버립니다
+3. *확장성 부족*: 변환 단계를 추가할 때마다 None 체크도 추가해야 합니다
+
 
 이런 패턴이 코드 전체에 퍼져있다면 유지보수가 악몽이 될 것입니다. 더 나은 방법이 필요합니다.
 
-## Maybe 타입: 값이 있을 수도 없을 수도
+== Maybe 타입: 값이 있을 수도 없을 수도
 
 이 문제를 해결하기 위해 새로운 타입을 만들어봅시다. 이 타입은 값이 있을 수도 있고 없을 수도 있다는 사실을 명시적으로 표현합니다.
 
-```python
+[source,python]
+----
 from typing import Callable, Optional
 
 class Maybe[T]:
@@ -109,11 +121,12 @@ print(maybe_value.get_or_else(0))  # 42
 maybe_none = Maybe(None)
 print(maybe_none)               # Maybe(None)
 print(maybe_none.get_or_else(0))   # 0
-```
+----
 
 이제 Maybe 타입으로 값을 감쌀 수 있습니다. 하지만 이것만으로는 충분하지 않습니다. Maybe 안의 값을 변환하고 싶다면 어떻게 해야 할까요? 일단 꺼내서 변환하고 다시 감싸야 할까요?
 
-```python
+[source,python]
+----
 # 번거로운 방법
 maybe_number = Maybe(42)
 if maybe_number.is_present():
@@ -123,17 +136,18 @@ if maybe_number.is_present():
 else:
     result = Maybe(None)
 print(result)  # Maybe(84)
-```
+----
 
 이것은 우리가 피하려고 했던 None 체크와 본질적으로 같습니다. 더 나은 방법이 필요합니다.
 
-## map의 등장: 컨텍스트를 유지하며 변환하기
+== map의 등장: 컨텍스트를 유지하며 변환하기
 
 핵심 아이디어는 이것입니다. Maybe 안의 값을 변환하되, Maybe라는 컨텍스트는 유지하고 싶습니다. 값이 있으면 변환을 적용하고, 없으면 그냥 None을 유지하면 됩니다. 이 동작을 map이라는 메서드로 구현해봅시다.
 
-**1장의 합성이 여기서 다시 나타납니다.** 1장에서 우리는 `f(x)`와 `g(x)`를 합성해서 `g(f(x))`를 만들었습니다. 하지만 `x`가 Maybe 안에 있다면? 직접 합성할 수 없습니다. map은 바로 이 문제의 해답입니다. `maybe.map(f).map(g)`는 컨텍스트 안에서의 합성을 가능하게 합니다.
+*link:../01-functional-thinking/[1장]의 합성이 여기서 다시 나타납니다.* link:../01-functional-thinking/[1장]에서 우리는 ``f(x)``와 ``g(x)``를 합성해서 ``g(f(x))``를 만들었습니다. 하지만 ``x``가 Maybe 안에 있다면? 직접 합성할 수 없습니다. map은 바로 이 문제의 해답입니다. ``maybe.map(f).map(g)``는 컨텍스트 안에서의 합성을 가능하게 합니다.
 
-```python
+[source,python]
+----
 class Maybe[T]:
     def __init__(self, value: Optional[T]):
         self._value = value
@@ -177,13 +191,14 @@ print(doubled)  # Maybe(84)
 maybe_none = Maybe(None)
 doubled_none = maybe_none.map(lambda x: x * 2)
 print(doubled_none)  # Maybe(None)
-```
+----
 
 map의 아름다움을 보세요. 우리는 None 체크를 전혀 하지 않았습니다. 단지 변환 함수를 전달했을 뿐입니다. map이 알아서 값이 있는지 확인하고, 있으면 함수를 적용하고, 없으면 None을 유지합니다.
 
-더 좋은 점은 map을 연쇄적으로 호출할 수 있다는 것입니다. **이것이 바로 1장에서 배운 함수 합성의 확장입니다.** 일반 값에 대해 `g(f(x))`로 합성했듯이, Maybe 안의 값에 대해서는 `maybe.map(f).map(g)`로 합성합니다.
+더 좋은 점은 map을 연쇄적으로 호출할 수 있다는 것입니다. *이것이 바로 link:../01-functional-thinking/[1장]에서 배운 함수 합성의 확장입니다.* 일반 값에 대해 ``g(f(x))``로 합성했듯이, Maybe 안의 값에 대해서는 ``maybe.map(f).map(g)``로 합성합니다.
 
-```python
+[source,python]
+----
 result = (Maybe(42)
     .map(lambda x: x * 2)      # Maybe(84)
     .map(lambda x: x + 10)     # Maybe(94)
@@ -199,13 +214,14 @@ result_none = (Maybe(None)
     .map(lambda x: str(x))
 )
 print(result_none)  # Maybe(None)
-```
+----
 
 None이 한 번 나타나면 그 이후의 모든 map은 자동으로 건너뛰어집니다. 이것은 철도 선로와 같습니다. 기차가 정상 궤도를 달리다가 문제가 생기면 측선으로 빠지고, 그 이후로는 계속 측선을 따라갑니다.
 
 이제 처음의 우편번호 예제를 다시 작성해봅시다.
 
-```python
+[source,python]
+----
 def get_user_maybe(user_id):
     """사용자를 Maybe로 감싸서 반환합니다"""
     users = {
@@ -225,28 +241,31 @@ def get_user_zipcode_with_maybe(user_id):
     )
 
 print(get_user_zipcode_with_maybe(1))  # "12345"
-```
+----
 
 조금 나아졌지만 아직 완벽하지 않습니다. map 안에서 여전히 None 체크를 해야 합니다. 이 문제는 다음 장에서 flatMap을 배울 때 해결할 것입니다. 지금은 map이 어떻게 컨텍스트를 유지하며 변환을 수행하는지에 집중합시다.
 
-### Functor: "값을 안전하게 꺼내서 변환하고 다시 넣기"
+=== Functor: "값을 안전하게 꺼내서 변환하고 다시 넣기"
 
 수학적인 정의는 잠시 잊으세요. 프로그래머 관점에서 Functor는 **"map 메서드를 가진 모든 것"**입니다.
 리스트, 딕셔너리, Option, 그리고 비동기 프로그래밍의 핵심인 **Future(Promise)**가 모두 Functor입니다.
 
 우리가 비동기 프로그래밍을 할 때 가장 많이 하는 작업이 무엇인가요?
-1. 비동기 값을 기다린다 (`await`)
+
+1. 비동기 값을 기다린다 (``await``)
 2. 그 값을 변환한다 (로직 수행)
 3. 다시 비동기 값으로 반환한다
 
-이 과정이 바로 Functor의 `map`입니다. `map`은 상자(Context) 안의 값을 꺼내서, 함수를 적용하고, 다시 상자에 넣어서 돌려줍니다. 상자를 직접 열 필요 없이 내용물만 쏙 바꿔치기하는 마법이죠.
 
-![Functor Diagram](https://example.com/functor.png)
-*(상자 안의 값에 함수를 적용하는 그림)*
+이 과정이 바로 Functor의 ``map``입니다. ``map``은 상자(Context) 안의 값을 꺼내서, 함수를 적용하고, 다시 상자에 넣어서 돌려줍니다. 상자를 직접 열 필요 없이 내용물만 쏙 바꿔치기하는 마법이죠.
+
+image:https://example.com/functor.png[Functor Diagram]
+_(상자 안의 값에 함수를 적용하는 그림)_
 
 리스트를 하나의 컨텍스트로 생각해봅시다. 리스트는 여러 개의 값을 담는 컨테이너입니다. map은 리스트 안의 각 값에 함수를 적용하지만, 리스트라는 컨텍스트는 유지합니다. 입력이 리스트였으면 출력도 리스트입니다.
 
-```python
+[source,python]
+----
 # 빈 리스트도 문제없습니다
 empty = []
 result = list(map(lambda x: x * 2, empty))
@@ -256,15 +275,16 @@ print(result)  # []
 single = [42]
 result = list(map(lambda x: x * 2, single))
 print(result)  # [84]
-```
+----
 
 이것은 우연이 아닙니다. Maybe와 리스트는 같은 패턴을 따르고 있습니다. 이 패턴을 Functor라고 부릅니다.
 
-### 심화: 리스트 컴프리헨션은 map의 다른 이름입니다
+=== 심화: 리스트 컴프리헨션은 map의 다른 이름입니다
 
-파이썬 개발자라면 `map` 함수보다 리스트 컴프리헨션을 더 자주 사용할 것입니다. 사실 리스트 컴프리헨션도 본질적으로 Functor의 연산입니다.
+파이썬 개발자라면 ``map`` 함수보다 리스트 컴프리헨션을 더 자주 사용할 것입니다. 사실 리스트 컴프리헨션도 본질적으로 Functor의 연산입니다.
 
-```python
+[source,python]
+----
 # map 함수 사용
 doubled_map = list(map(lambda x: x * 2, [1, 2, 3]))
 
@@ -272,15 +292,15 @@ doubled_map = list(map(lambda x: x * 2, [1, 2, 3]))
 doubled_comp = [x * 2 for x in [1, 2, 3]]
 
 print(doubled_map == doubled_comp)  # True
-```
+----
 
 리스트 컴프리헨션 구문을 자세히 보세요.
-`[ ... for x in list ]`
-이 대괄호 `[]`가 바로 **컨텍스트(리스트 구조)**를 유지한다는 의미입니다. 그 구조 안에서 값 `x`만 `x * 2`로 변환됩니다. 만약 `if` 문을 추가해서 원소의 개수를 바꾼다면(`[ ... for x in list if ... ]`), 그것은 더 이상 단순한 Functor 연산(`map`)이 아닙니다. (그것은 `filter`이거나, 둘을 합친 연산입니다).
+``++[++ ... for x in list ++]++``
+이 대괄호 ``++[]++``가 바로 **컨텍스트(리스트 구조)**를 유지한다는 의미입니다. 그 구조 안에서 값 ``x``만 ``x ++*++ 2``로 변환됩니다. 만약 ``if`` 문을 추가해서 원소의 개수를 바꾼다면(``++[++ ... for x in list if ... ++]++``), 그것은 더 이상 단순한 Functor 연산(``map``)이 아닙니다. (그것은 ``filter``이거나, 둘을 합친 연산입니다).
 
-**Functor로서의 map은 절대 원소의 개수를 바꾸지 않습니다.** 3개의 원소가 들어가면 반드시 3개의 변환된 원소가 나와야 합니다. 구조를 완벽하게 보존하는 것, 이것이 Functor의 핵심 제약이자 강력함입니다.
+*Functor로서의 map은 절대 원소의 개수를 바꾸지 않습니다.* 3개의 원소가 들어가면 반드시 3개의 변환된 원소가 나와야 합니다. 구조를 완벽하게 보존하는 것, 이것이 Functor의 핵심 제약이자 강력함입니다.
 
-## Functor의 정의: 패턴을 발견하다
+== Functor의 정의: 패턴을 발견하다
 
 지금까지 본 Maybe와 리스트의 공통점을 추상화해봅시다. 둘 다 이런 특성을 가지고 있습니다.
 
@@ -290,7 +310,8 @@ print(doubled_map == doubled_comp)  # True
 
 이것을 프로토콜로 정의할 수 있습니다.
 
-```python
+[source,python]
+----
 from typing import Protocol, Callable
 
 class Functor[T](Protocol):
@@ -304,7 +325,7 @@ class Functor[T](Protocol):
         컨테이너의 구조는 유지됩니다.
         """
         ...
-```
+----
 
 이제 Maybe가 Functor라는 것을 명시할 수 있습니다. 실제로 Maybe는 이미 map 메서드를 구현했으므로 Functor 프로토콜을 만족합니다.
 
@@ -312,7 +333,8 @@ Functor가 가져야 하는 법칙도 있습니다. 이 법칙들은 map이 직�
 
 첫 번째 법칙은 항등 법칙(identity law)입니다. 항등 함수를 map하면 아무것도 변하지 않아야 합니다.
 
-```python
+[source,python]
+----
 # 항등 함수
 identity = lambda x: x
 
@@ -322,11 +344,12 @@ assert maybe_value.map(identity).get() == maybe_value.get()
 
 numbers = [1, 2, 3]
 assert list(map(identity, numbers)) == numbers
-```
+----
 
 두 번째 법칙은 합성 법칙(composition law)입니다. 두 함수를 합성해서 map을 한 번 호출하는 것과, 각 함수로 map을 두 번 호출하는 것이 같아야 합니다.
 
-```python
+[source,python]
+----
 # 두 함수
 f = lambda x: x * 2
 g = lambda x: x + 10
@@ -342,15 +365,16 @@ numbers = [1, 2, 3]
 result1 = list(map(f, map(g, numbers)))
 result2 = list(map(lambda x: f(g(x)), numbers))
 assert result1 == result2
-```
+----
 
 이 법칙들이 왜 중요할까요? 이 법칙들은 map이 예측 가능한 방식으로 동작한다는 것을 보장합니다. 리팩토링할 때 map 호출을 합치거나 분리해도 결과가 같다는 것을 알 수 있습니다. 이것은 코드를 추론하기 쉽게 만듭니다.
 
-### Functor와 참조 투명성
+=== Functor와 참조 투명성
 
-**1장에서 배운 참조 투명성이 여기서 다시 등장합니다.** Functor 법칙이 성립한다는 것은 map 연산이 참조 투명하다는 의미입니다. `maybe.map(f)`의 결과는 오직 `maybe`와 `f`에만 의존하며, 외부 상태나 실행 순서에 영향받지 않습니다.
+*link:../01-functional-thinking/[1장]에서 배운 참조 투명성이 여기서 다시 등장합니다.* Functor 법칙이 성립한다는 것은 map 연산이 참조 투명하다는 의미입니다. ``maybe.map(f)``의 결과는 오직 ``maybe``와 ``f``에만 의존하며, 외부 상태나 실행 순서에 영향받지 않습니다.
 
-```python
+[source,python]
+----
 # 참조 투명성 덕분에 이런 리팩토링이 안전합니다
 # 버전 1: map을 두 번 호출
 result1 = maybe_value.map(lambda x: x * 2).map(lambda x: x + 10)
@@ -361,15 +385,16 @@ result2 = maybe_value.map(transform)
 
 # 결과는 항상 같습니다
 assert result1.get() == result2.get()
-```
+----
 
-이것이 바로 2장에서 본 콜백과의 차이점입니다. 콜백은 실행 순서와 타이밍에 의존하므로 참조 투명하지 않았습니다. 하지만 Functor의 map은 참조 투명하므로, 안전하게 합성하고 리팩토링할 수 있습니다.
+이것이 바로 link:../02-why-async/[2장]에서 본 콜백과의 차이점입니다. 콜백은 실행 순서와 타이밍에 의존하므로 참조 투명하지 않았습니다. 하지만 Functor의 map은 참조 투명하므로, 안전하게 합성하고 리팩토링할 수 있습니다.
 
-## 실용적인 예제: 설정 파일 파싱
+== 실용적인 예제: 설정 파일 파싱
 
 Maybe를 사용하는 실용적인 예제를 봅시다. JSON 설정 파일을 읽어서 특정 값을 추출하는 함수를 작성하려고 합니다. 파일이 없을 수도 있고, JSON이 잘못되었을 수도 있고, 우리가 찾는 키가 없을 수도 있습니다.
 
-```python
+[source,python]
+----
 import json
 from typing import Any, Dict
 
@@ -397,13 +422,14 @@ def get_config_value(filename: str, key: str) -> Maybe[Any]:
 # config.json: {"database": {"host": "localhost", "port": 5432}}
 db_host = get_config_value("config.json", "database")
 print(db_host.map(lambda db: db.get("host")).get_or_else("localhost"))
-```
+----
 
 이 코드는 각 단계에서 실패할 수 있지만, None 체크를 명시적으로 하지 않습니다. map이 알아서 처리해줍니다. 파일을 읽지 못하면 Maybe(None)이 되고, 그 이후의 모든 map은 자동으로 건너뛰어집니다.
 
 조금 더 개선해봅시다. JSON 파싱도 실패할 수 있으므로 예외를 처리해야 합니다.
 
-```python
+[source,python]
+----
 def safe_parse_json(json_str: str) -> Maybe[Dict[str, Any]]:
     """JSON 파싱을 안전하게 수행합니다"""
     try:
@@ -417,21 +443,20 @@ def get_nested_config(filename: str, *keys: str) -> Maybe[Any]:
     # 여기서 문제가 생깁니다: Maybe[Maybe[Dict]]가 됩니다!
     # 이 문제는 다음 장에서 flatMap으로 해결합니다
     pass
-```
+----
 
-여기서 중첩 문제가 발생합니다. map 안에서 또 다른 Maybe를 반환하면 Maybe[Maybe[...]]가 됩니다. 이것은 다음 장에서 다룰 Monad의 영역입니다. 지금은 map이 컨테이너 안의 값을 변환하되 컨테이너 구조를 유지한다는 점에 집중합시다.
+여기서 중첩 문제가 발생합니다. map 안에서 또 다른 Maybe를 반환하면 Maybe++[++Maybe++[++...++]]++가 됩니다. 이것은 다음 장에서 다룰 Monad의 영역입니다. 지금은 map이 컨테이너 안의 값을 변환하되 컨테이너 구조를 유지한다는 점에 집중합시다.
 
+== Future: 시간 속의 값
 
+드디어 핵심에 도달했습니다. link:../02-why-async/[2장]에서 본 비동기 프로그래밍의 문제를 Functor로 해결할 수 있습니다. 비동기 작업의 결과를 컨테이너에 담고, 그 컨테이너에 map을 제공하는 것입니다.
 
-## Future: 시간 속의 값
+=== 2장의 문제 재확인: 콜백의 한계
 
-드디어 핵심에 도달했습니다. 2장에서 본 비동기 프로그래밍의 문제를 Functor로 해결할 수 있습니다. 비동기 작업의 결과를 컨테이너에 담고, 그 컨테이너에 map을 제공하는 것입니다.
+link:../02-why-async/[2장]에서 우리는 콜백 기반 비동기 코드의 문제를 봤습니다.
 
-### 2장의 문제 재확인: 콜백의 한계
-
-2장에서 우리는 콜백 기반 비동기 코드의 문제를 봤습니다.
-
-```python
+[source,python]
+----
 # 콜백 지옥: 합성이 불가능하고 읽기 어려움
 def fetch_user_callback(user_id, callback):
     def on_complete():
@@ -446,18 +471,21 @@ fetch_user_callback(123, lambda user:
     print(f"1단계: {user}")
     # 더 많은 변환을 하려면? 계속 중첩...
 )
-```
+----
 
 문제점:
-1. **합성 불가능**: 콜백을 함수처럼 조합할 수 없음 (1장의 합성 원리 위반)
-2. **참조 투명성 위반**: 실행 순서와 타이밍에 의존
-3. **값이 아님**: 콜백은 값이 아니라 "나중에 실행될 코드"
 
-### 해결책: Future - 미래의 값을 값으로 만들기
+1. *합성 불가능*: 콜백을 함수처럼 조합할 수 없음 (link:../01-functional-thinking/[1장]의 합성 원리 위반)
+2. *참조 투명성 위반*: 실행 순서와 타이밍에 의존
+3. *값이 아님*: 콜백은 값이 아니라 "나중에 실행될 코드"
 
-Future라는 타입을 만들어봅시다. Future는 아직 도착하지 않은 값, 즉 미래의 값을 표현합니다. **핵심은 "미래의 값"을 지금 당장 다룰 수 있는 "값"으로 만드는 것입니다.** 1장에서 배운 "계산을 값으로 만들기"의 정수입니다.
 
-```python
+=== 해결책: Future - 미래의 값을 값으로 만들기
+
+Future라는 타입을 만들어봅시다. Future는 아직 도착하지 않은 값, 즉 미래의 값을 표현합니다. *핵심은 "미래의 값"을 지금 당장 다룰 수 있는 "값"으로 만드는 것입니다.* link:../01-functional-thinking/[1장]에서 배운 "계산을 값으로 만들기"의 정수입니다.
+
+[source,python]
+----
 import threading
 import time
 from typing import Callable, Optional, List
@@ -538,11 +566,12 @@ class Future[T]:
 
         self.on_complete(apply_func)
         return result_future
-```
+----
 
 이제 Future를 사용해봅시다.
 
-```python
+[source,python]
+----
 def fetch_user_async(user_id: int) -> Future[dict]:
     """사용자 정보를 비동기로 가져옵니다"""
     future = Future()
@@ -572,25 +601,26 @@ greeting_future.on_complete(lambda msg: print(f"결과: {msg}"))
 
 print("다른 작업을 진행할 수 있습니다!")
 time.sleep(2)  # 결과를 볼 수 있도록 대기
-```
+----
 
 실행하면 이렇게 출력됩니다.
 
-```
+....
 사용자 정보를 요청합니다...
 Future 상태: Future(대기 중)
 다른 작업을 진행할 수 있습니다!
 (약 1초 후)
 결과: 안녕하세요, 사용자123님!
-```
+....
 
-중요한 점을 봅시다. fetch_user_async를 호출하는 순간 블로킹되지 않습니다. 즉시 Future를 반환하고 다음 줄로 진행합니다. 그리고 map을 여러 번 체이닝했지만, 각 map도 즉시 새로운 Future를 반환합니다. 실제 계산은 원본 Future가 완료될 때 자동으로 일어납니다.
+중요한 점을 봅시다. fetch++_++user++_++async를 호출하는 순간 블로킹되지 않습니다. 즉시 Future를 반환하고 다음 줄로 진행합니다. 그리고 map을 여러 번 체이닝했지만, 각 map도 즉시 새로운 Future를 반환합니다. 실제 계산은 원본 Future가 완료될 때 자동으로 일어납니다.
 
-### 콜백과 Future의 직접 비교
+=== 콜백과 Future의 직접 비교
 
-2장의 콜백 코드와 비교해봅시다.
+link:../02-why-async/[2장]의 콜백 코드와 비교해봅시다.
 
-```python
+[source,python]
+----
 # 2장의 콜백 방식: 중첩, 읽기 어려움, 합성 불가
 def process_user_callback(user_id):
     fetch_user_callback(user_id, lambda user:
@@ -612,27 +642,30 @@ def process_user_future(user_id):
     )
     greeting.on_complete(print)
     return greeting  # Future를 값으로 반환 가능!
-```
+----
 
-**핵심 차이점:**
+*핵심 차이점:*
 
-| 특성 | 콜백 (2장) | Future + map (3장) |
-|------|-----------|------------------|
-| **합성** | 불가능 (중첩만 가능) | 가능 (map 체이닝) |
-| **참조 투명성** | 위반 (타이밍 의존) | 보장 (Functor 법칙) |
-| **값인가** | 아니오 (단지 실행 코드) | 예 (Future 자체가 값) |
-| **가독성** | 오른쪽으로 증가 (지옥) | 위에서 아래로 (선형) |
-| **재사용** | 어려움 | 쉬움 (Future 전달 가능) |
+[cols=",,",options="header",]
+|===
+|특성 |콜백 (link:../02-why-async/[2장]) |Future {plus} map (link:../03-functor/[3장])
+|*합성* |불가능 (중첩만 가능) |가능 (map 체이닝)
+|*참조 투명성* |위반 (타이밍 의존) |보장 (Functor 법칙)
+|*값인가* |아니오 (단지 실행 코드) |예 (Future 자체가 값)
+|*가독성* |오른쪽으로 증가 (지옥) |위에서 아래로 (선형)
+|*재사용* |어려움 |쉬움 (Future 전달 가능)
+|===
 
-이것이 바로 2장에서 본 콜백 지옥의 해결책입니다. 콜백을 중첩하는 대신, Future에 map을 체이닝합니다. 코드가 위에서 아래로 읽히고, 각 단계가 명확히 분리되어 있습니다.
+이것이 바로 link:../02-why-async/[2장]에서 본 콜백 지옥의 해결책입니다. 콜백을 중첩하는 대신, Future에 map을 체이닝합니다. 코드가 위에서 아래로 읽히고, 각 단계가 명확히 분리되어 있습니다.
 
-**더 중요한 것은:** Future는 값이므로 변수에 저장하고, 함수에서 반환하고, 다른 함수에 전달할 수 있습니다. 1장에서 배운 "값으로서의 계산"이 완성되었습니다.
+*더 중요한 것은:* Future는 값이므로 변수에 저장하고, 함수에서 반환하고, 다른 함수에 전달할 수 있습니다. link:../01-functional-thinking/[1장]에서 배운 "값으로서의 계산"이 완성되었습니다.
 
-## Future로 여러 비동기 작업 조합하기
+== Future로 여러 비동기 작업 조합하기
 
 여러 사용자의 정보를 동시에 가져오고 싶다면 어떻게 할까요? Future를 여러 개 만들고, 각각에 map을 적용할 수 있습니다.
 
-```python
+[source,python]
+----
 def fetch_multiple_users():
     """여러 사용자의 정보를 동시에 가져옵니다"""
     user_ids = [1, 2, 3, 4, 5]
@@ -650,11 +683,11 @@ def fetch_multiple_users():
 
 fetch_multiple_users()
 time.sleep(2)
-```
+----
 
-다섯 개의 요청이 거의 동시에 시작되고, 각각 1초 후에 완료됩니다. 순차적으로 실행했다면 5초가 걸렸겠지만, 병렬로 실행되므로 약 1초만 걸립니다. 2장에서 본 멀티스레딩과 비슷한 성능이지만, 코드는 훨씬 깔끔합니다.
+다섯 개의 요청이 거의 동시에 시작되고, 각각 1초 후에 완료됩니다. 순차적으로 실행했다면 5초가 걸렸겠지만, 병렬로 실행되므로 약 1초만 걸립니다. link:../02-why-async/[2장]에서 본 멀티스레딩과 비슷한 성능이지만, 코드는 훨씬 깔끔합니다.
 
-## Functor의 실용적 가치
+== Functor의 실용적 가치
 
 이 장에서 우리는 Functor라는 패턴을 발견했습니다. Maybe, 리스트, 딕셔너리, 함수, Future가 모두 같은 패턴을 따릅니다. 값을 어떤 컨텍스트에 담고, map을 통해 그 값을 변환하되 컨텍스트는 유지하는 것입니다.
 
@@ -668,13 +701,14 @@ Functor의 실용적 가치는 무엇일까요?
 
 넷째, 비동기 프로그래밍의 단순화입니다. 콜백을 중첩하는 대신 map을 체이닝합니다. 코드가 위에서 아래로 읽히고, 실행 흐름을 파악하기 쉽습니다.
 
-## 심화: Functor와 Future의 실전 주의점
+== 심화: Functor와 Future의 실전 주의점
 
-### 1. 성능 고려사항: map 체이닝의 오버헤드
+=== 1. 성능 고려사항: map 체이닝의 오버헤드
 
 중첩된 map 호출은 가독성을 높이지만, 미세한 성능 오버헤드가 있습니다.
 
-```python
+[source,python]
+----
 # 방법 1: map 체이닝 (가독성 우수)
 result = (future
     .map(lambda x: x * 2)
@@ -687,17 +721,18 @@ def transform(x):
     return str((x * 2) + 10)
 
 result = future.map(transform)  # Future 객체 1개만 생성
-```
+----
 
-**실무 가이드**: 대부분의 경우 가독성을 우선하세요. 성능이 중요한 핫 패스(hot path)에서만 합성을 고려하세요.
+*실무 가이드*: 대부분의 경우 가독성을 우선하세요. 성능이 중요한 핫 패스(hot path)에서만 합성을 고려하세요.
 
-### 2. Future의 스레드 안전성과 한계
+=== 2. Future의 스레드 안전성과 한계
 
 우리가 구현한 Future는 교육용입니다. 실무에서는 다음 한계를 인지하세요:
 
-**취소 불가능**: 한 번 시작된 Future는 취소할 수 없습니다.
+*취소 불가능*: 한 번 시작된 Future는 취소할 수 없습니다.
 
-```python
+[source,python]
+----
 # ❌ 우리 구현에는 취소 기능이 없음
 future = fetch_user_async(123)
 # future.cancel()  # 메서드 없음!
@@ -706,11 +741,12 @@ future = fetch_user_async(123)
 import asyncio
 task = asyncio.create_task(fetch_user(123))
 task.cancel()  # 취소 가능
-```
+----
 
-**에러 처리 부재**: 현재 구현은 성공 경로만 다룹니다.
+*에러 처리 부재*: 현재 구현은 성공 경로만 다룹니다.
 
-```python
+[source,python]
+----
 # ❌ 에러 발생 시 어떻게 처리?
 def fetch_user_may_fail(user_id):
     future = Future()
@@ -722,15 +758,16 @@ def fetch_user_may_fail(user_id):
             future.set_result({"id": user_id})
     threading.Thread(target=do_fetch).start()
     return future
-```
+----
 
-**해결책**: 4장에서 배울 `Result[T, E]` 타입과 조합하여 `Future[Result[User, Error]]` 형태로 사용합니다.
+*해결책*: link:../04-monad/[4장]에서 배울 ``Result++[++T, E++]++`` 타입과 조합하여 ``Future++[++Result++[++User, Error++]]++`` 형태로 사용합니다.
 
-### 3. Functor 법칙 위반의 위험
+=== 3. Functor 법칙 위반의 위험
 
 Functor 법칙을 위반하면 리팩토링이 불가능합니다.
 
-```python
+[source,python]
+----
 # ⚠️ 잘못된 map 구현 (부수 효과 포함)
 class BadMaybe:
     def map(self, func):
@@ -743,15 +780,16 @@ class BadMaybe:
 maybe.map(f).map(g)  # "디버깅" 2번 출력
 maybe.map(lambda x: g(f(x)))  # "디버깅" 1번 출력
 # → 합성 법칙 위반! 리팩토링 불가능
-```
+----
 
-**교훈**: map 구현에는 절대 부수 효과를 넣지 마세요.
+*교훈*: map 구현에는 절대 부수 효과를 넣지 마세요.
 
-### 4. 메모리 누수 위험: 콜백 체인
+=== 4. 메모리 누수 위험: 콜백 체인
 
 Future가 완료되지 않으면 등록된 콜백들이 메모리에 남습니다.
 
-```python
+[source,python]
+----
 # ⚠️ 완료되지 않는 Future
 future_never_completes = Future()  # set_result 호출 안 함
 
@@ -761,39 +799,44 @@ for i in range(10000):
 
 # future_never_completes._callbacks에 10000개 함수 참조!
 # 가비지 컬렉션 안 됨 → 메모리 누수
-```
+----
 
-**해결법**:
+*해결법*:
+
 1. 타임아웃 설정 (일정 시간 후 자동 완료/실패)
 2. Weak Reference 사용 (고급 기법)
-3. 실무에서는 asyncio.wait_for()로 타임아웃 관리
+3. 실무에서는 asyncio.wait++_++for()로 타임아웃 관리
 
----
 
-## 연습 문제
+'''''
+
+== 연습 문제
 
 Functor의 개념을 직접 적용해보세요.
 
-**기본 문제**: `dict_map` 함수를 직접 구현해보세요. `map` 함수와 달리 키는 유지하고 값만 변환해야 합니다.
+*기본 문제*: ``dict++_++map`` 함수를 직접 구현해보세요. ``map`` 함수와 달리 키는 유지하고 값만 변환해야 합니다.
 
-```python
+[source,python]
+----
 def dict_map[K, V, U](func: Callable[[V], U], d: dict[K, V]) -> dict[K, U]:
     # 구현해보세요
     pass
-```
+----
 
-**중급 문제**: Future의 Functor 법칙이 만족되는지 테스트하는 코드를 작성하세요. 항등 법칙과 합성 법칙을 모두 확인하세요.
+*중급 문제*: Future의 Functor 법칙이 만족되는지 테스트하는 코드를 작성하세요. 항등 법칙과 합성 법칙을 모두 확인하세요.
 
-```python
+[source,python]
+----
 def test_functor_laws[T](future: Future[T], f: Callable[[T], T], g: Callable[[T], T]):
     # 항등 법칙: future.map(identity) == future
     # 합성 법칙: future.map(f).map(g) == future.map(lambda x: g(f(x)))
     pass
-```
+----
 
-**도전 문제**: 여러 Future를 하나로 합치는 all_futures 함수를 구현하세요. 모든 Future가 완료되면 결과 리스트를 담은 Future를 반환합니다.
+*도전 문제*: 여러 Future를 하나로 합치는 all++_++futures 함수를 구현하세요. 모든 Future가 완료되면 결과 리스트를 담은 Future를 반환합니다.
 
-```python
+[source,python]
+----
 def all_futures[T](futures: list[Future[T]]) -> Future[list[T]]:
     """
     여러 Future를 하나의 Future[list]로 합칩니다.
@@ -805,31 +848,34 @@ def all_futures[T](futures: list[Future[T]]) -> Future[list[T]]:
 futures = [fetch_user_async(i) for i in range(5)]
 all_users = all_futures(futures)
 all_users.on_complete(lambda users: print(f"{len(users)}명의 사용자"))
-```
+----
 
-## 3장 요약: 컨텍스트 안의 변경
+== 3장 요약: 컨텍스트 안의 변경
 
 이번 장에서는 안전한 데이터 변환을 위한 도구, **Functor**를 배웠습니다.
 
-1.  **Functor**: `map` 메서드를 가진 타입입니다. (List, Maybe, Future)
-2.  **안전성**: 값을 직접 꺼내지 않고도 변환할 수 있습니다. `None` 체크나 `try-except`로부터 해방됩니다.
-3.  **일관성**: 동기 값(List, Maybe)과 비동기 값(Future)을 동일한 방식으로 다룰 수 있습니다.
+[arabic]
+. *Functor*: ``map`` 메서드를 가진 타입입니다. (List, Maybe, Future)
+. *안전성*: 값을 직접 꺼내지 않고도 변환할 수 있습니다. ``None`` 체크나 ``try-except``로부터 해방됩니다.
+. *일관성*: 동기 값(List, Maybe)과 비동기 값(Future)을 동일한 방식으로 다룰 수 있습니다.
 
-### 1장 → 2장 → 3장의 흐름
+=== 1장 → 2장 → 3장의 흐름
 
-- **1장**: 함수형 프로그래밍의 철학 (합성, 참조 투명성, 값으로서의 계산)
-- **2장**: 비동기의 문제 (블로킹은 참조 투명성을 깨고, 콜백은 합성을 불가능하게 함)
-- **3장**: **Functor**로 해결 (비동기 계산을 값(Future)으로 만들고, map으로 합성 가능하게 함)
+* *link:../01-functional-thinking/[1장]*: 함수형 프로그래밍의 철학 (합성, 참조 투명성, 값으로서의 계산)
+* *link:../02-why-async/[2장]*: 비동기의 문제 (블로킹은 참조 투명성을 깨고, 콜백은 합성을 불가능하게 함)
+* *link:../03-functor/[3장]*: **Functor**로 해결 (비동기 계산을 값(Future)으로 만들고, map으로 합성 가능하게 함)
 
-### 아직 남은 문제: 중첩 (Nesting Problem)
 
-`map`을 통해 컨텍스트 안의 값을 우아하게 변환할 수 있게 되었지만, **치명적인 문제**가 하나 남았습니다.
+=== 아직 남은 문제: 중첩 (Nesting Problem)
 
-#### 문제 상황: 연쇄 비동기 작업
+``map``을 통해 컨텍스트 안의 값을 우아하게 변환할 수 있게 되었지만, **치명적인 문제**가 하나 남았습니다.
+
+==== 문제 상황: 연쇄 비동기 작업
 
 실무에서 가장 흔한 패턴은 "비동기 작업의 결과를 사용해서 또 다른 비동기 작업 시작"입니다.
 
-```python
+[source,python]
+----
 # 시나리오: 사용자 조회 → 해당 사용자의 최신 게시글 조회
 def fetch_user(user_id: int) -> Future[User]:
     """사용자 정보를 비동기로 가져옵니다"""
@@ -847,11 +893,12 @@ nested: Future[Future[Post]] = user_future.map(fetch_latest_post)
 
 # 😱 이제 어떻게 Post를 꺼내야 할까요?
 # nested.map(...)? 불가능! 안에 있는 Future를 어떻게 기다림?
-```
+----
 
-**왜 중첩이 생기나요?**
+*왜 중첩이 생기나요?*
 
-```python
+[source,python]
+----
 # map의 타입 시그니처
 class Future[T]:
     def map[U](self, func: Callable[[T], U]) -> Future[U]:
@@ -866,11 +913,12 @@ fetch_latest_post: Callable[[User], Future[Post]]
 user_future.map(fetch_latest_post)
 # → Future[U]
 # → Future[Future[Post]]  (U = Future[Post])
-```
+----
 
-#### 구체적 예제: 콜백 지옥이 돌아왔다
+==== 구체적 예제: 콜백 지옥이 돌아왔다
 
-```python
+[source,python]
+----
 def get_user_latest_post_title(user_id: int) -> ???:
     """사용자의 최신 게시글 제목을 가져옵니다"""
     user_future = fetch_user(user_id)
@@ -888,13 +936,14 @@ def get_user_latest_post_title(user_id: int) -> ???:
 
     user_future.on_complete(on_user)
     # 😱 콜백 중첩, 반환값 없음... 우리가 피하려던 그것!
-```
+----
 
-**핵심 문제**: `map`만으로는 "컨텍스트를 반환하는 함수"를 우아하게 다룰 수 없습니다.
+*핵심 문제*: ``map``만으로는 "컨텍스트를 반환하는 함수"를 우아하게 다룰 수 없습니다.
 
-#### 우리가 원하는 것
+==== 우리가 원하는 것
 
-```python
+[source,python]
+----
 # ✅ 이렇게 작동했으면 좋겠다
 user_future: Future[User] = fetch_user(123)
 post_future: Future[Post] = user_future.??? (fetch_latest_post)
@@ -903,18 +952,21 @@ post_future: Future[Post] = user_future.??? (fetch_latest_post)
 
 title_future: Future[str] = post_future.map(lambda post: post.title)
 # Future[str] - 깔끔!
-```
+----
 
-**필요한 것**: 중첩(`Future[Future[T]]`)을 자동으로 평탄화(flatten)해주는 연산자!
+*필요한 것*: 중첩(``Future++[++Future++[++T++]]++``)을 자동으로 평탄화(flatten)해주는 연산자!
 
-### 4장 예고: flatMap과 Monad
+=== 4장 예고: flatMap과 Monad
 
 다음 장에서는 **flatMap**이라는 연산으로 이 중첩 문제를 해결할 것입니다. flatMap은 **Monad(모나드)**의 핵심 연산이며, **비동기 작업을 순차적으로 연결하는 열쇠**가 됩니다.
 
 우리는 다음을 배울 것입니다:
+
 - flatMap: 중첩을 자동으로 펼치는 연산
-- Monad: Functor + flatMap
+- Monad: Functor {plus} flatMap
 - async/await: 사실은 Monad의 do-notation
 - 실제 JavaScript Promise, Python asyncio의 내부 원리
 
+
 Functor를 이해했다면 이미 절반은 온 것입니다. 다음 단계로 나아갈 준비가 되었습니다.
+// end::body[]
