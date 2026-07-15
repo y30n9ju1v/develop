@@ -85,11 +85,13 @@ print(get_user_zipcode_uppercase(99)) # None
 
 [source,python]
 ----
-from typing import Callable, Optional
+from typing import Callable, Optional, TypeVar, Generic
 
-class Maybe[T]:
+T = TypeVar('T')
+
+class Maybe(Generic[T]):
     """값이 있을 수도 있고 없을 수도 있는 컨테이너"""
-    
+
     def __init__(self, value: Optional[T]):
         self._value = value
     
@@ -148,22 +150,24 @@ print(result)  # Maybe(84)
 
 [source,python]
 ----
-class Maybe[T]:
+U = TypeVar('U')
+
+class Maybe(Generic[T]):
     def __init__(self, value: Optional[T]):
         self._value = value
-    
+
     def is_present(self) -> bool:
         return self._value is not None
-    
+
     def get(self) -> T:
         if self._value is None:
             raise ValueError("값이 없습니다")
         return self._value
-    
+
     def get_or_else(self, default: T) -> T:
         return self._value if self._value is not None else default
-    
-    def map[U](self, func: Callable[[T], U]) -> 'Maybe[U]':
+
+    def map(self, func: Callable[[T], U]) -> 'Maybe[U]':
         """
         값이 있으면 함수를 적용하고 결과를 Maybe로 감싸서 반환합니다.
         값이 없으면 Maybe(None)을 반환합니다.
@@ -313,14 +317,17 @@ print(doubled_map == doubled_comp)  # True
 
 [source,python]
 ----
-from typing import Protocol, Callable
+from typing import Protocol, Callable, TypeVar, Generic
 
-class Functor[T](Protocol):
+T = TypeVar('T')
+U = TypeVar('U')
+
+class Functor(Generic[T], Protocol):
     """
     Functor는 map 메서드를 제공하는 타입입니다.
     map은 컨테이너 안의 값을 변환하되, 컨테이너 구조는 유지합니다.
     """
-    def map[U](self, func: Callable[[T], U]) -> 'Functor[U]':
+    def map(self, func: Callable[[T], U]) -> 'Functor[U]':
         """
         컨테이너 안의 값에 함수를 적용합니다.
         컨테이너의 구조는 유지됩니다.
@@ -489,9 +496,12 @@ Future라는 타입을 만들어봅시다. Future는 아직 도착하지 않은 
 ----
 import threading
 import time
-from typing import Callable, Optional, List
+from typing import Callable, Optional, List, TypeVar, Generic
 
-class Future[T]:
+T = TypeVar('T')
+U = TypeVar('U')
+
+class Future(Generic[T]):
     """
     미래에 도착할 값을 표현하는 컨테이너입니다.
 
@@ -550,7 +560,7 @@ class Future[T]:
             except Exception as e:
                 print(f"⚠️ 콜백 실행 중 에러: {e}")
 
-    def map[U](self, func: Callable[[T], U]) -> 'Future[U]':
+    def map(self, func: Callable[[T], U]) -> 'Future[U]':
         """
         핵심 연산: Future의 결과에 함수를 적용하여 새로운 Future를 만듭니다.
         """
@@ -819,7 +829,10 @@ Functor의 개념을 직접 적용해보세요.
 
 [source,python]
 ----
-def dict_map[K, V, U](func: Callable[[V], U], d: dict[K, V]) -> dict[K, U]:
+K = TypeVar('K')
+V = TypeVar('V')
+
+def dict_map(func: Callable[[V], U], d: dict[K, V]) -> dict[K, U]:
     # 구현해보세요
     pass
 ----
@@ -828,7 +841,7 @@ def dict_map[K, V, U](func: Callable[[V], U], d: dict[K, V]) -> dict[K, U]:
 
 [source,python]
 ----
-def test_functor_laws[T](future: Future[T], f: Callable[[T], T], g: Callable[[T], T]):
+def test_functor_laws(future: Future[T], f: Callable[[T], T], g: Callable[[T], T]):
     # 항등 법칙: future.map(identity) == future
     # 합성 법칙: future.map(f).map(g) == future.map(lambda x: g(f(x)))
     pass
@@ -838,7 +851,7 @@ def test_functor_laws[T](future: Future[T], f: Callable[[T], T], g: Callable[[T]
 
 [source,python]
 ----
-def all_futures[T](futures: list[Future[T]]) -> Future[list[T]]:
+def all_futures(futures: list[Future[T]]) -> Future[list[T]]:
     """
     여러 Future를 하나의 Future[list]로 합칩니다.
     모든 Future가 완료되어야 결과 Future가 완료됩니다.
@@ -901,8 +914,8 @@ nested: Future[Future[Post]] = user_future.map(fetch_latest_post)
 [source,python]
 ----
 # map의 타입 시그니처
-class Future[T]:
-    def map[U](self, func: Callable[[T], U]) -> Future[U]:
+class Future(Generic[T]):
+    def map(self, func: Callable[[T], U]) -> Future[U]:
         ...
 
 # fetch_latest_post의 타입

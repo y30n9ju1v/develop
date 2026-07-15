@@ -374,7 +374,7 @@ from typing import Callable, Optional, TypeVar, Generic
 T = TypeVar('T')
 U = TypeVar('U')
 
-class Future[T]:
+class Future(Generic[T]):
     def __init__(self):
         self._value: Optional[T] = None
         self._completed = False
@@ -1504,7 +1504,7 @@ scheduler.run()
 
 [source,python]
 ----
-def sequential_futures[T](future_funcs: list[Callable[[T], Future[T]]]) -> Future[T]:
+def sequential_futures(future_funcs: list[Callable[[T], Future[T]]]) -> Future[T]:
     """
     Future를 반환하는 함수들의 리스트를 받아서,
     순차적으로 실행하는 하나의 Future를 반환합니다.

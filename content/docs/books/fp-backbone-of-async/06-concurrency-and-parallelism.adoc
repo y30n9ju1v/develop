@@ -553,6 +553,38 @@ Haskell이나 Scala의 ZIO/Cats Effect 같은 고급 FP 생태계는 "자원을 
 
 차이도 있습니다 — Haskell/ZIO의 Bracket은 **값**(Resource 객체 하나)의 생명주기를 감싸는 범용 패턴이라 파일 핸들, 커넥션, 락 등 무엇에든 똑같이 적용됩니다. 반면 ``TaskGroup``은 파이썬 언어와 ``asyncio`` 런타임에 특화되어 **동시 실행되는 태스크들의 집합**이라는 한 가지 경우만 다룹니다. 범용성은 낮지만, 그만큼 "태스크 취소 전파"라는 비동기 특유의 까다로운 문제를 언어 문법(``async with``) 수준에서 직접 지원한다는 실용적 이점이 있습니다.
 
+=== TaskGroup의 함정: 예외가 하나가 아니라 ExceptionGroup으로 옵니다
+
+앞서 "예외가 블록 밖으로 전파된다"고 간단히 말했지만, 여기엔 함정이 하나 있습니다. ``gather``나 일반 함수 호출은 예외가 하나씩 전파되는 데 익숙하지만, ``TaskGroup``은 **동시에 여러 자식 태스크가 각자 다른 예외로 실패할 수 있다**는 걸 처음부터 염두에 두고 설계되었습니다. 그래서 ``TaskGroup``은 실패한 예외를 하나만 골라 던지는 대신, Python 3.11에서 함께 도입된 **``ExceptionGroup``**(PEP 654)으로 전부 묶어서 던집니다.
+
+[source,python]
+----
+async def fetch_user_data(user_id: int):
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(fetch_user(user_id))       # ValueError로 실패한다고 가정
+        tg.create_task(fetch_user_posts(user_id))  # TimeoutError로 실패한다고 가정
+----
+
+이 코드를 익숙하게 ``except ValueError:``로 감싸면 **아무것도 잡히지 않습니다** — 실제로 던져지는 건 ``ValueError``와 ``TimeoutError``를 함께 담은 ``ExceptionGroup``이지, 둘 중 하나가 아니기 때문입니다. 이걸 다루려면 Python 3.11에서 새로 생긴 ``except*`` 구문이 필요합니다.
+
+[source,python]
+----
+try:
+    async with asyncio.TaskGroup() as tg:
+        tg.create_task(fetch_user(user_id))
+        tg.create_task(fetch_user_posts(user_id))
+except* ValueError as eg:
+    for e in eg.exceptions:
+        print(f"값 검증 실패: {e}")
+except* TimeoutError as eg:
+    for e in eg.exceptions:
+        print(f"타임아웃: {e}")
+----
+
+``except*``는 ``ExceptionGroup`` 안에서 **해당 타입과 일치하는 예외들만 따로 골라내** 처리하고, 나머지는 그룹에 남겨 다음 ``except*``나 바깥으로 계속 전파합니다 — 일반 ``except``가 "예외 하나에 대해 첫 번째로 맞는 핸들러 하나만 실행"하는 것과 근본적으로 다른 모델입니다.
+
+이 지점이 5장의 Result 타입과 흥미롭게 대조됩니다 — ``ExceptionGroup``/``except*``는 "여러 실패가 동시에 일어날 수 있다"는 현실을 **명령형 예외 처리 안에서** 어떻게든 수용하려는 시도이지만, 결국 "여러 종류의 예외를 순회하며 타입으로 분기한다"는 점에서 여전히 명령형 제어 흐름의 연장선입니다. 반면 Result 기반 설계라면 애초에 각 태스크가 ``Result[T, E]``를 반환하도록 만들어, 실패를 예외가 아니라 값으로 모으고 리스트나 튜플로 조합했을 것입니다 — 이 경우 "여러 실패를 동시에 다룬다"는 문제 자체가 자연스럽게 사라집니다. ``ExceptionGroup``은 그래서 훌륭한 개선이지만, 이 책이 줄곧 강조해온 "실패를 값으로 다루면 이런 특수 문법 자체가 필요 없어진다"는 원칙을 다시 한번 확인시켜주는 사례이기도 합니다.
+
 == asyncio.wait: 더 세밀한 제어
 
 asyncio.gather는 간단하고 사용하기 쉽지만, 때로는 더 세밀한 제어가 필요합니다. asyncio.wait는 더 저수준의 API로, 다양한 대기 전략을 제공합니다.

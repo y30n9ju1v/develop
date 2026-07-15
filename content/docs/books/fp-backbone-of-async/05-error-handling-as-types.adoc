@@ -146,7 +146,7 @@ E = TypeVar('E')  # 에러 타입
 U = TypeVar('U')
 
 @dataclass(frozen=True)
-class Ok[T]:
+class Ok(Generic[T]):
     """
     성공 값을 담는 Result 타입입니다.
 
@@ -160,14 +160,14 @@ class Ok[T]:
     def unwrap(self) -> T: return self.value
     def unwrap_or(self, default: T) -> T: return self.value
 
-    def map[U](self, func: Callable[[T], U]) -> 'Result[U, E]':
+    def map(self, func: Callable[[T], U]) -> 'Result[U, E]':
         return Ok(func(self.value))
 
-    def flat_map[U](self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
+    def flat_map(self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
         return func(self.value)
 
 @dataclass(frozen=True)
-class Err[E]:
+class Err(Generic[E]):
     """에러 값을 담는 Result 타입입니다."""
     error: E
 
@@ -176,10 +176,10 @@ class Err[E]:
     def unwrap(self) -> T: raise ValueError(f"Err: {self.error}")
     def unwrap_or(self, default: T) -> T: return default
 
-    def map[U](self, func: Callable[[T], U]) -> 'Result[U, E]':
+    def map(self, func: Callable[[T], U]) -> 'Result[U, E]':
         return self # 타입은 변하지만 값은 그대로
 
-    def flat_map[U](self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
+    def flat_map(self, func: Callable[[T], 'Result[U, E]']) -> 'Result[U, E]':
         return self
 
 # Result 타입 정의
