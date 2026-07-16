@@ -23,7 +23,7 @@ _link:../[전체 목차] · 이전: link:../03-sequential-logic/[순차 논리: 
 -- Gates/Isa.lean
 import Gates.Arith
 
-namespace Nand2Lean
+namespace Nand2Npu
 
 inductive DestSpec where
   | none | toA | toD | toM | toAD | toAM | toDM | toADM
@@ -89,7 +89,7 @@ def JumpSpec.shouldJump : JumpSpec → (zr ng : Bool) → Bool
   | .jle,  zr, ng => ng || zr
   | .jne,  zr, _  => !zr
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 `DestSpec`과 `JumpSpec` 둘 다 3비트 조합 8가지가 전부 의미를 가지므로, `ofBits`/`bits`가 서로 완전한 역함수입니다 — `decide`로 왕복을 증명할 수 있는 이유입니다(원소 8개짜리 유한 타입이라 즉시 끝납니다).
@@ -98,7 +98,7 @@ end Nand2Lean
 
 [source,lean]
 ----
-namespace Nand2Lean
+namespace Nand2Npu
 
 inductive Instruction where
   | aInstr (value : Fin 32768)
@@ -135,7 +135,7 @@ def Instruction.encode : Instruction → Vector Bool 16
         da ::ᵥ dd ::ᵥ dm ::ᵥ
         jlt ::ᵥ jeq ::ᵥ jgt ::ᵥ Vector.nil
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 [NOTE]
@@ -147,7 +147,7 @@ end Nand2Lean
 
 [source,lean]
 ----
-namespace Nand2Lean
+namespace Nand2Npu
 
 def AluOp.decode (b : Bool × Bool × Bool × Bool × Bool × Bool) : Option AluOp :=
   ([AluOp.zero, .one, .negOne, .x, .y, .notX, .notY, .negX, .negY,
@@ -178,7 +178,7 @@ theorem encode_decode_roundtrip :
       simp [Instruction.encode, Instruction.decode,
             AluOp.decode_encode, DestSpec.ofBits_bits, JumpSpec.ofBits_bits]
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 [TIP]
@@ -219,7 +219,7 @@ def instrToHackLine (i : Instruction) : String :=
 def emitHackFile (prog : List Instruction) : String :=
   String.intercalate "\n" (prog.map instrToHackLine)
 
-def main : IO Unit := IO.println (Nand2Lean.emitHackFile Nand2Lean.addProgram)
+def main : IO Unit := IO.println (Nand2Npu.emitHackFile Nand2Npu.addProgram)
 ----
 
 [source,bash]

@@ -75,13 +75,31 @@ lean --version && circt-opt --version && verilator --version
 
 세 명령이 전부 버전 정보를 출력하면 준비 완료입니다.
 
+[TIP]
+====
+*Lean4 속성 가이드 — 이 책에서 반복해서 쓰는 문법만 추려둔 것입니다. Lean4를 처음 본다면 앞으로 계속 참고하세요.*
+
+- `def f (a b : T) : U := ...` — 함수 정의. `:=` 뒤가 본문입니다.
+- `theorem name : P := proof` — 명제 `P`를 `proof`로 증명합니다. `by tac1; tac2`처럼 `by`로 시작하면 *전술(tactic)* 모드로, 사람이 증명 절차를 단계별로 지시합니다.
+- `decide` — 명제가 유한한 경우의 수(예: `Bool` 몇 개의 조합)로 환원되면, 그 경우를 전부 기계적으로 확인해 증명을 끝냅니다. 입력 폭이 넓어지면(2장에서 16비트) 계산량이 폭발해 못 씁니다.
+- `simp [lemma1, lemma2, ...]` — 주어진 보조정리들로 식을 최대한 단순화합니다. 여러 곳에서 "이 정리로 `simp`하면 닫힌다"는 식으로 등장합니다.
+- `induction n with | zero => ... | succ k ih => ...` — 자연수(또는 리스트, `Vector`)에 대한 귀납법. `ih`(induction hypothesis)가 "한 단계 작은 경우엔 이미 참"이라는 가정이고, `succ`/`cons` 갈래에서 그 가정을 이용해 한 단계 큰 경우를 증명합니다. `decide`가 계산량 때문에 막히는 지점(2장부터)에서 이걸로 갈아탑니다.
+- `Fin n` — 0부터 `n-1`까지의 값만 표현 가능한 타입. "범위를 벗어난 값"이라는 카테고리 자체가 타입에 없다는 게 핵심(1장 6절, 3장 5절에서 반복 등장).
+- `Vector Bool n` — 길이가 정확히 `n`인 `Bool` 리스트. 16비트 워드, 8비트 정수 등을 표현하는 데 계속 씁니다. `v[i]`로 인덱싱, `v.set i x`로 갱신.
+- `inductive T where | c1 (args) | c2 (args) ...` — 귀납적 타입(대수적 데이터 타입). "이 생성자들 중 하나로만 만들 수 있다"는 것이 "정의되지 않은 값"을 배제하는 핵심 도구입니다(2장의 `AluOp` 18개 생성자 등).
+- `namespace Foo ... end Foo` — 이름공간. `Foo.bar`로 그 안의 정의에 접근합니다.
+- `#eval expr` — 식을 즉시 실행해 결과를 봅니다. VS Code의 Lean4 확장을 쓰면 파일 안에서 바로 결과가 보입니다.
+
+막히면 각 장의 코드에 이 목록을 다시 대입해보세요 — 이 책에 나오는 Lean4 문법의 대부분은 이 열 줄 안에 있습니다.
+====
+
 == 1. 프로젝트 뼈대 만들기
 
 [source,bash]
 ----
-mkdir -p nand2lean/{Gates,mlir,sim}
-cd nand2lean
-lake init nand2lean
+mkdir -p nand2npu/{Gates,mlir,sim}
+cd nand2npu
+lake init nand2npu
 ----
 
 `lakefile.lean`을 아래처럼 최소한으로 정리합니다 — 이 장에서는 mathlib 없이 Lean4 코어만으로 충분합니다.
@@ -92,7 +110,7 @@ lake init nand2lean
 import Lake
 open Lake DSL
 
-package «nand2lean» where
+package «nand2npu» where
 
 lean_lib «Gates» where
 
@@ -105,7 +123,7 @@ lean_exe «emit» where
 
 [source,text]
 ----
-nand2lean/
+nand2npu/
   lakefile.lean
   Gates/
     Basic.lean       -- 게이트 명세·구현·증명
@@ -122,7 +140,7 @@ NAND를 유일한 원시 연산으로 두고, 나머지 게이트를 그 위에 
 [source,lean]
 ----
 -- Gates/Basic.lean
-namespace Nand2Lean
+namespace Nand2Npu
 
 /-- 유일한 원시 게이트. 이후 모든 게이트가 이 함수만으로 정의됩니다. -/
 def nandGate (a b : Bool) : Bool := !(a && b)
@@ -161,7 +179,7 @@ theorem xorGate_correct : ∀ a b, xorGate a b = xorSpec a b := by decide
 theorem muxGate_correct : ∀ a b sel, muxGate a b sel = muxSpec a b sel := by decide
 theorem mux4Gate_correct : ∀ a b c d sel, mux4Gate a b c d sel = mux4Spec a b c d sel := by decide
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 [TIP]
@@ -178,7 +196,7 @@ end Nand2Lean
 [source,lean]
 ----
 -- Gates/Emit.lean
-namespace Nand2Lean
+namespace Nand2Npu
 
 def emitAndGate : String :=
 "hw.module @and_gate(in %a: i1, in %b: i1, out y: i1) {
@@ -208,7 +226,7 @@ def emitMuxGate : String :=
 def emitAll : String :=
   String.intercalate "\n\n" [emitAndGate, emitOrGate, emitXorGate, emitMuxGate]
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 `comb.and`/`comb.or`/`comb.xor`/`comb.mux`는 CIRCT가 이미 제공하는 조합 논리 연산자입니다 — 우리가 `andGate`를 NAND 두 번으로 정의했던 것과 달리, 방출 단계에서는 CIRCT의 표준 연산자를 직접 씁니다. 이게 안전한 이유는 2절의 `andGate_correct` 정리가 "게이트 *구현*"이 아니라 "게이트 *동작*"을 명세와 묶어뒀기 때문입니다 — NAND 두 번이든 `comb.and` 하나든, 진리표가 `andSpec`과 일치하기만 하면 방출 결과로는 등가입니다.
@@ -220,7 +238,7 @@ end Nand2Lean
 -- Main.lean
 import Gates.Emit
 
-def main : IO Unit := IO.println Nand2Lean.emitAll
+def main : IO Unit := IO.println Nand2Npu.emitAll
 ----
 
 == 4. 빌드하고 MLIR 텍스트 뽑기

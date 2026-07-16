@@ -37,7 +37,7 @@ VM 레이블은 어셈블리 레이블과 이름공간이 다릅니다 — 서�
 [source,lean]
 ----
 -- Vm/CodeGen.lean에 추가
-namespace Nand2Lean.Vm
+namespace Nand2Npu.Vm
 
 def compileBranch (currentFn : String) : VmCommand → Option String
   | .label name => some s!"({currentFn}${name})"
@@ -45,7 +45,7 @@ def compileBranch (currentFn : String) : VmCommand → Option String
   | .ifGoto name => some (lines [popToD, s!"@{currentFn}${name}", "D;JNE"])
   | _ => none
 
-end Nand2Lean.Vm
+end Nand2Npu.Vm
 ----
 
 == 2. 함수 호출 규약: call
@@ -54,7 +54,7 @@ end Nand2Lean.Vm
 
 [source,lean]
 ----
-namespace Nand2Lean.Vm
+namespace Nand2Npu.Vm
 
 def pushConst (v : String) : String := lines [s!"@{v}", "D=A", pushD]
 def pushPointerValue (ptr : String) : String := lines [s!"@{ptr}", "D=M", pushD]
@@ -73,7 +73,7 @@ def compileCall (callerFn : String) (callIdx : Nat) (f : String) (n : Nat) : Str
     , s!"({retLabel})"
     ]
 
-end Nand2Lean.Vm
+end Nand2Npu.Vm
 ----
 
 == 3. 함수 정의: function
@@ -82,12 +82,12 @@ end Nand2Lean.Vm
 
 [source,lean]
 ----
-namespace Nand2Lean.Vm
+namespace Nand2Npu.Vm
 
 def compileFunction (f : String) (numLocals : Nat) : String :=
   lines (s!"({f})" :: (List.replicate numLocals (lines [s!"@0", "D=A", pushD])))
 
-end Nand2Lean.Vm
+end Nand2Npu.Vm
 ----
 
 == 4. return: 프레임을 되감기
@@ -96,7 +96,7 @@ end Nand2Lean.Vm
 
 [source,lean]
 ----
-namespace Nand2Lean.Vm
+namespace Nand2Npu.Vm
 
 def restorePointer (ptr : String) (offsetFromFrame : Nat) : String :=
   lines [s!"@{offsetFromFrame}", "D=A", "@R13", "A=M-D", "D=M", s!"@{ptr}", "M=D"]
@@ -114,7 +114,7 @@ def compileReturn : String :=
     , "@R14", "A=M", "0;JMP"                       -- goto RET
     ]
 
-end Nand2Lean.Vm
+end Nand2Npu.Vm
 ----
 
 `restorePointer`의 `offsetFromFrame`이 `FRAME - offset`으로 `THAT`(1), `THIS`(2), `ARG`(3), `LCL`(4) 순서를 인코딩합니다 — `call`이 스택에 쌓은 순서(`retAddr`, `LCL`, `ARG`, `THIS`, `THAT`)를 거꾸로 되짚는 것과 정확히 대응합니다. `FRAME - 5`가 반환 주소인 이유도 같은 순서입니다 — `retAddr`이 맨 처음 쌓였으므로 `FRAME`에서 가장 멀리(5칸) 있습니다.
@@ -124,7 +124,7 @@ end Nand2Lean.Vm
 [source,lean]
 ----
 -- Vm/CodeGen.lean, compileCommand를 이 장의 명령어까지 다루도록 확장
-namespace Nand2Lean.Vm
+namespace Nand2Npu.Vm
 
 def compileCommand2 (currentFn : String) (callIdx labelIdx : Nat) : VmCommand → String
   | .label n => (compileBranch currentFn (.label n)).getD ""
@@ -135,7 +135,7 @@ def compileCommand2 (currentFn : String) (callIdx labelIdx : Nat) : VmCommand �
   | .return_ => compileReturn
   | other => compileCommand labelIdx other  -- 7장의 산술/논리/push/pop으로 위임
 
-end Nand2Lean.Vm
+end Nand2Npu.Vm
 ----
 
 재귀 함수 — 팩토리얼 — 로 `call`/`return`이 실제로 중첩돼도 옳게 동작하는지 확인합니다.
@@ -143,7 +143,7 @@ end Nand2Lean.Vm
 [source,lean]
 ----
 -- Vm/Examples.lean
-namespace Nand2Lean.Vm
+namespace Nand2Npu.Vm
 
 /-- function Main.fact(n):
       if n <= 1 return 1
@@ -174,7 +174,7 @@ def factProgram : List VmCommand :=
   , .return_
   ]
 
-end Nand2Lean.Vm
+end Nand2Npu.Vm
 ----
 
 [NOTE]

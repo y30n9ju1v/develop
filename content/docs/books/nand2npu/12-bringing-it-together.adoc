@@ -18,7 +18,7 @@ _link:../[전체 목차] · 이전: link:../11-operating-system/[운영체제] �
 
 [source,text]
 ----
-nand2lean/
+nand2npu/
   lakefile.lean
   Gates/         -- 1~5장: 게이트, ALU, 순차 논리, ISA, CPU (Lean4 명세·증명)
   Asm/           -- 6장: 렉서, 파서, 심볼 테이블

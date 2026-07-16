@@ -8,7 +8,7 @@ description: "게이트부터 OS까지 실제로 손으로 완성한 실습을 �
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../12-bringing-it-together/[전체 통합]_
+_link:../[전체 목차] · 이전: link:../12-bringing-it-together/[전체 통합] · 다음: link:../14-npu-architecture-and-mac/[NPU 아키텍처와 MAC 유닛]_
 
 '''
 

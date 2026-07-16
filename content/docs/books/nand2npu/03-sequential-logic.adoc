@@ -21,14 +21,14 @@ _link:../[전체 목차] · 이전: link:../02-boolean-arithmetic/[불 산술: �
 -- Gates/Sequential.lean
 import Gates.Basic
 
-namespace Nand2Lean
+namespace Nand2Npu
 
 /-- t=0에서의 값은 false(리셋 상태), t+1에서의 값은 t에서의 입력. -/
 def DFF.spec (input : Nat → Bool) : Nat → Bool
   | 0 => false
   | t + 1 => input t
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 `DFF.spec`은 명세일 뿐, 회로 구현이 아닙니다. 실제 회로에서 "한 클록 지연"은 Lean4 함수로 표현할 수 없습니다 — 그건 물리적인 클록 신호가 관여하는 현상이기 때문입니다. 그래서 이 장부터는 *"레지스터가 만족해야 할 성질"을 Lean4로 명세하고 증명*하되, "그 성질을 실제로 만족하는 회로"는 CIRCT의 `seq.compreg`(순차 레지스터 연산)로 직접 방출합니다 — 1~2장에서 게이트를 NAND로부터 손수 조립했던 것과 달리, 순차 회로의 원시 연산은 CIRCT가 이미 제공하는 것을 그대로 신뢰합니다. 이 신뢰가 이 장에서 새로 열리는 TCB 항목입니다.
@@ -71,7 +71,7 @@ def emitRegister16 : String :=
   hw.output %reg : i16
 }"
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 [source,bash]

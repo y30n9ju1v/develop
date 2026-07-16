@@ -24,7 +24,7 @@ mkdir -p Compiler
 [source,lean]
 ----
 -- Compiler/Token.lean
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
 inductive Token where
   | kwFunction | kwVar | kwIf | kwElse | kwWhile | kwReturn | kwLet
@@ -71,12 +71,12 @@ where
           | '/', '/' :: rest => go (rest.dropWhile (· ≠ '\n'))  -- 줄 주석
           | _, _ => go cs  -- 알 수 없는 문자는 무시 (실전에서는 에러로 처리)
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 [TIP]
 ====
-*확인*: `#eval Nand2Lean.Compiler.tokenize "let x = 3 + 4;"`를 실행하면 `[.kwLet, .identifier "x", .assign, .intConst 3, .plus, .intConst 4, .semi]`가 나와야 합니다.
+*확인*: `#eval Nand2Npu.Compiler.tokenize "let x = 3 + 4;"`를 실행하면 `[.kwLet, .identifier "x", .assign, .intConst 3, .plus, .intConst 4, .semi]`가 나와야 합니다.
 ====
 
 == 2. AST
@@ -84,7 +84,7 @@ end Nand2Lean.Compiler
 [source,lean]
 ----
 -- Compiler/Ast.lean
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
 inductive BinOp where | add | sub | mul | eq | lt | gt deriving Repr
 
@@ -109,7 +109,7 @@ structure FunctionDecl where
   body : List Stmt
   deriving Repr
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 == 3. 재귀 하강 파서
@@ -121,7 +121,7 @@ Lean4에서 "실패할 수 있고 위치를 소비하는" 파서는 `StateT (Lis
 -- Compiler/Parser.lean
 import Compiler.Ast
 
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
 abbrev ParserM := StateT (List Token) Option
 
@@ -195,7 +195,7 @@ partial def parseExpr : ParserM Expr := do
   | some .gt => expect .gt; let r ← parseArith; pure (.binOp .gt l r)
   | _ => pure l
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 `parseTerm`(곱셈)이 `parseArith`(덧셈/뺄셈)보다 먼저, `parseArith`가 비교 연산자보다 먼저 오는 3단 구조가 연산자 우선순위(`*` > `+`/`-` > 비교)를 인코딩합니다 — 이건 6~7장에서 이미 봤던 "우선순위를 함수 호출 순서로 인코딩한다"는 패턴을 파서에도 그대로 적용한 것입니다.
@@ -204,7 +204,7 @@ end Nand2Lean.Compiler
 
 [source,lean]
 ----
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
 partial def parseStmt : ParserM Stmt := do
   match ← peek with
@@ -295,7 +295,7 @@ where
 def parseProgram (tokens : List Token) : Option FunctionDecl :=
   (parseFunction.run tokens).map Prod.fst
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 == 5. 실제 소스 파일 파싱해보기
@@ -317,8 +317,8 @@ def sampleSource : String :=
 }"
 
 def main : IO Unit := do
-  let tokens := Nand2Lean.Compiler.tokenize sampleSource
-  match Nand2Lean.Compiler.parseProgram tokens with
+  let tokens := Nand2Npu.Compiler.tokenize sampleSource
+  match Nand2Npu.Compiler.parseProgram tokens with
   | none => IO.eprintln "parse error"
   | some decl => IO.println (toString (repr decl))
 ----
@@ -353,7 +353,7 @@ lake exe compilermain
 [source,lean]
 ----
 -- Compiler/SymbolTable.lean
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
 inductive VarKind where | param | local_ deriving Repr
 
@@ -365,7 +365,7 @@ def buildSymbolTable (decl : FunctionDecl) : List (String × VarInfo) :=
   (decl.params.zipIdx.map (fun (n, i) => (n, ⟨.param, i⟩))) ++
   (decl.locals.zipIdx.map (fun (n, i) => (n, ⟨.local_, i⟩)))
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 `VarInfo.idx`가 10장에서 그대로 VM `argument`/`local` 세그먼트의 인덱스가 됩니다. `fact` 예제라면 `buildSymbolTable`의 결과는 `[("n", ⟨.param, 0⟩), ("result", ⟨.local_, 0⟩)]`이어야 합니다.

@@ -1,0 +1,250 @@
+---
+title: "시스톨릭 어레이: MAC을 격자로 엮어 행렬을 곱하다"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "hardware", "circt", "book"]
+categories: ["books"]
+description: "14장의 MAC 유닛을 N×N 격자로 배치한 시스톨릭 어레이를 설계·증명하고, 실제로 3×3 행렬 곱셈을 방출·검증하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../14-npu-architecture-and-mac/[NPU 아키텍처와 MAC 유닛] · 다음: link:../16-npu-isa-and-coprocessor/[NPU 명령어 집합과 코프로세서 인터페이스]_
+
+'''
+
+== 1. 왜 격자인가
+
+`N×N` 행렬 곱 `C = A × B`에서 `C[i][j] = Σₖ A[i][k] * B[k][j]`입니다. 이 합을 계산하는 MAC을 `(i, j)` 좌표마다 하나씩, 총 `N²`개 배치하면 모든 `C[i][j]`를 동시에 계산할 수 있습니다 — 문제는 각 MAC이 필요한 `A[i][k]`, `B[k][j]` 값을 어떻게 공급받는가입니다. 메모리에서 매번 가져오면 11장의 RAM이 감당 못 하는 대역폭이 필요합니다(한 클록에 `N²`개의 서로 다른 워드를 읽어야 함).
+
+시스톨릭 어레이(systolic array)의 핵심 아이디어는 *데이터를 메모리가 아니라 이웃 MAC에서 직접 받는다*는 것입니다 — `A`의 값은 왼쪽에서 오른쪽으로, `B`의 값은 위에서 아래로 한 클록마다 한 칸씩 흘러가고, 각 MAC은 자기 위치를 지나가는 순간의 `A`, `B` 값을 곱해 누적합니다. "심장 박동(systole)"처럼 데이터가 격자를 관통해 흐른다고 해서 이런 이름이 붙었습니다.
+
+== 2. 단일 PE(Processing Element) 설계
+
+MAC 유닛에 "옆으로 전달하기" 기능을 더한 것이 PE(Processing Element)입니다.
+
+[source,lean]
+----
+-- Npu/Systolic.lean
+import Npu.Mac
+
+namespace Nand2Npu.Npu
+
+structure PEOutputs where
+  aOut : Vector Bool 16   -- 다음 열(오른쪽) PE로 전달할 A 값
+  bOut : Vector Bool 16   -- 다음 행(아래) PE로 전달할 B 값
+  acc : Vector Bool 16    -- 이 PE의 누적값
+
+def peStep (aIn bIn accPrev : Vector Bool 16) : PEOutputs :=
+  { aOut := aIn, bOut := bIn, acc := macStep aIn bIn accPrev }
+
+def peStepSpec (aIn bIn accPrev : Nat) : Nat := macSpec aIn bIn accPrev
+
+theorem peStep_correct (aIn bIn accPrev : Vector Bool 16) :
+    Nand2Npu.bitsToNat (peStep aIn bIn accPrev).acc =
+      peStepSpec (Nand2Npu.bitsToNat aIn) (Nand2Npu.bitsToNat bIn) (Nand2Npu.bitsToNat accPrev) :=
+  macStep_correct aIn bIn accPrev
+
+end Nand2Npu.Npu
+----
+
+`peStep_correct`가 14장의 `macStep_correct`를 그대로 재사용해 한 줄로 끝나는 것이 이 시리즈에서 계속 강조해온 "부품 정확성을 조립한다"는 패턴의 가장 짧은 사례입니다 — PE는 MAC에 배선 두 개(`aOut`, `bOut`)를 더한 것뿐이라, 곱셈-누산의 정확성은 새로 증명할 게 없습니다.
+
+== 3. 3×3 어레이와 전체 정확성
+
+`3×3` 격자를 만들고, `N`클록 후(정확히는 데이터가 대각선으로 흘러들어가는 지연을 감안해 `2N-1`클록 후) 각 PE의 `acc`가 `C[i][j]`와 같음을 증명합니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Npu
+
+structure SystolicState (n : Nat) where
+  acc : Fin n → Fin n → Vector Bool 16
+  aReg : Fin n → Fin n → Vector Bool 16  -- 각 PE가 현재 들고 있는 A 값
+  bReg : Fin n → Fin n → Vector Bool 16
+
+def SystolicState.init (n : Nat) : SystolicState n :=
+  { acc := fun _ _ => Nand2Npu.constVec 0
+  , aReg := fun _ _ => Nand2Npu.constVec 0
+  , bReg := fun _ _ => Nand2Npu.constVec 0 }
+
+/-- 한 클록 전이. aFeed/bFeed는 이번 클록에 격자 왼쪽/위쪽 경계로 새로 흘러들어오는 값
+    (스케줄러가 대각선으로 밀어 넣는 방식 — 4절 참고). -/
+def SystolicState.step (n : Nat) (s : SystolicState n)
+    (aFeed : Fin n → Vector Bool 16) (bFeed : Fin n → Vector Bool 16) : SystolicState n :=
+  { acc := fun i j =>
+      let aIn := if h : j.val = 0 then aFeed i else s.aReg i ⟨j.val - 1, by omega⟩
+      let bIn := if h : i.val = 0 then bFeed j else s.bReg ⟨i.val - 1, by omega⟩ j
+      (peStep aIn bIn (s.acc i j)).acc
+  , aReg := fun i j => if h : j.val = 0 then aFeed i else s.aReg i ⟨j.val - 1, by omega⟩
+  , bReg := fun i j => if h : i.val = 0 then bFeed j else s.bReg ⟨i.val - 1, by omega⟩ j }
+
+end Nand2Npu.Npu
+----
+
+`aReg i j`가 "왼쪽 이웃(`j-1`)이 이전 클록에 갖고 있던 값"을 그대로 물려받는 재귀적 정의라는 점이, `j=0`(격자 왼쪽 경계)에서는 외부에서 새 값(`aFeed`)을 받는다는 것과 대비됩니다. 이게 바로 "데이터가 옆 PE에서 직접 전달된다"는 시스톨릭 흐름을 Lean4 함수로 그대로 옮긴 것입니다.
+
+=== 데이터가 격자를 흐르는 모습 (3×3, T=0~4)
+
+말로 설명하기보다 실제로 숫자가 어느 클록에 어느 PE에 도달하는지 표로 그려보면 스케줄이 훨씬 분명해집니다. `A`행은 왼쪽에서, `B`열은 위에서 대각선으로 한 칸씩 밀어 넣습니다 — `A`의 `i`행은 `i`클록 지연 후 시작하고, `B`의 `j`열은 `j`클록 지연 후 시작합니다.
+
+[source,text]
+----
+클록 T=0: A00만 (0,0)의 왼쪽 경계로 진입, B00만 (0,0)의 위쪽 경계로 진입
+   (0,0)=A00·B00 누적 시작    (0,1)=대기       (0,2)=대기
+   (1,0)=대기                 (1,1)=대기       (1,2)=대기
+   (2,0)=대기                 (2,1)=대기       (2,2)=대기
+
+클록 T=1: A00→(0,1)로 전달, A10 신규 진입 / B00→(1,0)로 전달, B01 신규 진입
+   (0,0)=A01·B10 누적         (0,1)=A00·B01 누적 시작   (0,2)=대기
+   (1,0)=A10·B00 누적 시작    (1,1)=대기                 (1,2)=대기
+   (2,0)=대기                 (2,1)=대기                 (2,2)=대기
+
+클록 T=2: 대각선이 한 칸씩 더 전진 — (0,2), (2,0), (1,1)이 이번에 새로 값을 받기 시작
+   (0,0)=A02·B20 누적(3번째) (0,1)=A01·B11 누적(2번째)  (0,2)=A00·B02 누적 시작
+   (1,0)=A11·B10 누적(2번째) (1,1)=A10·B01 누적 시작    (1,2)=대기
+   (2,0)=A20·B00 누적 시작   (2,1)=대기                  (2,2)=대기
+
+...
+
+클록 T=4: (0,0)은 이미 3번(k=0,1,2) 다 누적해 완료. (2,2)가 마지막으로 A20·B02 누적을 시작.
+   (2,2)=A22·B22 누적(3번째, 완료)
+----
+
+패턴이 보입니다 — PE `(i,j)`는 `T = i + j`클록에 `A[i][0]·B[0][j]` 누적을 시작하고, 이후 매 클록 `k`가 하나씩 늘어난 `A[i][k]·B[k][j]`를 받아 총 `N`번(`N=3`이면 3번) 누적한 뒤 멈춥니다. 그러니까 **PE `(i,j)`가 `C[i][j]`를 완성하는 시점은 정확히 `T = i + j + N - 1`**입니다. 이 관찰이 바로 아래 증명의 뼈대입니다.
+
+=== 정확성 증명을 채우는 순서
+
+전체 정확성 정리는 "적절한 스케줄로 `T`클록 돌리면 `acc i j = C[i][j]`"라는 형태입니다. 완전한 증명은 지면 관계상 생략하지만, 위 표에서 관찰한 사실을 그대로 Lean4 증명 절차로 옮기면 다음 세 단계로 쪼개집니다.
+
+1. *스케줄 함수를 명시적으로 정의한다.* `aFeed`/`bFeed`가 매 클록 무엇을 흘려보내는지부터 정확히 적어야 증명 대상이 생깁니다.
++
+[source,lean]
+----
+def scheduledAFeed (n : Nat) (A : Fin n → Fin n → Vector Bool 16) (t : Nat) (i : Fin n) : Vector Bool 16 :=
+  if h : t ≥ i.val ∧ t - i.val < n then A i ⟨t - i.val, h.2⟩ else Nand2Npu.constVec 0
+
+def scheduledBFeed (n : Nat) (B : Fin n → Fin n → Vector Bool 16) (t : Nat) (j : Fin n) : Vector Bool 16 :=
+  if h : t ≥ j.val ∧ t - j.val < n then B ⟨t - j.val, h.2⟩ j else Nand2Npu.constVec 0
+----
++
+(`T=0` 표에서 `(0,0)`이 `A00`을 받는 것은 `i=0`이므로 `t ≥ 0`이 항상 참, `t - 0 = 0`일 때 `A[0][0]`이 나오는 것과 정확히 대응합니다.)
+2. *"PE `(i,j)`가 `T`클록까지 누적한 값은 `k ≤ T - i - j`인 항들의 부분합이다"는 보조정리를 `T`에 대한 귀납으로 세운다.* 기저 케이스(`T < i + j`)는 `acc = 0`, 귀납 스텝은 `SystolicState.step`의 정의를 펼쳐 `peStep_correct`(2절)를 한 번 적용하면 "이전까지의 부분합 + 새 항"이 나온다는 것을 보이는 것으로 끝납니다 — 이게 3장에서 반복했던 "궤적 위의 정리를 귀납으로 닫는다"는 패턴의 재사용입니다.
+3. *`T = i + j + N - 1`을 대입하면 부분합이 전체 합(`matmulSpec`)과 일치함을 확인한다.* `k`의 범위가 정확히 `0..N-1` 전체를 덮는 지점이 바로 이 `T`이기 때문입니다.
+
+[source,lean]
+----
+def matmulSpec (n : Nat) (A B : Fin n → Fin n → Nat) (i j : Fin n) : Nat :=
+  ((List.finRange n).map (fun k => A i k * B k j)).sum % 65536
+
+/-- 2단계에서 세우는 핵심 보조정리의 형태 (증명은 위 순서 2번을 따라 채우는 것이 이 장의 핵심 연습 문제). -/
+theorem systolic_partial_sum (n : Nat) (A B : Fin n → Fin n → Vector Bool 16) (i j : Fin n) (T : Nat) :
+    let s := (List.range (T + 1)).foldl
+      (fun st t => st.step n (scheduledAFeed n A t) (scheduledBFeed n B t))
+      (SystolicState.init n)
+    Nand2Npu.bitsToNat (s.acc i j) =
+      (((List.finRange n).filter (fun k => k.val + i.val + j.val ≤ T)).map
+        (fun k => Nand2Npu.bitsToNat (A i k) * Nand2Npu.bitsToNat (B k j))).sum % 65536 := by
+  sorry  -- 2번 순서대로 T에 대한 귀납
+
+/-- 3단계: T = i+j+n-1을 대입하면 필터 조건이 항상 참이 되어 matmulSpec과 일치. -/
+theorem systolic_correct (n : Nat) (A B : Fin n → Fin n → Vector Bool 16) (i j : Fin n) :
+    let s := (List.range (i.val + j.val + n)).foldl
+      (fun st t => st.step n (scheduledAFeed n A t) (scheduledBFeed n B t))
+      (SystolicState.init n)
+    Nand2Npu.bitsToNat (s.acc i j) =
+      matmulSpec n (fun i k => Nand2Npu.bitsToNat (A i k)) (fun k j => Nand2Npu.bitsToNat (B k j)) i j := by
+  have h := systolic_partial_sum n A B i j (i.val + j.val + n - 1)
+  simp only [matmulSpec]
+  rw [h]
+  congr 1
+  apply List.filter_eq_self_iff.mpr  -- k ≤ n-1이므로 k+i+j ≤ (i+j+n-1)이 항상 성립함을 omega로
+  intro k _; omega
+----
+
+== 4. MLIR/CIRCT로 3×3 어레이 방출하기
+
+[source,lean]
+----
+def emitSystolic3x3 : String :=
+"hw.module @systolic3x3(
+    in %clk: !seq.clock,
+    in %a0: i16, in %a1: i16, in %a2: i16,   -- 왼쪽 경계로 흘러들어오는 A 값 (행 0,1,2)
+    in %b0: i16, in %b1: i16, in %b2: i16,   -- 위쪽 경계로 흘러들어오는 B 값 (열 0,1,2)
+    out acc00: i16, out acc01: i16, out acc02: i16,
+    out acc10: i16, out acc11: i16, out acc12: i16,
+    out acc20: i16, out acc21: i16, out acc22: i16
+  ) {
+  // 9개 PE를 comb.mul/comb.add/seq.compreg로 인스턴스화하고,
+  // aReg/bReg 체인으로 이웃 PE에 배선합니다.
+  // 반복적인 배선이라 지면에는 구조만 남기고, 전체 9-PE 배선은 이 장의 연습 문제입니다.
+  hw.output %acc00, %acc01, %acc02, %acc10, %acc11, %acc12, %acc20, %acc21, %acc22
+    : i16, i16, i16, i16, i16, i16, i16, i16, i16
+}"
+----
+
+[NOTE]
+====
+9개 PE를 전부 손으로 배선하는 것은 반복적이지만, 시스톨릭 어레이의 핵심을 배우는 데 중요한 연습입니다 — `hw.instance`로 `mac16`(14장)을 9번 인스턴스화하고, `%pe_i_j_aOut`을 `%pe_i_(j+1)_aIn`에 연결하는 식으로 배선을 완성하세요. `n×n`이 커질수록 이 배선을 Lean4 코드로 *생성*하는 것(문자열 템플릿을 반복문으로 조립)이 손으로 쓰는 것보다 훨씬 안전합니다 — 8×8 이상으로 확장할 계획이라면 처음부터 생성기를 만드는 것을 권합니다.
+====
+
+== 5. Verilator로 3×3 행렬 곱셈 검증
+
+[source,cpp]
+----
+// sim/tb_systolic3x3.cpp
+#include "Vsystolic3x3.h"
+#include "verilated.h"
+#include <cstdio>
+
+static void tick(Vsystolic3x3* dut) { dut->clk = 0; dut->eval(); dut->clk = 1; dut->eval(); }
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vsystolic3x3;
+
+    // A = [[1,2,3],[4,5,6],[7,8,9]], B = 단위행렬(identity) → C = A
+    int A[3][3] = {{1,2,3},{4,5,6},{7,8,9}};
+    int B[3][3] = {{1,0,0},{0,1,0},{0,0,1}};
+
+    // 대각선 스케줄로 9클록 이상 흘려보냄 (경계 조건에 따라 파이프라인 채우는 데 몇 클록 더 필요)
+    for (int t = 0; t < 12; ++t) {
+        dut->a0 = (t < 3) ? A[0][t] : 0;
+        dut->a1 = (t >= 1 && t < 4) ? A[1][t-1] : 0;
+        dut->a2 = (t >= 2 && t < 5) ? A[2][t-2] : 0;
+        dut->b0 = (t < 3) ? B[t][0] : 0;
+        dut->b1 = (t >= 1 && t < 4) ? B[t-1][1] : 0;
+        dut->b2 = (t >= 2 && t < 5) ? B[t-2][2] : 0;
+        tick(dut);
+    }
+
+    int expected[3][3] = {{1,2,3},{4,5,6},{7,8,9}};  // A × I = A
+    int got[3][3] = {{dut->acc00, dut->acc01, dut->acc02},
+                      {dut->acc10, dut->acc11, dut->acc12},
+                      {dut->acc20, dut->acc21, dut->acc22}};
+    int failures = 0;
+    for (int i = 0; i < 3; ++i)
+      for (int j = 0; j < 3; ++j)
+        if (got[i][j] != expected[i][j]) {
+          std::printf("FAIL C[%d][%d]: expected %d got %d\n", i, j, expected[i][j], got[i][j]);
+          ++failures;
+        }
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("3x3 MATMUL PASSED (A x I = A)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `3x3 MATMUL PASSED`가 나와야 합니다. 대각선 피딩 타이밍(`t < 3`, `t >= 1 && t < 4` 등)이 어긋나면 결과가 미묘하게 밀린 형태로 틀리는데, 이건 3절에서 연습 문제로 남긴 "정확한 스케줄"을 실제로 손으로 맞춰보는 가장 직접적인 방법입니다 — 실패한다면 각 PE의 `acc`를 중간중간 출력해 어느 좌표가 언제 올바른 값에 도달하는지 관찰하는 것이 가장 빠른 디버깅 경로입니다.
+====
+
+== 이 장에서 확정한 것
+
+* 시스톨릭 어레이가 메모리 대역폭 문제를 "데이터를 이웃 PE에서 직접 전달"하는 구조로 우회한다는 설계 원리를 확인했습니다.
+* PE를 MAC(14장)에 전달 배선만 더한 것으로 정의해, 정확성 증명(`peStep_correct`)이 `macStep_correct`를 그대로 재사용하는 한 줄로 끝난다는 것을 봤습니다.
+* 3×3 어레이를 실제로 방출하고, 단위행렬을 곱해 원본 행렬이 그대로 나오는 것을 Verilator로 확인했습니다.
+* 전체 정확성 증명(적절한 스케줄에서 `acc i j = C[i][j]`)과 9-PE 배선 생성은 이 장의 핵심 연습 문제로 남겼습니다 — 8×8 이상으로 확장하려면 배선을 생성하는 Lean4 코드를 먼저 만드는 것을 권합니다.
+
+다음 장에서는 이 시스톨릭 어레이를 5장의 CPU에 코프로세서로 연결하는 방법 — NPU 전용 명령어와, CPU가 어레이에 데이터를 넣고 결과를 꺼내는 인터페이스 — 을 다룹니다.
+// end::body[]

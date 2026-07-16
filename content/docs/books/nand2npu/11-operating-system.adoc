@@ -31,9 +31,9 @@ _link:../[전체 목차] · 이전: link:../10-compiler-code-generation/[컴파�
 [source,lean]
 ----
 -- Compiler/Runtime.lean에 추가
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
-open Nand2Lean.Vm (VmCommand)
+open Nand2Npu.Vm (VmCommand)
 
 /-- function Memory.init():
       let freeList = 2048;
@@ -81,7 +81,7 @@ def memoryDeAllocVm : List VmCommand :=
   , .return_
   ]
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 `Memory.alloc`이 "쪼개기 없이 통째로 쓰고 다음 블록으로 남긴다"고 단순화한 이유 — 이 장의 목표는 자유 목록 개념을 실제로 동작하는 최소 구현으로 보여주는 것이지, 프로덕션급 할당자를 만드는 것이 아닙니다. 11장 3절에서 이 단순화가 만드는 구체적인 한계(내부 단편화)를 테스트로 직접 확인합니다.
@@ -93,7 +93,7 @@ end Nand2Lean.Compiler
 [source,lean]
 ----
 -- Compiler/HeapModel.lean
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
 structure HeapModel where
   mem : List (Nat × Nat) := []   -- 주소 → 값 (희소 맵, 초기값 0)
@@ -133,7 +133,7 @@ def blocksOverlap (b1 b2 : Nat × Nat) : Bool :=
 def checkNoOverlap (blocks : List (Nat × Nat)) : Bool :=
   blocks.all (fun b1 => blocks.all (fun b2 => b1 = b2 || !blocksOverlap b1 b2))
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 [source,lean]
@@ -142,14 +142,14 @@ end Nand2Lean.Compiler
 import Compiler.HeapModel
 
 def main : IO Unit := do
-  let h0 := Nand2Lean.Compiler.HeapModel.init
+  let h0 := Nand2Npu.Compiler.HeapModel.init
   let (p1, h1) := h0.alloc 10
   let (p2, h2) := h1.alloc 20
   let h3 := h2.deAlloc p1
   let (p3, h4) := h3.alloc 5
   IO.println s!"p1={p1} p2={p2} p3={p3}"
   IO.println s!"freeList blocks: {h4.freeListBlocks}"
-  IO.println s!"no overlap: {Nand2Lean.Compiler.checkNoOverlap h4.freeListBlocks}"
+  IO.println s!"no overlap: {Nand2Npu.Compiler.checkNoOverlap h4.freeListBlocks}"
 ----
 
 [source,bash]
@@ -167,7 +167,7 @@ lake build heapmain && lake exe heapmain
 [source,lean]
 ----
 -- Compiler/Runtime.lean에 추가
-namespace Nand2Lean.Compiler
+namespace Nand2Npu.Compiler
 
 /-- function Screen.drawPixel(x, y):
       word = 16384 + y*32 + x/16
@@ -194,7 +194,7 @@ def screenDrawPixelVm : List VmCommand :=
   , .return_
   ]
 
-end Nand2Lean.Compiler
+end Nand2Npu.Compiler
 ----
 
 [NOTE]

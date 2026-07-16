@@ -1,0 +1,150 @@
+---
+title: "컴파일러 확장과 전체 재통합: 텐서 연산을 NPU 명령어로"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "compiler", "verification", "book"]
+categories: ["books"]
+description: "Mini 언어에 행렬 타입을 추가해 NPU 호출로 컴파일하고, 게이트부터 양자화된 행렬 곱셈까지 전체 파이프라인을 재통합한 뒤 NPU 확장에서 증명이 새로 필요해진 지점을 회고하는 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../17-quantization-fixed-point/[양자화와 고정소수점] · 다음 편: (2권에서 계속)_
+
+'''
+
+== 1. Mini 언어에 행렬 타입 추가하기
+
+9장의 Mini 언어는 정수 스칼라만 다뤘습니다. 16장 5절에서 이미 짚었듯, `Npu.setA`를 9번 개별 호출하는 건 현실적이지 않으므로 최소한의 행렬 리터럴과 `matmul` 내장 함수를 추가합니다.
+
+[source,lean]
+----
+-- Compiler/Ast.lean에 추가
+namespace Nand2Npu.Compiler
+
+inductive Expr where
+  | intLit (n : Nat)
+  | varRef (name : String)
+  | binOp (op : BinOp) (l r : Expr)
+  | call (name : String) (args : List Expr)
+  | matrixLit (rows : List (List Expr))   -- 새로 추가: [[1,2,3],[4,5,6],[7,8,9]]
+  | matmul (a b : Expr)                    -- 새로 추가: matmul(A, B)
+  deriving Repr
+
+end Nand2Npu.Compiler
+----
+
+파서(9장)에는 `[` `]`로 감싼 리스트의 리스트를 파싱하는 갈래 하나만 추가하면 됩니다 — 9장의 `parsePrimary`가 `.lparen` 갈래를 처리하던 것과 같은 자리에 `.lbracket` 갈래를 나란히 추가하는 정도의 작업이라 지면에서는 생략하고 연습 문제로 남깁니다.
+
+== 2. 코드 생성: matmul을 NPU 호출 시퀀스로 낮추기
+
+10장의 `compileExpr`에 `matrixLit`과 `matmul` 갈래를 추가합니다 — `*`를 `Math.multiply` 호출로 낮췄던 것과 정확히 같은 패턴입니다.
+
+[source,lean]
+----
+-- Compiler/CodeGen.lean에 추가
+namespace Nand2Npu.Compiler
+
+open Nand2Npu.Vm (VmCommand)
+
+partial def compileExpr (symtab : List (String × VarInfo)) : Expr → List VmCommand
+  | .matrixLit rows =>
+      -- 각 원소를 순서대로 Npu.setA에 로드 (matmul에서 어느 피연산자인지에 따라
+      -- setA/setB를 호출부에서 결정 — 아래 matmul 갈래 참고)
+      (rows.flatMap id).flatMap (compileExpr symtab)  -- 값들을 스택에 순서대로 push
+  | .matmul a b =>
+      let aElems := match a with | .matrixLit rows => rows.flatMap id | _ => []
+      let bElems := match b with | .matrixLit rows => rows.flatMap id | _ => []
+      (aElems.zipIdx.flatMap (fun (e, i) =>
+        compileExpr symtab e ++ [.push .constant i, .call "Npu.setA" 2])) ++
+      (bElems.zipIdx.flatMap (fun (e, i) =>
+        compileExpr symtab e ++ [.push .constant i, .call "Npu.setB" 2])) ++
+      [.call "Npu.start" 0, .call "Npu.waitDone" 0,
+       .push .constant 4, .call "Npu.getC" 1]  -- 단순화: 항상 C[1][1](인덱스 4)만 반환
+  | other => compileExprScalar symtab other  -- 9~10장의 기존 갈래(intLit, varRef, binOp 등)로 위임
+
+end Nand2Npu.Compiler
+----
+
+[NOTE]
+====
+`matmul`이 "항상 인덱스 4(C[1][1])만 반환"하는 건 이 지면의 단순화입니다 — Mini 언어에 행렬을 반환 타입으로 갖는 표현식을 온전히 추가하려면 9장의 타입 시스템 자체를 확장해야 하는데(현재 Mini는 스칼라 정수만 값으로 다룹니다), 이건 이 책의 범위를 넘어서는 더 큰 작업입니다. 실전에서는 `matmul`의 결과를 통째로 받아 다시 힙(11장)에 할당된 배열로 반환하는 형태가 되어야 하고, 이를 위한 Mini 언어 확장(배열 타입, 인덱싱 문법)이 이 장의 가장 큰 연습 문제입니다.
+====
+
+== 3. Npu.setA를 (idx, value) 두 인자로 다시 정의
+
+16장의 `Npu.setA`는 `(idx, value)` 두 인자를 받는 함수였는데, 위 코드 생성기는 `compileExpr`로 value를 먼저 push하고 그다음 idx를 push하는 순서입니다 — 8장에서 정리했던 "인자는 스택에 순서대로 쌓이고 `ARG` 포인터로 접근한다"는 규약을 그대로 따르되, 인자 순서(value가 arg0, idx가 arg1)가 16장 원래 정의(`arg0=idx`, `arg1=value`)와 반대로 뒤집혔다는 점에 주의해야 합니다. 이건 이 지면을 쓰면서 실제로 마주친 순서 불일치이고, 두 가지 방법 중 하나로 고쳐야 합니다.
+
+1. `Npu.setA`의 인자 순서를 `(value, idx)`로 재정의하거나,
+2. 코드 생성기에서 `.push .constant i` 다음에 값 표현식을 컴파일하도록 순서를 뒤집거나.
+
+[source,lean]
+----
+-- 수정된 코드 생성기 (옵션 2 적용 — 16장 정의를 그대로 유지)
+| .matmul a b =>
+    let aElems := match a with | .matrixLit rows => rows.flatMap id | _ => []
+    let bElems := match b with | .matrixLit rows => rows.flatMap id | _ => []
+    (aElems.zipIdx.flatMap (fun (e, i) =>
+      [.push .constant i] ++ compileExpr symtab e ++ [.call "Npu.setA" 2])) ++
+    -- (이하 동일)
+----
+
+[TIP]
+====
+이 절 자체가 이 시리즈에서 반복해서 강조한 "부품 인터페이스를 명확히 고정해두지 않으면 조립 단계에서 순서 실수가 난다"는 교훈(8장의 `restorePointer` 오프셋, 7장의 `sub` 피연산자 순서와 같은 계열)의 또 다른 사례입니다. 함수 시그니처를 코드로 작성하기 전에 "인자 0번이 무엇, 1번이 무엇"을 주석으로 먼저 못 박아두는 습관이 이런 종류의 버그를 줄이는 가장 값싼 방법입니다.
+====
+
+== 4. 전체 파이프라인 재통합
+
+12장에서 만든 `full_os_test.hack` 빌드 과정에 이 장의 확장을 반영합니다.
+
+[source,bash]
+----
+# 1~18장 전체를 반영한 최종 어셈블리 빌드
+lake exe compilermain --with-npu > examples/npu_matmul_test.asm
+lake exe assemble examples/npu_matmul_test.asm > examples/npu_matmul_test.hack
+
+# CPU+NPU 통합 시뮬레이션 (16장 6절의 tb_cpu_npu.cpp를 완성했다면)
+./sim/obj_dir_cpu_npu/Vcpu_npu examples/npu_matmul_test.hack 5000
+----
+
+[TIP]
+====
+*확인*: 15장 5절에서 확인했던 `A × I = A`(단위행렬 곱)를 CPU 프로그램으로 다시 트리거해, `Npu.getC(4)`가 반환하는 값이 `A[1][1]`(테스트 행렬 기준 `5`)과 일치하는지 보는 것이 이 시리즈 전체의 최종 확인입니다. 이게 성공하면 게이트(1장)에서 시작한 증명·방출·검증 파이프라인이 양자화된 행렬 곱셈(17장)까지 끊기지 않고 이어진 것입니다.
+====
+
+== 5. NPU 확장에서 증명이 새로 필요해진 지점
+
+13장에서 스칼라 컴퓨터의 TCB를 정리했었는데, NPU를 얹으면서 몇 가지가 새로 추가되거나 성격이 달라졌습니다.
+
+[cols="1,3,1"]
+|===
+|층 |무엇을 확인했나(또는 연습 문제로 남겼나) |13장 대비 달라진 점
+
+|14장 (MAC)
+|`macStep_correct`는 완전 증명, `multiplier16_correct`는 귀납 스텝을 연습 문제로 남김
+|처음으로 CIRCT의 `comb.mul`을 신뢰 기반에 새로 추가함(1~13장은 손수 조립한 덧셈/게이트만 방출)
+
+|15장 (시스톨릭 어레이)
+|PE 단위 정확성은 완전 증명, 전체 스케줄 정확성은 연습 문제
+|"공간(어레이 크기)과 시간(클록)에 걸친 불변식"이라는, 3장의 순차 논리보다 한 차원 더 복잡한 증명 형태가 처음 등장
+
+|16장 (코프로세서)
+|`controller_busy_ignores_writes`(경합 방지)는 완전 증명
+|CPU와 NPU라는 두 개의 독립적인 클록 도메인처럼 보이는 상호작용이 처음 등장 — 이 책에서는 동기 인터페이스로 단순화했지만, 실전 NPU는 종종 별도 클록을 씀(비동기 클록 도메인 교차는 이 시리즈 범위 밖)
+
+|17장 (양자화)
+|`Int8.toInt_range`, `saturate_closer_than_wraparound`는 완전 증명
+|처음으로 "정확성"이 아니라 "근사 품질"(포화가 랩어라운드보다 낫다)을 정량적으로 비교하는 정리가 등장 — 1~13장은 전부 이분법적 정확성(맞다/틀리다)이었음
+|===
+
+가장 흥미로운 변화는 17장입니다 — 스칼라 컴퓨터에서는 "명세와 일치하는가"만 물으면 충분했지만, 양자화가 개입하는 순간 "원래 정확한 값은 무엇이었고, 우리가 택한 근사가 그 값에 얼마나 가까운가"라는 다른 종류의 질문이 등장합니다. 이건 신경망 추론 하드웨어를 다루는 이상 피할 수 없는 질문이고, 앞으로 이 시리즈를 더 확장한다면(컨볼루션, 배치 정규화, 비선형 활성 함수) 이런 근사 오차 정리가 훨씬 더 중요해질 것입니다.
+
+== 이 장에서 확정한 것
+
+* Mini 언어에 행렬 리터럴과 `matmul` 표현식을 추가하고, NPU 호출 시퀀스로 낮추는 코드 생성을 완성했습니다(반환 타입 확장은 연습 문제로 남김).
+* 컴파일러 확장 과정에서 실제로 마주친 인자 순서 불일치를, 이 시리즈가 반복해서 강조해온 "인터페이스를 먼저 고정하라"는 교훈의 사례로 짚었습니다.
+* 게이트부터 양자화된 행렬 곱셈까지 전체 파이프라인을 재통합하는 절차를 확정했습니다.
+* 14~17장에서 새로 등장한 증명 형태(외부 도구 신뢰 확대, 공간+시간 불변식, 근사 품질 비교)를 13장의 TCB 표와 나란히 정리했습니다.
+
+이번 권(1~18장)은 여기서 마칩니다. 3×3 시스톨릭 어레이와 단일 `matmul` 호출까지가 이 권의 범위였고, 컨볼루션·다중 어레이 타일링·배치 처리·비선형 활성 함수 같은 신경망 추론의 나머지 조각들은 다음 권의 주제로 남겨둡니다.
+// end::body[]

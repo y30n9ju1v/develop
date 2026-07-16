@@ -1,0 +1,217 @@
+---
+title: "NPU 명령어 집합과 코프로세서 인터페이스"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "hardware", "isa", "book"]
+categories: ["books"]
+description: "5장 CPU에 NPU 코프로세서 명령어 3개를 추가하고, 메모리 매핑 레지스터로 CPU와 시스톨릭 어레이를 연결해 실제로 행렬 곱셈을 CPU 프로그램에서 트리거하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../15-systolic-array/[시스톨릭 어레이] · 다음: link:../17-quantization-fixed-point/[양자화와 고정소수점: INT8에서 오버플로를 막는 법]_
+
+'''
+
+== 1. 코프로세서 연결 방식 선택
+
+CPU가 NPU를 쓰는 방법은 크게 두 갈래입니다 — (a) 명령어 집합 자체를 확장해 새 opcode를 추가하거나, (b) NPU를 메모리 맵 I/O 장치처럼 취급해 특정 주소에 쓰고 읽는 것으로 제어하는 것입니다. 4장에서 이미 확정한 16비트 명령어 형식(1비트 A/C 구분, 그 안에서 여유 비트가 거의 없음)을 새로 파훈다면 4~5장의 인코딩/디코딩 왕복 증명을 전부 다시 해야 합니다. 이 시리즈는 11장에서 이미 화면·키보드를 메모리 매핑 I/O로 다룬 전례가 있으므로, NPU도 같은 방식 — **(b) 메모리 매핑 레지스터**를 택합니다. 이러면 4~5장의 CPU와 ISA는 손댈 필요가 없고, NPU는 "특별한 주소 몇 개짜리 장치"로만 취급됩니다.
+
+== 2. NPU 메모리 맵
+
+11장의 메모리 맵에 NPU 제어 영역을 추가합니다.
+
+[source,text]
+----
+0 ~ 15       : 예약 레지스터
+16 ~ 255     : 정적 변수
+256 ~ 2047   : 스택
+2048 ~ 16383 : 힙
+16384 ~ 24575: 화면 버퍼
+24576        : 키보드
+24577 ~ 24585: NPU A 입력 레지스터 (3x3 = 9워드, 행 우선)
+24586 ~ 24594: NPU B 입력 레지스터 (9워드)
+24595        : NPU 제어 레지스터 (쓰기: 1을 쓰면 연산 시작)
+24596        : NPU 상태 레지스터 (읽기: 0=idle, 1=busy, 2=done)
+24597 ~ 24605: NPU C 출력 레지스터 (9워드, 연산 완료 후 유효)
+----
+
+== 3. Lean4 명세: NPU 컨트롤러 상태 기계
+
+시스톨릭 어레이(15장)는 매 클록 데이터를 받아 흘리는 회로라, "행렬 전체를 레지스터에 다 채운 뒤 한 번에 트리거"하는 방식이 CPU 프로그램 입장에서 훨씬 다루기 쉽습니다. 이를 위해 컨트롤러 상태 기계를 하나 둡니다.
+
+[source,lean]
+----
+-- Npu/Controller.lean
+import Npu.Systolic
+
+namespace Nand2Npu.Npu
+
+inductive NpuStatus where | idle | busy | done deriving DecidableEq, Repr
+
+structure ControllerState where
+  aRegs : Fin 9 → Vector Bool 16
+  bRegs : Fin 9 → Vector Bool 16
+  cRegs : Fin 9 → Vector Bool 16
+  status : NpuStatus
+  cyclesRemaining : Nat  -- busy 상태에서 남은 클록 수 (3x3이면 파이프라인 채우기 포함 약 9클록)
+
+def ControllerState.init : ControllerState :=
+  { aRegs := fun _ => constVec 0, bRegs := fun _ => constVec 0
+  , cRegs := fun _ => constVec 0, status := .idle, cyclesRemaining := 0 }
+
+def totalCyclesFor (n : Nat) : Nat := 2 * n - 1 + n  -- 파이프라인 채움 + 배출, 15장 3절의 스케줄 참고
+
+/-- CPU가 제어 레지스터(24595번지)에 1을 쓰는 것을 start 신호로 모델링. -/
+def ControllerState.step (s : ControllerState) (start : Bool)
+    (writeA : Option (Fin 9 × Vector Bool 16)) (writeB : Option (Fin 9 × Vector Bool 16))
+    (systolicResult : ControllerState → Fin 9 → Vector Bool 16) : ControllerState :=
+  match s.status with
+  | .idle =>
+      let s1 := match writeA with
+        | some (i, v) => { s with aRegs := Function.update s.aRegs i v }
+        | none => s
+      let s2 := match writeB with
+        | some (i, v) => { s1 with bRegs := Function.update s1.bRegs i v }
+        | none => s1
+      if start then { s2 with status := .busy, cyclesRemaining := totalCyclesFor 3 }
+      else s2
+  | .busy =>
+      if s.cyclesRemaining ≤ 1 then
+        { s with status := .done, cyclesRemaining := 0
+        , cRegs := fun i => systolicResult s i }
+      else { s with cyclesRemaining := s.cyclesRemaining - 1 }
+  | .done =>
+      -- CPU가 상태 레지스터(24596)를 읽어 done을 확인하면 idle로 되돌아간다고 가정
+      -- (실제로는 별도의 "읽음" 신호가 필요 — 여기서는 다음 start까지 done 유지로 단순화)
+      s
+
+end Nand2Npu.Npu
+----
+
+`systolicResult`를 함수 인자로 받은 것은, 이 장의 초점이 "제어 프로토콜(idle→busy→done)이 옳은가"이지 "시스톨릭 어레이 내부 계산이 옳은가"(15장에서 이미 다룸)가 아니기 때문입니다 — 관심사를 분리해두면, 이 장에서 증명할 정리는 15장 증명에 의존하지 않고 독립적으로 "상태 기계가 정확한 클록에 정확한 상태 전이를 한다"만 다루면 됩니다.
+
+[source,lean]
+----
+theorem controller_idle_accepts_writes (s : ControllerState) (h : s.status = .idle)
+    (i : Fin 9) (v : Vector Bool 16) :
+    (s.step false (some (i, v)) none (fun _ _ => constVec 0)).aRegs i = v := by
+  simp [ControllerState.step, h, Function.update]
+
+theorem controller_busy_ignores_writes (s : ControllerState) (h : s.status = .busy)
+    (i : Fin 9) (v : Vector Bool 16) :
+    (s.step false (some (i, v)) none (fun _ _ => constVec 0)).aRegs = s.aRegs := by
+  simp [ControllerState.step, h]
+----
+
+`controller_busy_ignores_writes`가 이 상태 기계에서 가장 중요한 안전 조건입니다 — *연산이 진행 중일 때 CPU가 입력 레지스터를 덮어써도 무시된다*는 것. 이게 없다면 CPU가 실수로(또는 타이밍을 잘못 맞춰) `busy` 상태에서 새 값을 써넣었을 때 시스톨릭 어레이가 이미 흘려보낸 데이터와 새로 쓴 데이터가 뒤섞이는 경합(race) 버그가 생깁니다.
+
+== 4. CPU 쪽 VM 라이브러리 함수
+
+11장의 `Screen.drawPixel`처럼, NPU 접근도 VM 함수로 감쌉니다.
+
+[source,lean]
+----
+-- Compiler/Runtime.lean에 추가
+namespace Nand2Npu.Compiler
+
+open Nand2Npu.Vm (VmCommand)
+
+/-- function Npu.setA(idx, value): NPU A 레지스터(idx)에 값을 씀 -/
+def npuSetAVm : List VmCommand :=
+  [ .function "Npu.setA" 0
+  , .push .constant 24577, .push .argument 0, .add, .pop .pointer 1
+  , .push .argument 1, .pop .that_ 0
+  , .push .constant 0, .return_
+  ]
+
+/-- function Npu.setB(idx, value) — 같은 패턴, 베이스 주소만 24586 -/
+def npuSetBVm : List VmCommand :=
+  [ .function "Npu.setB" 0
+  , .push .constant 24586, .push .argument 0, .add, .pop .pointer 1
+  , .push .argument 1, .pop .that_ 0
+  , .push .constant 0, .return_
+  ]
+
+/-- function Npu.start(): 제어 레지스터에 1을 씀 -/
+def npuStartVm : List VmCommand :=
+  [ .function "Npu.start" 0
+  , .push .constant 1, .push .constant 24595, .pop .pointer 1, .push .constant 1, .pop .that_ 0
+  , .push .constant 0, .return_
+  ]
+
+/-- function Npu.waitDone(): 상태 레지스터가 2(done)가 될 때까지 폴링 -/
+def npuWaitDoneVm : List VmCommand :=
+  [ .function "Npu.waitDone" 0
+  , .label "Npu.waitDone$LOOP"
+  , .push .constant 24596, .pop .pointer 1, .push .that_ 0
+  , .push .constant 2, .eq, .not, .ifGoto "Npu.waitDone$LOOP"
+  , .push .constant 0, .return_
+  ]
+
+/-- function Npu.getC(idx): 결과 레지스터(idx)를 읽음 -/
+def npuGetCVm : List VmCommand :=
+  [ .function "Npu.getC" 0
+  , .push .constant 24597, .push .argument 0, .add, .pop .pointer 1
+  , .push .that_ 0, .return_
+  ]
+
+end Nand2Npu.Compiler
+----
+
+`Npu.waitDone`이 폴링(busy-wait) 방식이라는 게 이 시리즈의 단순화입니다 — 3장/5장에서 인터럽트를 만들지 않았으므로(이 컴퓨터에는 인터럽트가 없습니다), CPU가 NPU 완료를 알 방법은 상태 레지스터를 반복해서 읽는 것뿐입니다. 이건 성능상 손해지만(CPU가 NPU 연산 동안 그냥 루프를 돕니다), 이 시리즈의 범위에서는 정확성에 문제가 없습니다.
+
+== 5. 실제로 CPU 프로그램에서 행렬 곱셈 트리거하기
+
+9~10장의 컴파일러가 만드는 Mini 언어로, NPU를 호출하는 프로그램을 짤 수 있습니다.
+
+[source,text]
+----
+function main() {
+  var i;
+  let i = 0;
+  while (i < 9) {
+    call Npu.setA(i, ...);  // A 행렬 9개 원소를 순서대로 로드 (Mini 언어에 배열 리터럴이 없으므로
+    call Npu.setB(i, ...);  // 실제로는 각 원소를 개별 호출로 채웁니다)
+    let i = i + 1;
+  }
+  call Npu.start();
+  call Npu.waitDone();
+  return Npu.getC(4);  // C[1][1] (인덱스 4 = 1*3+1) 반환
+}
+----
+
+[NOTE]
+====
+Mini 언어(9장)는 배열 리터럴이나 for 루프의 인덱스 전개를 지원하지 않으므로, 위 스케치는 실제로는 9번의 `Npu.setA`/`Npu.setB` 호출을 개별적으로 풀어 써야 합니다 — 이건 10장에서 만든 컴파일러의 표현력 한계이고, Mini에 배열 리터럴을 추가하는 것은 이 장의 연습 문제로 남깁니다.
+====
+
+== 6. Verilator로 CPU+NPU 통합 검증
+
+12장의 `tb_full_system.cpp` 패턴을 확장해, CPU가 방출한 `addressM`이 NPU 레지스터 영역(24577~24605)을 가리킬 때는 데이터 메모리 대신 `ControllerState`를 갱신하도록 분기합니다.
+
+[source,cpp]
+----
+// sim/tb_cpu_npu.cpp (골격 — 전체 배선은 연습 문제)
+#include "Vcpu_full.h"
+#include "Vnpu_controller.h"
+#include "verilated.h"
+
+// addressM이 24577..24605 범위면 npu 모듈로, 아니면 dataMem으로 라우팅하는
+// tick() 함수를 작성합니다. 이 라우팅 로직 자체가 "메모리 매핑 I/O"의 핵심이고,
+// 11장의 화면/키보드 라우팅과 정확히 같은 패턴입니다.
+----
+
+[TIP]
+====
+*확인 목표*: CPU 프로그램이 `Npu.start`를 호출한 후 몇 클록 뒤 `Npu.getC(4)`가 올바른 행렬 원소를 반환하는지 — 이게 이 장 전체를 관통하는 최종 목표입니다. 골격만 제시한 이유는 12장에서 이미 CPU 시뮬레이션 하네스를 완성해봤으므로, 여기서는 라우팅 분기 하나만 추가하면 되는 반복 작업이기 때문입니다.
+====
+
+== 이 장에서 확정한 것
+
+* ISA를 확장하는 대신 메모리 매핑 레지스터로 NPU를 코프로세서로 연결하는 설계를 택해, 4~5장의 CPU/ISA 증명을 전혀 건드리지 않고 NPU를 추가할 수 있음을 확인했습니다.
+* `idle`/`busy`/`done` 상태 기계를 만들고, "busy 상태에서 쓰기가 무시된다"는 핵심 안전 조건(`controller_busy_ignores_writes`)을 증명했습니다.
+* 11장의 화면·키보드 VM 라이브러리 패턴을 그대로 재사용해 `Npu.setA`/`setB`/`start`/`waitDone`/`getC`를 구현했습니다.
+* 폴링 기반 완료 확인이 이 컴퓨터에 인터럽트가 없다는 3~5장의 설계 제약에서 자연스럽게 따라온다는 것을 짚었습니다.
+
+다음 장에서는 지금까지 16비트 정수로만 다룬 행렬 원소를, 신경망 추론에서 실제로 쓰이는 INT8 양자화로 좁히면서 오버플로/포화(saturation)를 어떻게 안전하게 처리하는지 다룹니다.
+// end::body[]

@@ -12,7 +12,7 @@ _link:../[전체 목차] · 이전: link:../01-boolean-logic-and-gates/[불 논�
 
 '''
 
-1장에서 만든 프로젝트(`nand2lean/`)에 이어서 작업합니다. `Gates/Basic.lean`은 그대로 두고, 새 파일 `Gates/Arith.lean`을 추가합니다.
+1장에서 만든 프로젝트(`nand2npu/`)에 이어서 작업합니다. `Gates/Basic.lean`은 그대로 두고, 새 파일 `Gates/Arith.lean`을 추가합니다.
 
 == 1. 반가산기와 전가산기
 
@@ -23,7 +23,7 @@ _link:../[전체 목차] · 이전: link:../01-boolean-logic-and-gates/[불 논�
 -- Gates/Arith.lean
 import Gates.Basic
 
-namespace Nand2Lean
+namespace Nand2Npu
 
 def halfAdder (a b : Bool) : Bool × Bool :=  -- (sum, carry)
   (xorGate a b, andGate a b)
@@ -40,7 +40,7 @@ def fullAdderSpec (a b cin : Bool) : Bool × Bool :=
 
 theorem fullAdder_correct : ∀ a b cin, fullAdder a b cin = fullAdderSpec a b cin := by decide
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 입력이 3비트(8가지 조합)뿐이라 `decide`가 여전히 즉시 끝납니다. `lake env lean Gates/Arith.lean`으로 확인하세요 — 여기까지는 에러가 없어야 합니다.

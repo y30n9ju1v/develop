@@ -21,7 +21,7 @@ _link:../[전체 목차] · 이전: link:../04-machine-language/[기계어: 16�
 -- Gates/Cpu.lean
 import Gates.Isa
 
-namespace Nand2Lean
+namespace Nand2Npu
 
 structure CpuState where
   a, d, pc : Vector Bool 16
@@ -60,7 +60,7 @@ def CpuState.step (s : CpuState) (instr : Instruction) (inM : Vector Bool 16) : 
       { next := { a := a', d := d', pc := pc' }
       , addressM := s.a, outM := out, writeM := dm }
 
-end Nand2Lean
+end Nand2Npu
 ----
 
 `CpuState.step`이 이 시리즈의 "메타순환 명세"입니다 — 이후 모든 정확성 논증이 이 함수와의 동치로 환원됩니다. `addOne16'`이 2장의 `rippleAdd16`을 상수 1과 함께 부분 적용한 것으로, 3장 끝에서 예고했던 인스턴스화입니다.

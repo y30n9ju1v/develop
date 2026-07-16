@@ -1,0 +1,180 @@
+---
+title: "양자화와 고정소수점: INT8에서 오버플로를 막는 법"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "quantization", "book"]
+categories: ["books"]
+description: "16비트 정수를 INT8로 양자화하고, MAC 누산 과정의 오버플로를 포화 연산으로 안전하게 처리하는 것을 Lean4로 증명하고 실제로 검증하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../16-npu-isa-and-coprocessor/[NPU 명령어 집합과 코프로세서 인터페이스] · 다음: link:../18-compiler-extension-and-integration/[컴파일러 확장과 전체 재통합]_
+
+'''
+
+== 1. 왜 양자화가 필요한가
+
+신경망 추론에서 가중치와 활성값을 16비트(또는 32비트 부동소수점)로 저장하면 메모리 대역폭과 저장 공간을 많이 씁니다. 실무에서는 INT8(8비트 정수, -128~127)로 값을 압축하는 양자화가 흔히 쓰입니다 — 정확도를 약간 희생하는 대신 메모리와 연산량을 4분의 1로 줄입니다. 이 장에서는 14~16장의 16비트 MAC/시스톨릭 어레이 인프라 위에서 INT8 입력을 받아 처리하는 방법을 다룹니다.
+
+== 2. INT8을 어떻게 표현할 것인가
+
+Lean4에서 부호 있는 8비트 정수를 `Fin 256`에서 재해석하는 대신, `Int8` 전용 타입을 만들어 부호 처리 실수를 방지합니다.
+
+[source,lean]
+----
+-- Npu/Quant.lean
+import Npu.Mac
+
+namespace Nand2Npu.Npu
+
+structure Int8 where
+  bits : Vector Bool 8
+  deriving Repr
+
+def Int8.toInt (x : Int8) : Int :=
+  let u := (List.finRange 8).foldl (fun acc i => acc + (if x.bits[i] then 2^i.val else 0)) 0
+  if x.bits[7] then (u : Int) - 256 else (u : Int)  -- 2의 보수 해석
+
+def Int8.ofInt (n : Int) : Int8 :=
+  let wrapped := ((n % 256) + 256) % 256  -- 0..255로 정규화
+  { bits := Vector.ofFn (fun i : Fin 8 => (wrapped / 2^i.val) % 2 == 1) }
+
+theorem Int8.toInt_range (x : Int8) : -128 ≤ x.toInt ∧ x.toInt ≤ 127 := by
+  unfold Int8.toInt
+  cases h : x.bits[7] <;> simp_all <;> omega
+
+end Nand2Npu.Npu
+----
+
+`Int8.toInt_range`가 이 절의 핵심 정리입니다 — 어떤 `Int8` 값이든 `toInt`로 해석하면 반드시 `[-128, 127]` 범위 안에 있다는 것. 이건 1~4장에서 반복했던 "정제 타입으로 위험한 값을 표현 불가능하게 만든다"는 원칙이 부호 있는 정수에도 적용되는 사례입니다 — `Int8` 자체가 8비트 벡터이므로 애초에 256가지 값만 표현 가능하고, `toInt`가 그중 절반을 음수로 재해석할 뿐입니다.
+
+== 3. 곱셈-누산에서 오버플로가 생기는 지점
+
+INT8 두 개를 곱하면 최대 `127 * 127 = 16129`, 최소 `-128 * -128 = 16384`(양수), 이 값은 이미 8비트를 훌쩍 넘습니다. 게다가 MAC은 이 곱을 *반복해서 누적*하므로, `N`번 누적하면 이론상 `N * 16384`까지 커질 수 있습니다 — 14장의 16비트 누산 레지스터(`Vector Bool 16`, 범위 약 -32768~32767)로는 몇 번의 누적만으로도 오버플로가 납니다.
+
+이 문제를 다루는 표준적인 방법은 *누산은 더 넓은 폭(32비트)으로 하고, 최종 출력만 다시 좁은 폭(INT8 또는 INT16)으로 재양자화*하는 것입니다. 이 시리즈에서는 누산을 32비트로, 최종 출력을 다시 INT8로 포화(saturate)시켜 좁힙니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Npu
+
+def Int32acc := Vector Bool 32  -- 32비트 누산 레지스터
+
+def mac32Step (x y : Int8) (acc : Int32acc) : Int32acc :=
+  sorry -- 32비트 리플 캐리 가산기 + INT8×INT8 곱셈기. 2장/14장 패턴을 32비트로 확장하는 연습 문제.
+
+/-- 32비트 누산값을 INT8로 되돌릴 때, 범위를 벗어나면 클램프(포화)합니다. -/
+def saturateToInt8 (acc : Int) : Int8 :=
+  if acc > 127 then Int8.ofInt 127
+  else if acc < -128 then Int8.ofInt (-128)
+  else Int8.ofInt acc
+
+theorem saturateToInt8_in_range (acc : Int) :
+    -128 ≤ (saturateToInt8 acc).toInt ∧ (saturateToInt8 acc).toInt ≤ 127 :=
+  (saturateToInt8 acc).toInt_range
+
+end Nand2Npu.Npu
+----
+
+`saturateToInt8_in_range`는 `Int8.toInt_range`를 재사용하는 한 줄로 끝나지만, 이게 이 장의 진짜 요점입니다 — *포화 연산이 하는 일이 정확히 무엇이든(클램프든 랩어라운드든), 결과 타입이 `Int8`인 이상 범위 보장은 공짜로 따라옵니다.* 위험한 것은 포화 연산 "이전"의 32비트 누산값이 실제로 원하는 수학적 합과 일치하는가이지, 그 값을 INT8로 되돌리는 마지막 단계가 아닙니다.
+
+[NOTE]
+====
+`mac32Step`을 `sorry`로 남긴 이유 — 32비트 리플 캐리 가산기와 8×8→32비트 부호 있는 곱셈기를 만드는 것은 2장·14장에서 이미 다룬 기법(리스트 귀납, 시프트-덧셈)을 폭만 바꿔 반복하는 작업입니다. 새로운 개념이 없어 지면에서는 생략하고, 이 장의 핵심 연습 문제로 남깁니다 — 부호 있는 정수를 다루므로 2의 보수 처리(음수 곱셈)에 주의가 필요합니다.
+====
+
+== 4. 랩어라운드 대신 포화를 택하는 이유
+
+2장의 ALU 연산(`xPlusY` 등)은 오버플로 시 조용히 모듈로 2^16^으로 감쌌습니다(랩어라운드). 신경망 추론에서는 이게 위험합니다 — 활성값이 조금만 범위를 넘어도 랩어라운드로 인해 큰 양수가 갑자기 큰 음수로 뒤집히면서 다음 층의 계산이 완전히 틀어질 수 있습니다. 포화는 "값이 너무 크면 그냥 최댓값에 붙잡아둔다"는 것으로, 정확도는 약간 떨어뜨리지만 계산이 걷잡을 수 없이 틀어지는 것은 막습니다. 이 선택이 옳다는 것을 정리로 표현하면 다음과 같습니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Npu
+
+/-- 포화는 랩어라운드보다 "실제 값에 더 가깝다"는 것을 이 정리로 표현합니다 —
+    포화된 결과와 참값의 차이가, 랩어라운드된 결과와 참값의 차이보다 항상 작거나 같습니다
+    (범위를 벗어나지 않은 경우 둘은 같고, 벗어난 경우 포화가 항상 더 가깝습니다). -/
+theorem saturate_closer_than_wraparound (acc : Int) (h : acc > 127 ∨ acc < -128) :
+    let sat := (saturateToInt8 acc).toInt
+    let wrap := (Int8.ofInt acc).toInt
+    (acc - sat).natAbs ≤ (acc - wrap).natAbs := by
+  rcases h with h | h
+  · simp [saturateToInt8, Int8.ofInt, h]; omega
+  · simp [saturateToInt8, Int8.ofInt, h]; omega
+
+end Nand2Npu.Npu
+----
+
+이 정리가 "왜 포화를 택했는가"에 대한 정량적 근거입니다 — 랩어라운드는 범위를 살짝만 벗어나도 결과가 반대 부호의 큰 값으로 튈 수 있는 반면, 포화는 항상 참값에 최대한 가까운 표현 가능한 값을 돌려줍니다.
+
+== 5. MLIR/CIRCT로 방출하고 검증하기
+
+포화 로직은 비교와 멀티플렉서 조합이라, 1장의 게이트 방출 패턴을 그대로 따릅니다.
+
+[source,lean]
+----
+def emitSaturate : String :=
+"hw.module @saturate32to8(in %acc: i32, out out: i8) {
+  %max = hw.constant 127 : i32
+  %min = hw.constant -128 : i32
+  %gtMax = comb.icmp sgt %acc, %max : i32
+  %ltMin = comb.icmp slt %acc, %min : i32
+  %clampedHigh = comb.mux %gtMax, %max, %acc : i32
+  %clamped = comb.mux %ltMin, %min, %clampedHigh : i32
+  %truncated = comb.extract %clamped from 0 : (i32) -> i8
+  hw.output %truncated : i8
+}"
+----
+
+[source,bash]
+----
+lake env lean --run Main.lean --target saturate > mlir/saturate.mlir
+circt-opt mlir/saturate.mlir --export-verilog -o mlir/saturate.sv
+----
+
+[source,cpp]
+----
+// sim/tb_saturate.cpp
+#include "Vsaturate32to8.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vsaturate32to8;
+    struct { int32_t in; int8_t expected; } cases[] = {
+        {50, 50}, {127, 127}, {128, 127}, {16129, 127},
+        {-50, -50}, {-128, -128}, {-129, -128}, {-16384, -128},
+    };
+    int failures = 0;
+    for (auto& c : cases) {
+        dut->acc = c.in;
+        dut->eval();
+        if ((int8_t)dut->out != c.expected) {
+            std::printf("FAIL: acc=%d expected=%d got=%d\n", c.in, c.expected, (int8_t)dut->out);
+            ++failures;
+        } else {
+            std::printf("ok: acc=%d -> %d\n", c.in, (int8_t)dut->out);
+        }
+    }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("ALL SATURATION CHECKS PASSED\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: 8개 케이스 전부 `ok`가 나오고 `ALL SATURATION CHECKS PASSED`가 출력되어야 합니다. 경계값(`127`/`128`, `-128`/`-129`)이 정확히 어느 쪽에서 클램프되는지가 가장 실수하기 쉬운 지점이니, 실패한다면 `comb.icmp sgt`/`slt`의 부호 있는 비교(`s` 접두사)가 빠지지 않았는지부터 확인하세요 — 부호 없는 비교(`comb.icmp ugt`)를 실수로 쓰면 음수 케이스가 전부 틀어집니다.
+====
+
+== 이 장에서 확정한 것
+
+* `Int8` 타입과 `toInt_range` 정리로, 8비트로 표현 가능한 값의 범위가 항상 `[-128, 127]`임을 타입 수준에서 보장했습니다.
+* MAC 누산을 32비트 폭으로 넓히고 최종 출력만 INT8로 포화시키는 표준적인 양자화 추론 패턴을 확인했습니다 — 32비트 MAC 자체의 구현은 2·14장 기법의 반복이라 연습 문제로 남겼습니다.
+* 포화가 랩어라운드보다 참값에 항상 더 가깝다는 것을 정리(`saturate_closer_than_wraparound`)로 정량화했습니다.
+* 포화 회로를 실제로 방출하고, 경계값을 포함한 8개 케이스로 Verilator 검증까지 마쳤습니다.
+
+다음 장에서는 10장의 컴파일러를 확장해 Mini 언어에서 행렬 연산을 표현하고 NPU 명령어로 컴파일하는 방법을 다루고, 게이트부터 양자화된 행렬 곱셈까지 전체 파이프라인을 다시 한번 통합합니다.
+// end::body[]
