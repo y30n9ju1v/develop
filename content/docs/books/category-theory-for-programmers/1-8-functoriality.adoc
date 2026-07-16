@@ -1,0 +1,515 @@
+---
+title: "함자성 (Functoriality)"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["category-theory", "haskell", "cpp", "book"]
+categories: ["books"]
+description: "Bartosz Milewski의 Category Theory for Programmers 시리즈 한국어 번역 — 함자성 (Functoriality)"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../1-7-functors/[함자] · 다음: link:../1-9-function-types/[함수 타입 (Function Types)]_
+
+'''
+이제 함자가 무엇인지 알고 몇 가지 예시도 살펴보았으니, 작은 함자들로부터 더 큰 함자를 조립하는 방법을 알아보겠습니다. 특히 어떤 타입 생성자(카테고리 내 객체 간의 매핑에 대응)가 함자(모피즘 간의 매핑까지 포함)로 확장될 수 있는지 살펴보는 것은 매우 흥미로운 주제입니다.
+
+== 이항 함자 (Bifunctors)
+
+함자는 Cat(카테고리들의 카테고리)에서의 모피즘이므로, 모피즘(특히 함수)에 대한 많은 직관이 함자에도 그대로 적용됩니다. 예를 들어, 두 개의 인수를 받는 함수가 있듯이 함자도 두 개의 인수를 받을 수 있는데, 이를 *이항 함자(Bifunctor)*라고 합니다. 객체 차원에서 보면 이항 함자는 카테고리 C의 객체 하나와 카테고리 D의 객체 하나로 이루어진 쌍을 카테고리 E의 객체로 매핑합니다. 이는 곧 카테고리의 데카르트 곱(Cartesian Product) C×D에서 E로 가는 매핑과 같습니다.
+
+여기까지는 매우 단순합니다. 하지만 함자성을 갖추려면 이항 함자가 모피즘도 매핑할 수 있어야 합니다. 이번에는 C의 모피즘 하나와 D의 모피즘 하나로 이루어진 쌍을 E의 모피즘 하나로 매핑해야 합니다.
+
+다시 말하지만, 모피즘의 쌍은 곱 카테고리 C×D의 단일 모피즘일 뿐입니다. 우리는 카테고리들의 데카르트 곱에서의 모피즘을 한 쌍의 객체에서 다른 쌍의 객체로 가는 모피즘 쌍으로 정의합니다. 이러한 모피즘 쌍의 합성은 다음과 같이 명백한 방식으로 이루어집니다.
+
+[source,haskell]
+----
+(f, g) ∘ (f', g') = (f ∘ f', g ∘ g')
+----
+
+이 합성은 결합 법칙을 만족하며, 항등원(항등 모피즘의 쌍 (id, id))을 가집니다. 따라서 카테고리들의 데카르트 곱은 그 자체로 하나의 카테고리가 됩니다.
+
+이항 함자를 더 쉽게 이해하는 방법은 각 인수를 별도의 함자로 보는 것입니다. 즉, 함자의 법칙(결합성 및 항등성 보존)을 이항 함자의 관점에서 새로 유도하는 대신, 각 인수에 대해 개별적으로 확인하는 것만으로도 충분하다고 생각할 수 있습니다. 그러나 일반적으로 각 인수에 대한 개별 함자성(separate functoriality)만으로는 공동 함자성(joint functoriality)을 보장하기에 부족합니다. 공동 함자성이 성립하지 않는 카테고리를 *프리모노이달(Premonoidal)* 카테고리라고 부릅니다.
+
+하스켈에서 이항 함자를 정의해 봅시다. 여기서 세 카테고리(C, D, E)는 모두 하스켈 타입의 카테고리로 동일합니다. 이항 함자는 두 개의 타입 인수를 받는 타입 생성자입니다. 다음은 ``Control.Bifunctor`` 라이브러리에서 가져온 ``Bifunctor`` 타입클래스 정의입니다.
+
+[source,haskell]
+----
+class Bifunctor f where
+    bimap :: (a -> c) -> (b -> d) -> f a b -> f c d
+    bimap g h = first g . second h
+    first :: (a -> c) -> f a b -> f c b
+    first g = bimap g id
+    second :: (b -> d) -> f a b -> f a d
+    second = bimap id
+----
+
+타입 변수 ``f``가 바로 이항 함자를 나타냅니다. 모든 타입 시그니처에서 ``f``에 두 개의 타입 인수가 항상 적용되는 것을 볼 수 있습니다. 첫 번째 시그니처인 ``bimap``은 두 함수를 동시에 매핑합니다. 결과는 이항 함자의 타입 생성자로 만들어진 타입 위에서 작동하는 리프트된 함수 ``(f a b -> f c d)``입니다. ``bimap``의 기본 구현은 ``first``와 ``second``를 통해 이루어지는데, 이는 각 인수에 대한 개별적인 함자성만 있어도 이항 함자를 정의할 수 있음을 보여줍니다. (앞서 언급했듯이 이것이 항상 성립하는 것은 아닙니다. 두 매핑이 교환(commute)되지 않는 경우, 즉 ``first g . second h``와 ``second h . first g``가 서로 다를 수 있기 때문입니다.)
+
+image::https://bartoszmilewski.files.wordpress.com/2015/01/bimap.png[bimap]
+
+나머지 두 시그니처인 ``first``와 ``second``는 각각 첫 번째 인수와 두 번째 인수에 대한 함자성을 보여주는 두 개의 ``fmap``입니다.
+
+타입클래스 정의는 ``bimap``을 사용하여 이 두 함수에 대한 기본 구현을 제공합니다.
+
+``Bifunctor`` 인스턴스를 선언할 때는 ``bimap``만 구현하고 ``first``/``second``는 기본 구현을 그대로 쓰거나, 반대로 ``first``와 ``second``를 모두 구현하고 ``bimap``은 기본 구현을 쓰는 방식 중 하나를 선택할 수 있습니다. (물론 세 함수를 모두 구현할 수도 있지만, 이 경우 함수들이 서로 올바르게 연관되도록 만드는 것은 프로그래머의 몫입니다.)
+
+== 곱(Product) 및 코프로덕트(Coproduct) 이항 함자
+
+이항 함자의 중요한 예시는 카테고리적 곱(Categorical Product)입니다. 이는 보편적 구성(Universal Construction)으로 정의되는 두 객체의 곱을 말합니다. 만약 임의의 객체 쌍에 대해 곱이 존재한다면, 해당 객체들을 곱으로 보내는 매핑은 이항 함자가 됩니다. 이는 일반적인 카테고리에서 성립하며, 하스켈에서도 마찬가지입니다. 다음은 하스켈에서 가장 단순한 곱 타입인 쌍(pair) 생성자 ``(,)``에 대한 ``Bifunctor`` 인스턴스입니다.
+
+[source,haskell]
+----
+instance Bifunctor (,) where
+    bimap f g (x, y) = (f x, g y)
+----
+
+구현 방법은 거의 명백합니다. ``bimap``은 단순히 쌍의 첫 번째 요소에는 첫 번째 함수를, 두 번째 요소에는 두 번째 함수를 적용할 뿐입니다. 타입만 보아도 코드가 거의 저절로 쓰입니다.
+
+[source,haskell]
+----
+bimap :: (a -> c) -> (b -> d) -> (a, b) -> (c, d)
+----
+
+여기서 이항 함자가 하는 일은 다음과 같이 타입의 쌍을 만드는 것입니다.
+
+[source,haskell]
+----
+(,) a b = (a, b)
+----
+
+쌍대성(Duality)에 따라, 모든 객체 쌍에 대해 정의된 코프로덕트(Coproduct) 역시 이항 함자가 됩니다. 하스켈에서는 ``Either`` 타입 생성자가 ``Bifunctor`` 인스턴스인 것이 대표적인 예입니다.
+
+[source,haskell]
+----
+instance Bifunctor Either where
+    bimap f _ (Left x)  = Left (f x)
+    bimap _ g (Right y) = Right (g y)
+----
+
+이 코드 역시 타입에 맞춰 자연스럽게 작성되었습니다.
+
+자, 모노이드 카테고리(Monoidal Category)에 대해 이야기했던 것을 기억하시나요? 모노이드 카테고리는 객체들 사이에 작용하는 이항 연산자와 단위 객체(Unit Object)를 정의합니다. Set이 데카르트 곱에 대해 단일 원소 집합(Singleton Set)을 단위로 하는 모노이드 카테고리이며, 또한 서로소 합집합(Disjoint Union)에 대해 공집합을 단위로 하는 모노이드 카테고리라고 언급한 바 있습니다. 그때 빠뜨린 중요한 사실이 있습니다. 모노이드 카테고리의 이항 연산자는 반드시 *이항 함자*여야 한다는 것입니다. 이는 매우 중요한 요구 사항입니다. 모노이드 곱이 모피즘으로 정의되는 카테고리의 구조와 호환되어야 하기 때문입니다. 우리는 이제 모노이드 카테고리의 완전한 정의에 한 걸음 더 다가갔습니다. (완전한 정의를 위해서는 먼저 자연성(Naturality)에 대해 배워야 합니다.)
+
+== 함자적 대수적 자료형 (Functorial ADTs)
+
+우리는 함자로 판명된 매개변수화된 데이터 타입을 여러 개 보았습니다. 즉, 그 타입들에 대해 ``fmap``을 정의할 수 있었습니다. 복잡한 데이터 타입은 더 단순한 데이터 타입들로 구성됩니다. 특히 대수적 데이터 타입(ADT)은 합(Sum)과 곱(Product)을 사용하여 만들어집니다. 방금 전에 합과 곱이 함자적임을 확인했습니다. 또한 함자끼리는 서로 합성(Compose)될 수 있다는 사실도 알고 있습니다. 따라서 ADT의 기본 구성 요소들이 함자적이라는 것만 보여주면, 매개변수화된 모든 ADT가 함자적이라는 결론에 도달하게 됩니다.
+
+그렇다면 매개변수화된 ADT의 구성 요소는 무엇일까요? 우선 ``Maybe``의 ``Nothing``이나 ``List``의 ``Nil``처럼 함자의 타입 매개변수에 전혀 의존하지 않는 요소가 있습니다. 이들은 ``Const`` 함자와 동등합니다. ``Const`` 함자는 타입 매개변수(정확히는 우리가 관심 있는 두 번째 매개변수이며, 첫 번째는 상수로 유지됨)를 무시한다는 점을 기억하세요.
+
+다음으로 ``Maybe``의 ``Just``처럼 타입 매개변수 자체를 단순히 감싸기만 하는 요소가 있습니다. 이들은 *항등 함자(Identity Functor)*와 동등합니다. 이전에 Cat의 항등 모피즘으로 항등 함자를 언급했지만, 하스켈에서의 정의는 보지 못했습니다. 여기 그 정의가 있습니다.
+
+[source,haskell]
+----
+data Identity a = Identity a
+----
+
+[source,haskell]
+----
+instance Functor Identity where
+    fmap f (Identity x) = Identity (f x)
+----
+
+``Identity``는 타입 ``a``인 (불변의) 값을 딱 하나만 저장하는 가장 단순한 형태의 컨테이너라고 생각하면 됩니다.
+
+나머지 모든 대수적 데이터 구조는 이 두 가지 원시 요소(Primitives)를 곱과 합으로 조합하여 만들어집니다.
+
+이 새로운 지식을 바탕으로 ``Maybe`` 타입 생성자를 다시 살펴봅시다.
+
+[source,haskell]
+----
+data Maybe a = Nothing | Just a
+----
+
+이는 두 타입의 합이며, 우리는 이제 합이 함자적임을 압니다. 첫 번째 부분인 ``Nothing``은 ``a``에 작용하는 ``Const ()``로 표현할 수 있습니다. (``Const``의 첫 번째 타입 매개변수는 단위 타입 ``()``로 설정됩니다. 나중에 ``Const``의 더 흥미로운 활용을 보게 될 것입니다.) 두 번째 부분인 ``Just``는 항등 함자의 다른 이름일 뿐입니다. 따라서 ``Maybe``는 동형(Isomorphism)을 제외하면 다음과 같이 정의될 수 있습니다.
+
+[source,haskell]
+----
+type Maybe a = Either (Const () a) (Identity a)
+----
+
+즉, ``Maybe``는 이항 함자 ``Either``와 두 함자 ``Const ()``, ``Identity``의 합성입니다. (``Const``는 실제로는 이항 함자이지만, 여기서는 항상 부분 적용된 형태로 사용됩니다.)
+
+함자의 합성이 함자라는 점은 이미 확인했습니다. 이 성질이 이항 함자에도 똑같이 적용된다는 사실은 쉽게 납득할 수 있습니다. 우리가 알아내야 할 것은 '이항 함자와 두 함자의 합성'이 모피즘에 어떻게 작용하느냐 하는 점입니다. 두 개의 모피즘이 주어지면, 각각을 해당하는 함자로 리프트(Lift)합니다. 그다음 이렇게 리프트된 모피즘 쌍을 이항 함자로 리프트하면 됩니다.
+
+이 합성을 하스켈로 표현해 봅시다. 이항 함자 ``bf``(두 타입을 인수로 받는 타입 생성자인 타입 변수), 두 함자 ``fu``와 ``gu``(각각 하나의 타입 변수를 받는 타입 생성자), 그리고 두 일반 타입 ``a``와 ``b``로 매개변수화된 데이터 타입을 정의해 보겠습니다. ``fu``를 ``a``에, ``gu``를 ``b``에 적용한 다음, 그 결과로 나온 두 타입에 ``bf``를 적용합니다.
+
+[source,haskell]
+----
+newtype BiComp bf fu gu a b = BiComp (bf (fu a) (gu b))
+----
+
+이는 객체, 즉 타입 차원에서의 합성입니다. 하스켈에서는 함수를 인수에 적용하는 것과 똑같은 문법으로 타입 생성자를 타입에 적용한다는 점에 주목하세요.
+
+조금 혼란스럽다면 ``BiComp``에 ``Either``, ``Const ()``, ``Identity``, ``a``, ``b``를 그 순서대로 대입해 보세요. 그러면 앞서 말한 ``Maybe b``의 뼈대 버전을 얻게 될 것입니다. (``a``는 무시됩니다.)
+
+이 새로운 데이터 타입 ``BiComp``는 ``a``와 ``b``에 대한 이항 함자가 됩니다. 단, ``bf`` 자체가 ``Bifunctor``이고 ``fu``, ``gu``가 각각 ``Functor``일 때만 그렇습니다. 컴파일러는 ``bf``에 대한 ``bimap`` 정의와 ``fu``, ``gu``에 대한 ``fmap`` 정의가 있음을 알아야 합니다. 하스켈에서는 이를 인스턴스 선언의 전제 조건으로 표현하는데, 클래스 제약 뒤에 이중 화살표를 붙입니다.
+
+[source,haskell]
+----
+instance (Bifunctor bf, Functor fu, Functor gu) =>
+  Bifunctor (BiComp bf fu gu) where
+    bimap f1 f2 (BiComp x) = BiComp ((bimap (fmap f1) (fmap f2)) x)
+----
+
+``BiComp``에 대한 ``bimap`` 구현은 ``bf``의 ``bimap``과 ``fu``, ``gu``의 두 ``fmap``을 사용하여 이루어집니다. 컴파일러는 ``BiComp``가 사용될 때마다 모든 타입을 자동으로 추론하고 올바른 오버로드된 함수를 선택합니다.
+
+``bimap`` 정의에서 ``x``의 타입은 다음과 같습니다.
+
+[source,haskell]
+----
+bf (fu a) (gu b)
+----
+
+상당히 복잡해 보입니다. 바깥쪽의 ``bimap``이 최외곽 ``bf`` 레이어를 뚫고 들어가고, 두 ``fmap``이 각각 ``fu``와 ``gu`` 아래로 파고듭니다. 만약 ``f1``과 ``f2``의 타입이 다음과 같다면:
+
+[source,haskell]
+----
+f1 :: a -> a'
+f2 :: b -> b'
+----
+
+최종 결과물은 ``bf (fu a') (gu b')`` 타입이 됩니다.
+
+[source,haskell]
+----
+bimapbf :: (fu a -> fu a') -> (gu b -> gu b') 
+  -> bf (fu a) (gu b) -> bf (fu a') (gu b')
+----
+
+직소 퍼즐을 좋아하신다면 이런 식의 타입 조작에서 큰 즐거움을 느끼실 수 있을 것입니다.
+
+결국 우리는 ``Maybe``가 함자임을 증명할 필요가 없었습니다. ``Maybe``가 두 개의 함자적 원시 요소의 합으로 구성되었다는 사실만으로 충분했기 때문입니다.
+
+예리한 독자라면 이런 질문을 할 수도 있습니다. "대수적 데이터 타입에 대한 ``Functor`` 인스턴스 도출이 그렇게 기계적이라면, 컴파일러가 자동으로 해줄 수는 없나요?" 물론 가능합니다. 소스 파일의 최상단에 다음 라인을 추가하여 특정 하스켈 확장을 활성화하면 됩니다.
+
+[source,haskell]
+----
+{-# LANGUAGE DeriveFunctor #-}
+----
+
+그다음 데이터 구조 정의 끝에 ``deriving Functor``만 붙여주면 됩니다.
+
+[source,haskell]
+----
+data Maybe a = Nothing | Just a
+  deriving Functor
+----
+
+그러면 대응하는 ``fmap``이 자동으로 구현됩니다.
+
+대수적 데이터 구조의 규칙성 덕분에 ``Functor``뿐만 아니라 앞서 언급했던 ``Eq``를 비롯한 여러 타입클래스의 인스턴스를 자동으로 도출할 수 있습니다. 더 나아가, 컴파일러에게 여러분이 직접 정의한 타입클래스의 인스턴스를 도출하는 법을 가르칠 수도 있지만, 이는 조금 더 고급 주제입니다. 핵심 아이디어는 같습니다. 기본 구성 요소와 합/곱에 대한 동작만 정의해 주면, 나머지는 컴파일러가 알아서 추론해 냅니다.
+
+== C++에서의 함자 (Functors in C++)
+
+C++ 프로그래머라면 함자를 구현할 때 스스로 알아서 해야 합니다. 하지만 C++에서도 대수적 데이터 구조의 특정 타입을 인식할 수 있습니다. 이런 데이터 구조가 제네릭 템플릿으로 만들어졌다면, ``fmap``을 신속하게 구현할 수 있을 것입니다.
+
+하스켈에서 재귀적 합 타입(Recursive Sum Type)으로 정의될 트리 구조를 살펴보겠습니다.
+
+[source,haskell]
+----
+data Tree a = Leaf a | Node (Tree a) (Tree a)
+    deriving Functor
+----
+
+앞서 언급했듯이 C++에서 합 타입을 구현하는 한 가지 방법은 클래스 계층 구조를 이용하는 것입니다. 객체 지향 언어에서는 ``fmap``을 베이스 클래스 ``Functor``의 가상 함수로 만들고 모든 서브클래스에서 이를 오버라이드하는 방식이 자연스러울 것입니다. 하지만 불행히도 이는 불가능합니다. ``fmap``은 템플릿인데, 그것이 작용하는 객체의 타입(``this`` 포인터)뿐만 아니라 그것에 적용되는 함수의 반환 타입으로도 매개변수화되기 때문입니다. C++에서는 가상 함수를 템플릿화할 수 없습니다. 우리는 ``fmap``을 제네릭 자유 함수로 구현하고, 패턴 매칭을 ``dynamic_cast``로 대체할 것입니다.
+
+동적 캐스팅을 지원하려면 베이스 클래스에 최소한 하나의 가상 함수를 정의해야 하므로 소멸자를 가상으로 만들겠습니다. (어차피 이는 좋은 습관입니다.)
+
+[source,cpp]
+----
+template<class T>
+struct Tree {
+    virtual ~Tree() {};
+};
+----
+
+``Leaf``는 단지 ``Identity`` 함자를 변장시킨 것입니다.
+
+[source,cpp]
+----
+template<class T>
+struct Leaf : public Tree<T> {
+    T _label;
+    Leaf(T l) : _label(l) {}
+};
+----
+
+``Node``는 곱 타입입니다.
+
+[source,cpp]
+----
+template<class T>
+struct Node : public Tree<T> {
+    Tree<T> * _left;
+    Tree<T> * _right;
+    Node(Tree<T> * l, Tree<T> * r) : _left(l), _right(r) {}
+};
+----
+
+``fmap``을 구현할 때 우리는 ``Tree``의 타입에 대한 동적 디스패칭을 활용합니다. ``Leaf``의 경우 ``Identity`` 버전의 ``fmap``을 적용하고, ``Node``의 경우는 이항 함자와 ``Tree`` 함자 두 복사본의 합성처럼 다룹니다. C++ 프로그래머라면 이런 용어로 코드를 분석하는 것에 익숙하지 않겠지만, 카테고리적 사고를 연습하기에 좋은 훈련입니다.
+
+[source,cpp]
+----
+template<class A, class B>
+Tree<B> * fmap(std::function<B(A)> f, Tree<A> * t)
+{
+    Leaf<A> * pl = dynamic_cast <Leaf<A>*>(t);
+    if (pl)
+        return new Leaf<B>(f (pl->_label));
+    Node<A> * pn = dynamic_cast<Node<A>*>(t);
+    if (pn)
+        return new Node<B>( fmap<A>(f, pn->_left)
+                          , fmap<A>(f, pn->_right));
+    return nullptr;
+}
+----
+
+간결함을 위해 메모리 및 리소스 관리 문제는 무시했지만, 프로덕션 코드에서는 아마도 스마트 포인터(정책에 따라 ``unique_ptr`` 또는 ``shared_ptr``)를 사용할 것입니다.
+
+하스켈 버전의 ``fmap`` 구현과 비교해 보세요.
+
+[source,haskell]
+----
+instance Functor Tree where
+    fmap f (Leaf a) = Leaf (f a)
+    fmap f (Node t t') = Node (fmap f t) (fmap f t')
+----
+
+이 구현 역시 컴파일러가 자동으로 도출할 수 있습니다.
+
+== Writer 함자 (The Writer Functor)
+
+이전에 설명했던 클라이슬리 카테고리로 돌아가 보겠습니다. 그 카테고리의 모피즘은 ``Writer`` 데이터 구조를 반환하는 "장식된(Embellished)" 함수로 표현되었습니다.
+
+[source,haskell]
+----
+type Writer a = (a, String)
+----
+
+그때 저는 이 장식이 엔도함자와 어떤 관련이 있다고 말했습니다. 실제로 ``Writer`` 타입 생성자는 ``a``에 대해 함자적입니다. 단순한 곱 타입이기 때문에 ``fmap``을 따로 구현할 필요조차 없습니다.
+
+그렇다면 일반적으로 클라이슬리 카테고리와 함자 사이에는 어떤 관계가 있을까요? 클라이슬리 카테고리는 카테고리이므로 합성과 항등을 정의합니다. 합성이 피쉬(Fish) 연산자로 주어진다는 것을 상기해 봅시다.
+
+[source,haskell]
+----
+(>=>) :: (a -> Writer b) -> (b -> Writer c) -> (a -> Writer c)
+m1 >=> m2 = \x -> 
+    let (y, s1) = m1 x
+        (z, s2) = m2 y
+    in (z, s1 ++ s2)
+----
+
+그리고 항등 모피즘은 ``return``이라는 함수로 정의되었습니다.
+
+[source,haskell]
+----
+return :: a -> Writer a
+return x = (x, "")
+----
+
+놀랍게도 이 두 함수의 타입을 충분히 오래(정말로 충분히 오래!) 들여다보면, 이들을 결합하여 ``fmap``으로 작동할 올바른 타입 시그니처를 가진 함수를 만들어낼 수 있다는 것을 발견할 수 있습니다. 바로 이렇게 말이죠.
+
+[source,haskell]
+----
+fmap f = id >=> (\x -> return (f x))
+----
+
+여기서 피쉬 연산자는 두 함수를 결합합니다. 하나는 익숙한 ``id``이고, 다른 하나는 람다의 인수에 ``f``를 작용시킨 결과를 ``return``으로 감싸는 람다입니다. 이 식에서 가장 머리를 싸매게 하는 부분은 아마도 ``id``의 사용일 것입니다. 피쉬 연산자의 인수는 "일반" 타입을 받아 장식된 타입을 반환하는 함수여야 하지 않을까요? 하지만 실제로는 그렇지 않습니다. ``a -> Writer b``에서 ``a``가 "일반" 타입이어야 한다고 말하는 사람은 아무도 없습니다. ``a``는 타입 변수이므로 무엇이든 될 수 있고, 특히 ``Writer b``처럼 장식된 타입이 될 수도 있습니다.
+
+따라서 ``id``는 ``Writer a``를 받아 ``Writer a``로 바꿉니다. 피쉬 연산자는 ``a`` 값을 낚아올려(fish out) 람다에 ``x``로 전달합니다. 거기서 ``f``가 그것을 ``b``로 바꾸고 ``return``이 이를 장식하여 ``Writer b``로 만듭니다. 모든 것을 합치면 ``Writer a``를 받아 ``Writer b``를 반환하는 함수가 되는데, 이것이 바로 ``fmap``이 생성해야 하는 것입니다.
+
+이 논증은 매우 일반적입니다. ``Writer``를 어떤 타입 생성자로든 바꿀 수 있습니다. 피쉬 연산자와 ``return``을 지원하기만 하면 ``fmap``도 정의할 수 있습니다. 따라서 클라이슬리 카테고리의 장식은 언제나 함자입니다. (물론 모든 함자가 클라이슬리 카테고리를 만들어내는 것은 아닙니다.)
+
+우리가 방금 정의한 ``fmap``이 컴파일러가 ``deriving Functor``로 도출한 것과 동일한지 궁금할 수 있습니다. 흥미롭게도 그렇습니다. 이는 하스켈이 다형성 함수를 구현하는 방식 때문인데, 이를 매개변수적 다형성(Parametric Polymorphism)이라 하며 소위 공짜 정리(Theorems for free)의 원천입니다. 그 정리 중 하나는, 어떤 타입 생성자에 대해 항등성을 보존하는 ``fmap`` 구현이 존재한다면 그것은 유일해야 한다는 것입니다.
+
+== 공변 및 반변 함자 (Covariant and Contravariant Functors)
+
+라이터 함자를 검토했으니 이제 리더(Reader) 함자로 돌아가 봅시다. 리더 함자는 부분 적용된 함수 화살표 타입 생성자를 기반으로 했습니다.
+
+[source,haskell]
+----
+(->) r
+----
+
+이를 다음과 같이 타입 동의어(Type Synonym)로 적을 수 있습니다.
+
+[source,haskell]
+----
+type Reader r a = r -> a
+----
+
+앞서 살펴봤듯 이 타입의 ``Functor`` 인스턴스는 다음과 같았습니다.
+
+[source,haskell]
+----
+instance Functor (Reader r) where
+    fmap f g = f . g
+----
+
+그런데 쌍 타입 생성자나 ``Either`` 타입 생성자처럼 함수 타입 생성자도 두 개의 타입 인수를 받습니다. 쌍과 ``Either``는 두 인수 모두에 대해 함자적이었습니다. 즉 이항 함자였습니다. 함수 생성자도 이항 함자일까요?
+
+첫 번째 인수에 대해 함자적으로 만들어 봅시다. 타입 동의어로 시작하겠습니다. 이것은 ``Reader``와 비슷하지만 인수가 뒤바뀐 것입니다.
+
+[source,haskell]
+----
+type Op r a = a -> r
+----
+
+이번에는 반환 타입 ``r``을 고정하고 인수 타입 ``a``를 변화시킵니다. 타입을 맞춰 ``fmap``을 구현할 수 있는지 봅시다. 타입 시그니처는 다음과 같을 것입니다.
+
+[source,haskell]
+----
+fmap :: (a -> b) -> (a -> r) -> (b -> r)
+----
+
+``a``를 받아 각각 ``b``와 ``r``을 반환하는 두 함수만으로는 ``b``를 받아 ``r``을 반환하는 함수를 만들 방법이 없습니다! 첫 번째 함수를 뒤집어서 ``b``를 받아 ``a``를 반환하도록 만들 수 있다면 달라지겠지만요. 임의의 함수를 뒤집을 수는 없지만, 반대 카테고리로 갈 수는 있습니다.
+
+간단히 복습하자면, 모든 카테고리 C에 대해 쌍대 카테고리 C<sup>op</sup>가 존재합니다. 이는 C와 같은 객체를 가지지만 모든 화살표가 반대 방향인 카테고리입니다.
+
+C<sup>op</sup>에서 다른 카테고리 D로 가는 함자를 생각해 봅시다.
+
+F \:: C<sup>op</sup> → D
+
+이런 함자는 C<sup>op</sup>의 모피즘 f<sup>op</sup> \:: a → b를 D의 모피즘 F f<sup>op</sup> \:: F a → F b로 매핑합니다. 그런데 모피즘 f<sup>op</sup>는 은밀하게 원래 카테고리 C의 어떤 모피즘 f \:: b → a에 대응됩니다. 화살표가 뒤집힌 것에 주목하세요.
+
+이제 F는 정규 함자입니다. 하지만 F를 기반으로 정의할 수 있는 또 다른 매핑이 있는데, 이것은 함자가 아닙니다. 이를 G라고 부릅시다. 이것은 C에서 D로 가는 매핑입니다. 객체는 F와 같은 방식으로 매핑하지만, 모피즘을 매핑할 때는 방향을 뒤집습니다. C의 모피즘 f \:: b → a를 받아 먼저 반대 모피즘 f<sup>op</sup> \:: a → b로 매핑한 다음 그것에 함자 F를 사용하여 F f<sup>op</sup> \:: F a → F b를 얻습니다.
+
+F a가 G a와 같고 F b가 G b와 같다는 점을 고려하면, 전체 여정은 다음과 같이 설명될 수 있습니다.
+
+G f \:: (b → a) → (G a → G b)
+
+이는 "비틀림이 있는" 함자입니다. 이런 방식으로 모피즘의 방향을 반전시키는 카테고리 매핑을 *반변 함자(Contravariant Functor)*라고 부릅니다. 반변 함자는 그저 반대 카테고리로부터의 정규 함자일 뿐입니다. 참고로, 지금까지 우리가 공부해 온 보통의 함자들은 *공변 함자(Covariant Functor)*라고 불립니다.
+
+하스켈에서 반변 함자(엄밀히는 반변 엔도함자)를 정의하는 타입클래스는 다음과 같습니다.
+
+[source,haskell]
+----
+class Contravariant f where
+    contramap :: (b -> a) -> (f a -> f b)
+----
+
+우리가 만든 ``Op``가 바로 이 ``Contravariant``의 인스턴스가 됩니다.
+
+[source,haskell]
+----
+instance Contravariant (Op r) where
+    -- (b -> a) -> Op r a -> Op r b
+    contramap f g = g . f
+----
+
+함수 ``f``가 ``Op``의 내용물인 함수 ``g``의 앞에(즉, 오른쪽에) 삽입된다는 점에 주목하세요.
+
+``Op``에 대한 ``contramap`` 정의는 더 간결하게 만들 수 있습니다. 이것이 인수가 뒤바뀐 함수 합성 연산자라는 것을 알아챘다면 말이죠. 인수를 뒤바꾸는 특별한 함수인 ``flip``이 있습니다.
+
+[source,haskell]
+----
+flip :: (a -> b -> c) -> (b -> a -> c)
+flip f y x = f x y
+----
+
+따라서:
+
+[source,haskell]
+----
+contramap = flip (.)
+----
+
+== 프로함자 (Profunctors)
+
+함수 화살표 연산자가 첫 번째 인수에서는 반변이고 두 번째에서는 공변임을 보았습니다. 이런 것에 이름이 있을까요? 대상 카테고리가 Set이라면 이런 것을 *프로함자(Profunctor)*라고 부릅니다. 반변 함자는 반대 카테고리로부터의 공변 함자와 동등하므로, 프로함자는 다음과 같이 정의됩니다.
+
+C<sup>op</sup> × D → Set
+
+일차 근사로 하스켈 타입은 집합이므로, 두 인수를 받는 타입 생성자 ``p``에 ``Profunctor``라는 이름을 적용합니다. 이것은 첫 번째 인수에서는 반함자적(contra-functorial)이고 두 번째에서는 함자적입니다. 다음은 ``Data.Profunctor`` 라이브러리에서 가져온 적절한 타입클래스입니다.
+
+[source,haskell]
+----
+class Profunctor p where
+  dimap :: (a -> b) -> (c -> d) -> p b c -> p a d
+  dimap f g = lmap f . rmap g
+  lmap :: (a -> b) -> p b c -> p a c
+  lmap f = dimap f id
+  rmap :: (b -> c) -> p a b -> p a c
+  rmap = dimap id
+----
+
+세 함수 모두 기본 구현과 함께 제공됩니다. ``Bifunctor``와 마찬가지로, ``Profunctor`` 인스턴스를 선언할 때 ``dimap``을 구현하고 ``lmap``과 ``rmap``의 기본값을 받거나, ``lmap``과 ``rmap``을 모두 구현하고 ``dimap``의 기본값을 받는 선택을 할 수 있습니다.
+
+image::https://bartoszmilewski.files.wordpress.com/2015/01/dimap.png[dimap]
+
+이제 함수 화살표 연산자가 ``Profunctor``의 인스턴스임을 주장할 수 있습니다.
+
+[source,haskell]
+----
+instance Profunctor (->) where
+  dimap ab cd bc = cd . bc . ab
+  lmap = flip (.)
+  rmap = (.)
+----
+
+프로함자는 하스켈 렌즈(Lens) 라이브러리에서 광범위하게 사용됩니다. 나중에 엔드(End)와 코엔드(Coend)에 대해 이야기할 때 다시 만나게 될 것입니다.
+
+== Hom 함자 (The Hom-Functor)
+
+위의 예시들은 더 일반적인 진술의 반영입니다. 두 객체 a와 b의 쌍을 받아 그들 사이의 모피즘 집합, 즉 hom-set C(a, b)를 할당하는 매핑은 함자입니다. 이는 곱 카테고리 C<sup>op</sup> × C에서 카테고리 Set으로 가는 함자입니다.
+
+모피즘에 대한 이 함자의 작용을 정의해 봅시다. C<sup>op</sup> × C의 모피즘은 C로부터의 모피즘 쌍입니다.
+
+[source,haskell]
+----
+f :: a'→ a
+g :: b → b'
+----
+
+이 쌍의 리프팅은 집합 C(a, b)에서 집합 C(a', b')로 가는 모피즘(함수)이어야 합니다. C(a, b)의 임의의 원소 h를 선택하고(이것은 a에서 b로 가는 모피즘입니다) 여기에 다음을 할당합니다.
+
+[source,haskell]
+----
+g ∘ h ∘ f
+----
+
+이것은 C(a', b')의 원소입니다.
+
+보시다시피, hom-함자는 프로함자의 특수한 경우입니다.
+
+== 도전 과제
+
+1. 다음 하스켈 데이터 타입이 ``a``와 ``b``에 대한 이항 함자임을 보이세요.
+[source,haskell]
+----
+  data Pair a b = Pair a b
+----
+  심화 문제: ``Bifunctor``의 세 가지 메서드를 모두 구현하고, 방정식 추론(Equational Reasoning)을 사용하여 해당 정의들이 기본 구현과 호환됨을 보이세요.
+2. ``Maybe``의 표준 정의와 이를 "풀어 쓴(Desugaring)" 다음 정의 사이의 동형 관계(Isomorphism)를 보이세요.
+[source,haskell]
+----
+  type Maybe' a = Either (Const () a) (Identity a)
+----
+  힌트: 두 구현 사이의 매핑 함수를 각각 정의하세요. 심화 문제: 방정식 추론을 통해 두 함수가 서로의 역함수임을 보이세요.
+3. ``PreList``라는 데이터 구조를 생각해 봅시다. 이는 ``List``가 되기 전 단계로, 재귀(Recursion) 대신 타입 매개변수 ``b``를 사용합니다.
+[source,haskell]
+----
+  data PreList a b = Nil | Cons a b
+----
+  ``PreList``를 자기 자신에게 재귀적으로 적용하면 앞서 다룬 ``List``를 복원할 수 있습니다. (나중에 고정점(Fixed Point)에 대해 배울 때 어떻게 하는지 알아볼 것입니다.)
+  ``PreList``가 ``Bifunctor``의 인스턴스임을 보이세요.
+4. 다음 데이터 타입들이 ``a``와 ``b``에 대해 이항 함자를 정의함을 보이세요.
+[source,haskell]
+----
+  data K2 c a b = K2 c
+  data Fst a b = Fst a
+  data Snd a b = Snd b
+----
+  심화 문제: 코너 맥브라이드(Conor McBride)의 논문 link:http://strictlypositive.org/CJ.pdf["Clowns to the Left of me, Jokers to the Right"]와 대조하여 답을 확인해 보세요.
+5. 하스켈 이외의 언어로 이항 함자를 정의해 보세요. 해당 언어의 제네릭 페어(Pair) 타입에 대해 ``bimap``을 구현해 보세요.
+6. ``std\::map``은 템플릿 인수 ``Key``와 ``T``에 대해 이항 함자일까요, 아니면 프로함자(Profunctor)일까요? 그렇게 되도록 하려면 데이터 타입을 어떻게 재설계해야 할까요?
+
+다음 장: 함수 타입 (Function Types)
+
+== 감사 인사
+
+평소와 같이 이 글을 비평해 준 거샴 베이저먼(Gershom Bazerman)에게 큰 감사를 표합니다.
+
+팔로우: link:https://twitter.com/bartoszmilewski[@BartoszMilewski]
+
+// end::body[]

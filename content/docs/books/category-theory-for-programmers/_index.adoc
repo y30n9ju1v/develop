@@ -1,0 +1,278 @@
+---
+title: "Category Theory for Programmers"
+---
+
+*Category Theory for Programmers*는 Bartosz Milewski가 프로그래머를 대상으로 쓴 카테고리 이론 입문서로, 원래 그의 블로그에 연재된 글을 엮은 것입니다. 하스켈과 C++ 코드를 오가며 카테고리, 함자, 자연 변환에서 시작해 요네다 렘마, 수반, 모나드, 칸 확장까지 다룹니다. 이 페이지는 해당 시리즈의 한국어 번역을 장별로 모은 판입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+* *link:0-preface/[0. 프로그래머를 위한 카테고리 이론: 서문 (Category Theory for Programmers: The Preface)]*
+
+
+*제1부*
+
+* *link:1-1-category-the-essence-of-composition/[1.1. 카테고리: 합성의 본질]*
+* *link:1-2-types-and-functions/[1.2. 타입과 함수 (Types and Functions)]*
+* *link:1-3-categories-great-and-small/[1.3. 크고 작은 카테고리들 (Categories Great and Small)]*
+* *link:1-4-kleisli-categories/[1.4. 클라이슬리 카테고리 (Kleisli Categories)]*
+* *link:1-5-products-and-coproducts/[1.5. 곱(Products)과 여곱(Coproducts)]*
+* *link:1-6-simple-algebraic-data-types/[1.6. 단순 대수적 자료형]*
+* *link:1-7-functors/[1.7. 함자]*
+* *link:1-8-functoriality/[1.8. 함자성 (Functoriality)]*
+* *link:1-9-function-types/[1.9. 함수 타입 (Function Types)]*
+* *link:1-10-natural-transformations/[1.10. 자연 변환 (Natural Transformations)]*
+
+*제2부*
+
+* *link:2-1-category-theory-and-declarative-programming/[2.1. 2부: 카테고리 이론과 선언형 프로그래밍]*
+* *link:2-2-limits-and-colimits/[2.2. 극한과 코리미트]*
+* *link:2-3-free-monoids/[2.3. 자유 모노이드 (Free Monoids)]*
+* *link:2-4-representable-functors/[2.4. 표현 가능 함자 (Representable Functors)]*
+* *link:2-5-the-yoneda-lemma/[2.5. 요네다 보조정리 (The Yoneda Lemma)]*
+* *link:2-6-yoneda-embedding/[2.6. 요네다 매장 (Yoneda Embedding)]*
+
+*제3부*
+
+* *link:3-1-its-all-about-morphisms/[3.1. 모든 것은 모피즘에 관한 것이다 (It’s All About Morphisms)]*
+* *link:3-2-adjunctions/[3.2. 수반 (Adjunctions)]*
+* *link:3-3-freeforgetful-adjunctions/[3.3. 자유/망각 수반 (Free/Forgetful Adjunctions)]*
+* *link:3-4-monads-programmers-definition/[3.4. 모나드: 프로그래머의 정의]*
+* *link:3-5-monads-and-effects/[3.5. 모나드와 효과(Monads and Effects)]*
+* *link:3-6-monads-categorically/[3.6. 카테고리 이론적 관점에서의 모나드]*
+* *link:3-7-comonads/[3.7. 코모나드(Comonads)]*
+* *link:3-8-f-algebras/[3.8. F-대수 (F-Algebras)]*
+* *link:3-9-algebras-for-monads/[3.9. 모나드를 위한 대수 (Algebras for Monads)]*
+* *link:3-10-ends-and-coends/[3.10. 엔드와 코엔드 (Ends and Coends)]*
+* *link:3-11-kan-extensions/[3.11. 칸 확장 (Kan Extensions)]*
+* *link:3-12-enriched-categories/[3.12. 풍성한 카테고리 (Enriched Categories)]*
+* *link:3-13-topoi/[3.13. 토포스 (Topoi)]*
+* *link:3-14-lawvere-theories/[3.14. 로베르 이론 (Lawvere Theories)]*
+* *link:3-15-monads-monoids-and-categories/[3.15. 모나드, 모노이드, 그리고 카테고리]*
+
+'''
+
+[#chapter-0-preface]
+== 0. 프로그래머를 위한 카테고리 이론: 서문 (Category Theory for Programmers: The Preface)
+
+include::0-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-1-category-the-essence-of-composition]
+== 1.1. 카테고리: 합성의 본질
+
+include::1-1-category-the-essence-of-composition.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-2-types-and-functions]
+== 1.2. 타입과 함수 (Types and Functions)
+
+include::1-2-types-and-functions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-3-categories-great-and-small]
+== 1.3. 크고 작은 카테고리들 (Categories Great and Small)
+
+include::1-3-categories-great-and-small.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-4-kleisli-categories]
+== 1.4. 클라이슬리 카테고리 (Kleisli Categories)
+
+include::1-4-kleisli-categories.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-5-products-and-coproducts]
+== 1.5. 곱(Products)과 여곱(Coproducts)
+
+include::1-5-products-and-coproducts.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-6-simple-algebraic-data-types]
+== 1.6. 단순 대수적 자료형
+
+include::1-6-simple-algebraic-data-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-7-functors]
+== 1.7. 함자
+
+include::1-7-functors.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-8-functoriality]
+== 1.8. 함자성 (Functoriality)
+
+include::1-8-functoriality.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-9-function-types]
+== 1.9. 함수 타입 (Function Types)
+
+include::1-9-function-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-1-10-natural-transformations]
+== 1.10. 자연 변환 (Natural Transformations)
+
+include::1-10-natural-transformations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-1-category-theory-and-declarative-programming]
+== 2.1. 2부: 카테고리 이론과 선언형 프로그래밍
+
+include::2-1-category-theory-and-declarative-programming.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-2-limits-and-colimits]
+== 2.2. 극한과 코리미트
+
+include::2-2-limits-and-colimits.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-3-free-monoids]
+== 2.3. 자유 모노이드 (Free Monoids)
+
+include::2-3-free-monoids.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-4-representable-functors]
+== 2.4. 표현 가능 함자 (Representable Functors)
+
+include::2-4-representable-functors.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-5-the-yoneda-lemma]
+== 2.5. 요네다 보조정리 (The Yoneda Lemma)
+
+include::2-5-the-yoneda-lemma.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-2-6-yoneda-embedding]
+== 2.6. 요네다 매장 (Yoneda Embedding)
+
+include::2-6-yoneda-embedding.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-1-its-all-about-morphisms]
+== 3.1. 모든 것은 모피즘에 관한 것이다 (It’s All About Morphisms)
+
+include::3-1-its-all-about-morphisms.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-2-adjunctions]
+== 3.2. 수반 (Adjunctions)
+
+include::3-2-adjunctions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-3-freeforgetful-adjunctions]
+== 3.3. 자유/망각 수반 (Free/Forgetful Adjunctions)
+
+include::3-3-freeforgetful-adjunctions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-4-monads-programmers-definition]
+== 3.4. 모나드: 프로그래머의 정의
+
+include::3-4-monads-programmers-definition.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-5-monads-and-effects]
+== 3.5. 모나드와 효과(Monads and Effects)
+
+include::3-5-monads-and-effects.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-6-monads-categorically]
+== 3.6. 카테고리 이론적 관점에서의 모나드
+
+include::3-6-monads-categorically.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-7-comonads]
+== 3.7. 코모나드(Comonads)
+
+include::3-7-comonads.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-8-f-algebras]
+== 3.8. F-대수 (F-Algebras)
+
+include::3-8-f-algebras.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-9-algebras-for-monads]
+== 3.9. 모나드를 위한 대수 (Algebras for Monads)
+
+include::3-9-algebras-for-monads.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-10-ends-and-coends]
+== 3.10. 엔드와 코엔드 (Ends and Coends)
+
+include::3-10-ends-and-coends.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-11-kan-extensions]
+== 3.11. 칸 확장 (Kan Extensions)
+
+include::3-11-kan-extensions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-12-enriched-categories]
+== 3.12. 풍성한 카테고리 (Enriched Categories)
+
+include::3-12-enriched-categories.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-13-topoi]
+== 3.13. 토포스 (Topoi)
+
+include::3-13-topoi.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-14-lawvere-theories]
+== 3.14. 로베르 이론 (Lawvere Theories)
+
+include::3-14-lawvere-theories.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-3-15-monads-monoids-and-categories]
+== 3.15. 모나드, 모노이드, 그리고 카테고리
+
+include::3-15-monads-monoids-and-categories.adoc[tag=body,leveloffset=+1]
+
+'''
