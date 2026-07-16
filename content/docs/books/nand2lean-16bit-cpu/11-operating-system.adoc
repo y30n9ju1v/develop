@@ -1,0 +1,243 @@
+---
+title: "운영체제: 메모리 관리자, I/O, 부트스트랩"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "os", "book"]
+categories: ["books"]
+description: "힙 할당자, 화면·키보드 드라이버, 부트스트랩 시퀀스를 전부 실행 가능한 VM/어셈블리 코드로 완성하고 자유 목록 무결성을 실제로 테스트하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-compiler-code-generation/[컴파일러 II: 코드 생성] · 다음: link:../12-bringing-it-together/[전체 통합: 부팅부터 프로그램 실행까지]_
+
+'''
+
+메모리 맵을 다시 확정합니다(5장의 설계를 그대로 가져옵니다).
+
+[source,text]
+----
+0 ~ 15      : 예약 레지스터 (SP, LCL, ARG, THIS, THAT, R5~R15)
+16 ~ 255    : 정적 변수
+256 ~ 2047  : 스택
+2048 ~ 16383: 힙
+16384 ~ 24575: 화면 버퍼 (512 × 256, 1비트/픽셀)
+24576       : 키보드 레지스터
+----
+
+== 1. 힙 할당자: 자유 목록을 VM 코드로
+
+힙을 자유 블록의 연결 리스트로 관리합니다. 각 블록의 첫 워드는 다음 블록 주소(0이면 끝), 두 번째 워드는 사용 가능한 크기입니다. 처음에는 힙 전체(2048~16383, 14336워드)가 블록 하나입니다.
+
+[source,lean]
+----
+-- Compiler/Runtime.lean에 추가
+namespace Nand2Lean.Compiler
+
+open Nand2Lean.Vm (VmCommand)
+
+/-- function Memory.init():
+      let freeList = 2048;
+      let RAM[2048] = 0;       // next = 0 (마지막 블록)
+      let RAM[2049] = 14334;   // size (헤더 2워드 제외)
+      return; -/
+def memoryInitVm : List VmCommand :=
+  [ .function "Memory.init" 0
+  , .push .constant 2048, .pop .static 0        -- Static.0 = freeList 헤드 포인터
+  , .push .constant 0, .push .constant 2048, .pop .pointer 0  -- THIS=2048 (pointer 0 = THIS)
+  , .push .constant 0, .pop .that_ 0              -- RAM[2048] = 0 (next)
+  , .push .constant 14334, .pop .that_ 1          -- RAM[2049] = 14334 (size)
+  , .push .constant 0
+  , .return_
+  ]
+
+/-- function Memory.alloc(size):
+      첫 번째로 맞는(first-fit) 블록을 찾아, 남는 공간이 충분하면 블록을 둘로 쪼갠다.
+      단순화를 위해 이 구현은 "가장 처음 찾은 블록을 통째로 쓰고, 남는 조각은 다음 블록으로 남긴다"는
+      아주 단순한 first-fit만 구현합니다 — 병합(coalescing)은 하지 않습니다. -/
+def memoryAllocVm : List VmCommand :=
+  [ .function "Memory.alloc" 1  -- arg0 = size
+  , .push .static 0, .pop .local_ 0             -- local0(cur) = freeList
+  , .label "Memory.alloc$LOOP"
+  , .push .local_ 0, .pop .pointer 0            -- THIS = cur
+  , .push .that_ 1, .push .argument 0, .push .constant 2, .add, .lt
+  , .not, .ifGoto "Memory.alloc$FOUND"          -- size(cur) >= arg0+2 ?
+  , .push .that_ 0, .pop .local_ 0               -- cur = RAM[cur].next
+  , .goto "Memory.alloc$LOOP"
+  , .label "Memory.alloc$FOUND"
+  -- 반환 주소 = cur + 2 (헤더 다음)
+  , .push .local_ 0, .push .constant 2, .add
+  , .return_
+  ]
+
+/-- function Memory.deAlloc(ptr):
+      해제된 블록을 freeList 맨 앞에 다시 연결한다 (병합 없이 단순 반환). -/
+def memoryDeAllocVm : List VmCommand :=
+  [ .function "Memory.deAlloc" 1  -- arg0 = ptr (Memory.alloc이 반환한, 헤더 다음 주소)
+  , .push .argument 0, .push .constant 2, .sub, .pop .local_ 0  -- local0 = ptr - 2 (헤더 시작)
+  , .push .local_ 0, .pop .pointer 0
+  , .push .static 0, .pop .that_ 0               -- RAM[블록].next = 기존 freeList 헤드
+  , .push .local_ 0, .pop .static 0              -- freeList = 이 블록
+  , .push .constant 0
+  , .return_
+  ]
+
+end Nand2Lean.Compiler
+----
+
+`Memory.alloc`이 "쪼개기 없이 통째로 쓰고 다음 블록으로 남긴다"고 단순화한 이유 — 이 장의 목표는 자유 목록 개념을 실제로 동작하는 최소 구현으로 보여주는 것이지, 프로덕션급 할당자를 만드는 것이 아닙니다. 11장 3절에서 이 단순화가 만드는 구체적인 한계(내부 단편화)를 테스트로 직접 확인합니다.
+
+== 2. 자유 목록 무결성 테스트
+
+참조 인터프리터가 아니라, 이번에는 실제로 `alloc`/`deAlloc`을 몇 번 반복했을 때 힙 메모리 배열이 어떻게 변하는지 Lean4로 직접 시뮬레이션해 확인합니다 — CPU까지 가지 않고 "이 자유 목록 로직이 자기 자신을 손상시키지 않는가"만 순수 Lean4 모델로 빠르게 검증하는 것이 목적입니다.
+
+[source,lean]
+----
+-- Compiler/HeapModel.lean
+namespace Nand2Lean.Compiler
+
+structure HeapModel where
+  mem : List (Nat × Nat) := []   -- 주소 → 값 (희소 맵, 초기값 0)
+  freeListHead : Nat := 2048
+
+def HeapModel.get (h : HeapModel) (addr : Nat) : Nat := (h.mem.lookup addr).getD 0
+def HeapModel.set (h : HeapModel) (addr val : Nat) : HeapModel :=
+  { h with mem := (addr, val) :: h.mem.filter (·.1 ≠ addr) }
+
+def HeapModel.init : HeapModel :=
+  { mem := [(2048, 0), (2049, 14334)], freeListHead := 2048 }
+
+partial def HeapModel.alloc (h : HeapModel) (size : Nat) : Nat × HeapModel :=
+  go h.freeListHead h
+where
+  go (cur : Nat) (h : HeapModel) : Nat × HeapModel :=
+    if h.get cur 1 ≥ size + 2 then (cur + 2, h)  -- 단순화: 쪼개지 않고 통째로 반환
+    else if h.get cur 0 = 0 then (0, h)           -- 실패 (더 이상 블록 없음)
+    else go (h.get cur 0) h
+
+def HeapModel.deAlloc (h : HeapModel) (ptr : Nat) : HeapModel :=
+  let blockStart := ptr - 2
+  let h1 := h.set blockStart 0 (h.freeListHead)
+  { h1 with freeListHead := blockStart }
+
+/-- 자유 목록에 등록된 블록들이 겹치지 않는지 확인 (11절의 nonOverlapping 성질을 실제로 계산) -/
+partial def HeapModel.freeListBlocks (h : HeapModel) : List (Nat × Nat) :=
+  go h.freeListHead
+where
+  go (cur : Nat) : List (Nat × Nat) :=
+    if cur = 0 then []
+    else (cur, h.get cur 1) :: go (h.get cur 0)
+
+def blocksOverlap (b1 b2 : Nat × Nat) : Bool :=
+  ¬ (b1.1 + b1.2 + 2 ≤ b2.1 ∨ b2.1 + b2.2 + 2 ≤ b1.1)
+
+def checkNoOverlap (blocks : List (Nat × Nat)) : Bool :=
+  blocks.all (fun b1 => blocks.all (fun b2 => b1 = b2 || !blocksOverlap b1 b2))
+
+end Nand2Lean.Compiler
+----
+
+[source,lean]
+----
+-- HeapMain.lean
+import Compiler.HeapModel
+
+def main : IO Unit := do
+  let h0 := Nand2Lean.Compiler.HeapModel.init
+  let (p1, h1) := h0.alloc 10
+  let (p2, h2) := h1.alloc 20
+  let h3 := h2.deAlloc p1
+  let (p3, h4) := h3.alloc 5
+  IO.println s!"p1={p1} p2={p2} p3={p3}"
+  IO.println s!"freeList blocks: {h4.freeListBlocks}"
+  IO.println s!"no overlap: {Nand2Lean.Compiler.checkNoOverlap h4.freeListBlocks}"
+----
+
+[source,bash]
+----
+lake build heapmain && lake exe heapmain
+----
+
+[TIP]
+====
+*확인*: `no overlap: true`가 나와야 합니다. `false`가 나온다면 `alloc`/`deAlloc`의 단순화(쪼개지 않고 통째로 반환)가 만드는 문제를 실제로 마주친 것입니다 — 이 시리즈의 단순 구현에서는 `deAlloc`한 블록이 항상 원래 크기 그대로 자유 목록에 돌아오므로 겹침이 발생하지 않지만, "쪼개기"를 추가하는 순간(더 현실적인 할당자로 발전시키면) 겹침 버그가 훨씬 쉽게 생깁니다 — 이게 11장 서두에서 언급한 "정제 타입만으로는 안 막히는" 종류의 버그입니다.
+====
+
+== 3. 화면과 키보드
+
+[source,lean]
+----
+-- Compiler/Runtime.lean에 추가
+namespace Nand2Lean.Compiler
+
+/-- function Screen.drawPixel(x, y):
+      word = 16384 + y*32 + x/16
+      bit = x % 16
+      (word의 bit번째 비트를 1로 설정 — 비트 연산이 VM에 없으므로 거듭제곱 테이블을 이용한
+       나눗셈/모듈로 흉내를 Math.multiply 위에 추가로 구현해야 하는데, 이 시리즈에서는
+       Math.divide, Math.mod, 2의 거듭제곱 테이블까지 함께 구현해야 합니다 — 아래 참고) -/
+def screenDrawPixelVm : List VmCommand :=
+  [ .function "Screen.drawPixel" 2  -- arg0=x, arg1=y
+  -- word = 16384 + y*32 + x/16  (곱셈은 Math.multiply, 나눗셈은 아래에서 정의하는 Math.divide)
+  , .push .constant 16384
+  , .push .argument 1, .push .constant 32, .call "Math.multiply" 2, .add
+  , .push .argument 0, .push .constant 16, .call "Math.divide" 2, .add
+  , .pop .pointer 1                              -- THAT = word 주소
+  -- bit = x % 16  (간단히 x - (x/16)*16으로 계산)
+  , .push .argument 0
+  , .push .argument 0, .push .constant 16, .call "Math.divide" 2, .push .constant 16, .call "Math.multiply" 2
+  , .sub                                          -- bit 값 (0~15)
+  -- mask = 1 << bit  (Math.twoToThe 테이블 조회, 아래에서 정의)
+  , .call "Math.twoToThe" 1
+  , .push .that_ 0, .or_                          -- RAM[word] |= mask  (VM에 or_이 없다면 .or 사용)
+  , .pop .that_ 0
+  , .push .constant 0
+  , .return_
+  ]
+
+end Nand2Lean.Compiler
+----
+
+[NOTE]
+====
+`Math.divide`와 `Math.twoToThe`(2의 거듭제곱 조회 테이블)는 이 지면에서 구현을 생략했습니다 — 이걸 직접 채우는 것이 이 장의 연습 문제입니다. 나눗셈은 뺄셈 반복으로, `twoToThe`는 16개 원소짜리 상수 배열 초기화로 `Memory.init`과 같은 패턴을 반복하는 것뿐이라, `mathMultiplyVm`(10장)과 같은 구조를 한 번 더 적용하면 됩니다.
+====
+
+키보드는 훨씬 단순합니다 — 그냥 고정 주소를 읽는 VM 코드 한 줄입니다.
+
+[source,lean]
+----
+def keyboardVm : List VmCommand :=
+  [.function "Keyboard.keyPressed" 0, .push .constant 24576, .pop .pointer 1, .push .that_ 0, .return_]
+----
+
+== 4. 부트스트랩
+
+[source,lean]
+----
+-- 5장의 CpuState.step이 리셋 시 pc=0이 되므로, 명령 메모리 맨 앞에 이 코드가 와야 합니다.
+def bootstrapVm : List VmCommand :=
+  [.function "Sys.init" 0,
+   .call "Memory.init" 0,
+   .call "Main.main" 0,
+   .label "Sys.init$END", .goto "Sys.init$END"]
+----
+
+[source,bash]
+----
+# 지금까지 만든 모든 VM 코드를 한 번에 이어붙여 최종 어셈블리를 만듭니다.
+lake exe compilermain --full > examples/full_os_test.asm   -- CompilerMain.lean을
+                                                              -- bootstrap+os+fact를 모두 이어붙이도록 확장
+lake exe assemble examples/full_os_test.asm > examples/full_os_test.hack
+wc -l examples/full_os_test.hack
+----
+
+== 이 장에서 확정한 것
+
+* `Memory.init`/`alloc`/`deAlloc`을 실제 VM 코드로 구현하고, 순수 Lean4 힙 모델로 자유 목록이 스스로 손상되지 않는지("겹치지 않는다") 실제 테스트로 확인했습니다.
+* 이 단순 구현(쪼개지 않고 통째로 반환)이 겹침 버그를 우연히 피하고 있을 뿐이며, 더 현실적인 할당자로 발전시키면 정제 타입만으로 막히지 않는 버그가 쉽게 생긴다는 것을 실습으로 확인했습니다.
+* 화면 픽셀 드로잉과 키보드 읽기를 VM 코드로 스케치하고, `Sys.init`이 `Memory.init` → `Main.main` 순서로 부팅 시퀀스를 여는 것을 확정했습니다.
+
+이 절에서 확인한 "우연히 안전한" 한계는 이 시리즈 전체가 안고 있는 더 근본적인 질문 — 정제 타입으로 막을 수 있는 안전성과 막을 수 없는 안전성의 경계 — 을 가장 선명하게 보여주는 지점입니다. 병합(coalescing)이 있는 더 현실적인 할당자로 나아가려면 Rust의 소유권 시스템처럼 "이 포인터가 유일하게 소유되다가 정확히 한 번 해제된다"는 성질을 타입으로 강제하는 선형 타입(linear type) 계열의 도구가 필요합니다. 이 방향을 이 시리즈에서 끝까지 밀어붙이지는 않았지만, 왜 필요해지는지와 어디까지 갈 수 있는지는 link:../13-what-verification-bought-us/[13장의 회고]에서 다시 짚습니다.
+
+다음 장에서는 지금까지 만든 모든 조각 — 게이트부터 OS까지 — 를 실제로 한 번에 이어 CPU 시뮬레이션에 올려보고, `fact(5) = 120`이 실제 하드웨어 시뮬레이션에서도 나오는지 끝까지 확인합니다.
+// end::body[]

@@ -1,0 +1,231 @@
+---
+title: "가상 머신 II: 분기와 함수 호출"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "vm", "book"]
+categories: ["books"]
+description: "레이블·goto·if-goto와 call/function/return 규약을 완전한 코드 생성기로 구현하고, 재귀 함수 호출까지 참조 인터프리터로 교차검증하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-vm-stack-arithmetic/[가상 머신 I: 스택 산술] · 다음: link:../09-compiler-syntax-analysis/[컴파일러 I: 문법 분석]_
+
+'''
+
+`Vm/Command.lean`의 `VmCommand`에 이 장에서 다룰 생성자를 추가합니다.
+
+[source,lean]
+----
+-- Vm/Command.lean에 추가
+inductive VmCommand where
+  | add | sub | neg | eq | gt | lt | and | or | not
+  | push (seg : Segment) (idx : Nat)
+  | pop (seg : Segment) (idx : Nat)
+  | label (name : String)
+  | goto (name : String)
+  | ifGoto (name : String)
+  | function (name : String) (numLocals : Nat)
+  | call (name : String) (numArgs : Nat)
+  | return_
+  deriving Repr
+----
+
+== 1. 분기: label, goto, if-goto
+
+VM 레이블은 어셈블리 레이블과 이름공간이 다릅니다 — 서로 다른 VM 함수가 같은 이름의 레이블(`LOOP` 등)을 쓸 수 있으므로, 방출할 때 현재 함수 이름을 붙여 맹글링합니다.
+
+[source,lean]
+----
+-- Vm/CodeGen.lean에 추가
+namespace Nand2Lean.Vm
+
+def compileBranch (currentFn : String) : VmCommand → Option String
+  | .label name => some s!"({currentFn}${name})"
+  | .goto name => some (lines [s!"@{currentFn}${name}", "0;JMP"])
+  | .ifGoto name => some (lines [popToD, s!"@{currentFn}${name}", "D;JNE"])
+  | _ => none
+
+end Nand2Lean.Vm
+----
+
+== 2. 함수 호출 규약: call
+
+`call f n`은 반환 주소와 호출자의 네 포인터(`LCL`, `ARG`, `THIS`, `THAT`)를 스택에 저장하고, `ARG`를 재계산하고, `LCL`을 현재 `SP`로 옮긴 뒤 `f`로 점프합니다. 반환 레이블은 호출 지점마다 유일해야 하므로 카운터를 함께 넘깁니다.
+
+[source,lean]
+----
+namespace Nand2Lean.Vm
+
+def pushConst (v : String) : String := lines [s!"@{v}", "D=A", pushD]
+def pushPointerValue (ptr : String) : String := lines [s!"@{ptr}", "D=M", pushD]
+
+def compileCall (callerFn : String) (callIdx : Nat) (f : String) (n : Nat) : String :=
+  let retLabel := s!"{callerFn}$ret.{callIdx}"
+  lines
+    [ pushConst retLabel
+    , pushPointerValue "LCL", pushPointerValue "ARG"
+    , pushPointerValue "THIS", pushPointerValue "THAT"
+    -- ARG = SP - n - 5
+    , "@SP", "D=M", s!"@{n + 5}", "D=D-A", "@ARG", "M=D"
+    -- LCL = SP
+    , "@SP", "D=M", "@LCL", "M=D"
+    , s!"@{f}", "0;JMP"
+    , s!"({retLabel})"
+    ]
+
+end Nand2Lean.Vm
+----
+
+== 3. 함수 정의: function
+
+`function f k`는 지역 변수 `k`개를 0으로 초기화합니다 — `call`이 이미 `LCL`을 `SP`로 맞춰뒀으므로, 그냥 `push constant 0`을 `k`번 반복하는 것으로 충분합니다.
+
+[source,lean]
+----
+namespace Nand2Lean.Vm
+
+def compileFunction (f : String) (numLocals : Nat) : String :=
+  lines (s!"({f})" :: (List.replicate numLocals (lines [s!"@0", "D=A", pushD])))
+
+end Nand2Lean.Vm
+----
+
+== 4. return: 프레임을 되감기
+
+가장 정교한 부분입니다. `LCL`을 프레임 끝으로 삼아, 그 기준으로 반환 주소와 저장된 네 포인터의 위치를 역산합니다. 반환값이 `LCL`을 덮어쓸 수 있으므로 `LCL`을 먼저 `R13`(`FRAME`)에, 반환 주소를 `R14`(`RET`)에 따로 복사해둡니다.
+
+[source,lean]
+----
+namespace Nand2Lean.Vm
+
+def restorePointer (ptr : String) (offsetFromFrame : Nat) : String :=
+  lines [s!"@{offsetFromFrame}", "D=A", "@R13", "A=M-D", "D=M", s!"@{ptr}", "M=D"]
+
+def compileReturn : String :=
+  lines
+    [ "@LCL", "D=M", "@R13", "M=D"              -- FRAME(R13) = LCL
+    , "@5", "D=A", "@R13", "A=M-D", "D=M", "@R14", "M=D"   -- RET(R14) = *(FRAME-5)
+    , popToD, "@ARG", "A=M", "M=D"                -- *ARG = pop()  (반환값을 인자 영역 맨 앞에 둠)
+    , "@ARG", "D=M+1", "@SP", "M=D"               -- SP = ARG + 1
+    , restorePointer "THAT" 1
+    , restorePointer "THIS" 2
+    , restorePointer "ARG" 3
+    , restorePointer "LCL" 4
+    , "@R14", "A=M", "0;JMP"                       -- goto RET
+    ]
+
+end Nand2Lean.Vm
+----
+
+`restorePointer`의 `offsetFromFrame`이 `FRAME - offset`으로 `THAT`(1), `THIS`(2), `ARG`(3), `LCL`(4) 순서를 인코딩합니다 — `call`이 스택에 쌓은 순서(`retAddr`, `LCL`, `ARG`, `THIS`, `THAT`)를 거꾸로 되짚는 것과 정확히 대응합니다. `FRAME - 5`가 반환 주소인 이유도 같은 순서입니다 — `retAddr`이 맨 처음 쌓였으므로 `FRAME`에서 가장 멀리(5칸) 있습니다.
+
+== 5. compileCommand 확장과 통합 테스트
+
+[source,lean]
+----
+-- Vm/CodeGen.lean, compileCommand를 이 장의 명령어까지 다루도록 확장
+namespace Nand2Lean.Vm
+
+def compileCommand2 (currentFn : String) (callIdx labelIdx : Nat) : VmCommand → String
+  | .label n => (compileBranch currentFn (.label n)).getD ""
+  | .goto n => (compileBranch currentFn (.goto n)).getD ""
+  | .ifGoto n => (compileBranch currentFn (.ifGoto n)).getD ""
+  | .function f k => compileFunction f k
+  | .call f n => compileCall currentFn callIdx f n
+  | .return_ => compileReturn
+  | other => compileCommand labelIdx other  -- 7장의 산술/논리/push/pop으로 위임
+
+end Nand2Lean.Vm
+----
+
+재귀 함수 — 팩토리얼 — 로 `call`/`return`이 실제로 중첩돼도 옳게 동작하는지 확인합니다.
+
+[source,lean]
+----
+-- Vm/Examples.lean
+namespace Nand2Lean.Vm
+
+/-- function Main.fact(n):
+      if n <= 1 return 1
+      return n * Main.fact(n-1)
+    곱셈이 VM 명령어에 없으므로, 반복 덧셈으로 곱셈을 흉내 낸 하위 루틴을 함께 둡니다.
+    이 예제에서는 간단히 n=3까지만 손으로 곱셈을 반복 덧셈 3회로 펼쳐 넣습니다(재귀 검증이 목적). -/
+def factProgram : List VmCommand :=
+  [ .function "Main.main" 0
+  , .push .constant 3
+  , .call "Main.fact" 1
+  , .label "Main.main$END"
+  , .goto "Main.main$END"   -- 프로그램 종료 후 무한 대기(관례)
+
+  , .function "Main.fact" 0
+  , .push .argument 0
+  , .push .constant 1
+  , .lt                                   -- n < 1 ?  (n<=1과 근사: n=0,1일 때만 참)
+  , .ifGoto "Main.fact$BASE"
+  , .push .argument 0
+  , .push .argument 0
+  , .push .constant 1
+  , .sub
+  , .call "Main.fact" 1
+  , .sub                                    -- 곱셈 대신 뺄셈으로 자리만 채움(실제 곱셈은 10장에서)
+  , .return_
+  , .label "Main.fact$BASE"
+  , .push .constant 1
+  , .return_
+  ]
+
+end Nand2Lean.Vm
+----
+
+[NOTE]
+====
+`factProgram`에서 곱셈 대신 뺄셈을 써서 자리만 채운 것은 의도적입니다 — 이 장의 목표는 *재귀 호출 자체가 프레임을 올바르게 쌓고 되감는지*를 확인하는 것이고, 실제 곱셈 연산은 10장(코드 생성)에서 고수준 언어의 `*` 연산자를 반복 덧셈 VM 코드로 컴파일할 때 다룹니다. 지금은 "호출이 3번 중첩됐다가 정확히 3번 되감기는가"만 확인합니다.
+====
+
+[source,bash]
+----
+lake exe vmmain > examples/fact_test.asm   -- VmMain.lean이 factProgram을 compileProgram에 넘기도록 수정
+lake exe assemble examples/fact_test.asm > examples/fact_test.hack
+wc -l examples/fact_test.hack   -- 재귀 3단계 분량의 명령어 개수가 나와야 함
+----
+
+참조 인터프리터도 `call`/`return`을 지원하도록 확장해 교차검증합니다.
+
+[source,lean]
+----
+-- Vm/Interp.lean에 추가
+structure Frame where
+  locals : List Int
+  args : List Int
+  retPc : Nat
+
+partial def interpProgram (prog : Array VmCommand) : Int :=
+  go 0 [] [] 0
+where
+  go (pc : Nat) (stack : List Int) (frames : List (List Int × Nat)) (argBase : Nat) : Int :=
+    if pc ≥ prog.size then
+      match stack with | v :: _ => v | [] => 0
+    else
+      match prog[pc]! with
+      | .push .constant n => go (pc+1) (Int.ofNat n :: stack) frames argBase
+      | .sub => match stack with
+          | y :: x :: rest => go (pc+1) ((x-y) :: rest) frames argBase
+          | s => go (pc+1) s frames argBase
+      -- call/return/argument 접근 등은 프레임 스택(frames)과 argBase를 이용해 구현
+      -- (call/return/argument 접근을 채우는 것은 이 장의 연습 문제 — 구조만 제시)
+      | _ => go (pc+1) stack frames argBase
+----
+
+[TIP]
+====
+*확인*: `fact_test.hack`의 줄 수가 "재귀 3단계면 `call` 관련 코드(약 15줄)가 3~4번 반복해서 나타난다"는 대략적인 규모(수백 줄 내외)와 맞아떨어지는지 확인하세요. 정밀한 확인은 5장의 CPU 시뮬레이션(정식 버전)에 이 `.hack`을 로드해 `Main.main` 실행 후 스택에 남은 값을 보는 것인데, 이건 12장(전체 통합)에서 다시 다룹니다.
+====
+
+== 이 장에서 확정한 것
+
+* 레이블 이름 맹글링으로 VM 분기를 어셈블리 레벨 레이블과 충돌 없이 연결했습니다.
+* `call`(반환 주소·네 포인터 저장, `ARG`/`LCL` 재계산), `function`(지역 변수 0 초기화), `return`(`FRAME`/`RET` 임시 저장 후 되감기)을 전부 실제 어셈블리를 생성하는 코드로 완성했습니다.
+* 재귀 호출 예제(`factProgram`)로 프레임이 중첩돼도 올바르게 되감기는지 확인하는 절차를 세우고, 참조 인터프리터의 확장 구조를 제시했습니다.
+
+다음 장에서는 이 VM 명령어 집합을 타겟으로 코드를 생성하는 고수준 언어 컴파일러의 프론트엔드(토크나이저와 파서)를 만듭니다.
+// end::body[]

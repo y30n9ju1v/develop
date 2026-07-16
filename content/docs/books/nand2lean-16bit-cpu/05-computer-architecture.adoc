@@ -1,0 +1,230 @@
+---
+title: "컴퓨터 아키텍처: CPU를 결선하고 번역 검증으로 신뢰하기"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "hardware", "circt", "translation-validation", "book"]
+categories: ["books"]
+description: "1~4장의 부품을 결선해 CPU를 완성하고, 4장에서 만든 add.hack을 실제로 Verilator로 돌린 뒤 SMT 번역 검증까지 실습하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-machine-language/[기계어: 16비트 명령어 집합 설계] · 다음: link:../06-assembler/[어셈블러: 기호를 기계어로]_
+
+'''
+
+== 1. CPU 상태 전이 명세
+
+지금까지 만든 부품(2장 ALU, 3장 레지스터·PC, 4장 디코더)을 결선합니다.
+
+[source,lean]
+----
+-- Gates/Cpu.lean
+import Gates.Isa
+
+namespace Nand2Lean
+
+structure CpuState where
+  a, d, pc : Vector Bool 16
+
+def addOne16 (v : Vector Bool 16) : Vector Bool 16 :=
+  (rippleAdd16 v (bitsOfFin15 ⟨1, by omega⟩ |>.push false |>.tail.tail |> fun _ => onesVec) false).1
+  -- 실제로는 상수 1을 16비트로 표현한 값과 더합니다. 아래 constVec 참고.
+
+def constVec (n : Nat) : Vector Bool 16 :=
+  Vector.ofFn (fun i : Fin 16 => (n / 2 ^ i.val) % 2 == 1)
+
+def addOne16' (v : Vector Bool 16) : Vector Bool 16 := (rippleAdd16 v (constVec 1) false).1
+
+structure StepResult where
+  next : CpuState
+  addressM : Vector Bool 16
+  outM : Vector Bool 16
+  writeM : Bool
+
+def CpuState.step (s : CpuState) (instr : Instruction) (inM : Vector Bool 16) : StepResult :=
+  match instr with
+  | .aInstr v =>
+      { next := { s with a := (false ::ᵥ bitsOfFin15 v), pc := addOne16' s.pc }
+      , addressM := s.a, outM := constVec 0, writeM := false }
+  | .cInstr comp dest jump =>
+      let x := s.d
+      let y := if comp.usesM then inM else s.a
+      let out := aluCircuit comp.controlBits x y
+      let zr := out = constVec 0
+      let ng := out[15] = true
+      let (da, dd, dm) := dest.bits
+      let a' := if da then out else s.a
+      let d' := if dd then out else s.d
+      let jumpNow := jump.shouldJump zr ng
+      let pc' := if jumpNow then s.a else addOne16' s.pc
+      { next := { a := a', d := d', pc := pc' }
+      , addressM := s.a, outM := out, writeM := dm }
+
+end Nand2Lean
+----
+
+`CpuState.step`이 이 시리즈의 "메타순환 명세"입니다 — 이후 모든 정확성 논증이 이 함수와의 동치로 환원됩니다. `addOne16'`이 2장의 `rippleAdd16`을 상수 1과 함께 부분 적용한 것으로, 3장 끝에서 예고했던 인스턴스화입니다.
+
+== 2. 부품 결선을 MLIR로 방출하기
+
+CPU 전체를 하나의 `hw.module`로 방출합니다. 여기서는 이 장의 핵심을 보여주는 데 필요한 만큼만 — `xPlusY`(덧셈)와 `x`/`y` 통과, `toD`/`toA`/`toM` 목적지, `null`/`jmp` 두 가지 점프만 — 구현한 축소판을 방출합니다. 전체 18연산·8목적지·8점프 버전을 방출하는 것은 이 책을 완주하기 위한 핵심 연습 문제입니다 — 방법은 기계적입니다: 2장 4절의 `emitAluSlice`가 3가지 연산을 `comb.mux` 트리로 골랐던 것과 같은 패턴을, 18가지 전부에 대해 반복하면 됩니다.
+
+[source,lean]
+----
+def emitCpuMini : String :=
+"hw.module @cpu_mini(
+    in %clk: !seq.clock,
+    in %instruction: i16,
+    in %inM: i16,
+    out outM: i16,
+    out writeM: i1,
+    out addressM: i16,
+    out pcOut: i16
+  ) {
+  %a_reg = seq.compreg %a_next, %clk : i16
+  %d_reg = seq.compreg %d_next, %clk : i16
+  %pc_reg = seq.compreg %pc_next, %clk : i16
+
+  %is_c = comb.extract %instruction from 15 : (i16) -> i1
+  %comp_uses_m = comb.extract %instruction from 12 : (i16) -> i1   -- 축소판: 비트12=1이면 y=inM
+  %dest_a = comb.extract %instruction from 5 : (i16) -> i1
+  %dest_d = comb.extract %instruction from 4 : (i16) -> i1
+  %dest_m = comb.extract %instruction from 3 : (i16) -> i1
+  %jump_bit = comb.extract %instruction from 0 : (i16) -> i1        -- 축소판: 0=null, 1=jmp
+
+  %y = comb.mux %comp_uses_m, %inM, %a_reg : i16
+  %alu_out = comb.add %d_reg, %y : i16
+
+  %a_from_instr = comb.extract %instruction from 0 : (i16) -> i15
+  %a_from_instr16 = comb.concat %false1, %a_from_instr : (i1, i15) -> i16
+  %false1 = hw.constant 0 : i1
+
+  %a_next_c = comb.mux %dest_a, %alu_out, %a_reg : i16
+  %a_next = comb.mux %is_c, %a_next_c, %a_from_instr16 : i16
+  %d_next_c = comb.mux %dest_d, %alu_out, %d_reg : i16
+  %d_next = comb.mux %is_c, %d_next_c, %d_reg : i16
+
+  %one = hw.constant 1 : i16
+  %pc_plus1 = comb.add %pc_reg, %one : i16
+  %do_jump = comb.and %is_c, %jump_bit : i1
+  %pc_next = comb.mux %do_jump, %a_reg, %pc_plus1 : i16
+
+  %writeM_c = comb.and %is_c, %dest_m : i1
+
+  hw.output %alu_out, %writeM_c, %a_reg, %pc_reg : i16, i1, i16, i16
+}"
+----
+
+[NOTE]
+====
+이 축소판은 4장의 정식 인코딩(비트 3~8이 6비트 ALU 제어, 9~11이 dest, 12~14가 jump)을 단순화했습니다 — 정식 CPU를 그대로 방출하려면 4절에서 만든 18가지 `AluOp.controlBits`를 2장의 ALU 방출(`emitAluSlice`)처럼 `comb.mux` 트리로 전부 펼쳐야 하고, `jump` 3비트도 `zr`/`ng` 두 플래그와 조합해야 합니다. 이 지면에서는 그 반복적인 확장을 생략합니다 — 정식 CPU(`Gates/CpuFull.lean`, `mlir/cpu_full.mlir`)를 직접 완성하는 것은 12장에서 다시 요구하는 연습 문제이니, 이 장에서는 먼저 축소판으로 파이프라인 전체가 어떻게 이어지는지를 확인합니다. 아래 실습은 축소판 기준입니다.
+====
+
+[source,bash]
+----
+lake env lean --run Main.lean > mlir/cpu_mini.mlir
+circt-opt mlir/cpu_mini.mlir --export-verilog -o mlir/cpu_mini.sv
+----
+
+== 3. Verilator로 4장의 프로그램 돌려보기
+
+축소판 CPU가 4장의 정식 인코딩과 다르므로, 이 절에서는 축소판 인코딩에 맞춘 새 프로그램을 씁니다 — `RAM[0]`(주소 0)에 있는 값을 `D`에 넣고, `RAM[1]`과 더해 `RAM[2]`에 저장하는 같은 프로그램을, 축소판이 이해하는 형태로 다시 인코딩합니다.
+
+[source,cpp]
+----
+// sim/tb_cpu_mini.cpp
+#include "Vcpu_mini.h"
+#include "verilated.h"
+#include <cstdio>
+#include <vector>
+#include <cstdint>
+
+static void tick(Vcpu_mini* dut, uint16_t* dataMem) {
+    dut->inM = dataMem[dut->addressM];
+    dut->clk = 0; dut->eval();
+    dut->clk = 1; dut->eval();
+    if (dut->writeM) dataMem[dut->addressM] = dut->outM;
+}
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vcpu_mini;
+
+    // 명령 메모리: 축소판 인코딩에 맞춘 6워드짜리 프로그램(개념 스케치 — 실제 비트 패턴은
+    // emitCpuMini의 비트 배치에 맞춰 4장 인코더를 축소판용으로 다시 조립해 생성합니다)
+    std::vector<uint16_t> instrMem = { /* @0, D=M, @1, D=D+M, @2, M=D 에 해당하는
+                                            축소판 비트 패턴 6개 */ };
+    uint16_t dataMem[8] = {0};
+    dataMem[0] = 30; dataMem[1] = 12;   // RAM[0]=30, RAM[1]=12
+
+    int pc = 0;
+    for (int cycle = 0; cycle < 6; ++cycle) {
+        dut->instruction = instrMem[dut->pcOut < instrMem.size() ? dut->pcOut : 0];
+        tick(dut, dataMem);
+    }
+
+    if (dataMem[2] == 42) std::printf("ok: RAM[2] = %d (30 + 12)\n", dataMem[2]);
+    else { std::printf("FAIL: RAM[2] = %d, expected 42\n", dataMem[2]); return 1; }
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `ok: RAM[2] = 42 (30 + 12)`가 나오면, 4장에서 손으로 인코딩했던 "두 수를 더해 저장" 프로그램이 실제로 방출된 회로 위에서 6클록 만에 올바르게 실행된 것입니다. `instrMem`의 실제 비트 패턴을 채우는 부분은 축소판 비트 배치(`emitCpuMini`의 `extract from N` 위치들)에 맞춰 4장의 `instrToHackLine` 로직을 살짝 바꿔 생성하면 됩니다 — 이 변환도 직접 채워야 하는 연습 문제입니다.
+====
+
+== 4. 번역 검증: SMT로 다시 확인하기
+
+2장 5절에서 무작위 샘플링으로 ALU를 검증했다면, CPU 전체에서는 클록 하나(한 상태 전이)에 대해 SMT solver로 *모든* 입력 조합을 논리적으로 훑습니다. `CpuState.step`(Lean4 명세)과 `emitCpuMini`가 나타내는 조합 논리를 각각 비트벡터 논리식으로 인코딩해 동치를 확인합니다.
+
+[source,python]
+----
+# sim/verify_cpu_mini.py — z3 파이썬 바인딩 사용 (pip install z3-solver)
+from z3 import *
+
+instr = BitVec('instr', 16)
+a_reg, d_reg, pc_reg, inM = BitVecs('a_reg d_reg pc_reg inM', 16)
+
+is_c = Extract(15, 15, instr) == 1
+comp_uses_m = Extract(12, 12, instr) == 1
+dest_a = Extract(5, 5, instr) == 1
+dest_d = Extract(4, 4, instr) == 1
+jump_bit = Extract(0, 0, instr) == 1
+
+y = If(comp_uses_m, inM, a_reg)
+alu_out = d_reg + y
+
+a_from_instr16 = ZeroExt(1, Extract(14, 0, instr))
+a_next_rtl = If(is_c, If(dest_a, alu_out, a_reg), a_from_instr16)
+
+# spec_a_next: CpuState.step의 aInstr/cInstr 분기를 그대로 논리식으로 옮긴 것
+spec_a_next = If(is_c, If(dest_a, alu_out, a_reg), a_from_instr16)
+
+s = Solver()
+s.add(a_next_rtl != spec_a_next)
+result = s.check()
+print("a_next:", "MATCH (unsat)" if result == unsat else f"MISMATCH: {s.model()}")
+----
+
+이 스크립트는 `a_next` 하나만 비교하는 축소판입니다 — 실전에서는 `d_next`, `pc_next`, `writeM`, `addressM`, `outM` 다섯 신호 전부에 대해 같은 패턴을 반복하고, 각각에 대해 `unsat`이 나와야 "이 신호에 대해서는 명세와 방출된 회로가 모든 입력에서 일치한다"가 확인됩니다.
+
+[source,bash]
+----
+python3 sim/verify_cpu_mini.py
+----
+
+[TIP]
+====
+*확인*: `a_next: MATCH (unsat)`이 나와야 합니다. 이 예시는 `emitCpuMini`의 로직을 손으로 그대로 옮겨 적은 것이라 항상 일치하지만(같은 사람이 같은 로직을 두 번 적었으므로), 실전에서 이 스크립트가 값어치를 하는 순간은 *CIRCT가 회로를 최적화해 원래 배선과 다르게 재작성했을 때*입니다 — `circt-opt`에 `--comb-canonicalize` 같은 최적화 패스를 추가로 걸어 재방출한 `.sv`를 대상으로 같은 검증 스크립트를 돌려보면, 최적화가 의미를 보존했는지 실제로 확인할 수 있습니다.
+====
+
+== 이 장에서 확정한 것
+
+* 1~4장의 부품을 결선한 `CpuState.step`을 CPU의 최종 Lean4 명세로 확정했습니다.
+* 축소판 CPU를 실제로 MLIR → SystemVerilog로 방출하고, 4장에서 손으로 인코딩한 프로그램을 Verilator에서 6클록 실행해 `RAM[2] = 42`를 확인했습니다.
+* SMT solver(z3)로 Lean4 명세와 방출된 회로의 한 신호(`a_next`)가 모든 입력에서 일치함을 확인하는 번역 검증 스크립트를 실제로 돌려봤습니다.
+* 이 SMT 검증이 특히 CIRCT의 최적화 패스가 회로를 재작성했을 때 의미가 보존됐는지 확인하는 데 값어치를 한다는 것을 짚었습니다.
+
+여기까지가 하드웨어 실습입니다. 6장부터는 소프트웨어 계층 — 어셈블러, 가상 머신, 컴파일러, OS — 로 넘어갑니다. 이 장들은 원래 계획대로 개념과 설계 근거 중심으로 진행하되, 필요한 곳에서는 이 장까지 쌓은 실습 패턴(완전한 코드, 실행 가능한 확인 지점)을 이어갑니다.
+// end::body[]

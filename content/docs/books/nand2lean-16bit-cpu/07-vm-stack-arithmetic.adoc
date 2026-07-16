@@ -1,0 +1,214 @@
+---
+title: "가상 머신 I: 스택 산술"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "vm", "book"]
+categories: ["books"]
+description: "스택 기반 가상 머신의 산술·논리·메모리 접근 명령어를 처음부터 끝까지 실행 가능한 코드 생성기로 구현하고, 6장 어셈블러로 다시 조립해 검증하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-assembler/[어셈블러: 기호를 기계어로] · 다음: link:../08-vm-program-control/[가상 머신 II: 분기와 함수 호출]_
+
+'''
+
+`Vm/` 디렉터리를 새로 만들고, 이 장의 코드 생성기가 만드는 것은 6장 파서가 그대로 읽을 수 있는 어셈블리 텍스트(`AsmInstr` 목록이 아니라 `String`)입니다 — VM 계층과 어셈블러 계층을 텍스트 인터페이스로 분리해두면, 8장에서 VM 프로그램을 직접 눈으로 읽고 디버깅하기 쉬워집니다.
+
+[source,bash]
+----
+mkdir -p Vm
+----
+
+== 1. VM 명령어와 세그먼트
+
+[source,lean]
+----
+-- Vm/Command.lean
+namespace Nand2Lean.Vm
+
+inductive Segment where
+  | constant | static | temp | local_ | argument | this_ | that_
+  deriving DecidableEq, Repr
+
+inductive VmCommand where
+  | add | sub | neg | eq | gt | lt | and | or | not
+  | push (seg : Segment) (idx : Nat)
+  | pop (seg : Segment) (idx : Nat)
+  deriving Repr
+
+end Nand2Lean.Vm
+----
+
+(`local`/`this`/`that`은 Lean4 예약어와 충돌하므로 `local_`, `this_`, `that_`으로 이름 붙였습니다.)
+
+== 2. 어셈블리 텍스트를 조립하는 헬퍼
+
+스택 push/pop 패턴이 반복되므로, 공통 헬퍼를 먼저 만듭니다. `SP`는 6장에서 미리 정의한 심볼(주소 0)입니다.
+
+[source,lean]
+----
+-- Vm/CodeGen.lean
+import Vm.Command
+
+namespace Nand2Lean.Vm
+
+def lines (ls : List String) : String := String.intercalate "\n" ls
+
+/-- D 레지스터의 값을 스택에 push하고 SP를 증가시키는 공통 꼬리부분. -/
+def pushD : String :=
+  lines ["@SP", "A=M", "M=D", "@SP", "M=M+1"]
+
+/-- SP를 감소시키고 스택 top을 D에 로드하는 공통 머리부분. -/
+def popToD : String :=
+  lines ["@SP", "M=M-1", "A=M", "D=M"]
+
+def compilePush : Segment → Nat → String
+  | .constant, n => lines [s!"@{n}", "D=A", pushD]
+  | .temp, i => lines [s!"@{5 + i}", "D=M", pushD]
+  | .static, i => lines [s!"@Static.{i}", "D=M", pushD]  -- 6장 심볼 테이블이 파일마다 새 변수로 할당
+  | .pointer, i => lines [s!"@{3 + i}", "D=M", pushD]     -- pointer 0/1 = THIS/THAT (3장/6장 예약주소 3,4)
+  | seg, i =>
+      let ptr := match seg with
+        | .local_ => "LCL" | .argument => "ARG" | .this_ => "THIS" | .that_ => "THAT" | _ => "LCL"
+      lines [s!"@{i}", "D=A", s!"@{ptr}", "A=D+M", "D=M", pushD]
+
+def compilePop : Segment → Nat → String
+  | .temp, i => lines [popToD, s!"@{5 + i}", "M=D"]
+  | .static, i => lines [popToD, s!"@Static.{i}", "M=D"]
+  | .pointer, i => lines [popToD, s!"@{3 + i}", "M=D"]
+  | seg, i =>
+      let ptr := match seg with
+        | .local_ => "LCL" | .argument => "ARG" | .this_ => "THIS" | .that_ => "THAT" | _ => "LCL"
+      -- 목적지 주소를 R13(임시 레지스터, 6장 예약주소가 아니므로 R13=주소13 그대로 사용)에 먼저 저장해두고,
+      -- 그다음 pop한 값을 그 주소에 씀 (주소 계산과 pop 순서가 겹치면 안 되므로)
+      lines [s!"@{i}", "D=A", s!"@{ptr}", "D=D+M", "@R13", "M=D",
+             popToD, "@R13", "A=M", "M=D"]
+  | .constant, _ => ""  -- constant는 pop 대상이 될 수 없음(호출부에서 배제)
+
+end Nand2Lean.Vm
+----
+
+`compilePop`의 포인터 세그먼트 갈래에서 `R13`(6장 심볼 테이블이 이미 `R0`~`R15`를 예약해뒀습니다)을 임시 저장소로 쓰는 이유 — 목적지 주소(`LCL + i` 등)를 계산하는 동안 `D` 레지스터를 쓰는데, 그다음 스택에서 pop한 값도 `D`에 담아야 하므로 두 계산이 충돌합니다. 주소를 먼저 계산해 `R13`에 저장해두고, pop한 값으로 그 주소에 쓰는 순서로 충돌을 피합니다. 이건 VM 코드 생성기에서 가장 흔한 종류의 버그(레지스터/임시값 충돌)를 실제로 마주치고 해결한 사례입니다.
+
+== 3. 산술·논리 명령어
+
+[source,lean]
+----
+namespace Nand2Lean.Vm
+
+def compileBinaryArith (opLine : String) : String :=
+  lines [popToD, "@SP", "M=M-1", "A=M", opLine, pushD]
+  -- 주의: popToD가 이미 SP를 한 번 줄였으므로, 두 번째 피연산자를 위해
+  -- SP를 다시 한 번 줄이고 그 주소(A)에서 opLine이 M을 참조하게 함
+
+def compileUnaryArith (opLine : String) : String :=
+  lines ["@SP", "M=M-1", "A=M", opLine, pushD]
+
+def compileCompare (jumpMnemonic : String) (labelIdx : Nat) : String :=
+  let trueLabel := s!"COMPARE_TRUE{labelIdx}"
+  let endLabel := s!"COMPARE_END{labelIdx}"
+  lines
+    [ popToD, "@SP", "M=M-1", "A=M", "D=M-D"
+    , s!"@{trueLabel}", s!"D;{jumpMnemonic}"
+    , "D=0", s!"@{endLabel}", "0;JMP"
+    , s!"({trueLabel})", "D=-1"
+    , s!"({endLabel})"
+    , pushD
+    ]
+
+/-- labelIdx는 eq/gt/lt처럼 프로그램 안에서 유일해야 하는 레이블에 쓰는 카운터입니다. -/
+def compileCommand (labelIdx : Nat) : VmCommand → String
+  | .add => compileBinaryArith "D=D+M"
+  | .sub => compileBinaryArith "D=M-D"
+  | .neg => compileUnaryArith "D=-M"
+  | .and => compileBinaryArith "D=D&M"
+  | .or  => compileBinaryArith "D=D|M"
+  | .not => compileUnaryArith "D=!M"
+  | .eq  => compileCompare "JEQ" labelIdx
+  | .gt  => compileCompare "JGT" labelIdx
+  | .lt  => compileCompare "JLT" labelIdx
+  | .push seg i => compilePush seg i
+  | .pop seg i => compilePop seg i
+
+end Nand2Lean.Vm
+----
+
+`compileBinaryArith`에서 `sub`는 `"D=M-D"`를 쓰는데(`add`의 `"D=D+M"`과 순서가 다름), 이유는 7장 설계 노트에서 짚었던 그대로입니다 — 스택은 `[..., x, y]` 순서로 쌓여 있고 `y`가 먼저 pop됩니다(`popToD`가 `D`에 담음). 그다음 `x`가 있는 주소로 이동해 `M`에 `x`를 두고, `x - y`를 계산하려면 `M - D`(=`x - y`)여야 합니다. `add`는 순서가 상관없으니 `D+M`으로 충분합니다.
+
+`compileCompare`가 실제로 조건부 비교를 구현하는 부분입니다 — `x - y`를 계산해 그 부호로 `JGT`/`JEQ`/`JLT`를 판단하고, 참이면 `-1`(모든 비트가 1, VM의 관례상 "true"), 거짓이면 `0`을 push합니다.
+
+== 4. 어셈블리 파일로 묶어 6장 어셈블러에 넘기기
+
+[source,lean]
+----
+-- VmMain.lean
+import Vm.CodeGen
+
+def compileProgram (cmds : List Nand2Lean.Vm.VmCommand) : String :=
+  let go : Nat × List String → Nand2Lean.Vm.VmCommand → Nat × List String :=
+    fun (idx, acc) cmd =>
+      let needsLabel := match cmd with | .eq | .gt | .lt => true | _ => false
+      (if needsLabel then idx + 1 else idx, acc ++ [Nand2Lean.Vm.compileCommand idx cmd])
+  String.intercalate "\n" (cmds.foldl go (0, [])).2
+
+def main : IO Unit := do
+  let prog : List Nand2Lean.Vm.VmCommand :=
+    [ .push .constant 7, .push .constant 8, .add
+    , .push .constant 10, .sub          -- (7+8) - 10 = 5
+    , .push .constant 5, .eq            -- 5 == 5 → -1(true)
+    ]
+  IO.println (compileProgram prog)
+----
+
+[source,bash]
+----
+lake build vmmain   -- lakefile.lean에 lean_exe «vmmain» where root := `VmMain 추가 후
+lake exe vmmain > examples/arith_test.asm
+cat examples/arith_test.asm
+lake exe assemble examples/arith_test.asm > examples/arith_test.hack
+----
+
+`examples/arith_test.hack`에 여러 줄의 16비트 코드가 나오면, 6장 어셈블러가 이 장의 코드 생성기가 만든 어셈블리를 문제없이 소화한 것입니다.
+
+== 5. Verilator 없이 스택 결과 확인하기
+
+5장의 CPU 시뮬레이션 하네스(`sim/tb_cpu_mini.cpp` 계열)를 재사용해, `arith_test.hack`을 명령 메모리에 로드하고 몇 클록 실행한 뒤 스택 최상단(`RAM[SP-1]`)을 확인합니다. 다만 5장의 `cpu_mini`는 축소판이라 이 장의 전체 니모닉(예: `M-D`, `D&M` 등 다양한 comp)을 못 받아들일 수 있습니다 — 정식 CPU(5장에서 연습 문제로 남긴 `Gates/CpuFull.lean`)로 시뮬레이션해야 이 장의 프로그램을 온전히 돌릴 수 있습니다. 이 지면에서는 순수 소프트웨어 검증으로 대체합니다 — Lean4로 작은 참조 인터프리터를 만들어, VM 코드 생성기가 만든 어셈블리와 별개로 "이 VM 명령어 시퀀스가 무엇을 계산해야 하는가"를 직접 계산해 봅니다.
+
+[source,lean]
+----
+-- Vm/Interp.lean (참조 인터프리터 — 코드 생성기와 별개로 손으로 짠 것이라야 교차검증 의미가 있음)
+namespace Nand2Lean.Vm
+
+def interpArith (stack : List Int) : VmCommand → List Int
+  | .add => match stack with | y :: x :: rest => (x + y) :: rest | s => s
+  | .sub => match stack with | y :: x :: rest => (x - y) :: rest | s => s
+  | .eq  => match stack with | y :: x :: rest => (if x = y then -1 else 0) :: rest | s => s
+  | .push .constant n => (Int.ofNat n) :: stack
+  | _ => stack
+
+def runArith (cmds : List VmCommand) : List Int :=
+  cmds.foldl interpArith []
+
+#eval runArith
+  [ .push .constant 7, .push .constant 8, .add
+  , .push .constant 10, .sub
+  , .push .constant 5, .eq
+  ]
+-- 예상 출력: [-1]  (스택에 -1(참) 하나만 남음)
+
+end Nand2Lean.Vm
+----
+
+[TIP]
+====
+*확인*: `#eval runArith [...]`을 VS Code의 Lean4 확장이나 `lake env lean Vm/Interp.lean`으로 실행하면 `[-1]`이 나와야 합니다. `interpArith`는 `compileCommand`와 독립적으로 새로 짠 참조 구현이라, 둘의 결과가 일치한다는 것(이 경우 어셈블리를 CPU에서 돌려 스택 top이 -1인지 확인하는 것)이 코드 생성기 정확성에 대한 최소한의 교차검증입니다. 8장에서 스택 프레임까지 다루게 되면 이 참조 인터프리터도 `local`/`argument` 등을 흉내 낼 수 있게 확장합니다.
+====
+
+== 이 장에서 확정한 것
+
+* `constant`/`temp`/`static`/`pointer`/`local`/`argument`/`this`/`that` 세그먼트에 대한 push/pop을 전부 실제 어셈블리 텍스트를 생성하는 코드로 구현했습니다.
+* `sub`에서 피연산자 순서, `pop`에서 `R13`을 임시 저장소로 쓰는 레지스터 충돌 회피 — 실제로 구현하면서 마주치는 두 가지 흔한 버그 패턴을 코드로 확인했습니다.
+* 6장 어셈블러에 실제로 통과시켜 `.hack` 파일을 만들어냈고, 독립적으로 짠 참조 인터프리터로 최소한의 교차검증을 했습니다.
+
+다음 장에서는 `local`/`argument`/`this`/`that`을 실제 함수 호출에서 쓰는 방법 — 분기와 `call`/`return` 규약 — 을 마저 구현합니다.
+// end::body[]

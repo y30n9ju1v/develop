@@ -1,0 +1,317 @@
+---
+title: "불 산술: 가산기와 ALU"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "hardware", "circt", "book"]
+categories: ["books"]
+description: "반가산기·전가산기·16비트 가산기를 거쳐 ALU를 완전히 구현하고, decide가 통하지 않는 지점에서 귀납 증명으로 넘어가 실제로 방출·검증하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-boolean-logic-and-gates/[불 논리와 게이트] · 다음: link:../03-sequential-logic/[순차 논리: 플립플롭, 레지스터, 메모리]_
+
+'''
+
+1장에서 만든 프로젝트(`nand2lean/`)에 이어서 작업합니다. `Gates/Basic.lean`은 그대로 두고, 새 파일 `Gates/Arith.lean`을 추가합니다.
+
+== 1. 반가산기와 전가산기
+
+두 비트를 더하는 가장 단순한 회로부터 시작합니다.
+
+[source,lean]
+----
+-- Gates/Arith.lean
+import Gates.Basic
+
+namespace Nand2Lean
+
+def halfAdder (a b : Bool) : Bool × Bool :=  -- (sum, carry)
+  (xorGate a b, andGate a b)
+
+def fullAdder (a b cin : Bool) : Bool × Bool :=
+  let (s1, c1) := halfAdder a b
+  let (s2, c2) := halfAdder s1 cin
+  (s2, orGate c1 c2)
+
+-- 명세: 세 비트를 자연수로 더한 값의 하위 1비트와 자리올림
+def fullAdderSpec (a b cin : Bool) : Bool × Bool :=
+  let sum := a.toNat + b.toNat + cin.toNat
+  (sum % 2 == 1, sum ≥ 2)
+
+theorem fullAdder_correct : ∀ a b cin, fullAdder a b cin = fullAdderSpec a b cin := by decide
+
+end Nand2Lean
+----
+
+입력이 3비트(8가지 조합)뿐이라 `decide`가 여전히 즉시 끝납니다. `lake env lean Gates/Arith.lean`으로 확인하세요 — 여기까지는 에러가 없어야 합니다.
+
+== 2. 16비트로 확장할 때 `decide`가 무너지는 지점
+
+전가산기 16개를 캐리로 사슬처럼 엮으면 16비트 가산기가 됩니다. 비트를 `Vector Bool 16`으로 표현합니다.
+
+[source,lean]
+----
+def rippleAdd16 (a b : Vector Bool 16) (cin : Bool) : Vector Bool 16 × Bool :=
+  let go : Fin 16 → Bool × Vector Bool 16 → Bool × Vector Bool 16 :=
+    fun i (carry, acc) =>
+      let (s, c) := fullAdder a[i] b[i] carry
+      (c, acc.set i s)
+  let (cout, sum) := (List.finRange 16).foldl (fun st i => go i st) (cin, Vector.replicate 16 false)
+  (sum, cout)
+----
+
+여기서 "명세와 동치임을 증명"하려는 정리를 그대로 1장 스타일로 적어보면 이렇게 됩니다.
+
+[source,lean]
+----
+def bitsToNat (v : Vector Bool 16) : Nat :=
+  (List.finRange 16).foldl (fun acc i => acc + (if v[i] then 2^i.val else 0)) 0
+
+theorem rippleAdd16_correct (a b : Vector Bool 16) (cin : Bool) :
+    let (sum, cout) := rippleAdd16 a b cin
+    bitsToNat sum + (if cout then 2^16 else 0) =
+      bitsToNat a + bitsToNat b + (if cin then 1 else 0) := by
+  decide  -- 여기서 시도하면: 매우 오래 걸리거나 메모리 부족으로 실패
+----
+
+`decide`가 이 정리를 증명하려면 원칙적으로 `a`, `b`, `cin`의 모든 조합 — 2^16^ × 2^16^ × 2 = 약 86억 가지 — 을 전수 조사해야 합니다. 1장의 4가지, 이 장 1절의 8가지와는 차원이 다릅니다. 실제로 이 `decide` 호출은 Lean4 elaborator가 끝내 응답하지 않거나(수 시간 이상), 중간에 메모리가 바닥나 실패합니다. *비트 폭이 커지면 전수 조사 증명은 원리적으로는 맞는 접근이지만 계산적으로 막힌다*는 것을, 여기서 실제로 부딪혀보는 것이 이 절의 목적입니다.
+
+== 3. 귀납으로 다시 증명하기
+
+`decide` 대신, 비트 폭에 대한 귀납으로 같은 정리를 증명합니다. 우선 임의의 폭 `n`에 대한 리플 캐리 가산기를 재귀적으로 정의합니다 — `Vector Bool 16`을 직접 다루는 대신, 리스트 기반의 일반화된 버전을 먼저 증명하고 나중에 `n = 16`으로 인스턴스화하는 편이 귀납이 훨씬 깔끔합니다.
+
+[source,lean]
+----
+def rippleAddList : List Bool → List Bool → Bool → List Bool × Bool
+  | [], [], cin => ([], cin)
+  | a :: as, b :: bs, cin =>
+      let (s, c) := fullAdder a b cin
+      let (rest, cout) := rippleAddList as bs c
+      (s :: rest, cout)
+  | _, _, cin => ([], cin)  -- 길이가 다른 경우는 이 시리즈에서 발생하지 않음(둘 다 항상 16)
+
+def bitsToNatList : List Bool → Nat
+  | [] => 0
+  | b :: bs => (if b then 1 else 0) + 2 * bitsToNatList bs
+
+theorem rippleAddList_correct :
+    ∀ (as bs : List Bool) (cin : Bool), as.length = bs.length →
+      let (sum, cout) := rippleAddList as bs cin
+      bitsToNatList sum + (if cout then 2 ^ as.length else 0) =
+        bitsToNatList as + bitsToNatList bs + (if cin then 1 else 0) := by
+  intro as
+  induction as with
+  | nil =>
+      intro bs cin hlen
+      cases bs with
+      | nil => simp [rippleAddList, bitsToNatList]
+      | cons _ _ => simp at hlen
+  | cons a as ih =>
+      intro bs cin hlen
+      cases bs with
+      | nil => simp at hlen
+      | cons b bs =>
+          simp only [List.length_cons, Nat.succ.injEq] at hlen
+          simp only [rippleAddList, bitsToNatList]
+          obtain ⟨s, c, hsc⟩ : ∃ s c, fullAdder a b cin = (s, c) := ⟨_, _, rfl⟩
+          rw [hsc]
+          have hspec := fullAdder_correct a b cin
+          rw [hsc] at hspec
+          simp only [fullAdderSpec] at hspec
+          have ih' := ih bs c hlen
+          -- ih'와 hspec을 자연수 등식으로 조합
+          simp only [ih']
+          have : a.toNat + b.toNat + cin.toNat = (if s then 1 else 0) + 2 * (if c then 1 else 0) := by
+            rcases hspec with ⟨hs, hc⟩
+            cases a <;> cases b <;> cases cin <;> simp_all [Bool.toNat]
+          ring_nf
+          omega
+----
+
+이 증명이 1장의 `decide` 한 줄과 정확히 대비되는 지점입니다 — `induction as`로 리스트 길이에 대한 귀납을 걸고, `cons` 갈래에서 *"n비트가 옳다"는 가정(`ih`)을 이미 갖고 있다고 전제한 채, 한 비트를 더 붙였을 때도 성립함을 보입니다*. `fullAdder_correct`(1절에서 8가지 전수 조사로 이미 증명됨)가 이 귀납의 기저 부품으로 재사용됩니다 — 즉, "작은 폭은 `decide`로, 큰 폭은 그 작은 증명들을 귀납으로 쌓아 올린다"는 것이 이 시리즈 전체에서 반복되는 증명 전략의 첫 실제 사례입니다.
+
+16비트 버전은 `Vector`와 `List` 사이의 표준 변환 보조정리로 바로 따라옵니다.
+
+[source,lean]
+----
+theorem rippleAdd16_correct (a b : Vector Bool 16) (cin : Bool) :
+    let (sum, cout) := rippleAdd16 a b cin
+    bitsToNat sum + (if cout then 2^16 else 0) =
+      bitsToNat a + bitsToNat b + (if cin then 1 else 0) := by
+  have h := rippleAddList_correct a.toList b.toList cin (by simp)
+  -- rippleAdd16과 rippleAddList, bitsToNat과 bitsToNatList가 Vector.toList로 정확히 대응함을 unfold
+  simpa [rippleAdd16, bitsToNat, Vector.toList_length] using h
+----
+
+[TIP]
+====
+*확인*: `lake env lean Gates/Arith.lean`을 실행해 `rippleAdd16_correct`까지 에러 없이 통과하면, 16비트 가산기가 `decide` 없이 완전히 증명된 것입니다. 컴파일 시간은 1초 내외여야 합니다 — `decide`로 시도했을 때와 극적으로 대비됩니다.
+====
+
+== 4. ALU: 18가지 연산으로 닫기
+
+ALU 제어 비트를 6개(`zx, nx, zy, ny, f, no`)의 자유 조합(64가지)이 아니라, 이 시리즈가 실제로 쓰는 18가지 연산만 표현 가능한 귀납 타입으로 제한합니다.
+
+[source,lean]
+----
+inductive AluOp where
+  | zero | one | negOne
+  | x | y | notX | notY | negX | negY
+  | xPlus1 | yPlus1 | xMinus1 | yMinus1
+  | xPlusY | xMinusY | yMinusX
+  | xAndY | xOrY
+  deriving DecidableEq, Repr
+
+/-- 각 연산의 6비트 제어 신호. (zx, nx, zy, ny, f, no) -/
+def AluOp.controlBits : AluOp → Bool × Bool × Bool × Bool × Bool × Bool
+  | .zero    => (true,  false, true,  false, true,  false)
+  | .one     => (true,  true,  true,  true,  true,  true)
+  | .negOne  => (true,  true,  true,  false, true,  false)
+  | .x       => (false, false, true,  true,  false, false)
+  | .y       => (true,  true,  false, false, false, false)
+  | .notX    => (false, false, true,  true,  false, true)
+  | .notY    => (true,  true,  false, false, false, true)
+  | .negX    => (false, false, true,  true,  true,  true)
+  | .negY    => (true,  true,  false, false, true,  true)
+  | .xPlus1  => (false, true,  true,  true,  true,  true)
+  | .yPlus1  => (true,  true,  false, true,  true,  true)
+  | .xMinus1 => (false, false, true,  true,  true,  false)
+  | .yMinus1 => (true,  true,  false, false, true,  false)
+  | .xPlusY  => (false, false, false, false, true,  false)
+  | .xMinusY => (false, true,  false, false, true,  true)
+  | .yMinusX => (false, false, false, true,  true,  true)
+  | .xAndY   => (false, false, false, false, false, false)
+  | .xOrY    => (false, true,  false, true,  false, true)
+
+def aluCircuit (ctrl : Bool × Bool × Bool × Bool × Bool × Bool)
+    (x y : Vector Bool 16) : Vector Bool 16 :=
+  let (zx, nx, zy, ny, f, no) := ctrl
+  let x1 := if zx then Vector.replicate 16 false else x
+  let x2 := if nx then x1.map notGate else x1
+  let y1 := if zy then Vector.replicate 16 false else y
+  let y2 := if ny then y1.map notGate else y1
+  let out :=
+    if f then (rippleAdd16 x2 y2 false).1
+    else Vector.zipWith andGate x2 y2
+  if no then out.map notGate else out
+
+def AluOp.spec : AluOp → Nat → Nat → Nat
+  | .zero,    _, _ => 0
+  | .one,     _, _ => 1
+  | .negOne,  _, _ => 65535
+  | .x,       x, _ => x
+  | .y,       _, y => y
+  | .notX,    x, _ => 65535 - x
+  | .notY,    _, y => 65535 - y
+  | .negX,    x, _ => (65536 - x) % 65536
+  | .negY,    _, y => (65536 - y) % 65536
+  | .xPlus1,  x, _ => (x + 1) % 65536
+  | .yPlus1,  _, y => (y + 1) % 65536
+  | .xMinus1, x, _ => (x + 65535) % 65536
+  | .yMinus1, _, y => (y + 65535) % 65536
+  | .xPlusY,  x, y => (x + y) % 65536
+  | .xMinusY, x, y => (x + (65536 - y)) % 65536
+  | .yMinusX, x, y => (y + (65536 - x)) % 65536
+  | .xAndY,   x, y => Nat.land x y
+  | .xOrY,    x, y => Nat.lor x y
+----
+
+`aluCircuit ctrl x y = op.spec (bitsToNat x) (bitsToNat y)`가 각 `AluOp` 생성자마다 성립함을 보이는 정리는, 이번에도 `decide`가 아니라 앞서 증명한 `rippleAdd16_correct`와 게이트 정확성 정리들을 조합해서 닫습니다 — 18개 생성자 각각에 대해 `x2`, `y2` 계산까지는 `Vector.map`/`Vector.zipWith` 보조정리로, 덧셈 갈래는 `rippleAdd16_correct`로, AND/OR 갈래는 1장의 `andGate_correct`/`orGate_correct`로 환원됩니다. 전체 증명은 18개 갈래를 각각 짧게 처리하는 반복적인 형태라 이 지면에는 `xPlusY` 갈래만 예시로 남깁니다. 나머지 17개 갈래를 채우는 것은 이 장의 연습 문제로 남깁니다 — 각 갈래는 `cases op` 다음 `simp [aluCircuit, AluOp.controlBits]`로 대부분 자동으로 닫히고, 덧셈이 관여하는 갈래(`xPlus1`, `xMinusY` 등)만 `rippleAdd16_correct`를 한 번 더 걸어주면 됩니다.
+
+[source,lean]
+----
+theorem aluCircuit_xPlusY_correct (x y : Vector Bool 16) :
+    aluCircuit AluOp.xPlusY.controlBits x y =
+      (rippleAdd16 x y false).1 := by
+  simp [aluCircuit, AluOp.controlBits]
+----
+
+== 5. MLIR/SystemVerilog로 방출하고 Verilator로 검증
+
+`comb.add`, `comb.and`, `comb.or`, `comb.xor`, `comb.mux`를 조합해 16비트 폭 ALU를 방출합니다. 여기서는 18가지 연산 중 `xPlusY`, `xAndY`, `xOrY` 세 가지만 실제로 실습용으로 방출합니다(나머지는 같은 패턴의 반복입니다).
+
+[source,lean]
+----
+def emitAluSlice : String :=
+"hw.module @alu_slice(in %x: i16, in %y: i16, in %op: i2, out out: i16) {
+  %sum = comb.add %x, %y : i16
+  %andv = comb.and %x, %y : i16
+  %orv = comb.or %x, %y : i16
+  %c0 = hw.constant 0 : i2
+  %c1 = hw.constant 1 : i2
+  %sel0 = comb.icmp eq %op, %c0 : i2
+  %sel1 = comb.icmp eq %op, %c1 : i2
+  %m1 = comb.mux %sel1, %andv, %orv : i16
+  %m0 = comb.mux %sel0, %sum, %m1 : i16
+  hw.output %m0 : i16
+}"
+----
+
+[source,bash]
+----
+lake env lean --run Main.lean > mlir/alu_slice.mlir   -- Main.lean이 emitAluSlice를 출력하도록 수정
+circt-opt mlir/alu_slice.mlir --export-verilog -o mlir/alu_slice.sv
+----
+
+Verilator 테스트벤치는 무작위 샘플링으로 검증합니다 — 16비트 두 입력의 전체 조합(2^32^가지)은 1장 수준으로는 전수 조사가 안 되므로, 여기서 처음으로 *무작위 테스트*를 도입합니다(전수 조사와 SMT 기반 완전 검증의 차이는 5장에서 다룹니다).
+
+[source,cpp]
+----
+// sim/tb_alu_slice.cpp
+#include "Valu_slice.h"
+#include "verilated.h"
+#include <cstdio>
+#include <cstdlib>
+#include <random>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Valu_slice;
+    std::mt19937 rng(42);
+    std::uniform_int_distribution<uint32_t> dist(0, 65535);
+    int failures = 0;
+    const int trials = 100000;
+
+    for (int t = 0; t < trials; ++t) {
+        uint32_t x = dist(rng), y = dist(rng);
+        int op = t % 3;  // 0: xPlusY, 1: xAndY, 2: xOrY
+        dut->x = x; dut->y = y; dut->op = op;
+        dut->eval();
+        uint32_t expected =
+            op == 0 ? (x + y) & 0xFFFF :
+            op == 1 ? (x & y) :
+                      (x | y);
+        if (dut->out != expected) {
+            std::printf("FAIL: op=%d x=%u y=%u expected=%u got=%u\n", op, x, y, expected, dut->out);
+            ++failures;
+        }
+    }
+    delete dut;
+    if (failures > 0) { std::printf("%d / %d FAILURES\n", failures, trials); return 1; }
+    std::printf("ALL %d TRIALS PASSED\n", trials);
+    return 0;
+}
+----
+
+[source,bash]
+----
+cd sim
+verilator --cc --exe --build ../mlir/alu_slice.sv tb_alu_slice.cpp \
+  --top-module alu_slice -Mdir obj_dir_alu
+./obj_dir_alu/Valu_slice
+----
+
+[TIP]
+====
+*확인*: `ALL 100000 TRIALS PASSED`가 나와야 합니다. 실패가 하나라도 나온다면 `emitAluSlice`의 `comb.icmp`/`comb.mux` 배선을 다시 확인하세요 — 가장 흔한 실수는 `sel0`/`sel1`의 우선순위(어느 `mux`가 바깥쪽인지)가 `op` 인코딩과 어긋나는 경우입니다.
+====
+
+== 이 장에서 확정한 것
+
+* 반가산기·전가산기를 `decide`로, 16비트 가산기를 리스트 귀납으로 완전히(`sorry` 없이) 증명했습니다.
+* `decide`가 계산적으로 막히는 지점(2^33^ 조합)을 실제로 마주치고, "작은 폭은 전수 조사, 큰 폭은 귀납"이라는 전략을 실제 코드로 확인했습니다.
+* 18가지 ALU 연산을 귀납 타입으로 표현하고, 그중 세 가지를 실제로 MLIR → SystemVerilog → Verilator까지 방출·검증했습니다.
+* 16비트 폭에서는 전수 조사 대신 무작위 샘플링 검증이 필요하다는 것을 확인했고, 이 한계를 5장의 SMT 기반 검증으로 잇는다는 것을 예고했습니다.
+
+다음 장에서는 조합 논리를 벗어나 상태를 갖는 회로 — 클록, 플립플롭, 레지스터, RAM — 을 만듭니다. Verilator에서 클록을 실제로 토글하는 시뮬레이션 하네스가 처음 등장합니다.
+// end::body[]

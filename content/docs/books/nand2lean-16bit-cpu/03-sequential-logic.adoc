@@ -1,0 +1,275 @@
+---
+title: "순차 논리: 플립플롭, 레지스터, 메모리"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "hardware", "circt", "book"]
+categories: ["books"]
+description: "클록과 상태가 개입하는 순차 논리를 궤적 위의 정리로 증명하고, 실제로 클록을 토글하는 Verilator 하네스로 레지스터·RAM·PC를 검증하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-boolean-arithmetic/[불 산술: 가산기와 ALU] · 다음: link:../04-machine-language/[기계어: 16비트 명령어 집합 설계]_
+
+'''
+
+== 1. 순수 함수 모델이 깨지는 지점
+
+1~2장의 게이트는 조합 논리였고, 클록 없이 순수 함수(`Bool → Bool`, `Vector Bool 16 → Vector Bool 16 → ...`)로 그대로 옮겨 적을 수 있었습니다. 이 장의 데이터 플립플롭(DFF)부터는 출력이 *지금 입력이 아니라 한 클록 전 입력*에 의해 결정됩니다. Lean4에서는 시간을 명시적인 인덱스로 다루는 방식으로 이 성질을 표현합니다.
+
+[source,lean]
+----
+-- Gates/Sequential.lean
+import Gates.Basic
+
+namespace Nand2Lean
+
+/-- t=0에서의 값은 false(리셋 상태), t+1에서의 값은 t에서의 입력. -/
+def DFF.spec (input : Nat → Bool) : Nat → Bool
+  | 0 => false
+  | t + 1 => input t
+
+end Nand2Lean
+----
+
+`DFF.spec`은 명세일 뿐, 회로 구현이 아닙니다. 실제 회로에서 "한 클록 지연"은 Lean4 함수로 표현할 수 없습니다 — 그건 물리적인 클록 신호가 관여하는 현상이기 때문입니다. 그래서 이 장부터는 *"레지스터가 만족해야 할 성질"을 Lean4로 명세하고 증명*하되, "그 성질을 실제로 만족하는 회로"는 CIRCT의 `seq.compreg`(순차 레지스터 연산)로 직접 방출합니다 — 1~2장에서 게이트를 NAND로부터 손수 조립했던 것과 달리, 순차 회로의 원시 연산은 CIRCT가 이미 제공하는 것을 그대로 신뢰합니다. 이 신뢰가 이 장에서 새로 열리는 TCB 항목입니다.
+
+== 2. 레지스터 명세: load 신호가 있는 상태 전이
+
+레지스터는 `load` 신호가 켜졌을 때만 새 값을 받아들이고, 아니면 이전 값을 유지합니다. 이 성질을 "궤적(trace) 위의 정리"로 표현합니다.
+
+[source,lean]
+----
+structure Trace where
+  regValue : Nat → Vector Bool 16
+  input    : Nat → Vector Bool 16
+  load     : Nat → Bool
+
+def Trace.wellFormed (tr : Trace) : Prop :=
+  ∀ t, tr.regValue (t + 1) = if tr.load t then tr.input t else tr.regValue t
+
+/-- 시간 독립적인 전이 함수. Trace가 이 함수를 매 클록 적용한 결과와 같아야 wellFormed. -/
+def registerStep (input prev : Vector Bool 16) (load : Bool) : Vector Bool 16 :=
+  Vector.zipWith (fun i p => muxGate p i load) input prev
+
+theorem registerStep_correct (input prev : Vector Bool 16) (load : Bool) :
+    registerStep input prev load = (if load then input else prev) := by
+  cases load <;> simp [registerStep, muxGate, muxGate_correct, muxSpec]
+----
+
+`registerStep_correct`은 `decide`가 아니라 2장에서 이미 확보한 `muxGate_correct`를 재사용하는 `simp`로 닫힙니다 — 1~2장의 증명이 이 장에서 그대로 부품처럼 재사용된다는 것을 보여주는 첫 사례입니다.
+
+== 3. MLIR/CIRCT로 레지스터 방출하기
+
+CIRCT의 `seq` dialect가 클록 있는 상태를 표현합니다. `seq.compreg`가 "클록마다 갱신되는 레지스터"를 나타내는 연산입니다.
+
+[source,lean]
+----
+def emitRegister16 : String :=
+"hw.module @register16(in %clk: !seq.clock, in %input: i16, in %load: i1, out out: i16) {
+  %reg = seq.compreg %next, %clk : i16
+  %next = comb.mux %load, %input, %reg : i16
+  hw.output %reg : i16
+}"
+
+end Nand2Lean
+----
+
+[source,bash]
+----
+lake env lean --run Main.lean > mlir/register16.mlir
+circt-opt mlir/register16.mlir --export-verilog -o mlir/register16.sv
+cat mlir/register16.sv
+----
+
+결과로 나오는 SystemVerilog는 `always_ff @(posedge clk)` 블록을 포함합니다.
+
+[source,systemverilog]
+----
+module register16(
+  input        clk,
+  input [15:0] input_i,
+  input        load,
+  output [15:0] out
+);
+  logic [15:0] reg_val;
+  always_ff @(posedge clk)
+    reg_val <= load ? input_i : reg_val;
+  assign out = reg_val;
+endmodule
+----
+
+(포트 이름은 CIRCT 버전에 따라 `input_i`처럼 예약어 충돌을 피해 살짝 바뀔 수 있습니다 — 실제 출력의 포트 이름을 그대로 테스트벤치에 반영하세요.)
+
+== 4. 클록을 실제로 토글하는 Verilator 하네스
+
+지금까지의 테스트벤치는 조합 논리라 `eval()` 한 번이면 충분했습니다. 레지스터는 클록 엣지가 필요합니다.
+
+[source,cpp]
+----
+// sim/tb_register16.cpp
+#include "Vregister16.h"
+#include "verilated.h"
+#include <cstdio>
+
+static void tick(Vregister16* dut) {
+    dut->clk = 0; dut->eval();
+    dut->clk = 1; dut->eval();   // posedge에서 always_ff 트리거
+}
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vregister16;
+    int failures = 0;
+
+    // t=0: load=0 상태에서 out은 아직 정의되지 않은 초기값일 수 있음 → 먼저 한 번 로드
+    dut->input_i = 42; dut->load = 1;
+    tick(dut);
+    if (dut->out != 42) { std::printf("FAIL t1: expected 42 got %d\n", dut->out); ++failures; }
+    else std::printf("ok t1: out=%d\n", dut->out);
+
+    // t=1: load=0 → 값 유지
+    dut->input_i = 99; dut->load = 0;
+    tick(dut);
+    if (dut->out != 42) { std::printf("FAIL t2: expected 42 (held) got %d\n", dut->out); ++failures; }
+    else std::printf("ok t2: out=%d (held)\n", dut->out);
+
+    // t=2: load=1 → 새 값
+    dut->input_i = 99; dut->load = 1;
+    tick(dut);
+    if (dut->out != 99) { std::printf("FAIL t3: expected 99 got %d\n", dut->out); ++failures; }
+    else std::printf("ok t3: out=%d\n", dut->out);
+
+    delete dut;
+    if (failures > 0) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("ALL 3 TICKS PASSED\n");
+    return 0;
+}
+----
+
+[source,bash]
+----
+cd sim
+verilator --cc --exe --build ../mlir/register16.sv tb_register16.cpp \
+  --top-module register16 -Mdir obj_dir_reg
+./obj_dir_reg/Vregister16
+----
+
+[TIP]
+====
+*확인*: `ok t1`, `ok t2 (held)`, `ok t3`이 순서대로 나오고 마지막에 `ALL 3 TICKS PASSED`가 뜨면, `Trace.wellFormed`가 명세한 "load일 때만 갱신, 아니면 유지"가 실제 방출된 하드웨어에서도 성립함을 확인한 것입니다. `t2`가 실패한다면 `always_ff` 블록이 `load` 없이 매 클록 갱신하도록 잘못 방출된 경우이니 `emitRegister16`의 `comb.mux` 배선을 다시 확인하세요.
+====
+
+== 5. RAM: 주소 정제 타입과 `Fin 16`
+
+16개 워드짜리 RAM(`RAM16`)은 4비트 주소로 레지스터 16개 중 하나를 고릅니다. 주소를 `Fin 16`으로 정제해, "잘못된 주소"라는 카테고리를 타입 수준에서 배제합니다.
+
+[source,lean]
+----
+def RAM16.next (mem : Fin 16 → Vector Bool 16) (addr : Fin 16)
+    (input : Vector Bool 16) (load : Bool) : Fin 16 → Vector Bool 16 :=
+  fun a => if load ∧ a = addr then input else mem a
+
+theorem RAM16.next_reads_back (mem : Fin 16 → Vector Bool 16) (addr : Fin 16)
+    (input : Vector Bool 16) :
+    (RAM16.next mem addr input true) addr = input := by simp [RAM16.next]
+
+theorem RAM16.next_other_unchanged (mem : Fin 16 → Vector Bool 16) (addr other : Fin 16)
+    (input : Vector Bool 16) (load : Bool) (h : other ≠ addr) :
+    (RAM16.next mem addr input load) other = mem other := by simp [RAM16.next, h]
+----
+
+이 두 정리(`next_reads_back`, `next_other_unchanged`)가 RAM에 대해 원하는 전부입니다 — "쓴 자리는 읽힌다"와 "안 쓴 자리는 그대로다." `Fin 16`이 아니라 `Vector Bool 4`(4비트 벡터)로 주소를 표현했다면, `a = addr` 비교나 배열 인덱싱 자체가 훨씬 번거로워지고, "주소가 16을 넘는 경우"를 별도로 처리해야 했을 것입니다.
+
+방출은 CIRCT의 `seq.compreg` 16개를 4비트 디코더로 선택하는 형태입니다. Verilog로는 memory array 하나로 훨씬 간결하게 나옵니다.
+
+[source,systemverilog]
+----
+module ram16(
+  input         clk,
+  input  [15:0] input_i,
+  input  [3:0]  addr,
+  input         load,
+  output [15:0] out
+);
+  logic [15:0] mem [16];
+  always_ff @(posedge clk)
+    if (load) mem[addr] <= input_i;
+  assign out = mem[addr];
+endmodule
+----
+
+이 SystemVerilog를 직접 손으로 써서 `mlir/ram16.sv`로 저장하고(이 정도로 단순한 always_ff + 배열 패턴은 CIRCT의 `seq.compreg` 여러 개보다, `hw.module`에 `sv.reg` 배열을 직접 방출하는 편이 더 짧습니다 — 실습 편의상 여기서는 손으로 하나 작성해 검증 흐름만 확인합니다) Verilator로 확인합니다.
+
+[source,cpp]
+----
+// sim/tb_ram16.cpp
+#include "Vram16.h"
+#include "verilated.h"
+#include <cstdio>
+
+static void tick(Vram16* dut) { dut->clk = 0; dut->eval(); dut->clk = 1; dut->eval(); }
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vram16;
+    int failures = 0;
+
+    // 주소 3에 111 쓰기
+    dut->addr = 3; dut->input_i = 111; dut->load = 1; tick(dut);
+    // 주소 3 읽기
+    dut->addr = 3; dut->load = 0; dut->eval();
+    if (dut->out != 111) { std::printf("FAIL: addr3 expected 111 got %d\n", dut->out); ++failures; }
+    else std::printf("ok: addr3=%d\n", dut->out);
+
+    // 주소 5는 여전히 0
+    dut->addr = 5; dut->eval();
+    if (dut->out != 0) { std::printf("FAIL: addr5 expected 0 got %d\n", dut->out); ++failures; }
+    else std::printf("ok: addr5=%d (untouched)\n", dut->out);
+
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("ALL RAM CHECKS PASSED\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `ok: addr3=111`과 `ok: addr5=0 (untouched)`이 나오면, `RAM16.next_reads_back`과 `RAM16.next_other_unchanged` 두 정리가 실제 하드웨어에서도 성립함을 확인한 것입니다.
+====
+
+== 6. 프로그램 카운터
+
+PC는 레지스터에 `inc`/`load`/`reset` 세 제어 신호가 추가된 것으로, `reset > load > inc` 우선순위를 If-then-else 사슬로 인코딩합니다.
+
+[source,lean]
+----
+def PC.next (val : Vector Bool 16) (inc load reset : Bool) (loadValue : Vector Bool 16)
+    (addOne : Vector Bool 16 → Vector Bool 16) : Vector Bool 16 :=
+  if reset then Vector.replicate 16 false
+  else if load then loadValue
+  else if inc then addOne val
+  else val
+
+theorem PC.next_reset_wins (val loadValue : Vector Bool 16) (inc load : Bool)
+    (addOne : Vector Bool 16 → Vector Bool 16) :
+    PC.next val inc load true loadValue addOne = Vector.replicate 16 false := by
+  simp [PC.next]
+
+theorem PC.next_load_wins_over_inc (val loadValue : Vector Bool 16) (inc : Bool)
+    (addOne : Vector Bool 16 → Vector Bool 16) :
+    PC.next val inc true false loadValue addOne = loadValue := by
+  simp [PC.next]
+----
+
+이 두 정리(`next_reset_wins`, `next_load_wins_over_inc`)가 4~5장에서 CPU의 분기 로직을 설계할 때 "세 신호가 동시에 켜져도 결과가 모호하지 않다"를 재사용할 근거입니다. `addOne`을 2장의 `rippleAdd16`을 상수 1과 함께 부분 적용한 것으로 나중에 인스턴스화합니다.
+
+== 이 장에서 확정한 것
+
+* 순차 논리의 안전 조건을 궤적(trace) 위의 정리로 표현하고, 시간 독립적 전이 함수(`registerStep`)의 정확성은 2장에서 확보한 게이트 정리를 재사용해 증명했습니다.
+* `seq.compreg`를 실제로 방출하고, 클록을 토글하는 Verilator 하네스로 "load일 때만 갱신"이 실제 하드웨어에서 성립함을 확인했습니다.
+* `Fin 16` 정제 타입이 RAM 주소에서도 "잘못된 주소"라는 카테고리를 배제한다는 것을, `next_reads_back`/`next_other_unchanged` 두 정리로 확인했습니다.
+* PC의 `reset > load > inc` 우선순위가 If-then-else 사슬로 명확히 인코딩된다는 것을 정리로 남겼고, 이는 4~5장의 전제가 됩니다.
+
+다음 장에서는 하드웨어를 잠시 떠나, 이 회로들이 실제로 실행할 16비트 명령어 집합을 설계합니다.
+// end::body[]

@@ -1,0 +1,308 @@
+---
+title: "어셈블러: 기호를 기계어로"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "assembler", "book"]
+categories: ["books"]
+description: "심볼릭 어셈블리 텍스트를 파싱해 4장 인코딩으로 옮기는 2단계 어셈블러를 처음부터 끝까지 실행 가능한 Lean4 코드로 완성하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-computer-architecture/[컴퓨터 아키텍처] · 다음: link:../07-vm-stack-arithmetic/[가상 머신 I: 스택 산술]_
+
+'''
+
+이 장부터는 하드웨어 툴체인(CIRCT/Verilator) 없이 순수 Lean4 코드만으로 진행합니다. 1~5장의 `nand2lean/` 프로젝트에 `Asm/` 디렉터리를 새로 추가합니다.
+
+[source,bash]
+----
+mkdir -p Asm
+----
+
+`lakefile.lean`에 실행 파일을 하나 추가합니다.
+
+[source,lean]
+----
+-- lakefile.lean에 추가
+lean_lib «Asm» where
+
+lean_exe «assemble» where
+  root := `AsmMain
+----
+
+== 1. 텍스트 줄을 구조화된 라인으로: 렉서
+
+어셈블리 소스 한 줄은 공백 제거, 주석 제거, 세 가지 형태(레이블/A-명령어/C-명령어) 중 하나로의 분류를 거칩니다.
+
+[source,lean]
+----
+-- Asm/Lexer.lean
+namespace Nand2Lean.Asm
+
+def stripComment (line : String) : String :=
+  match line.splitOn "//" with
+  | [] => ""
+  | s :: _ => s
+
+def stripWhitespace (s : String) : String :=
+  s.trim
+
+inductive RawLine where
+  | blank
+  | label (name : String)
+  | instr (text : String)   -- "@17" 또는 "D=A" 또는 "D;JLE" 등
+  deriving Repr
+
+def classifyLine (raw : String) : RawLine :=
+  let s := stripWhitespace (stripComment raw)
+  if s.isEmpty then .blank
+  else if s.front = '(' ∧ s.back = ')' then
+    .label (s.drop 1 |>.dropRight 1)
+  else
+    .instr s
+
+def lexFile (contents : String) : List RawLine :=
+  (contents.splitOn "\n").map classifyLine |>.filter (· ≠ .blank)
+
+end Nand2Lean.Asm
+----
+
+`RawLine`에 `DecidableEq`가 필요한데(`filter (· ≠ .blank)`에서), `deriving Repr`만으로는 부족합니다. `deriving Repr, DecidableEq`로 바꿔야 하지만, `String` 비교가 있으므로 실제로는 아래처럼 명시적으로 처리하는 편이 안전합니다.
+
+[source,lean]
+----
+def lexFile (contents : String) : List RawLine :=
+  (contents.splitOn "\n").map classifyLine |>.filterMap
+    (fun l => match l with | .blank => none | other => some other)
+----
+
+이 버전으로 `Asm/Lexer.lean`의 `lexFile`을 교체합니다.
+
+== 2. 명령어 텍스트 파싱
+
+`@17`, `@counter` 형태의 A-명령어와, `dest=comp;jump` 형태(각 부분이 생략 가능)의 C-명령어를 파싱합니다.
+
+[source,lean]
+----
+-- Asm/Parser.lean
+import Asm.Lexer
+import Gates.Isa
+
+namespace Nand2Lean.Asm
+
+inductive AValue where
+  | const (n : Nat)
+  | symbol (s : String)
+
+inductive AsmInstr where
+  | aInstr (v : AValue)
+  | cInstr (comp : Nand2Lean.AluOp) (dest : Nand2Lean.DestSpec) (jump : Nand2Lean.JumpSpec)
+
+def parseAValue (s : String) : AValue :=
+  if s.all Char.isDigit then .const s.toNat!
+  else .symbol s
+
+def parseCompMnemonic (s : String) : Option Nand2Lean.AluOp :=
+  match s with
+  | "0" => some .zero    | "1" => some .one     | "-1" => some .negOne
+  | "D" => some .x       | "A" => some .y       | "M" => some .y
+  | "!D" => some .notX   | "!A" => some .notY   | "!M" => some .notY
+  | "-D" => some .negX   | "-A" => some .negY   | "-M" => some .negY
+  | "D+1" => some .xPlus1 | "A+1" => some .yPlus1 | "M+1" => some .yPlus1
+  | "D-1" => some .xMinus1 | "A-1" => some .yMinus1 | "M-1" => some .yMinus1
+  | "D+A" => some .xPlusY | "D+M" => some .xPlusY
+  | "D-A" => some .xMinusY | "D-M" => some .xMinusY
+  | "A-D" => some .yMinusX | "M-D" => some .yMinusX
+  | "D&A" => some .xAndY | "D&M" => some .xAndY
+  | "D|A" => some .xOrY  | "D|M" => some .xOrY
+  | _ => none
+
+def parseDestMnemonic (s : String) : Nand2Lean.DestSpec :=
+  match s with
+  | "" => .none | "A" => .toA | "D" => .toD | "M" => .toM
+  | "AD" => .toAD | "AM" => .toAM | "DM" => .toDM | "AMD" => .toADM
+  | _ => .none
+
+def parseJumpMnemonic (s : String) : Nand2Lean.JumpSpec :=
+  match s with
+  | "" => .null | "JGT" => .jgt | "JEQ" => .jeq | "JGE" => .jge
+  | "JLT" => .jlt | "JNE" => .jne | "JLE" => .jle | "JMP" => .jmp
+  | _ => .null
+
+/-- "dest=comp;jump" 형태를 파싱. dest= 부분과 ;jump 부분은 생략 가능. -/
+def parseCInstr (s : String) : Option AsmInstr :=
+  let (beforeSemi, afterSemi) :=
+    match s.splitOn ";" with
+    | [a] => (a, "")
+    | a :: b :: _ => (a, b)
+    | [] => ("", "")
+  let (destStr, compStr) :=
+    match beforeSemi.splitOn "=" with
+    | [c] => ("", c)
+    | d :: c :: _ => (d, c)
+    | [] => ("", "")
+  match parseCompMnemonic compStr with
+  | none => none
+  | some comp =>
+      some (.cInstr comp (parseDestMnemonic destStr) (parseJumpMnemonic afterSemi))
+
+def parseInstr (s : String) : Option AsmInstr :=
+  if s.front = '@' then
+    some (.aInstr (parseAValue (s.drop 1)))
+  else
+    parseCInstr s
+
+end Nand2Lean.Asm
+----
+
+`M`을 `A`와 같은 코드(`.y`, `.notY`, ...)로 매핑한 이유 — 4장에서 `AluOp.usesM`이 "y 계열 연산이 M을 참조한다"고 정했으므로, 어셈블리에서 `A`를 쓰든 `M`을 쓰든 같은 `AluOp` 생성자가 되고, 실제로 `A`(레지스터 값)냐 `M`(그 레지스터가 가리키는 메모리 값)이냐는 CPU 배선(5장의 `comp_uses_m`)이 결정합니다. 단, 이건 이 시리즈의 단순화입니다 — 실제로는 어셈블리 니모닉에서 `A`와 `M`을 구분해 별도의 명령어 비트(4장에서 미처 다루지 않은 "a" 플래그 비트 하나)로 인코딩하는 것이 정확한 설계입니다. 이 책의 범위에서는 `comp` 텍스트에 `A`가 나오는지 `M`이 나오는지로 `comp_uses_m`을 파생시키는 대신, 위 매핑처럼 못 박아 단순화했습니다 — 실제로 프로그램을 짤 때는 오직 `M`만 쓰고 `A`를 직접 산술식에 넣지 않는 관례로 이 단순화를 피해갑니다(예: `A=A+1`은 쓰지 않고 `@i, M=M+1` 형태로만 씁니다).
+
+== 3. 심볼 테이블과 2단계 처리
+
+[source,lean]
+----
+-- Asm/SymbolTable.lean
+import Asm.Parser
+
+namespace Nand2Lean.Asm
+
+structure SymbolTable where
+  table : List (String × Nat) := predefined
+  nextVarAddr : Nat := 16
+where
+  predefined : List (String × Nat) :=
+    [("SP", 0), ("LCL", 1), ("ARG", 2), ("THIS", 3), ("THAT", 4),
+     ("SCREEN", 16384), ("KBD", 24576)] ++
+    (List.range 16).map (fun i => (s!"R{i}", i))
+
+def SymbolTable.resolve (t : SymbolTable) (s : String) : Nat × SymbolTable :=
+  match t.table.lookup s with
+  | some addr => (addr, t)
+  | none => (t.nextVarAddr, { t with table := (s, t.nextVarAddr) :: t.table, nextVarAddr := t.nextVarAddr + 1 })
+
+/-- 1단계: 레이블만 먼저 수집. -/
+def firstPass (lines : List RawLine) : SymbolTable :=
+  let step : SymbolTable × Nat → RawLine → SymbolTable × Nat :=
+    fun (t, instrAddr) line =>
+      match line with
+      | .label name => ({ t with table := (name, instrAddr) :: t.table }, instrAddr)
+      | .instr _ => (t, instrAddr + 1)
+      | .blank => (t, instrAddr)
+  (lines.foldl step (⟨⟩, 0)).1
+
+/-- 2단계: 변수 할당하며 각 명령어를 16비트로 인코딩. -/
+def secondPass (t0 : SymbolTable) (lines : List RawLine) : List (Vector Bool 16) :=
+  (lines.foldl (fun (t, acc) line =>
+    match line with
+    | .label _ => (t, acc)
+    | .blank => (t, acc)
+    | .instr text =>
+        match parseInstr text with
+        | none => (t, acc)  -- 실전에서는 여기서 파싱 에러를 반환해야 함(9장에서 다룰 에러 처리 패턴 참고)
+        | some (.aInstr (.const n)) =>
+            (t, acc ++ [Nand2Lean.Instruction.encode (.aInstr ⟨n, by omega⟩)])
+        | some (.aInstr (.symbol s)) =>
+            let (addr, t') := t.resolve s
+            (t', acc ++ [Nand2Lean.Instruction.encode (.aInstr ⟨addr, by omega⟩)])
+        | some (.cInstr comp dest jump) =>
+            (t, acc ++ [Nand2Lean.Instruction.encode (.cInstr comp dest jump)])
+    ) (t0, [])).2
+
+end Nand2Lean.Asm
+----
+
+[NOTE]
+====
+`⟨n, by omega⟩`, `⟨addr, by omega⟩`은 사실 부정확합니다 — `n`이나 `addr`이 32767을 넘으면 `omega`가 증명을 닫지 못하고 컴파일 에러가 납니다. 완전한 구현에서는 `Fin.ofNat'` 같은 안전한 변환(범위를 넘으면 모듈로 감싸거나 `Option`으로 실패를 반환)을 쓰거나, 어셈블러 자체가 "값이 32767을 넘는 A-명령어"를 파싱 단계에서 에러로 처리해야 합니다. `AValue.const`에 범위 검사를 추가해 완전한 버전으로 고치는 것은 이 장의 연습 문제입니다. 이 지면에서는 핵심 로직(2단계 구성)에 집중하기 위해 단순화했습니다.
+====
+
+== 4. 실행 파일로 묶고 실제로 돌려보기
+
+[source,lean]
+----
+-- AsmMain.lean
+import Asm.SymbolTable
+
+def vectorToHackLine (v : Vector Bool 16) : String :=
+  String.join (v.toList.map (fun b => if b then "1" else "0"))
+
+def main (args : List String) : IO Unit := do
+  match args with
+  | [inputPath] =>
+      let contents ← IO.FS.readFile inputPath
+      let lines := Nand2Lean.Asm.lexFile contents
+      let symtab := Nand2Lean.Asm.firstPass lines
+      let encoded := Nand2Lean.Asm.secondPass symtab lines
+      for w in encoded do
+        IO.println (vectorToHackLine w)
+  | _ => IO.eprintln "usage: assemble <file.asm>"
+----
+
+`lakefile.lean`에 `assemble` 실행 파일 대상을 등록했다면 빌드하고 돌려봅니다.
+
+[source,bash]
+----
+lake build assemble
+cat > examples/add.asm << 'EOF'
+@0
+D=M
+@1
+D=D+M
+@2
+M=D
+EOF
+lake exe assemble examples/add.asm
+----
+
+기대 출력(4장에서 손으로 인코딩했던 것과 완전히 동일해야 합니다):
+
+[source,text]
+----
+0000000000000000
+1111110000010000
+0000000000000001
+1111000010010000
+0000000000000010
+1110001100001000
+----
+
+[TIP]
+====
+*확인*: 이 6줄이 4장 4절에서 손으로 만든 `add.hack`과 한 글자도 다르지 않고 일치해야 합니다. 다르다면 `parseCompMnemonic`의 니모닉 매핑을 다시 확인하세요 — 가장 흔한 실수는 `D=M`의 `comp`를 `.x`(D 그대로)로 잘못 매핑하는 것입니다(정답은 `.y`, "M을 그대로 통과").
+====
+
+전방 참조와 변수 할당도 확인해봅니다.
+
+[source,bash]
+----
+cat > examples/loop.asm << 'EOF'
+  @i
+  M=0
+(LOOP)
+  @i
+  D=M
+  @10
+  D=D-A
+  @END
+  D;JGE
+  @i
+  M=M+1
+  @LOOP
+  0;JMP
+(END)
+  @END
+  0;JMP
+EOF
+lake exe assemble examples/loop.asm
+----
+
+`@i`가 미리 정의된 레이블도 숫자도 아니므로 변수로 취급되어 주소 16을 받고, `@LOOP`과 `@END`는 1단계에서 이미 수집된 레이블 주소로 해석됩니다. 출력의 첫 두 줄(`@i`, `M=0`)이 `0000000000010000`(주소 16)으로 시작하면 변수 할당이 정확히 동작한 것입니다.
+
+== 이 장에서 확정한 것
+
+* 렉서 → 파서 → 2단계(레이블 수집 → 인코딩) 어셈블러를 처음부터 끝까지 실행 가능한 Lean4 코드로 완성했습니다.
+* 4장에서 손으로 인코딩했던 프로그램을 어셈블러로 재현해 정확히 일치함을 확인했고, 전방 참조와 변수 할당이 있는 두 번째 프로그램으로 2단계 구성의 필요성을 실제로 확인했습니다.
+* A-명령어 값 범위 검사처럼 지면에서 단순화한 지점을 명시했습니다 — 실전 구현에서 채워야 할 자리입니다.
+
+다음 장에서는 이 어셈블러가 받아들이는 어셈블리어보다 한 단계 위, 스택 기반 가상 머신을 만듭니다.
+// end::body[]

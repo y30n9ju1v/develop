@@ -1,0 +1,232 @@
+---
+title: "컴파일러 II: 코드 생성"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "compiler", "book"]
+categories: ["books"]
+description: "9장의 AST를 7~8장 VM 명령어로 옮기는 코드 생성기를 완성하고, fact 함수를 실제로 컴파일해 어셈블리와 hack 파일까지 끝까지 뽑아보는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-compiler-syntax-analysis/[컴파일러 I: 문법 분석] · 다음: link:../11-operating-system/[운영체제: 메모리 관리자, I/O, 부트스트랩]_
+
+'''
+
+== 1. 곱셈: VM에 없는 연산을 라이브러리 호출로
+
+7~8장의 VM에는 `*` 연산이 없습니다(ALU가 곱셈을 지원하지 않으므로 — 2장에서 만든 18가지 연산에 곱셈은 없었습니다). Mini 컴파일러는 `*`를 만나면 반복 덧셈을 하는 별도 함수 `Math.multiply`를 호출하는 코드로 바꿉니다. 이 함수 자체도 Mini/VM으로 작성해 미리 링크해둡니다.
+
+[source,lean]
+----
+-- Compiler/Runtime.lean
+namespace Nand2Lean.Compiler
+
+/-- VM 명령어로 직접 작성한 곱셈 함수. Mini 컴파일러가 만드는 다른 함수들과 함께 링크됩니다.
+    function Math.multiply(x, y):
+      var sum, i;
+      let sum = 0; let i = 0;
+      while (i < y) { let sum = sum + x; let i = i + 1; }
+      return sum; -/
+def mathMultiplyVm : List Nand2Lean.Vm.VmCommand :=
+  [ .function "Math.multiply" 2  -- locals: sum(0), i(1)
+  , .push .constant 0, .pop .local_ 0
+  , .push .constant 0, .pop .local_ 1
+  , .label "Math.multiply$LOOP"
+  , .push .local_ 1, .push .argument 1, .lt, .not, .ifGoto "Math.multiply$END"
+  , .push .local_ 0, .push .argument 0, .add, .pop .local_ 0
+  , .push .local_ 1, .push .constant 1, .add, .pop .local_ 1
+  , .goto "Math.multiply$LOOP"
+  , .label "Math.multiply$END"
+  , .push .local_ 0
+  , .return_
+  ]
+
+end Nand2Lean.Compiler
+----
+
+== 2. 식 컴파일: 후위 순회
+
+[source,lean]
+----
+-- Compiler/CodeGen.lean
+import Compiler.SymbolTable
+import Vm.Command
+
+namespace Nand2Lean.Compiler
+
+open Nand2Lean.Vm (VmCommand Segment)
+
+def varSegment : VarKind → Segment
+  | .param => .argument
+  | .local_ => .local_
+
+partial def compileExpr (symtab : List (String × VarInfo)) : Expr → List VmCommand
+  | .intLit n => [.push .constant n]
+  | .varRef name =>
+      match symtab.lookup name with
+      | some info => [.push (varSegment info.kind) info.idx]
+      | none => []  -- 실전에서는 컴파일 에러 (알 수 없는 변수 참조)
+  | .binOp .add l r => compileExpr symtab l ++ compileExpr symtab r ++ [.add]
+  | .binOp .sub l r => compileExpr symtab l ++ compileExpr symtab r ++ [.sub]
+  | .binOp .eq  l r => compileExpr symtab l ++ compileExpr symtab r ++ [.eq]
+  | .binOp .lt  l r => compileExpr symtab l ++ compileExpr symtab r ++ [.lt]
+  | .binOp .gt  l r => compileExpr symtab l ++ compileExpr symtab r ++ [.gt]
+  | .binOp .mul l r => compileExpr symtab l ++ compileExpr symtab r ++ [.call "Math.multiply" 2]
+  | .call name args => (args.flatMap (compileExpr symtab)) ++ [.call name args.length]
+
+end Nand2Lean.Compiler
+----
+
+`.mul`이 다른 연산자와 확연히 다른 모양(`.call "Math.multiply" 2`)이라는 점이, 9장에서 `BinOp.mul`을 `add`/`sub`/`eq`/`lt`/`gt`와 나란히 귀납 타입에 넣어뒀던 설계가 여기서 자연스럽게 갈라지는 지점입니다 — 파서 레벨에서는 곱셈도 "그냥 이항 연산자 하나"였지만, 코드 생성 레벨에서는 "VM이 직접 지원하는 연산"과 "라이브러리 호출로 흉내 내는 연산"이라는 실질적인 차이가 드러납니다.
+
+== 3. 문장 컴파일: if/while을 goto로 낮추기
+
+[source,lean]
+----
+namespace Nand2Lean.Compiler
+
+partial def compileStmt (symtab : List (String × VarInfo)) (fnName : String) (labelIdx : Nat) :
+    Stmt → Nat × List VmCommand
+  | .letStmt name value =>
+      let exprCode := compileExpr symtab value
+      match symtab.lookup name with
+      | some info => (labelIdx, exprCode ++ [.pop (varSegment info.kind) info.idx])
+      | none => (labelIdx, exprCode)  -- 실전: 컴파일 에러
+  | .returnStmt value =>
+      (labelIdx, compileExpr symtab value ++ [.return_])
+  | .whileStmt cond body =>
+      let startLabel := s!"{fnName}$WHILE_START{labelIdx}"
+      let endLabel := s!"{fnName}$WHILE_END{labelIdx}"
+      let (idx', bodyCode) := compileStmts symtab fnName (labelIdx + 1) body
+      (idx',
+        [.label startLabel] ++ compileExpr symtab cond ++ [.not, .ifGoto endLabel] ++
+        bodyCode ++ [.goto startLabel, .label endLabel])
+  | .ifStmt cond thenBody elseBody =>
+      let elseLabel := s!"{fnName}$IF_ELSE{labelIdx}"
+      let endLabel := s!"{fnName}$IF_END{labelIdx}"
+      let (idx1, thenCode) := compileStmts symtab fnName (labelIdx + 1) thenBody
+      let (idx2, elseCode) := compileStmts symtab fnName idx1 elseBody
+      (idx2,
+        compileExpr symtab cond ++ [.not, .ifGoto elseLabel] ++
+        thenCode ++ [.goto endLabel, .label elseLabel] ++
+        elseCode ++ [.label endLabel])
+where
+  compileStmts (symtab : List (String × VarInfo)) (fnName : String) (labelIdx : Nat) :
+      List Stmt → Nat × List VmCommand
+    | [] => (labelIdx, [])
+    | s :: rest =>
+        let (idx1, code1) := compileStmt symtab fnName labelIdx s
+        let (idx2, code2) := compileStmts symtab fnName idx1 rest
+        (idx2, code1 ++ code2)
+
+end Nand2Lean.Compiler
+----
+
+`labelIdx`를 문장마다 상태처럼 실어 나르는 것이, 6~8장에서 반복했던 "레이블 유일성은 카운터로 보장한다" 패턴의 마지막 등장입니다. 이 카운터가 없다면 중첩된 두 `while` 문이 같은 레이블 이름(`WHILE_START0` 등)을 만들어 충돌합니다.
+
+== 4. 함수 전체 컴파일과 실제 실행
+
+[source,lean]
+----
+namespace Nand2Lean.Compiler
+
+def compileFunctionDecl (decl : FunctionDecl) : List VmCommand :=
+  let symtab := buildSymbolTable decl
+  let (_, bodyCode) := compileStmt.compileStmts symtab decl.name 0 decl.body
+  .function decl.name decl.locals.length :: bodyCode
+
+end Nand2Lean.Compiler
+----
+
+[source,lean]
+----
+-- CompilerMain.lean, main을 아래로 교체
+def main : IO Unit := do
+  let tokens := Nand2Lean.Compiler.tokenize sampleSource
+  match Nand2Lean.Compiler.parseProgram tokens with
+  | none => IO.eprintln "parse error"
+  | some decl =>
+      let factCode := Nand2Lean.Compiler.compileFunctionDecl decl
+      let bootstrap : List Nand2Lean.Vm.VmCommand :=
+        [.function "Main.main" 0, .push .constant 5, .call "fact" 1, .label "Main.main$END", .goto "Main.main$END"]
+      let allVm := bootstrap ++ factCode ++ Nand2Lean.Compiler.mathMultiplyVm
+      IO.println (Nand2Lean.Vm.compileProgram allVm)
+----
+
+[source,bash]
+----
+lake exe compilermain > examples/fact_compiled.asm
+lake exe assemble examples/fact_compiled.asm > examples/fact_compiled.hack
+wc -l examples/fact_compiled.hack
+----
+
+[TIP]
+====
+*확인*: 어셈블리가 에러 없이 나오고, `wc -l`이 `Main.main`(4줄 남짓) + `fact`(반복문 포함 수십 줄) + `Math.multiply`(약 15줄)에 6~8장의 명령어당 어셈블리 배율(대략 5~10배)을 곱한 정도의 줄 수를 보여야 합니다. 이 `.hack` 파일이 실제로 `5! = 120`을 계산해 스택에 남기는지는 12장에서 정식 CPU 시뮬레이션으로 끝까지 확인합니다 — 이 장에서는 파이프라인이 에러 없이 끝까지 이어진다는 것 자체가 목표입니다.
+====
+
+== 5. 의미 보존을 참조 인터프리터로 다시 확인
+
+7장에서 만든 `interpArith`를 확장해, `fact` AST를 직접 해석하는 참조 인터프리터를 짜고 컴파일된 VM 코드의 결과와 비교합니다.
+
+[source,lean]
+----
+-- Compiler/RefInterp.lean
+namespace Nand2Lean.Compiler
+
+partial def evalExpr (env : List (String × Int)) : Expr → Int
+  | .intLit n => Int.ofNat n
+  | .varRef name => (env.lookup name).getD 0
+  | .binOp .add l r => evalExpr env l + evalExpr env r
+  | .binOp .sub l r => evalExpr env l - evalExpr env r
+  | .binOp .mul l r => evalExpr env l * evalExpr env r
+  | .binOp .lt l r => if evalExpr env l < evalExpr env r then 1 else 0
+  | .binOp .gt l r => if evalExpr env l > evalExpr env r then 1 else 0
+  | .binOp .eq l r => if evalExpr env l = evalExpr env r then 1 else 0
+  | .call _ _ => 0  -- 이 참조 인터프리터는 재귀 호출은 생략(단일 함수 검증용)
+
+partial def evalStmts (env : List (String × Int)) : List Stmt → List (String × Int) × Option Int
+  | [] => (env, none)
+  | .letStmt n e :: rest =>
+      let v := evalExpr env e
+      evalStmts ((n, v) :: env.filter (·.1 ≠ n)) rest
+  | .returnStmt e :: _ => (env, some (evalExpr env e))
+  | .whileStmt cond body :: rest =>
+      if evalExpr env cond ≠ 0 then
+        let (env', ret) := evalStmts env body
+        match ret with
+        | some _ => (env', ret)
+        | none => evalStmts env' (.whileStmt cond body :: rest)
+      else evalStmts env rest
+  | .ifStmt cond t e :: rest =>
+      let (env', ret) := evalStmts env (if evalExpr env cond ≠ 0 then t else e)
+      match ret with | some _ => (env', ret) | none => evalStmts env' rest
+
+def runFact (n : Nat) : Int :=
+  let env := [("n", Int.ofNat n)]
+  (evalStmts env
+    [ .letStmt "result" (.intLit 1)
+    , .whileStmt (.binOp .gt (.varRef "n") (.intLit 1))
+        [ .letStmt "result" (.binOp .mul (.varRef "result") (.varRef "n"))
+        , .letStmt "n" (.binOp .sub (.varRef "n") (.intLit 1)) ]
+    , .returnStmt (.varRef "result")
+    ]).2.getD 0
+
+#eval runFact 5  -- 예상: 120
+
+end Nand2Lean.Compiler
+----
+
+[TIP]
+====
+*확인*: `#eval Nand2Lean.Compiler.runFact 5`가 `120`을 출력해야 합니다. 이 값이 12장에서 컴파일된 VM 코드를 CPU 시뮬레이션으로 실행했을 때 스택에 남는 값과 일치하는지가, 10장의 "식 레벨 의미 보존"을 실제 숫자로 확인하는 마지막 단계입니다.
+====
+
+== 이 장에서 확정한 것
+
+* `*` 연산자를 VM 라이브러리 호출(`Math.multiply`, 반복 덧셈으로 직접 구현)로 낮추는 코드 생성을 완성했습니다.
+* `if`/`while`을 레이블 카운터를 실어 나르며 `goto`/`ifGoto`로 낮추는 코드 생성기를 완성하고, `fact` 함수를 실제로 어셈블리와 `.hack` 파일까지 끝까지 컴파일했습니다.
+* 독립적으로 짠 참조 인터프리터(`runFact 5 = 120`)로, 이 시리즈에서 처음부터 강조해온 "명세와 구현의 교차검증"을 컴파일러 레벨에서도 실행 가능한 형태로 확인했습니다.
+
+다음 장에서는 이 컴파일러가 만드는 프로그램이 실제로 부팅해서 실행되는 데 필요한 마지막 조각 — 메모리 관리자, 화면·키보드 드라이버, 부트스트랩 — 을 다룹니다.
+// end::body[]

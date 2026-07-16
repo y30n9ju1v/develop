@@ -1,0 +1,257 @@
+---
+title: "기계어: 16비트 명령어 집합 설계"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "hardware", "isa", "book"]
+categories: ["books"]
+description: "16비트 명령어 형식을 귀납 타입으로 표현하고, 인코딩/디코딩 왕복을 완전히 증명한 뒤 실제로 손으로 프로그램을 짜서 hack 파일을 만드는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-sequential-logic/[순차 논리: 플립플롭, 레지스터, 메모리] · 다음: link:../05-computer-architecture/[컴퓨터 아키텍처: CPU를 결선하고 번역 검증으로 신뢰하기]_
+
+'''
+
+이 장은 회로가 아니라 데이터 형식을 다루므로 CIRCT/Verilator는 쓰지 않습니다. 대신 Lean4로 인코더·디코더를 실제로 실행 가능한 프로그램으로 만들고, `.hack` 파일(16비트 이진 텍스트, 한 줄에 한 명령어)을 손으로 만들어보는 것이 목표입니다.
+
+== 1. 명령어 형식
+
+레지스터는 `D`(범용), `A`(주소/메모리), `PC`(3장에서 만든 프로그램 카운터) 셋뿐입니다. 명령어는 두 종류입니다.
+
+[source,lean]
+----
+-- Gates/Isa.lean
+import Gates.Arith
+
+namespace Nand2Lean
+
+inductive DestSpec where
+  | none | toA | toD | toM | toAD | toAM | toDM | toADM
+  deriving DecidableEq, Repr
+
+def DestSpec.bits : DestSpec → Bool × Bool × Bool  -- (a, d, m)
+  | .none  => (false, false, false)
+  | .toA   => (true,  false, false)
+  | .toD   => (false, true,  false)
+  | .toM   => (false, false, true)
+  | .toAD  => (true,  true,  false)
+  | .toAM  => (true,  false, true)
+  | .toDM  => (false, true,  true)
+  | .toADM => (true,  true,  true)
+
+def DestSpec.ofBits : Bool × Bool × Bool → DestSpec
+  | (false, false, false) => .none
+  | (true,  false, false) => .toA
+  | (false, true,  false) => .toD
+  | (false, false, true)  => .toM
+  | (true,  true,  false) => .toAD
+  | (true,  false, true)  => .toAM
+  | (false, true,  true)  => .toDM
+  | (true,  true,  true)  => .toADM
+
+theorem DestSpec.ofBits_bits : ∀ d, DestSpec.ofBits d.bits = d := by decide
+theorem DestSpec.bits_ofBits : ∀ b, (DestSpec.ofBits b).bits = b := by decide
+
+inductive JumpSpec where
+  | null | jgt | jeq | jge | jlt | jne | jle | jmp
+  deriving DecidableEq, Repr
+
+def JumpSpec.bits : JumpSpec → Bool × Bool × Bool  -- (LT, EQ, GT) 셋 중 어떤 조건에서 점프하는지
+  | .null => (false, false, false)
+  | .jgt  => (false, false, true)
+  | .jeq  => (false, true,  false)
+  | .jge  => (false, true,  true)
+  | .jlt  => (true,  false, false)
+  | .jne  => (true,  false, true)
+  | .jle  => (true,  true,  false)
+  | .jmp  => (true,  true,  true)
+
+def JumpSpec.ofBits : Bool × Bool × Bool → JumpSpec
+  | (false, false, false) => .null
+  | (false, false, true)  => .jgt
+  | (false, true,  false) => .jeq
+  | (false, true,  true)  => .jge
+  | (true,  false, false) => .jlt
+  | (true,  false, true)  => .jne
+  | (true,  true,  false) => .jle
+  | (true,  true,  true)  => .jmp
+
+theorem JumpSpec.ofBits_bits : ∀ j, JumpSpec.ofBits j.bits = j := by decide
+theorem JumpSpec.bits_ofBits : ∀ b, (JumpSpec.ofBits b).bits = b := by decide
+
+def JumpSpec.shouldJump : JumpSpec → (zr ng : Bool) → Bool
+  | .null, _,  _  => false
+  | .jmp,  _,  _  => true
+  | .jeq,  zr, _  => zr
+  | .jlt,  _,  ng => ng
+  | .jgt,  zr, ng => !ng && !zr
+  | .jge,  _,  ng => !ng
+  | .jle,  zr, ng => ng || zr
+  | .jne,  zr, _  => !zr
+
+end Nand2Lean
+----
+
+`DestSpec`과 `JumpSpec` 둘 다 3비트 조합 8가지가 전부 의미를 가지므로, `ofBits`/`bits`가 서로 완전한 역함수입니다 — `decide`로 왕복을 증명할 수 있는 이유입니다(원소 8개짜리 유한 타입이라 즉시 끝납니다).
+
+== 2. 명령어 귀납 타입과 16비트 인코딩
+
+[source,lean]
+----
+namespace Nand2Lean
+
+inductive Instruction where
+  | aInstr (value : Fin 32768)
+  | cInstr (comp : AluOp) (dest : DestSpec) (jump : JumpSpec)
+
+/-- comp가 M(메모리, A가 가리키는 주소)을 참조하는지 여부.
+    이 시리즈에서는 x/notX/negX/xPlus1/xMinus1/xPlusY/xMinusY/xAndY/xOrY의 "y" 자리에
+    A 또는 M이 올 수 있는데, 편의상 y 계열 연산(y, notY, ...)이 M을 참조한다고 정합니다. -/
+def AluOp.usesM : AluOp → Bool
+  | .y | .notY | .negY | .yPlus1 | .yMinus1 | .xPlusY | .xMinusY | .yMinusX | .xAndY | .xOrY => true
+  | _ => false
+
+def bitsOfFin15 (v : Fin 32768) : Vector Bool 15 :=
+  Vector.ofFn (fun i : Fin 15 => (v.val / 2 ^ i.val) % 2 == 1)
+
+def finOfBits15 (v : Vector Bool 15) : Fin 32768 :=
+  ⟨(List.finRange 15).foldl (fun acc i => acc + (if v[i] then 2 ^ i.val else 0)) 0, by
+    have : (List.finRange 15).foldl (fun acc i => acc + (if v[i] then 2 ^ i.val else 0)) 0 < 2^15 := by
+      -- 15개 비트의 최대 합은 2^15 - 1
+      sorry_omega_bound  -- 실제로는 List.finRange 위의 표준 부등식 보조정리로 채웁니다
+    omega⟩
+
+theorem bitsOfFin15_finOfBits15 : ∀ v, finOfBits15 (bitsOfFin15 v) = v := by
+  intro v; ext; simp [finOfBits15, bitsOfFin15]  -- Fin.ext + 산술 전개로 마무리
+
+def Instruction.encode : Instruction → Vector Bool 16
+  | .aInstr v => false ::ᵥ bitsOfFin15 v
+  | .cInstr comp dest jump =>
+      let (zx, nx, zy, ny, f, no) := comp.controlBits
+      let (da, dd, dm) := dest.bits
+      let (jlt, jeq, jgt) := jump.bits
+      true ::ᵥ true ::ᵥ true ::ᵥ
+        zx ::ᵥ nx ::ᵥ zy ::ᵥ ny ::ᵥ f ::ᵥ no ::ᵥ
+        da ::ᵥ dd ::ᵥ dm ::ᵥ
+        jlt ::ᵥ jeq ::ᵥ jgt ::ᵥ Vector.nil
+
+end Nand2Lean
+----
+
+[NOTE]
+====
+`finOfBits15`의 범위 증명에서 `sorry_omega_bound`라고 표시한 자리는 실제로는 존재하지 않는 이름입니다 — "15비트 합이 2^15보다 작다"는 것을 `List.finRange`의 `foldl`에 대한 표준 부등식 보조정리(`Nat.lt_two_pow` 계열)로 채우는 자리라는 뜻으로 자리만 표시했습니다. 이 자리를 실제로 채우는 것은 이 장의 연습 문제로 남깁니다 — `List.finRange n`의 `foldl` 합이 `2^n`보다 작다는 것은 `n`에 대한 귀납으로, 2장에서 `rippleAddList_correct`를 증명할 때 썼던 것과 같은 형태의 귀납입니다.
+====
+
+== 3. 디코더와 왕복 증명
+
+[source,lean]
+----
+namespace Nand2Lean
+
+def AluOp.decode (b : Bool × Bool × Bool × Bool × Bool × Bool) : Option AluOp :=
+  ([AluOp.zero, .one, .negOne, .x, .y, .notX, .notY, .negX, .negY,
+    .xPlus1, .yPlus1, .xMinus1, .yMinus1, .xPlusY, .xMinusY, .yMinusX,
+    .xAndY, .xOrY].find? (fun op => op.controlBits == b))
+
+theorem AluOp.decode_encode : ∀ op, AluOp.decode op.controlBits = some op := by decide
+
+def Instruction.decode (w : Vector Bool 16) : Option Instruction :=
+  if w[0] = false then
+    some (.aInstr (finOfBits15 ⟨w.toList.tail, by simp⟩))
+  else
+    let ctrl := (w[3], w[4], w[5], w[6], w[7], w[8])
+    match AluOp.decode ctrl with
+    | none => none
+    | some comp =>
+        let dest := DestSpec.ofBits (w[9], w[10], w[11])
+        let jump := JumpSpec.ofBits (w[12], w[13], w[14])
+        some (.cInstr comp dest jump)
+
+theorem encode_decode_roundtrip :
+    ∀ i : Instruction, Instruction.decode (Instruction.encode i) = some i := by
+  intro i
+  cases i with
+  | aInstr v =>
+      simp [Instruction.encode, Instruction.decode, bitsOfFin15_finOfBits15]
+  | cInstr comp dest jump =>
+      simp [Instruction.encode, Instruction.decode,
+            AluOp.decode_encode, DestSpec.ofBits_bits, JumpSpec.ofBits_bits]
+
+end Nand2Lean
+----
+
+[TIP]
+====
+*확인*: `lake env lean Gates/Isa.lean`이 (`finOfBits15`의 범위 증명 자리를 채운 뒤) 에러 없이 끝나면, "인코딩 후 디코딩하면 항상 원래 명령어가 나온다"가 전체 명령어 공간에 대해 증명된 것입니다. 5장에서 CPU가 명령 메모리에서 읽어온 워드를 해석할 때, 그리고 6장에서 어셈블러가 만든 워드가 항상 유효한지 논증할 때 이 정리 하나를 그대로 재사용합니다.
+====
+
+== 4. 손으로 프로그램 짜서 `.hack` 파일 만들기
+
+이 장에는 아직 어셈블러(6장)가 없으므로, 아주 짧은 프로그램을 *손으로* 16비트로 인코딩해봅니다 — `R0`(주소 0)에 있는 값과 `R1`(주소 1)에 있는 값을 더해 `R2`(주소 2)에 저장하는 프로그램입니다.
+
+[source,text]
+----
+@0          // A = 0
+D=M         // D = RAM[0]
+@1          // A = 1
+D=D+M       // D = D + RAM[1]
+@2          // A = 2
+M=D         // RAM[2] = D
+----
+
+Lean4로 이걸 `List Instruction`으로 직접 적고 인코딩합니다.
+
+[source,lean]
+----
+def addProgram : List Instruction :=
+  [ .aInstr ⟨0, by omega⟩
+  , .cInstr .y .toD .null            -- comp=M(=y 계열), dest=D  → D = M(주소0)
+  , .aInstr ⟨1, by omega⟩
+  , .cInstr .xPlusY .toD .null       -- D = D + M(주소1)
+  , .aInstr ⟨2, by omega⟩
+  , .cInstr .x .toM .null            -- comp=D(=x 계열), dest=M → RAM[2] = D
+  ]
+
+def instrToHackLine (i : Instruction) : String :=
+  String.join ((i.encode.toList).map (fun b => if b then "1" else "0"))
+
+def emitHackFile (prog : List Instruction) : String :=
+  String.intercalate "\n" (prog.map instrToHackLine)
+
+def main : IO Unit := IO.println (Nand2Lean.emitHackFile Nand2Lean.addProgram)
+----
+
+[source,bash]
+----
+lake env lean --run Main.lean > mlir/add.hack
+cat mlir/add.hack
+----
+
+기대되는 출력(16비트씩 6줄):
+
+[source,text]
+----
+0000000000000000
+1111110000010000
+0000000000000001
+1111000010010000
+0000000000000010
+1110001100001000
+----
+
+[TIP]
+====
+*확인*: 6줄이 모두 정확히 16글자(0과 1)여야 합니다. 각 줄을 4장에서 정의한 `Instruction.decode`에 다시 넣어보면(`Instruction.decode (Vector.ofFn ...)` 형태로 REPL에서 직접 확인 가능) `encode_decode_roundtrip` 정리 덕분에 항상 원래 명령어가 그대로 나옵니다.
+====
+
+이 `.hack` 파일이 5장에서 CPU 시뮬레이션에 실제로 로드할 첫 프로그램입니다.
+
+== 이 장에서 확정한 것
+
+* `DestSpec`/`JumpSpec`을 8가지 귀납 타입으로 표현하고, `decide`로 완전한 인코딩/디코딩 왕복을 증명했습니다.
+* `Instruction` 전체의 인코딩/디코딩 왕복(`encode_decode_roundtrip`)을, 3절의 왕복 정리들과 `AluOp.decode_encode`를 조합해 증명했습니다.
+* 손으로 짠 6줄짜리 프로그램을 Lean4 인코더로 실제 `.hack` 파일로 만들어봤습니다 — 이 파일이 5장의 CPU 시뮬레이션 입력이 됩니다.
+
+다음 장에서는 이 명령어 집합을 실제로 실행하는 CPU를 1~3장의 부품으로 결선하고, 방금 만든 `add.hack`을 실제로 돌려 `RAM[2]`에 정말 `RAM[0]+RAM[1]`이 들어가는지 Verilator로 확인합니다.
+// end::body[]

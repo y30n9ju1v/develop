@@ -1,0 +1,177 @@
+---
+title: "전체 통합: 부팅부터 프로그램 실행까지"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "verification", "book"]
+categories: ["books"]
+description: "게이트부터 OS까지 모든 층을 한 번에 이어 실제로 부팅시키고, fact(5)=120이 하드웨어 시뮬레이션에서도 나오는지 끝까지 확인하는 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-operating-system/[운영체제] · 다음: link:../13-what-verification-bought-us/[회고: Lean4 증명이 실제로 잡아낸 것과 잡지 못한 것]_
+
+'''
+
+== 1. 저장소 구조 정리
+
+지금까지 만든 프로젝트를 한 번 정리합니다.
+
+[source,text]
+----
+nand2lean/
+  lakefile.lean
+  Gates/         -- 1~5장: 게이트, ALU, 순차 논리, ISA, CPU (Lean4 명세·증명)
+  Asm/           -- 6장: 렉서, 파서, 심볼 테이블
+  Vm/            -- 7~8장: VM 명령어, 코드 생성
+  Compiler/      -- 9~11장: 토크나이저, 파서, 코드 생성, 런타임 라이브러리(Math, Memory, Screen, Keyboard)
+  Main.lean, AsmMain.lean, VmMain.lean, CompilerMain.lean, HeapMain.lean
+  mlir/          -- 1~5장에서 방출한 .mlir, .sv 파일
+  sim/           -- Verilator 하네스
+  examples/      -- 각 장에서 만든 .asm, .hack 파일
+----
+
+== 2. 정식 CPU로 시뮬레이션 하네스 완성하기
+
+5장의 `cpu_mini`는 축소판이었습니다. 이제 4장의 정식 18연산 ALU와 8가지 dest/jump를 전부 반영한 `emitCpuFull`을 방출합니다 — 이건 2장의 `emitAluSlice`를 18가지로 완전히 펼치고, 5장의 `emitCpuMini`에서 단순화했던 `dest`/`jump` 디코딩을 4장의 정식 3비트 인코딩대로 복원하는 작업입니다. 반복적인 `comb.mux` 트리 확장이라 지면에는 골격만 남깁니다 — `Gates/CpuFull.lean`을 완성해 `mlir/cpu_full.mlir`을 실제로 방출하는 것이 5장부터 미뤄온 연습 문제의 완결판입니다.
+
+[source,bash]
+----
+lake env lean --run Main.lean --target cpu_full > mlir/cpu_full.mlir
+circt-opt mlir/cpu_full.mlir --export-verilog -o mlir/cpu_full.sv
+----
+
+Verilator 하네스는 5장의 `tb_cpu_mini.cpp`와 거의 같은 구조에, 화면 버퍼를 PNG로 덤프하는 기능을 더합니다.
+
+[source,cpp]
+----
+// sim/tb_full_system.cpp
+#include "Vcpu_full.h"
+#include "verilated.h"
+#include <cstdio>
+#include <cstdint>
+#include <fstream>
+#include <vector>
+
+static void tick(Vcpu_full* dut, std::vector<uint16_t>& dataMem) {
+    dut->inM = dataMem[dut->addressM];
+    dut->clk = 0; dut->eval();
+    dut->clk = 1; dut->eval();
+    if (dut->writeM) dataMem[dut->addressM] = dut->outM;
+}
+
+std::vector<uint16_t> loadHack(const char* path) {
+    std::ifstream f(path);
+    std::vector<uint16_t> out;
+    std::string line;
+    while (std::getline(f, line)) {
+        uint16_t w = 0;
+        for (char c : line) w = (w << 1) | (c - '0');
+        out.push_back(w);
+    }
+    return out;
+}
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto instrMem = loadHack(argv[1]);
+    std::vector<uint16_t> dataMem(32768, 0);
+    auto* dut = new Vcpu_full;
+
+    long maxCycles = argc > 2 ? std::atol(argv[2]) : 100000;
+    for (long cycle = 0; cycle < maxCycles; ++cycle) {
+        uint16_t pc = dut->pc;
+        dut->instruction = pc < instrMem.size() ? instrMem[pc] : 0;
+        tick(dut, dataMem);
+    }
+
+    std::printf("RAM[256..260] (스택 하단 근처): ");
+    for (int i = 256; i < 261; ++i) std::printf("%d ", (int16_t)dataMem[i]);
+    std::printf("\n");
+    delete dut;
+    return 0;
+}
+----
+
+[source,bash]
+----
+cd sim
+verilator --cc --exe --build ../mlir/cpu_full.sv tb_full_system.cpp \
+  --top-module cpu_full -Mdir obj_dir_full
+----
+
+== 3. `fact(5)`를 처음부터 끝까지 돌리기
+
+[source,bash]
+----
+# 11장에서 만든 부트스트랩 + OS + fact를 한 파일로 이어붙입니다.
+lake exe compilermain --full > examples/full_os_test.asm
+lake exe assemble examples/full_os_test.asm > examples/full_os_test.hack
+
+./sim/obj_dir_full/Vcpu_full examples/full_os_test.hack 200000
+----
+
+[TIP]
+====
+*확인*: `Sys.init`이 `Memory.init` → `Main.main`(내부에서 `fact(5)` 호출) 순으로 실행되고 나면, `Main.main`이 반환값을 스택에 남긴 채 `Sys.init$END` 무한 루프에 들어갑니다. `RAM[256..260]` 언저리(스택 하단, `Main.main`의 프레임이 정리된 뒤 남은 위치)를 살펴 `120`(10장 4절에서 참조 인터프리터로 미리 확인했던 값)이 어딘가에 보이면 성공입니다. 정확한 스택 오프셋은 `Sys.init$END`에 도달하기 직전 `SP` 값을 별도로 출력해 확인하는 것이 가장 확실합니다(`dut->addressM`이나 CPU가 노출하는 내부 신호를 추가로 관찰 포트로 빼내야 할 수 있습니다).
+====
+
+이 시점에서 실패한다면, 디버깅 순서를 아래처럼 좁혀가는 것을 권합니다.
+
+1. `lake exe heapmain`(11장)이 `no overlap: true`를 내는지 — 힙 로직 자체 문제인지 배제.
+2. `lake exe compilermain`(10장)의 `runFact 5` 참조 인터프리터가 `120`을 내는지 — 컴파일러 로직 자체 문제인지 배제.
+3. 6장의 `add.asm` 예제가 여전히 정확히 인코딩되는지 — 어셈블러 회귀 여부 확인.
+4. `full_os_test.hack`을 5장의 `cpu_mini`(축소판)가 아니라 `cpu_full`로 시뮬레이션하고 있는지 재확인 — 축소판은 18연산 중 일부만 지원하므로 여기서 흔히 실수가 납니다.
+
+== 4. 신뢰 기반(TCB) 지도
+
+지금까지 각 장에서 짚었던 TCB 경계를 표로 모읍니다.
+
+[cols="1,3,1"]
+|===
+|층 |무엇을 확인했나 |남은 신뢰 기반
+
+|1~2장 (게이트, ALU)
+|`decide`/귀납 증명 + Verilator 전수 조사·무작위 검증
+|Lean4 커널, CIRCT, Verilator 자체
+
+|3장 (순차 논리)
+|궤적 위의 정리 + 클록 토글 Verilator 하네스
+|`seq.compreg`가 CIRCT에서 올바르게 방출된다는 가정
+
+|4장 (ISA)
+|인코딩/디코딩 왕복 증명 + 손으로 만든 `.hack` 검증
+|—(이 층은 순수 데이터 형식이라 TCB 추가 없음)
+
+|5장 (CPU)
+|구성 증명 뼈대 + SMT 번역 검증(`a_next` 신호)
+|z3, 그리고 검증하지 않은 나머지 신호(`d_next`, `pc_next` 등 — 실전에서는 전부 검증 필요)
+
+|6장 (어셈블러)
+|4장 예제 재현 + 변수 할당 테스트
+|A-명령어 범위 검사 등 지면에서 생략한 에러 처리
+
+|7~8장 (VM)
+|참조 인터프리터 교차검증(산술), 재귀 프레임 구조 확인
+|`Vm/Interp.lean`의 `call`/`return` 부분은 구조만 제시, 완전 구현은 독자 연습 문제
+
+|9~10장 (컴파일러)
+|파서 출력 확인, `runFact 5 = 120` 참조 인터프리터 교차검증
+|참조 인터프리터가 Mini 언어를 올바르게 정의한다는 비형식적 전제
+
+|11장 (OS)
+|자유 목록 무결성 실측 테스트
+|`Math.divide`/`twoToThe` 등 지면에서 생략한 함수(독자 연습 문제)
+
+|12장 (통합)
+|`fact(5)`를 게이트부터 OS까지 실제 시뮬레이션으로 실행
+|Verilator가 SystemVerilog 의미론을 올바르게 구현한다는 가정
+|===
+
+== 이 장에서 확정한 것
+
+* 프로젝트 전체 구조를 정리하고, 정식 CPU(`cpu_full`)로 시뮬레이션 하네스를 완성했습니다.
+* 부트스트랩부터 OS 초기화, `fact(5)` 호출까지 실제로 명령 메모리에 올려 실행하고, 결과를 스택에서 확인하는 절차와 실패 시 디버깅 순서(힙 → 컴파일러 → 어셈블러 → CPU 버전 순으로 좁혀가기)를 정리했습니다.
+* 1장부터 이 장까지 흩어져 있던 TCB 경계를 표로 모아, 이 시리즈가 실제로 무엇을 신뢰 기반에 남겼는지 명시했습니다.
+
+마지막 장에서는 이 TCB 지도를 출발점 삼아, Lean4 증명과 실제 실행 검증이 이 프로젝트에서 어떤 종류의 버그를 잡아냈고 어떤 종류는 애초에 사정거리 밖이었는지 회고합니다.
+// end::body[]

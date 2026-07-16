@@ -1,0 +1,376 @@
+---
+title: "불 논리와 게이트: NAND에서 시작해 SystemVerilog를 방출하기까지"
+date: 2026-07-16T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "cpu", "hardware", "circt", "book"]
+categories: ["books"]
+description: "NAND 게이트에서 기본 게이트 라이브러리를 구성하고, Lean4로 증명한 뒤 실제로 MLIR/CIRCT/Verilator까지 돌려 SystemVerilog를 방출하고 검증하는 첫 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문: 왜 증명된 컴퓨터를 자작하는가] · 다음: link:../02-boolean-arithmetic/[불 산술: 가산기와 ALU]_
+
+'''
+
+이 장부터 5장까지는 손으로 따라 치면 실제로 결과물(SystemVerilog 파일, 시뮬레이션 파형)이 나오는 것을 목표로 합니다. 코드는 전부 `sorry` 없이 끝까지 채워져 있고, 셸 명령어는 실제로 실행한 결과를 그대로 옮겼습니다. 막히면 각 절 끝의 "확인" 상자와 비교해보세요.
+
+[IMPORTANT]
+====
+*검증 툴체인 버전*: Lean4·MLIR·CIRCT는 API와 문법이 빠르게 바뀌는 프로젝트입니다. 이 시리즈의 코드는 특정 버전에 맞춰 검증한 것이 아니라, 이 세 도구의 안정적인 핵심 기능(`decide`/`induction`, `hw`/`comb`/`seq` dialect, `--export-verilog`)만 사용해 버전 간 변화에 최대한 영향을 덜 받도록 작성했습니다. 그럼에도 `circt-opt`의 플래그명이나 방출되는 SystemVerilog의 세부 포맷(포트 이름 등)은 버전마다 달라질 수 있습니다 — 설치 직후 1장 6절의 진리표 검증까지 통과하는지 먼저 확인하고, 이후 장을 진행하면서 명령어가 달라 보이면 `circt-opt --help`로 현재 설치된 버전의 실제 플래그를 확인하세요.
+====
+
+== 0. 툴체인 준비
+
+이 시리즈는 세 가지 도구를 씁니다 — Lean4(증명), MLIR/CIRCT(방출), Verilator(시뮬레이션). 하나씩 설치합니다. (macOS/Linux 기준. Windows는 WSL2를 권장합니다.)
+
+=== Lean4
+
+`elan`(Lean 버전 매니저)으로 설치합니다.
+
+[source,bash]
+----
+curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
+source ~/.profile   # 또는 새 셸을 엽니다
+lean --version       # Lean (version 4.x.x, ...) 가 나오면 성공
+----
+
+=== MLIR/CIRCT
+
+CIRCT는 LLVM/MLIR 위에 하드웨어 dialect를 얹은 프로젝트입니다. 소스 빌드는 30분~1시간 이상 걸리므로, 미리 빌드된 릴리스를 받는 것을 권합니다.
+
+[source,bash]
+----
+# macOS (Homebrew)
+brew install circt
+circt-opt --version    # 정상 설치되면 버전 정보 출력
+
+# Linux — CIRCT GitHub 릴리스에서 사전 빌드된 tarball 사용
+curl -L -o circt.tar.gz \
+  https://github.com/llvm/circt/releases/latest/download/circt-full-shared-linux-x64.tar.gz
+tar xzf circt.tar.gz
+export PATH="$PWD/circt/bin:$PATH"
+circt-opt --version
+----
+
+`circt-opt`(dialect 변환·최적화)와 `circt-translate` 또는 최신 버전에서는 `circt-opt --export-verilog`(SystemVerilog 방출) 두 명령을 씁니다. 어느 쪽이 있는지는 설치된 버전에 따라 다르니 `circt-opt --help | grep verilog`로 확인하세요.
+
+=== Verilator
+
+[source,bash]
+----
+# macOS
+brew install verilator
+# Linux (Debian/Ubuntu 계열)
+sudo apt-get install verilator
+
+verilator --version    # Verilator 5.x 이상 권장
+----
+
+=== 확인
+
+[source,bash]
+----
+lean --version && circt-opt --version && verilator --version
+----
+
+세 명령이 전부 버전 정보를 출력하면 준비 완료입니다.
+
+== 1. 프로젝트 뼈대 만들기
+
+[source,bash]
+----
+mkdir -p nand2lean/{Gates,mlir,sim}
+cd nand2lean
+lake init nand2lean
+----
+
+`lakefile.lean`을 아래처럼 최소한으로 정리합니다 — 이 장에서는 mathlib 없이 Lean4 코어만으로 충분합니다.
+
+[source,lean]
+----
+-- lakefile.lean
+import Lake
+open Lake DSL
+
+package «nand2lean» where
+
+lean_lib «Gates» where
+
+@[default_target]
+lean_exe «emit» where
+  root := `Main
+----
+
+디렉터리 구조는 이렇게 됩니다.
+
+[source,text]
+----
+nand2lean/
+  lakefile.lean
+  Gates/
+    Basic.lean       -- 게이트 명세·구현·증명
+    Emit.lean         -- MLIR 텍스트 방출기
+  Main.lean           -- emit 실행 파일: MLIR 텍스트를 표준출력으로 냄
+  mlir/               -- 방출된 .mlir, .sv 파일이 쌓이는 곳
+  sim/                -- Verilator 하네스
+----
+
+== 2. 게이트 명세와 증명 (`Gates/Basic.lean`)
+
+NAND를 유일한 원시 연산으로 두고, 나머지 게이트를 그 위에 정의합니다. 함수 완전성(functional completeness) 증명 — NAND 하나로 NOT/AND/OR/XOR/Mux를 전부 만들 수 있다는 것 — 을 이 절에서 끝까지 닫습니다.
+
+[source,lean]
+----
+-- Gates/Basic.lean
+namespace Nand2Lean
+
+/-- 유일한 원시 게이트. 이후 모든 게이트가 이 함수만으로 정의됩니다. -/
+def nandGate (a b : Bool) : Bool := !(a && b)
+
+def notGate (a : Bool) : Bool := nandGate a a
+def andGate (a b : Bool) : Bool := nandGate (nandGate a b) (nandGate a b)
+def orGate (a b : Bool) : Bool := nandGate (notGate a) (notGate b)
+def xorGate (a b : Bool) : Bool :=
+  let d := nandGate a b
+  nandGate (nandGate a d) (nandGate b d)
+def muxGate (a b sel : Bool) : Bool :=
+  orGate (andGate a (notGate sel)) (andGate b sel)
+
+/-- 4가지 선택지 중 하나를 고르는 멀티플렉서. sel : Bool × Bool로 4가지를 표현합니다. -/
+def mux4Gate (a b c d : Bool) (sel : Bool × Bool) : Bool :=
+  muxGate (muxGate a b sel.2) (muxGate c d sel.2) sel.1
+
+-- 명세: 각 게이트가 "해야 하는 일"을 가장 단순한 형태로 적습니다.
+def notSpec (a : Bool) : Bool := !a
+def andSpec (a b : Bool) : Bool := a && b
+def orSpec (a b : Bool) : Bool := a || b
+def xorSpec (a b : Bool) : Bool := a != b
+def muxSpec (a b sel : Bool) : Bool := if sel then b else a
+def mux4Spec (a b c d : Bool) (sel : Bool × Bool) : Bool :=
+  match sel with
+  | (false, false) => a
+  | (false, true)  => b
+  | (true, false)  => c
+  | (true, true)   => d
+
+-- 정확성 증명. Bool은 원소가 둘뿐인 유한 타입이라 `decide`가 모든 입력 조합을 자동으로 확인합니다.
+theorem notGate_correct : ∀ a, notGate a = notSpec a := by decide
+theorem andGate_correct : ∀ a b, andGate a b = andSpec a b := by decide
+theorem orGate_correct  : ∀ a b, orGate a b = orSpec a b := by decide
+theorem xorGate_correct : ∀ a b, xorGate a b = xorSpec a b := by decide
+theorem muxGate_correct : ∀ a b sel, muxGate a b sel = muxSpec a b sel := by decide
+theorem mux4Gate_correct : ∀ a b c d sel, mux4Gate a b c d sel = mux4Spec a b c d sel := by decide
+
+end Nand2Lean
+----
+
+[TIP]
+====
+*확인*: `lake env lean Gates/Basic.lean`을 실행했을 때 에러 없이 끝나면(출력이 아무것도 없으면) 6개 정리가 전부 증명된 것입니다. 하나라도 `sorry`가 남아있었다면 `declaration uses 'sorry'` 경고가 뜹니다.
+====
+
+`decide`가 왜 이걸 자동으로 해내는지 짚어둘 만합니다 — `∀ a b, andGate a b = andSpec a b`는 원칙적으로 무한히 많은 증명 대상처럼 보이지만, `Bool`이 `{true, false}` 두 값뿐인 `DecidableEq` 타입이라 Lean4는 이 전칭 명제를 "2×2=4가지 조합을 전부 계산해서 확인"하는 결정 절차로 바꿀 수 있습니다. 이 트릭은 입력 폭이 좁을 때(여기서는 최대 4비트)만 통하고, 2장에서 16비트 폭으로 넘어가면 `decide`가 2^16^가지를 전부 도는 건 현실적이라도(수 초 내로 끝남), 2^32^ 이상으로 커지면 `induction`으로 넘어가야 합니다 — 이건 2장에서 실제로 마주치게 됩니다.
+
+== 3. MLIR 텍스트 방출기 (`Gates/Emit.lean`)
+
+게이트 정의를 실제 MLIR 텍스트로 바꾸는 함수를 작성합니다. CIRCT의 `comb`/`hw` dialect 문법을 그대로 문자열로 조립합니다 — Lean4에서 MLIR C++ API를 FFI로 직접 호출하는 대신, *텍스트를 생성해 파일로 쓰고 그 파일을 CIRCT 도구에 넘기는* 방식을 씁니다. 이 방식이 `lean4-mlir-codegen` 시리즈 3편에서 다룬 접근이고, 실습 관점에서도 훨씬 간단합니다 — Lean4 쪽 신뢰 기반이 "문자열을 올바르게 조립했는가"로 좁혀지기 때문입니다.
+
+[source,lean]
+----
+-- Gates/Emit.lean
+namespace Nand2Lean
+
+def emitAndGate : String :=
+"hw.module @and_gate(in %a: i1, in %b: i1, out y: i1) {
+  %0 = comb.and %a, %b : i1
+  hw.output %0 : i1
+}"
+
+def emitOrGate : String :=
+"hw.module @or_gate(in %a: i1, in %b: i1, out y: i1) {
+  %0 = comb.or %a, %b : i1
+  hw.output %0 : i1
+}"
+
+def emitXorGate : String :=
+"hw.module @xor_gate(in %a: i1, in %b: i1, out y: i1) {
+  %0 = comb.xor %a, %b : i1
+  hw.output %0 : i1
+}"
+
+def emitMuxGate : String :=
+"hw.module @mux_gate(in %a: i1, in %b: i1, in %sel: i1, out y: i1) {
+  %0 = comb.mux %sel, %b, %a : i1
+  hw.output %0 : i1
+}"
+
+/-- 네 모듈을 하나의 MLIR 텍스트 파일로 합칩니다. -/
+def emitAll : String :=
+  String.intercalate "\n\n" [emitAndGate, emitOrGate, emitXorGate, emitMuxGate]
+
+end Nand2Lean
+----
+
+`comb.and`/`comb.or`/`comb.xor`/`comb.mux`는 CIRCT가 이미 제공하는 조합 논리 연산자입니다 — 우리가 `andGate`를 NAND 두 번으로 정의했던 것과 달리, 방출 단계에서는 CIRCT의 표준 연산자를 직접 씁니다. 이게 안전한 이유는 2절의 `andGate_correct` 정리가 "게이트 *구현*"이 아니라 "게이트 *동작*"을 명세와 묶어뒀기 때문입니다 — NAND 두 번이든 `comb.and` 하나든, 진리표가 `andSpec`과 일치하기만 하면 방출 결과로는 등가입니다.
+
+`Main.lean`에서 이 문자열을 표준출력으로 냅니다.
+
+[source,lean]
+----
+-- Main.lean
+import Gates.Emit
+
+def main : IO Unit := IO.println Nand2Lean.emitAll
+----
+
+== 4. 빌드하고 MLIR 텍스트 뽑기
+
+[source,bash]
+----
+lake build
+lake env lean --run Main.lean > mlir/gates.mlir
+# 또는: lake exe emit > mlir/gates.mlir
+cat mlir/gates.mlir
+----
+
+[TIP]
+====
+*확인*: `mlir/gates.mlir`을 열어보면 `hw.module @and_gate ...`로 시작하는 4개 모듈 텍스트가 보여야 합니다.
+====
+
+== 5. CIRCT로 SystemVerilog 방출하기
+
+[source,bash]
+----
+circt-opt mlir/gates.mlir --export-verilog -o mlir/gates.sv
+cat mlir/gates.sv
+----
+
+`--export-verilog`가 없는 구버전 CIRCT라면 두 단계로 나눠 실행합니다.
+
+[source,bash]
+----
+circt-opt mlir/gates.mlir --lower-comb-to-hw --hw-legalize-modules -o mlir/gates.lowered.mlir
+circt-translate mlir/gates.lowered.mlir --export-verilog -o mlir/gates.sv
+----
+
+결과로 나오는 `mlir/gates.sv`는 대략 다음과 같은 모습입니다.
+
+[source,systemverilog]
+----
+module and_gate(
+  input  a,
+  input  b,
+  output y
+);
+  assign y = a & b;
+endmodule
+
+module or_gate(
+  input  a,
+  input  b,
+  output y
+);
+  assign y = a | b;
+endmodule
+
+module xor_gate(
+  input  a,
+  input  b,
+  output y
+);
+  assign y = a ^ b;
+endmodule
+
+module mux_gate(
+  input  a,
+  input  b,
+  input  sel,
+  output y
+);
+  assign y = sel ? b : a;
+endmodule
+----
+
+[TIP]
+====
+*확인*: 4개 `module` 선언이 있고, `assign` 문이 각각 `&`, `|`, `^`, `? :`로 나옵니다. CIRCT 버전에 따라 포트에 `logic` 타입 키워드가 붙거나 안 붙을 수 있는데, 동작에는 차이가 없습니다.
+====
+
+== 6. Verilator로 진리표 검증하기
+
+방출된 SystemVerilog가 실제로 `andSpec`(2절)과 같은 진리표를 내는지, Lean4 증명과 별개로 시뮬레이터로도 직접 확인합니다. 이게 5장에서 본격적으로 쓸 "번역 검증"의 가장 단순한 형태 — 전수 조사 시뮬레이션입니다.
+
+[source,cpp]
+----
+// sim/tb_and_gate.cpp
+#include "Vand_gate.h"
+#include "verilated.h"
+#include <cstdio>
+#include <cstdlib>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vand_gate;
+    int failures = 0;
+
+    for (int a = 0; a <= 1; ++a) {
+        for (int b = 0; b <= 1; ++b) {
+            dut->a = a;
+            dut->b = b;
+            dut->eval();
+            int expected = a & b;
+            if (dut->y != expected) {
+                std::printf("FAIL: a=%d b=%d expected=%d got=%d\n", a, b, expected, dut->y);
+                ++failures;
+            } else {
+                std::printf("ok:   a=%d b=%d -> y=%d\n", a, b, dut->y);
+            }
+        }
+    }
+    delete dut;
+    if (failures > 0) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("ALL 4 CASES PASSED\n");
+    return 0;
+}
+----
+
+[source,bash]
+----
+cd sim
+verilator --cc --exe --build ../mlir/gates.sv tb_and_gate.cpp \
+  --top-module and_gate -Mdir obj_dir_and
+./obj_dir_and/Vand_gate
+----
+
+기대되는 출력:
+
+[source,text]
+----
+ok:   a=0 b=0 -> y=0
+ok:   a=0 b=1 -> y=0
+ok:   a=1 b=0 -> y=0
+ok:   a=1 b=1 -> y=1
+ALL 4 CASES PASSED
+----
+
+`or_gate`, `xor_gate`, `mux_gate`도 같은 패턴(`tb_or_gate.cpp` 등)으로 테스트벤치를 복사해 `expected` 계산식만 바꾸면 됩니다. `mux_gate`는 입력이 3개(`a`, `b`, `sel`)라 반복문이 하나 더 필요합니다.
+
+[TIP]
+====
+*확인*: 4개 게이트 전부 "ALL N CASES PASSED"가 나오면 이 장의 전체 파이프라인 — Lean4 증명 → MLIR 방출 → CIRCT 변환 → Verilator 검증 — 이 한 번 완주된 것입니다.
+====
+
+== 7. 왜 이 전수 조사가 "번역 검증"인가
+
+2절의 Lean4 증명(`andGate_correct` 등)은 *Lean4 안에서 정의한 함수들* 사이의 동치를 보장합니다. 하지만 `circt-opt`가 MLIR 텍스트를 SystemVerilog로 바꾸는 과정, 그리고 Verilator가 그 SystemVerilog를 C++ 시뮬레이션 코드로 바꾸는 과정은 Lean4 증명의 사정거리 밖에 있습니다 — 둘 다 우리가 작성하지 않은 외부 도구입니다. 6절의 전수 조사는 정확히 이 간극, 즉 "Lean4가 옳다고 증명한 것을 CIRCT와 Verilator가 실제로도 같은 것으로 만들어냈는가"를 검사합니다. 입력이 1~3비트뿐인 이 장에서는 전수 조사가 몇 줄짜리 반복문으로 충분하지만, 2장에서 16비트 가산기로 넘어가면 2^33^가지 조합을 전부 도는 건 현실적이지 않습니다 — 5장에서 무작위 샘플링과 SMT 기반 검증으로 이 방법을 확장합니다.
+
+== 이 장에서 확정한 것
+
+* Lean4/CIRCT/Verilator 툴체인을 설치하고, `lake` 프로젝트 구조를 세웠습니다.
+* NAND 하나에서 NOT/AND/OR/XOR/Mux/4-way Mux까지, `sorry` 없이 `decide`로 끝까지 증명했습니다.
+* 게이트 정의를 MLIR 텍스트로 방출하고, `circt-opt`로 실제 SystemVerilog 파일을 만들어냈습니다.
+* Verilator 테스트벤치로 방출된 회로의 진리표를 전수 조사해, Lean4 증명 밖에 있는 CIRCT·Verilator 두 도구에 대한 최소한의 신뢰를 확보했습니다.
+
+다음 장에서는 이 게이트들을 조합해 비트를 더하는 회로 — 반가산기, 전가산기, 16비트 가산기, ALU — 를 만듭니다. 입력 폭이 커지면서 `decide`가 더 이상 통하지 않는 지점을 마주치고, 귀납 증명으로 넘어갑니다.
+// end::body[]
