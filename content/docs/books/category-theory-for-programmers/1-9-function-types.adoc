@@ -409,8 +409,6 @@ newtype Void = Void Void
 
 - Ralph Hinze, Daniel W. H. James, "link:http://www.cs.ox.ac.uk/ralf.hinze/publications/WGP10.pdf[Reason Isomorphically!]". 이 논문에는 이번 장에서 언급했던 고등학교 수준의 대수학 항등식들에 대한 카테고리 이론적 증명이 모두 담겨 있습니다.
 
-다음: 자연 변환 (Natural Transformations).
-
 == 감사의 말
 
 제 수학과 논리를 검토해 준 거샴 베이저먼(Gershom Bazerman)과 이 시리즈 전체에 걸쳐 편집을 도와준 자원봉사자 앙드레 반 묄레브룩(André van Meulebrouck)에게 감사의 인사를 전합니다.

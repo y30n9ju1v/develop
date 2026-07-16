@@ -60,6 +60,11 @@ include::0-preface.adoc[tag=body,leveloffset=+1]
 
 '''
 
+[#part-1]
+== 제1부
+
+'''
+
 [#chapter-1-1-category-the-essence-of-composition]
 == 1.1. 카테고리: 합성의 본질
 
@@ -130,6 +135,11 @@ include::1-10-natural-transformations.adoc[tag=body,leveloffset=+1]
 
 '''
 
+[#part-2]
+== 제2부
+
+'''
+
 [#chapter-2-1-category-theory-and-declarative-programming]
 == 2.1. 2부: 카테고리 이론과 선언형 프로그래밍
 
@@ -169,6 +179,11 @@ include::2-5-the-yoneda-lemma.adoc[tag=body,leveloffset=+1]
 == 2.6. 요네다 매장 (Yoneda Embedding)
 
 include::2-6-yoneda-embedding.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-3]
+== 제3부
 
 '''
 
