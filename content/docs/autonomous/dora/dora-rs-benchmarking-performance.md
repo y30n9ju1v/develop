@@ -27,64 +27,9 @@ description: "DORA와 ROS2의 지연시간 차이를 실제로 측정하는 방�
 
 ## 2. 지연시간을 직접 측정하는 최소 벤치마크
 
-[노드 개발 편](dora-rs-node-development/)에서 만든 것과 비슷한, 아주 단순한 두 노드짜리 파이프라인으로 순수한 노드 간 지연을 잽니다.
+순수한 노드 간 지연을 재려면, [노드 개발 편](dora-rs-node-development/)에서 만든 것과 비슷한 아주 단순한 두 노드짜리 파이프라인이면 충분합니다 — 한 노드(sender)는 메시지를 보낼 때마다 그 순간의 시각을 데이터 안에 실어 보내고, 다른 노드(receiver)는 메시지가 도착한 시각에서 실려온 송신 시각을 빼서 그 차이를 기록합니다. 이 차이를 수천 번 반복해서 모으고, 정렬한 뒤 중앙값(p50)·상위 1%(p99)·최댓값(max)을 뽑아냅니다.
 
-```yaml
-# bench-dataflow.yml
-nodes:
-  - id: sender
-    path: target/release/sender
-    outputs: [ping]
-
-  - id: receiver
-    path: target/release/receiver
-    inputs:
-      ping: sender/ping
-    outputs: [pong]
-```
-
-```rust
-// sender/src/main.rs — 매 메시지에 송신 시각을 실어 보낸다
-use dora_node_api::{DoraNode, Event};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn main() -> eyre::Result<()> {
-    let (mut node, _events) = DoraNode::init_from_env()?;
-    for _ in 0..10_000 {
-        let now_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos() as u64;
-        node.send_output("ping", Default::default(), now_ns.to_le_bytes().to_vec())?;
-        std::thread::sleep(std::time::Duration::from_millis(1));
-    }
-    Ok(())
-}
-```
-
-```rust
-// receiver/src/main.rs — 받은 시각과 실어온 시각의 차이를 기록한다
-use dora_node_api::{DoraNode, Event};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-fn main() -> eyre::Result<()> {
-    let (mut _node, mut events) = DoraNode::init_from_env()?;
-    let mut latencies = Vec::new();
-
-    while let Some(Event::Input { id, data, .. }) = events.recv() {
-        if id.as_str() == "ping" {
-            let sent_ns = u64::from_le_bytes(data[..8].try_into().unwrap());
-            let now_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos() as u64;
-            latencies.push(now_ns - sent_ns);
-        }
-    }
-    // 10,000개 샘플이 모이면 p50/p99/max를 계산해 출력
-    latencies.sort();
-    println!("p50: {} us", latencies[latencies.len() / 2] / 1000);
-    println!("p99: {} us", latencies[latencies.len() * 99 / 100] / 1000);
-    println!("max: {} us", latencies.last().unwrap() / 1000);
-    Ok(())
-}
-```
-
-이 벤치마크가 재는 건 정확히 "`send_output` 호출부터 `events.recv()`로 그 데이터가 도착하기까지"입니다 — [1편](dora-rs-for-beginners/#4-핵심-기술-스택)에서 다룬 Zenoh 공유 메모리 전송과 Arrow 직렬화 오버헤드가 이 구간에 전부 포함됩니다. 반대로 노드 내부의 계산 시간(예제에서는 없음)은 이 측정에 들어가지 않습니다 — 이게 바로 "프레임워크 자체의 오버헤드"만 분리해서 재는 방법입니다.
+이 벤치마크가 재는 건 정확히 "메시지를 보내는 호출부터 그 데이터가 도착하기까지"입니다 — [1편](dora-rs-for-beginners/#4-핵심-기술-스택)에서 다룬 Zenoh 공유 메모리 전송과 Arrow 직렬화 오버헤드가 이 구간에 전부 포함됩니다. 반대로 노드 내부의 계산 시간(이 최소 예제에는 없음)은 이 측정에 들어가지 않습니다 — 이게 바로 "프레임워크 자체의 오버헤드"만 분리해서 재는 방법입니다. 측정 코드 자체가 노이즈를 만들지 않도록 주의할 점도 하나 있습니다 — 샘플을 담는 배열을 반복적으로 늘려가며 채우면 중간에 재할당이 발생해 그 재할당 자체가 지연 스파이크로 잡힐 수 있으므로, 예상 샘플 수만큼 미리 공간을 확보해두는 것이 정밀한 측정의 기본입니다.
 
 ---
 

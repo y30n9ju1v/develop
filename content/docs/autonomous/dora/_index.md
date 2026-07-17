@@ -12,3 +12,6 @@ ROS2보다 10~17배 빠른 Rust 기반 로보틱스 프레임워크 DORA를 다�
 6. **[DORA 파이프라인 관측과 디버깅](dora-rs-observability-debugging/)** — dora logs/dora list 같은 CLI 도구로 파이프라인 상태를 확인하고, 역압과 조용한 실패를 진단하며 Rerun으로 데이터 흐름을 시각화하는 방법을 정리합니다.
 7. **[DORA를 실차/실제 하드웨어에 올리기](dora-rs-real-hardware-deployment/)** — 시뮬레이터에서 검증한 파이프라인을 온보드 컴퓨터에 올릴 때 생기는 리소스 제약, 실시간성 검증, 페일세이프 설계를 다룹니다.
 8. **[DORA 성능 벤치마킹](dora-rs-benchmarking-performance/)** — "ROS2보다 10~17배 빠르다"는 주장을 실제로 측정하는 방법론과, 우리 파이프라인의 병목을 찾는 벤치마킹 절차를 정리합니다.
+9. **[시뮬레이션을 웹으로 스트리밍하기: DORA + CARLA/NuRec 뷰어](dora-rs-web-streaming-viewer/)** — GPU 렌더링 서버의 CARLA/NuRec 시뮬레이션을 web-sink 노드로 브라우저까지 중계하는 구조를 설계하고, 더미 소스로 엔드투엔드 검증합니다.
+10. **[DORA로 Planning/Control 노드 만들기](dora-rs-planning-control-node/)** — 클로즈 루프의 마지막 조각인 planning/control 노드의 상태 설계, Pure Pursuit·PID 제어, 안전 한계, CARLA 액추에이터 매핑을 정리합니다.
+11. **[클로즈 루프 회귀 테스트: 비결정성 재현과 에피소드 지표](dora-rs-closed-loop-testing/)** — 클로즈 루프에서 누적되는 비결정성을 시드 고정과 스냅샷 이분 탐색으로 재현하고, 프레임 단위가 아닌 에피소드 단위 지표로 evaluator를 확장하는 방법을 다룹니다.
