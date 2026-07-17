@@ -1,0 +1,136 @@
+---
+title: "벡터란 무엇인가: 표기와 기본 연산"
+date: 2026-07-17T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "n차원 벡터를 Fin n → ℝ로 정의하고, 덧셈·스칼라곱을 Lean4로 구현한 뒤 벡터공간 공리 일부를 직접 증명하는 1부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문: 왜 선형대수를 다시 증명하며 배우는가] · 다음: link:../02-linear-combinations/[선형결합: 벡터를 조합해 새 벡터 만들기]_
+
+'''
+
+[TIP]
+====
+*Mathlib 전술(tactic) 가이드 — 이 책에서 반복해서 쓰는 것만 추려둔 것입니다. 앞으로 계속 참고하세요.*
+
+- `ring` — 덧셈·곱셈으로만 이루어진 대수적 등식을 증명합니다. `a*b + a*c = a*(b+c)` 같은, 결합·교환·분배법칙만으로 양변이 같아지는 식이면 이걸로 끝납니다. 이 책에서 가장 많이 쓰는 전술입니다. (수학적으로는 **교환환(commutative ring)**의 공리만으로 성립하는 등식을 자동으로 증명하는 것입니다 — 실수뿐 아니라 정수, 다항식 등 교환환이기만 하면 어디서나 통합니다. 곱셈에 대한 역원(나눗셈)은 교환환의 공리에 없으므로, 나눗셈이 섞이면 `ring`이 아니라 `field_simp`가 필요합니다.)
+- `linarith` — 선형 부등식/등식을 이미 알고 있는 가설들(`h1 : a ≤ b`, `h2 : b ≤ c` 등)로부터 조합해 증명합니다. 곱셈이 섞이면 못 씁니다. (수학적으로는 **선형순서체(linearly ordered field)**의 성질, 즉 실수가 부등호로 완전히 순서 매겨져 있고 그 순서가 덧셈과 호환된다는 사실에 기반합니다. 곱셈은 이 호환성 안에 들어있지 않아서, `a ≤ b`이고 `c ≤ d`라고 `a*c ≤ b*d`를 자동으로 끌어내진 못합니다 — 이런 비선형 추론이 필요하면 `nlinarith`로 넘어갑니다.)
+- `nlinarith` — `linarith`에 비선형(곱셈) 추론을 조금 더 허용한 버전입니다. `a^2 ≥ 0`처럼 제곱이 섞인 부등식에서 씁니다.
+- `field_simp` — 나눗셈이 섞인 식을 분모를 통분해 나눗셈 없는 형태로 정리합니다. 분모가 0이 아니라는 가설이 문맥에 있어야 안전하게 작동합니다.
+- `funext` — 두 함수가 같다는 것을 증명할 때, "모든 입력에서 같은 출력을 낸다"는 것으로 문제를 바꿔줍니다. 이 책에서 벡터·행렬의 등식은 거의 항상 이 전술로 시작합니다(벡터·행렬을 함수로 정의했으므로).
+- `congr 1` — `f a = f b` 형태의 목표를, `f`가 같다는 부분과 `a = b`라는 부분으로 쪼갭니다. 두 합(`Finset.sum`)이 같음을 보일 때, "합의 각 항이 같다"로 문제를 좁히는 데 자주 씁니다.
+- `simp [lemma1, lemma2, ...]` — 주어진 보조정리들로 식을 최대한 단순화합니다. 특히 `if-then-else`가 있는 식을 조건에 따라 정리할 때 유용합니다.
+- `rw [lemma]` — 이미 증명된 등식(`lemma`)으로 목표 안의 특정 부분을 치환합니다. `simp`이 "최대한 단순화"라면 `rw`는 "정확히 이 자리를 이 등식으로 바꾼다"는 더 세밀한 도구입니다.
+- `Finset.sum_...` 계열 정리 — `∑`(합)의 성질을 다루는 Mathlib 정리들입니다. 이 책에서 특히 자주 쓰는 것은 `Finset.sum_add_distrib`(합의 덧셈 분배), `Finset.mul_sum`/`Finset.sum_mul`(합 안팎으로 상수 이동), `Finset.sum_ite_eq'`(조건이 한 항에서만 참인 합은 그 항만 남음), `Finset.sum_comm`(이중 합의 순서 교환)입니다.
+
+막히면 각 장의 증명에 이 목록을 다시 대입해보세요 — 이 책에 나오는 전술의 대부분은 이 표 안에 있습니다.
+====
+
+== 벡터를 숫자 n개의 나열로 보기
+
+이 책에서 벡터는 실수 `n`개를 순서대로 나열한 것입니다. 어떤 자율주행 로봇이 하루 동안 5개 구간을 주행하며 각 구간에서 이동한 거리(km)를 기록한다면, 그 하루의 기록은 5차원 벡터 하나입니다 — `(3.2, 1.5, 4.0, 0.8, 2.1)`처럼요. 벡터의 "차원"은 그저 나열된 숫자의 개수입니다.
+
+이걸 Lean4로 표현하는 방법은 여러 가지가 있지만, 이 책에서는 인덱스에서 값으로 가는 함수로 정의합니다 — `Fin n`(0부터 n-1까지의 인덱스)을 받아 실수를 돌려주는 함수입니다.
+
+[source,lean]
+----
+-- Vectors/Basic.lean
+import Mathlib.Data.Real.Basic
+import Mathlib.Analysis.SpecialFunctions.Pow.NNReal
+
+namespace LinAlg
+
+def Vec (n : ℕ) := Fin n → ℝ
+
+namespace Vec
+
+def ofFn {n : ℕ} (f : Fin n → ℝ) : Vec n := f
+
+instance {n : ℕ} : GetElem (Vec n) (Fin n) ℝ (fun _ _ => True) where
+  getElem v i _ := v i
+
+end Vec
+end LinAlg
+----
+
+`Fin n → ℝ`로 정의한 이유는, 4장에서 다룰 인덱스별 합산(`Finset.sum`)이나 Mathlib의 다른 정리들과 자연스럽게 맞물리기 때문입니다 — `Vector ℝ n`(리스트 기반) 대신 함수 기반을 택하면, "i번째 성분"이라는 개념이 함수 적용 하나로 끝나서 증명이 짧아집니다.
+
+== 덧셈과 스칼라곱: 성분별로
+
+두 벡터를 더하는 것은 같은 위치의 성분끼리 더하는 것입니다. 스칼라(실수 하나)를 벡터에 곱하는 것은 모든 성분에 그 스칼라를 곱하는 것입니다.
+
+[source,lean]
+----
+namespace LinAlg.Vec
+
+def add {n : ℕ} (u v : Vec n) : Vec n := fun i => u i + v i
+def smul {n : ℕ} (c : ℝ) (v : Vec n) : Vec n := fun i => c * v i
+def neg {n : ℕ} (v : Vec n) : Vec n := fun i => -v i
+def zero (n : ℕ) : Vec n := fun _ => 0
+
+instance {n : ℕ} : Add (Vec n) := ⟨add⟩
+instance {n : ℕ} : SMul ℝ (Vec n) := ⟨smul⟩
+instance {n : ℕ} : Neg (Vec n) := ⟨neg⟩
+instance {n : ℕ} : Zero (Vec n) := ⟨zero n⟩
+
+end LinAlg.Vec
+----
+
+로봇 예제로 돌아가면, 이틀 치 구간별 거리를 나타내는 두 벡터를 더하면 이틀간의 구간별 누적 거리가 됩니다 — `add`가 "성분별로 더한다"는 정의 그대로, 실제로 의미 있는 연산을 나타냅니다.
+
+== 벡터공간 공리: 무엇을 증명해야 하는가
+
+"벡터공간"이라 부를 수 있으려면 덧셈과 스칼라곱이 몇 가지 공리를 만족해야 합니다 — 덧셈의 결합법칙과 교환법칙, 덧셈의 항등원(영벡터)과 역원의 존재, 스칼라곱의 분배법칙 등입니다. 이 공리들은 전부 "정의를 펼치면 실수의 대응되는 성질로 환원된다"는 공통된 구조를 가집니다. 하나를 완전히 증명해보고, 나머지는 같은 패턴의 반복이라는 걸 확인한 뒤 연습 문제로 남기겠습니다.
+
+=== 완전히 증명하는 것: 덧셈의 교환법칙
+
+[source,lean]
+----
+namespace LinAlg.Vec
+
+theorem add_comm {n : ℕ} (u v : Vec n) : u + v = v + u := by
+  funext i
+  show u i + v i = v i + u i
+  ring
+
+end LinAlg.Vec
+----
+
+이 증명이 짧은 이유를 짚고 넘어갈 만합니다. `u + v = v + u`는 두 벡터(함수)가 같다는 명제인데, 두 함수가 같다는 것은 Lean4에서 "모든 입력에 대해 같은 출력을 낸다"는 것과 동치입니다(함수 외연성, `funext`). `funext i`로 "임의의 인덱스 `i`에 대해 `(u+v) i = (v+u) i`"로 문제를 좁히면, 그 다음은 `add`의 정의를 펼쳐 `u i + v i = v i + u i`라는 **실수에 대한 명제**로 바뀝니다. 여기서부터는 벡터의 성질이 아니라 실수 덧셈의 교환법칙이고, `ring`(Mathlib이 제공하는 대수 자동화 전술)이 즉시 닫습니다.
+
+이 구조 — "벡터에 대한 명제를 `funext`로 성분 하나에 대한 명제로 좁히고, 그다음은 실수의 성질로 환원한다" — 가 이 책 1부 전체에서 반복되는 핵심 증명 전략입니다.
+
+=== 연습 문제로 남기는 것: 나머지 공리들
+
+[source,lean]
+----
+namespace LinAlg.Vec
+
+theorem add_assoc {n : ℕ} (u v w : Vec n) : (u + v) + w = u + (v + w) := by
+  sorry  -- add_comm과 같은 패턴: funext → 정의 전개 → ring
+
+theorem add_zero {n : ℕ} (v : Vec n) : v + 0 = v := by
+  sorry  -- funext → 정의 전개 → add_zero(실수)
+
+theorem add_neg_cancel {n : ℕ} (v : Vec n) : v + (-v) = 0 := by
+  sorry  -- funext → 정의 전개 → add_neg_cancel(실수)
+
+theorem smul_add {n : ℕ} (c : ℝ) (u v : Vec n) : c • (u + v) = c • u + c • v := by
+  sorry  -- funext → 정의 전개 → mul_add(실수, 분배법칙)
+
+end LinAlg.Vec
+----
+
+네 정리 전부 `add_comm`과 정확히 같은 3단계(`funext` → 정의를 `show`로 펼치기 → 대응되는 실수 정리 적용)를 따릅니다. 힌트에 적어둔 실수 쪽 정리 이름(`add_zero`, `add_neg_cancel`, `mul_add`)은 Mathlib에 이미 있으므로, `ring`이나 해당 이름을 직접 호출하면 닫힙니다 — 이 중 하나라도 막힌다면, `add_comm`의 증명을 다시 읽고 `show` 다음에 정확히 어떤 실수 등식이 남는지부터 손으로 적어보는 것이 가장 빠른 해결 경로입니다.
+
+== 이 장에서 확정한 것
+
+* n차원 벡터를 `Fin n → ℝ`로 정의하고, 덧셈·스칼라곱·음수·영벡터를 성분별 연산으로 구현했습니다.
+* 벡터에 대한 등식 증명이 거의 항상 "`funext`로 성분 하나로 좁히고, 그 다음은 실수의 성질로 환원한다"는 패턴을 따른다는 것을, 덧셈의 교환법칙을 완전히 증명하며 확인했습니다.
+* 나머지 벡터공간 공리(결합법칙, 항등원, 역원, 분배법칙)는 같은 패턴의 반복이라는 것을 확인하고 연습 문제로 남겼습니다.
+
+다음 장에서는 이 덧셈과 스칼라곱을 조합해 "여러 벡터의 가중합"이라는 개념 — 선형결합 — 을 만들고, 그 의미를 실제 예제로 살펴봅니다.
+// end::body[]

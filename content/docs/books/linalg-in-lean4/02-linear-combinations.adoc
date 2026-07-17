@@ -1,0 +1,103 @@
+---
+title: "선형결합: 벡터를 조합해 새 벡터 만들기"
+date: 2026-07-17T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "여러 벡터의 가중합으로 정의되는 선형결합을 Lean4로 구현하고, 표준 기저 벡터로 임의의 벡터를 유일하게 표현할 수 있다는 정리를 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-vectors-and-operations/[벡터란 무엇인가: 표기와 기본 연산] · 다음: link:../03-inner-product-and-norm/[내적과 노름: 벡터의 크기 재기]_
+
+'''
+
+== 선형결합: 덧셈과 스칼라곱의 조합
+
+1장에서 만든 덧셈과 스칼라곱을 겹쳐 쓰면, `c₁v₁ + c₂v₂ + ... + cₖvₖ` 형태의 식을 만들 수 있습니다. 이걸 벡터 `v₁, ..., vₖ`의 **선형결합(linear combination)**이라 부르고, 계수 `c₁, ..., cₖ`가 그 결합의 "가중치"입니다.
+
+로봇 예제를 이어가면, 여러 날의 구간별 거리 벡터 `v₁, v₂, v₃`가 있을 때 `0.5v₁ + 0.3v₂ + 0.2v₃`는 "최근 3일에 가중치를 다르게 둬서 평균 낸 하루치 예상 주행 패턴" 같은 걸 나타낼 수 있습니다 — 계수의 합이 1이면 가중평균, 그렇지 않으면 일반적인 선형결합입니다.
+
+[source,lean]
+----
+-- Vectors/LinearCombination.lean
+import Vectors.Basic
+
+namespace LinAlg.Vec
+
+/-- k개의 벡터를 계수 c로 선형결합. Finset.sum으로 표현. -/
+def linComb {n k : ℕ} (c : Fin k → ℝ) (v : Fin k → Vec n) : Vec n :=
+  fun i => ∑ j, c j * v j i
+
+end LinAlg.Vec
+----
+
+`∑ j, c j * v j i`는 "`j`가 0부터 k-1까지 움직이며 `c j * v j i`를 전부 더한다"는 뜻입니다 — 이게 정확히 선형결합의 `i`번째 성분입니다. Mathlib의 `Finset.sum`(줄여서 `∑`)을 쓰면 `k`가 몇이든 같은 정의로 다룰 수 있습니다.
+
+== 표준 기저: 모든 벡터를 표현하는 가장 단순한 재료
+
+n차원 공간에는 특별한 벡터 n개가 있습니다 — `i`번째 성분만 1이고 나머지는 0인 벡터들입니다. 이걸 **표준 기저 벡터(standard basis vector)** `eᵢ`라 부릅니다.
+
+[source,lean]
+----
+namespace LinAlg.Vec
+
+def stdBasis (n : ℕ) (i : Fin n) : Vec n :=
+  fun j => if j = i then 1 else 0
+
+end LinAlg.Vec
+----
+
+이 표준 기저 벡터들이 특별한 이유는, **임의의 벡터가 이들의 선형결합으로, 그것도 유일한 방식으로 표현된다**는 데 있습니다. 벡터 `v`의 `i`번째 성분 `v i`를 계수로 삼아 표준 기저를 선형결합하면 `v` 자신이 나옵니다 — 이게 이 장의 핵심 정리입니다.
+
+=== 완전히 증명하는 것: 표준 기저 전개 정리
+
+[source,lean]
+----
+namespace LinAlg.Vec
+
+theorem stdBasis_expansion {n : ℕ} (v : Vec n) :
+    linComb (fun i => v i) (stdBasis n) = v := by
+  funext j
+  show ∑ i, v i * (stdBasis n i) j = v j
+  unfold stdBasis
+  simp only [mul_ite, mul_one, mul_zero]
+  rw [Finset.sum_ite_eq' Finset.univ j (fun i => v i)]
+  simp
+
+end LinAlg.Vec
+----
+
+증명을 한 줄씩 따라가 보면, 1장에서 세운 패턴(`funext`로 성분 하나로 좁히기)이 여기서도 첫걸음입니다. `j`번째 성분에 대한 명제로 좁힌 뒤, `stdBasis`의 정의(`if j = i then 1 else 0` — 주의: `stdBasis n i`의 `j`번째 성분이므로 조건은 `j = i`)를 펼치면 합 안의 각 항이 `v i * 1`(i=j일 때) 또는 `v i * 0`(그 외)로 갈립니다. `Finset.sum_ite_eq'`는 "`if` 조건이 정확히 한 인덱스에서만 참인 합은 그 인덱스의 항만 남는다"는 Mathlib의 표준 정리이고, 이게 적용되면 합 전체가 `v j` 하나로 줄어듭니다.
+
+이 정리가 왜 중요한지는 이름에 담겨 있습니다 — "임의의 벡터를 표준 기저의 선형결합으로 전개할 수 있다"는 것은, n차원 벡터 전체가 표준 기저 n개만으로 전부 만들어진다는 뜻입니다. 5장에서 이 성질을 "기저(basis)"라는 개념으로 일반화합니다.
+
+=== 연습 문제로 남기는 것: 선형결합의 선형성
+
+[source,lean]
+----
+namespace LinAlg.Vec
+
+/-- 선형결합은 계수에 대해 "선형"입니다 — 계수를 스칼라배하면 결과도 스칼라배됩니다. -/
+theorem linComb_smul {n k : ℕ} (a : ℝ) (c : Fin k → ℝ) (v : Fin k → Vec n) :
+    linComb (fun i => a * c i) v = a • linComb c v := by
+  sorry  -- funext → linComb 정의 전개 → Finset.mul_sum으로 합 밖으로 a를 빼냄
+
+/-- 두 선형결합의 합은, 계수를 각각 더한 선형결합과 같습니다. -/
+theorem linComb_add {n k : ℕ} (c d : Fin k → ℝ) (v : Fin k → Vec n) :
+    linComb (fun i => c i + d i) v = linComb c v + linComb d v := by
+  sorry  -- funext → linComb 정의 전개 → Finset.sum_add_distrib와 add_mul로 항을 분리
+
+end LinAlg.Vec
+----
+
+두 정리 모두 `stdBasis_expansion`과 같은 도입부(`funext`, 정의 전개)를 거친 뒤, 합의 성질에 관한 Mathlib 정리(`Finset.mul_sum`, `Finset.sum_add_distrib`) 하나를 적용하는 것으로 마무리됩니다. 막힌다면 `unfold linComb` 직후 남는 식을 손으로 적어보고, 그 식이 정확히 어떤 Mathlib 합 정리의 좌변/우변 모양과 일치하는지 대조하는 것이 가장 빠릅니다.
+
+== 이 장에서 확정한 것
+
+* 선형결합을 `Finset.sum`으로 정의하고, 표준 기저 벡터를 `if-then-else`로 정의했습니다.
+* "임의의 벡터가 표준 기저의 유일한 선형결합으로 전개된다"는 정리를 `Finset.sum_ite_eq'`를 이용해 완전히 증명했습니다.
+* 선형결합이 계수에 대해 스칼라곱·덧셈과 호환된다는 성질을 연습 문제로 남겼습니다 — 이 성질이 5장에서 "선형독립"을 정의할 때 다시 쓰입니다.
+
+다음 장에서는 벡터의 "크기"를 재는 방법 — 내적과 노름 — 을 다루고, 이 책에서 가장 중요한 정리 중 하나인 코시-슈바르츠 부등식으로 가는 발판을 놓습니다.
+// end::body[]

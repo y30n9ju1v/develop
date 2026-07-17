@@ -1,0 +1,178 @@
+---
+title: "Lean4로 증명하는 응용 선형대수"
+---
+
+벡터와 행렬의 기본 연산에서 시작해, 그 연산들이 만족하는 성질을 Lean4로 직접 증명하며 다지는 시리즈입니다. 전개 순서(벡터의 연산 → 내적과 노름 → 직교성과 독립성 → 응용)는 스탠퍼드의 Stephen Boyd·Lieven Vandenberghe가 쓴 *Introduction to Applied Linear Algebra (VMLS)*처럼 "이론을 먼저 다 훑고 나중에 응용하는" 대신 "각 개념이 실제로 어디에 쓰이는지"를 계속 곁들이는 응용 선형대수 교재들의 흐름에서 영감을 받았습니다. 다만 설명, 예제, 증명은 전부 이 시리즈를 위해 새로 썼습니다 — 원 교재의 문장이나 특정 예제·연습문제를 옮긴 것이 아닙니다.
+
+선형대수는 실수(ℝ) 위에서 성립하는 이론이고, 실수 자체를 처음부터 구성하는 것은 그것대로 별도의 거대한 프로젝트입니다(Mathlib이 이미 그 작업을 엄밀하게 해뒀습니다). 그래서 이 책은 **Mathlib의 실수·부등식 관련 기본 정리를 그대로 신뢰 기반으로 가져다 쓰고**, 그 위에서 벡터·행렬 고유의 정리(코시-슈바르츠 부등식, 삼각부등식 등)를 직접 증명하는 데 집중합니다.
+
+각 장의 핵심 정리 1~2개는 `sorry` 없이 끝까지 증명하고, 반복적인 성질(결합법칙, 교환법칙 같은 것들)은 증명 스케치와 함께 연습 문제로 남깁니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 왜 선형대수를 다시 증명하며 배우는가]*
+
+*1부: 벡터*
+
+[start=1]
+. *link:01-vectors-and-operations/[벡터란 무엇인가: 표기와 기본 연산]*
+. *link:02-linear-combinations/[선형결합: 벡터를 조합해 새 벡터 만들기]*
+. *link:03-inner-product-and-norm/[내적과 노름: 벡터의 크기 재기]*
+. *link:04-angle-and-orthogonality/[각도와 직교성: 코시-슈바르츠에서 삼각부등식까지]*
+. *link:05-linear-independence-and-basis/[선형독립과 기저: 벡터 집합의 "정보량" 재기]*
+. *link:06-application-nearest-neighbor/[응용: 최근접 이웃 탐색을 노름으로 구현하고 증명하기]*
+
+*2부: 행렬*
+
+[start=7]
+. *link:07-matrices-and-operations/[행렬이란 무엇인가: 표기와 기본 연산]*
+. *link:08-matrix-vector-product-and-linear-functions/[행렬-벡터 곱: 행렬은 선형함수다]*
+. *link:09-matrix-multiplication/[행렬 곱셈: 결합법칙은 성립하지만 교환법칙은 아니다]*
+. *link:10-transpose-and-symmetric-matrices/[전치와 대칭행렬]*
+. *link:11-inverse-matrices/[역행렬: 존재한다면 유일하다]*
+. *link:12-qr-factorization-gram-schmidt/[그람-슈미트 직교화와 QR 분해]*
+
+*3부: 최소자승법*
+
+[start=13]
+. *link:13-least-squares-problem/[최소자승 문제: 근사해가 필요한 이유]*
+. *link:14-normal-equations/[정규방정식: 잔차를 최소화하는 해의 조건]*
+. *link:15-solving-with-qr/[QR 분해 완성과 최소자승 풀기]*
+. *link:16-application-linear-regression/[응용: 선형 회귀로 데이터에 직선 적합하기]*
+
+'''
+
+[#part-1]
+== 제1부: 벡터
+
+'''
+
+[#chapter-00]
+== 0. 서문: 왜 선형대수를 다시 증명하며 배우는가
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-01]
+== 1. 벡터란 무엇인가: 표기와 기본 연산
+
+include::01-vectors-and-operations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-02]
+== 2. 선형결합: 벡터를 조합해 새 벡터 만들기
+
+include::02-linear-combinations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-03]
+== 3. 내적과 노름: 벡터의 크기 재기
+
+include::03-inner-product-and-norm.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-04]
+== 4. 각도와 직교성: 코시-슈바르츠에서 삼각부등식까지
+
+include::04-angle-and-orthogonality.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-05]
+== 5. 선형독립과 기저: 벡터 집합의 "정보량" 재기
+
+include::05-linear-independence-and-basis.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-06]
+== 6. 응용: 최근접 이웃 탐색을 노름으로 구현하고 증명하기
+
+include::06-application-nearest-neighbor.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-2]
+== 제2부: 행렬
+
+'''
+
+[#chapter-07]
+== 7. 행렬이란 무엇인가: 표기와 기본 연산
+
+include::07-matrices-and-operations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-08]
+== 8. 행렬-벡터 곱: 행렬은 선형함수다
+
+include::08-matrix-vector-product-and-linear-functions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-09]
+== 9. 행렬 곱셈: 결합법칙은 성립하지만 교환법칙은 아니다
+
+include::09-matrix-multiplication.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-10]
+== 10. 전치와 대칭행렬
+
+include::10-transpose-and-symmetric-matrices.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-11]
+== 11. 역행렬: 존재한다면 유일하다
+
+include::11-inverse-matrices.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-12]
+== 12. 그람-슈미트 직교화와 QR 분해
+
+include::12-qr-factorization-gram-schmidt.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-3]
+== 제3부: 최소자승법
+
+'''
+
+[#chapter-13]
+== 13. 최소자승 문제: 근사해가 필요한 이유
+
+include::13-least-squares-problem.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-14]
+== 14. 정규방정식: 잔차를 최소화하는 해의 조건
+
+include::14-normal-equations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-15]
+== 15. QR 분해 완성과 최소자승 풀기
+
+include::15-solving-with-qr.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-16]
+== 16. 응용: 선형 회귀로 데이터에 직선 적합하기
+
+include::16-application-linear-regression.adoc[tag=body,leveloffset=+1]

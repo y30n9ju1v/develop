@@ -1,0 +1,123 @@
+---
+title: "행렬이란 무엇인가: 표기와 기본 연산"
+date: 2026-07-18T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "m×n 행렬을 Fin m → Fin n → ℝ로 정의하고, 덧셈·스칼라곱을 Lean4로 구현한 뒤 1부의 벡터 증명 패턴이 행렬에도 그대로 확장된다는 것을 확인하는 2부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-application-nearest-neighbor/[응용: 최근접 이웃 탐색] · 다음: link:../08-matrix-vector-product-and-linear-functions/[행렬-벡터 곱: 행렬은 선형함수다]_
+
+'''
+
+== 행렬을 숫자의 2차원 나열로 보기
+
+1부에서 벡터를 "실수 n개의 나열"로 봤다면, 행렬은 "실수를 행(row)과 열(column)이라는 두 축으로 나열한 것"입니다. m개의 행과 n개의 열을 가진 행렬을 `m×n 행렬`이라 부릅니다.
+
+로봇 예제를 다시 가져오면, 여러 날에 걸친 구간별 거리 기록을 하나의 표로 모을 수 있습니다 — 행은 "몇 번째 날", 열은 "몇 번째 구간"을 나타내는 행렬입니다. 1부에서 하루치 기록을 벡터 하나로 다뤘다면, 이제 여러 날의 기록을 행렬 하나로 다룹니다 — 벡터가 행렬의 "한 행"이 되는 셈입니다.
+
+[source,lean]
+----
+-- Matrices/Basic.lean
+import Vectors.Independence
+
+namespace LinAlg
+
+def Mat (m n : ℕ) := Fin m → Fin n → ℝ
+
+namespace Mat
+
+def ofFn {m n : ℕ} (f : Fin m → Fin n → ℝ) : Mat m n := f
+
+instance {m n : ℕ} : GetElem (Mat m n) (Fin m × Fin n) ℝ (fun _ _ => True) where
+  getElem A p _ := A p.1 p.2
+
+end Mat
+end LinAlg
+----
+
+`Fin m → Fin n → ℝ`로 정의한 이유는 1장에서 벡터를 `Fin n → ℝ`로 정의했던 것과 정확히 같습니다 — 행렬을 "행 인덱스를 받으면 그 행(벡터)을 돌려주는 함수"로 보면, 벡터 이론에서 쌓은 증명 기법(`funext`로 성분에 대한 명제로 좁히기)을 그대로 재사용할 수 있습니다.
+
+== 덧셈과 스칼라곱: 이번에도 성분별로
+
+행렬의 덧셈과 스칼라곱은 벡터와 똑같은 원리입니다 — 같은 위치(행, 열)의 성분끼리 연산합니다.
+
+[source,lean]
+----
+namespace LinAlg.Mat
+
+def add {m n : ℕ} (A B : Mat m n) : Mat m n := fun i j => A i j + B i j
+def smul {m n : ℕ} (c : ℝ) (A : Mat m n) : Mat m n := fun i j => c * A i j
+def neg {m n : ℕ} (A : Mat m n) : Mat m n := fun i j => -A i j
+def zero (m n : ℕ) : Mat m n := fun _ _ => 0
+
+instance {m n : ℕ} : Add (Mat m n) := ⟨add⟩
+instance {m n : ℕ} : SMul ℝ (Mat m n) := ⟨smul⟩
+instance {m n : ℕ} : Neg (Mat m n) := ⟨neg⟩
+instance {m n : ℕ} : Zero (Mat m n) := ⟨zero m n⟩
+
+end LinAlg.Mat
+----
+
+== 벡터공간 공리, 다시 한번
+
+행렬도 벡터와 마찬가지로 덧셈·스칼라곱에 대해 벡터공간 공리를 만족합니다. 1장에서 벡터의 교환법칙을 완전히 증명하며 "`funext`로 성분 하나로 좁히고, 그다음은 실수의 성질로 환원한다"는 패턴을 세웠는데, 행렬에서는 이 패턴이 인덱스가 하나(`i`)에서 둘(`i`, `j`)로 늘어난 것 말고는 달라지는 게 없다는 걸 확인하는 것이 이 절의 목표입니다.
+
+=== 완전히 증명하는 것: 행렬 덧셈의 교환법칙
+
+[source,lean]
+----
+namespace LinAlg.Mat
+
+theorem add_comm {m n : ℕ} (A B : Mat m n) : A + B = B + A := by
+  funext i j
+  show A i j + B i j = B i j + A i j
+  ring
+
+end LinAlg.Mat
+----
+
+`funext i j`가 `funext i`를 두 번 겹쳐 쓴 것과 같은 효과를 낸다는 점만 빼면, 1장의 `Vec.add_comm`과 증명이 글자 그대로 같습니다 — 두 개의 인덱스로 좁힌 뒤에는 결국 실수 두 개의 덧셈이 교환된다는, 벡터 때와 동일한 결론에 도달합니다. 이 증명이 짧다는 사실 자체가 이 책 전체의 설계가 의도한 결과입니다 — 벡터에서 세운 증명 전략이 새로운 도구 없이 행렬로 그대로 확장된다는 것을 보여주는 것이 이 장의 핵심입니다.
+
+=== 연습 문제로 남기는 것: 나머지 공리들
+
+[source,lean]
+----
+namespace LinAlg.Mat
+
+theorem add_assoc {m n : ℕ} (A B C : Mat m n) : (A + B) + C = A + (B + C) := by
+  sorry  -- funext i j → 정의 전개 → ring (1장 Vec.add_assoc과 완전히 같은 패턴)
+
+theorem smul_add {m n : ℕ} (c : ℝ) (A B : Mat m n) : c • (A + B) = c • A + c • B := by
+  sorry  -- funext i j → 정의 전개 → mul_add (1장 Vec.smul_add와 완전히 같은 패턴)
+
+end LinAlg.Mat
+----
+
+이 두 정리는 1장에서 이미 완성했던 `Vec.add_assoc`, `Vec.smul_add`의 증명을 그대로 옮겨 적고 `funext i`를 `funext i j`로만 바꾸면 끝납니다 — 막힌다면 1장의 대응되는 증명을 나란히 펴놓고 비교해보는 것이 가장 빠릅니다.
+
+== 정사각행렬과 대각성분
+
+행과 열의 개수가 같은 행렬(`n×n`)을 **정사각행렬(square matrix)**이라 부릅니다. 정사각행렬에서 행 인덱스와 열 인덱스가 같은 성분들(`A 0 0, A 1 1, ..., A (n-1) (n-1)`)을 **대각성분(diagonal entries)**이라 합니다. 대각성분을 제외한 나머지가 전부 0인 행렬을 **대각행렬(diagonal matrix)**이라 부르는데, 그중에서도 대각성분이 전부 1인 것을 **항등행렬(identity matrix)**이라 합니다.
+
+[source,lean]
+----
+namespace LinAlg.Mat
+
+def identity (n : ℕ) : Mat n n := fun i j => if i = j then 1 else 0
+
+end LinAlg.Mat
+----
+
+`identity`의 정의가 1부 2장에서 만든 `stdBasis`(표준 기저 벡터)의 정의와 판박이라는 것을 눈치채셨을 겁니다 — 실제로 항등행렬의 `i`번째 열은 정확히 `i`번째 표준 기저 벡터입니다. 이 관계를 8장에서 "항등행렬을 아무 벡터에 곱해도 그 벡터가 그대로 나온다"는 정리로 확인합니다.
+
+== 이 장에서 확정한 것
+
+* m×n 행렬을 `Fin m → Fin n → ℝ`로 정의하고, 덧셈·스칼라곱을 성분별 연산으로 구현했습니다.
+* 행렬 덧셈의 교환법칙을 완전히 증명하면서, 1장에서 세운 증명 패턴(`funext`로 성분에 대한 명제로 좁히기)이 인덱스 개수만 늘려 그대로 행렬에 적용된다는 것을 확인했습니다.
+* 정사각행렬·대각행렬·항등행렬을 정의하고, 항등행렬의 정의가 1부의 표준 기저 벡터와 같은 형태(`if-then-else`)라는 것을 짚었습니다.
+
+다음 장에서는 행렬과 벡터를 곱하는 연산을 정의하고, "모든 선형함수는 행렬 곱으로 표현된다"는 이 책 2부에서 가장 중요한 아이디어의 절반(선형성 방향)을 증명합니다.
+// end::body[]

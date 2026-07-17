@@ -1,0 +1,109 @@
+---
+title: "행렬-벡터 곱: 행렬은 선형함수다"
+date: 2026-07-18T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "행렬-벡터 곱을 정의하고, 이 연산이 덧셈과 스칼라곱을 보존한다는 선형성을 완전히 증명한 뒤, 항등행렬이 항등함수로 작동함을 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-matrices-and-operations/[행렬이란 무엇인가] · 다음: link:../09-matrix-multiplication/[행렬 곱셈: 결합법칙은 성립하지만 교환법칙은 아니다]_
+
+'''
+
+== 행렬-벡터 곱: n차원 벡터를 m차원 벡터로 옮기기
+
+m×n 행렬 `A`와 n차원 벡터 `v`를 곱하면 m차원 벡터가 나옵니다. 결과 벡터의 `i`번째 성분은, `A`의 `i`번째 행과 `v`의 내적입니다.
+
+[source,lean]
+----
+-- Matrices/MatVecProduct.lean
+import Matrices.Basic
+import Vectors.InnerProduct
+
+namespace LinAlg
+
+def Mat.mulVec {m n : ℕ} (A : Mat m n) (v : Vec n) : Vec m :=
+  fun i => ∑ j, A i j * v j
+
+scoped infixl:70 " *ᵥ " => Mat.mulVec
+
+end LinAlg
+----
+
+로봇 예제로 보면, `A`가 "각 구간을 지나는 데 필요한 예상 시간(분/km)"을 담은 행렬이고 `v`가 그날의 구간별 거리 벡터라면, `A *ᵥ v`는 각 구간을 지나는 데 걸린 예상 시간의 합 — 즉 하루치 예상 소요 시간을 계산하는 연산이 됩니다. 행렬이 "여러 벡터를 한꺼번에 다른 벡터로 변환하는 규칙"으로 쓰인다는 게 이 장의 핵심 그림입니다.
+
+== 선형성: 이 곱셈이 만족하는 가장 중요한 성질
+
+행렬-벡터 곱이 특별한 이유는, 이 연산이 **선형(linear)**이기 때문입니다 — 벡터의 합에 행렬을 곱한 것이 각각 곱한 것의 합과 같고(`A(u+v) = Au + Av`), 스칼라배한 벡터에 행렬을 곱한 것이 곱한 결과의 스칼라배와 같습니다(`A(cv) = c(Av)`). 이 두 성질을 합쳐 "선형성"이라 부릅니다.
+
+=== 완전히 증명하는 것: 행렬-벡터 곱의 덧셈 보존
+
+[source,lean]
+----
+namespace LinAlg
+
+theorem Mat.mulVec_add {m n : ℕ} (A : Mat m n) (u v : Vec n) :
+    A *ᵥ (u + v) = A *ᵥ u + A *ᵥ v := by
+  funext i
+  show ∑ j, A i j * (u j + v j) = (∑ j, A i j * u j) + (∑ j, A i j * v j)
+  rw [← Finset.sum_add_distrib]
+  congr 1
+  funext j
+  ring
+
+end LinAlg
+----
+
+증명의 구조는 1~2장에서 이미 반복한 것과 같습니다 — `funext`로 성분 하나(`i`)에 대한 명제로 좁히고, 합의 정의를 펼치면 "각 항이 분배법칙을 만족한다"는 실수의 성질로 환원됩니다. `Finset.sum_add_distrib`(두 합의 덧셈은 항끼리 더한 합과 같다는 Mathlib 정리)를 거꾸로 적용해서 우변의 두 합을 하나로 합친 뒤, 각 항이 `A i j * (u j + v j) = A i j * u j + A i j * v j`(그냥 분배법칙)라는 것을 `ring`으로 확인합니다.
+
+이 증명이 2장의 `linComb_add`(선형결합이 계수의 덧셈에 대해 분배된다는 정리)와 형태가 닮았다는 걸 눈치챌 수 있습니다 — 사실 행렬-벡터 곱은 "행렬의 각 행을 계수로 하는 `v`의 선형결합"으로도 볼 수 있어서, 이 유사성은 우연이 아닙니다.
+
+=== 연습 문제로 남기는 것: 스칼라곱 보존
+
+[source,lean]
+----
+namespace LinAlg
+
+theorem Mat.mulVec_smul {m n : ℕ} (A : Mat m n) (c : ℝ) (v : Vec n) :
+    A *ᵥ (c • v) = c • (A *ᵥ v) := by
+  sorry
+  -- 힌트: mulVec_add와 같은 도입부(funext i, 정의 전개) 이후,
+  -- ∑ j, A i j * (c * v j) = c * ∑ j, A i j * v j 임을 보이면 됩니다.
+  -- Finset.mul_sum(합 밖으로 상수를 빼내는 정리)과 결합법칙/교환법칙만 있으면 됩니다.
+
+end LinAlg
+----
+
+`mulVec_add`의 증명을 그대로 본떠서, `Finset.sum_add_distrib` 대신 `Finset.mul_sum`을 쓰는 자리로 바꾸면 됩니다.
+
+== 항등행렬은 항등함수다
+
+7장에서 정의한 항등행렬(`identity n`)을 아무 벡터에 곱해도, 그 벡터가 그대로 나옵니다. 이 정리가 왜 성립하는지는 사실 1부 2장에서 이미 증명해뒀습니다 — `identity n`의 `i`번째 행은 `stdBasis n i`이고, `A *ᵥ v`의 `i`번째 성분은 "`A`의 `i`번째 행과 `v`의 내적"이므로, `identity n *ᵥ v`의 `i`번째 성분은 `stdBasis n i ⬝ v`입니다. 그런데 `stdBasis n i ⬝ v`를 풀어보면 정확히 `v i`가 나옵니다 — 이건 2장의 `stdBasis_expansion` 정리와 사실상 같은 계산입니다.
+
+[source,lean]
+----
+namespace LinAlg
+
+theorem Mat.identity_mulVec {n : ℕ} (v : Vec n) : (Mat.identity n) *ᵥ v = v := by
+  funext i
+  show ∑ j, (if i = j then 1 else 0) * v j = v i
+  sorry
+  -- 힌트: 1부 2장의 stdBasis_expansion 증명에서 썼던
+  -- Finset.sum_ite_eq'를 여기서도 그대로 씁니다 — if 조건과 곱셈 순서가
+  -- stdBasis_expansion 때와 살짝 다르니(i = j vs j = i), 필요하면 eq_comm으로 조건을 뒤집으세요.
+
+end LinAlg
+----
+
+이 정리를 연습 문제로 남긴 이유는 새로운 개념이 필요해서가 아니라, **2장에서 이미 증명한 도구를 다른 맥락에서 다시 찾아 쓸 수 있는지 확인하는 연습**이기 때문입니다 — 막힌다면 2장의 `stdBasis_expansion` 증명을 열어놓고, 그 증명의 각 줄이 지금 이 증명의 어느 줄에 대응하는지 하나씩 짚어보는 것이 가장 빠른 길입니다.
+
+== 이 장에서 확정한 것
+
+* 행렬-벡터 곱을 "각 행과 벡터의 내적"으로 정의했습니다.
+* 이 곱셈이 벡터의 덧셈을 보존한다는 것(선형성의 절반)을 완전히 증명했고, 스칼라곱 보존은 같은 패턴의 연습 문제로 남겼습니다.
+* 항등행렬을 곱하면 원래 벡터가 그대로 나온다는 것이, 사실 2장의 표준 기저 전개 정리를 다른 옷을 입혀 재사용한 것이라는 걸 확인했습니다.
+
+다음 장에서는 행렬과 행렬을 곱하는 연산 — 여러 선형함수를 이어붙이는 것에 해당하는 연산 — 을 정의하고, 결합법칙은 성립하지만 교환법칙은 성립하지 않는다는 것을 다룹니다.
+// end::body[]

@@ -1,0 +1,113 @@
+---
+title: "전치와 대칭행렬"
+date: 2026-07-18T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "행렬의 전치를 정의하고 (AB)ᵀ = BᵀAᵀ를 완전히 증명한 뒤, 대칭행렬을 정의하고 AᵀA가 항상 대칭이라는 정리를 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-matrix-multiplication/[행렬 곱셈] · 다음: link:../11-inverse-matrices/[역행렬: 존재한다면 유일하다]_
+
+'''
+
+== 전치: 행과 열을 뒤바꾸기
+
+m×n 행렬 `A`의 **전치(transpose)** `Aᵀ`는 n×m 행렬로, `(i, j)` 성분이 원래 행렬의 `(j, i)` 성분과 같습니다 — 행과 열을 서로 맞바꾼 것입니다.
+
+[source,lean]
+----
+-- Matrices/Transpose.lean
+import Matrices.Multiplication
+
+namespace LinAlg
+
+def Mat.transpose {m n : ℕ} (A : Mat m n) : Mat n m := fun i j => A j i
+
+postfix:1024 "ᵀ" => Mat.transpose
+
+end LinAlg
+----
+
+로봇 예제에서 "여러 날 × 여러 구간"으로 정리된 거리 기록 행렬을 전치하면 "여러 구간 × 여러 날"로 정리된, 즉 "이 구간을 날짜별로 보면 어떻게 됐는가"를 보여주는 행렬이 됩니다 — 같은 데이터를 다른 축으로 다시 정리하는 연산입니다.
+
+== 전치를 두 번 하면 원래로 돌아온다
+
+가장 먼저 확인할 성질은 `(Aᵀ)ᵀ = A`입니다 — 행과 열을 두 번 바꾸면 원래로 돌아옵니다.
+
+=== 완전히 증명하는 것: 전치의 대합성(involution)
+
+[source,lean]
+----
+namespace LinAlg
+
+theorem Mat.transpose_transpose {m n : ℕ} (A : Mat m n) : Aᵀᵀ = A := by
+  funext i j
+  show A i j = A i j
+  rfl
+
+end LinAlg
+----
+
+이 정리는 이 책에서 가장 짧은 증명입니다 — `transpose`의 정의를 두 번 펼치면 `(Aᵀᵀ) i j`가 `(Aᵀ) j i`가 되고, 다시 `A i j`가 되어 정확히 원래 값으로 돌아오기 때문에 `rfl`(정의를 그대로 펼치면 참임이 자명하다는 뜻) 하나로 끝납니다. 짧다고 해서 하찮은 정리는 아닙니다 — "두 번 뒤집으면 원래대로 돌아온다"는 성질(대합성)은 뒤에서 `Aᵀ`가 관여하는 다른 증명들의 종착점 역할을 자주 합니다.
+
+== 전치와 곱셈의 상호작용: 순서가 뒤집힌다
+
+이 장의 핵심 정리는 `(AB)ᵀ = BᵀAᵀ`입니다 — 곱의 전치는 각각을 전치한 뒤 **순서를 뒤바꿔** 곱한 것과 같습니다. 순서가 뒤집힌다는 게 이 정리에서 가장 기억할 만한 지점입니다.
+
+=== 완전히 증명하는 것: 곱셈의 전치
+
+[source,lean]
+----
+namespace LinAlg
+
+theorem Mat.transpose_mul {m n p : ℕ} (A : Mat m n) (B : Mat n p) :
+    (A * B)ᵀ = Bᵀ * Aᵀ := by
+  funext k i
+  show (∑ j, A i j * B j k) = ∑ j, B j k * A i j
+  congr 1
+  funext j
+  ring
+
+end LinAlg
+----
+
+증명의 왼쪽(`(A*B)ᵀ`의 `(k,i)` 성분)은 정의를 펼치면 `(A*B)`의 `(i,k)` 성분, 즉 `∑ j, A i j * B j k`입니다. 오른쪽(`Bᵀ*Aᵀ`의 `(k,i)` 성분)은 `Bᵀ`의 `k`번째 행과 `Aᵀ`의 `i`번째 열의 내적인데, `Bᵀ`의 `k`번째 행은 `B`의 `k`번째 열이고 `Aᵀ`의 `i`번째 열은 `A`의 `i`번째 행이므로, 결국 `∑ j, B j k * A i j`가 됩니다. 두 합은 각 항의 곱셈 순서만 다를 뿐(`A i j * B j k` vs `B j k * A i j`) 실수 곱셈은 교환법칙을 만족하므로 `ring`으로 바로 같아집니다.
+
+"순서가 뒤집힌다"는 현상이 왜 생기는지는 이 증명에서 자연스럽게 드러납니다 — `Aᵀ`와 `Bᵀ`를 만드는 과정(행과 열을 바꾸는 것) 자체는 각 항의 곱셈 순서에 아무 영향을 주지 않지만, **합성(composition)으로서의 곱셈이 갖는 방향성**(9장에서 "왼쪽 행렬을 나중에 적용한다"고 봤던 것) 때문에, 그 방향을 유지하려면 전치 후에는 곱하는 순서도 같이 뒤집어야 하는 것입니다.
+
+== 대칭행렬: 전치해도 자기 자신
+
+정사각행렬 `A`가 `Aᵀ = A`를 만족하면 **대칭행렬(symmetric matrix)**이라 부릅니다. 대칭행렬은 대각선을 기준으로 성분이 거울처럼 대칭입니다.
+
+=== 연습 문제로 남기는 것: AᵀA는 항상 대칭이다
+
+[source,lean]
+----
+namespace LinAlg
+
+def Mat.IsSymmetric {n : ℕ} (A : Mat n n) : Prop := Aᵀ = A
+
+theorem Mat.transpose_mul_self_symmetric {m n : ℕ} (A : Mat m n) :
+    Mat.IsSymmetric (Aᵀ * A) := by
+  sorry
+  -- 힌트: IsSymmetric의 정의를 펼치면 (AᵀA)ᵀ = AᵀA를 보이면 됩니다.
+  -- 좌변에 transpose_mul을 적용하면 (AᵀA)ᵀ = Aᵀ * (Aᵀ)ᵀ가 되고,
+  -- transpose_transpose로 (Aᵀ)ᵀ = A를 대입하면 우변과 정확히 같아집니다.
+  -- 즉 이 정리는 새로운 계산이 필요 없고, 이 장에서 이미 증명한 두 정리를
+  -- 순서대로 적용(rw)하는 것만으로 끝납니다.
+
+end LinAlg
+----
+
+이 정리(임의의 행렬 `A`에 대해 `AᵀA`는 항상 대칭이다)는 앞으로 최소자승법을 다룰 때 다시 만나게 될 사실입니다 — 지금은 이 장에서 증명한 두 정리(`transpose_mul`, `transpose_transpose`)를 순서대로 적용하는 것만으로 증명이 끝난다는 것, 즉 **새로운 개념 없이 기존 정리 두 개를 조합하는 것만으로 실질적으로 유용한 정리에 도달한다**는 것을 확인하는 것이 이 절의 목표입니다.
+
+== 이 장에서 확정한 것
+
+* 전치를 "행과 열을 맞바꾸는" 연산으로 정의하고, 두 번 전치하면 원래로 돌아온다는 것을 `rfl`로 즉시 확인했습니다.
+* `(AB)ᵀ = BᵀAᵀ`(곱셈의 전치는 순서가 뒤집힌다는 것)를 완전히 증명하고, 이 "순서 뒤집힘"이 곱셈의 방향성(합성)과 전치의 상호작용에서 자연스럽게 나온다는 것을 확인했습니다.
+* 대칭행렬을 정의하고, `AᵀA`가 임의의 `A`에 대해 항상 대칭이라는 것을 이 장의 두 정리만으로 증명할 수 있다는 것을 연습 문제로 확인했습니다.
+
+다음 장에서는 역행렬 — "곱하면 항등행렬이 되는 행렬" — 을 정의하고, 역행렬이 존재한다면 유일하다는 것을 이 책 2부에서 가장 중요한 정리로 증명합니다.
+// end::body[]
