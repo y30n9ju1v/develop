@@ -2297,21 +2297,208 @@ for key, centerline in originals.items():           # 원본 Lanelet2 중심선�
 
 ---
 
+## 22단계: 두 번째 실측 맵 — 고도 피팅과 결론 재현성 검증
+
+여기까지는 전부 Lanelet2 공식 예제 맵(`mapping_example.osm`, 독일 Karlsruhe) 하나로만 검증했습니다. 이번엔 실제 `ele`(고도) 태그가 들어있는 다른 맵 — Autoware 플래닝 시뮬레이터 샘플맵으로 보이는 `lanelet2_map.osm`(노드 4,499개 전부 ele 보유, 고도 18.7~25.2m, subtype=road lanelet 183개) — 을 손에 넣어 두 가지를 확인했습니다: (1) 그동안 미뤄뒀던 고도 피팅을 처음 실측하는 것, (2) 지금까지의 결론이 **다른 맵에서도** 재현되는지 보는 것.
+
+### 22-1. `elevation_profile` 첫 피팅
+
+3단계 IR 설계 그대로 z(s)를 3차 다항식(`a + b·ds + c·ds² + d·ds³`)으로 최소자승 피팅했습니다. 중심선은 좌우 경계의 ele를 각각 호길이 보간한 뒤 평균했고, s는 참조선과 같은 관례(구간 로컬 좌표 ds = s - s_start)를 씁니다.
+
+| 지표 | mean | p50 | p95 | max |
+|---|---|---|---|---|
+| `z_fit_residual_max_m` | 1.01cm | 0.76cm | 2.79cm | 7.69cm |
+| `z_fit_residual_rms_m` | 0.46cm | - | 1.44cm | - |
+| lanelet 평균 경사 \|Δz/Δs\| | 0.36% | 0.33% | 0.87% | 1.33% |
+
+잔차가 xy 참조선 피팅보다도 작습니다 — 도로 경사가 완만(대부분 1% 이내)해서 3차 다항식 하나로 lanelet 전체를 무리 없이 덮습니다. 급경사·과속방지턱처럼 짧은 구간에 곡률이 몰리는 지형이 아니라면, "elevation_profile은 참조선처럼 구간을 여러 번 쪼갤 필요 없이 lanelet당 다항식 하나로 충분하다"는 잠정 결론을 내릴 수 있습니다. 다만 이 결론은 인접 lanelet 간 **경사 이음새**(18단계에서 xy에 대해 쟀던 것과 같은 종류의 불연속)를 재지 않은 상태입니다 — 그러려면 A(그룹핑)로 Road 체인을 먼저 만들어야 하는데, `RoutingGraph`가 필요해 이번 스파이크 범위 밖으로 남겨뒀습니다.
+
+```python
+def fit_elevation_cubic(s, z):
+    """z(s) = a + b*ds + c*ds^2 + d*ds^3, ds = s - s[0] (참조선 로컬 좌표계와 동일 관례)."""
+    ds = s - s[0]
+    deg = 3 if len(ds) >= 4 else 1
+    coeffs = np.polyfit(ds, z, deg)
+    res = z - np.polyval(coeffs, ds)
+    return coeffs[::-1], float(np.max(np.abs(res))), float(np.sqrt(np.mean(res ** 2)))
+```
+
+### 22-2. 기존 결론 재현성 — 절반은 재현, 절반은 갈라짐
+
+같은 맵에 18·20단계의 xy 스파이크를 다시 돌렸습니다.
+
+| 지표 | Karlsruhe(1차) | Autoware 샘플맵(2차) |
+|---|---|---|
+| 독립 피팅 `fit_residual_max_m` mean | 2.61cm | **1.06cm** |
+| 이음새 `heading_jump` mean / max | 8.8° / 43° | 2.2° / 44° |
+| 전역 G1 전환 비용(잔차 증가분 mean) | +3.0cm | **+0.19cm** |
+| pairing 편향 `bias_max` mean / max | 15.8cm / 147cm | **2.0cm / 32cm** |
+
+**"Line+Arc로 충분하다", "전역 G1 연속성이 싸게 먹힌다"는 결론은 재현됐고, 오히려 이 맵에서 더 강하게 성립합니다** — 도면이 훨씬 깔끔해서(합성/정밀 제작된 Autoware 데모맵으로 보이며, LiDAR 실측 노이즈가 있는 Karlsruhe 맵과 성격이 다릅니다) 잔차도, 이음새 꺾임도, G1 전환 비용도 전반적으로 더 작습니다.
+
+**그런데 pairing 편향의 "지배 요인"은 재현되지 않았습니다.** 20단계에서는 편향과 좌우 경계 길이비의 로그가 상관계수 0.71로 강하게 얽혀 있었는데, 이 맵에서는 그 상관이 0.37로 약해지고 대신 **곡률과의 상관이 0.52로 더 강합니다** — 최악 케이스(32cm)도 길이비 불일치가 아니라 반경 6.2m 급커브였습니다.
+
+| 구분 | 개수 | bias_max mean |
+|---|---|---|
+| 경계 길이비 > 1.2 | 75 | 3.3cm |
+| 경계 길이비 ≤ 1.2 | 88 | 0.9cm |
+
+두 맵을 합쳐 읽으면: **pairing 편향 자체(호길이 비율 평균 방식의 한계)는 두 맵 모두에서 재현되는 일반적인 문제**지만, **어느 요인이 더 크게 기여하는지는 맵의 성격에 따라 달라집니다** — 실측 노이즈가 크고 교차로 모서리처럼 좌우 경계 길이가 크게 다른 맵(Karlsruhe)에서는 길이 불일치가, 곡률 자체가 급한 맵(Autoware 샘플)에서는 곡률이 지배합니다. "경계 길이 불일치가 지배 요인"이라고 20단계에서 내린 결론은 **한 맵에서만 성립하는 일반화 과잉**이었던 셈이라, 프로버넌스의 편향 원인 필드도 하나로 뭉뚱그리지 말고 두 요인을 모두 추적해야 합니다.
+
+---
+
+## 23단계: 중심선을 실제로 법선 투영으로 바꿔보니 — 편향은 잡고 잔차는 놓쳤다
+
+'남은 빈틈' 1번을 실제로 실행했습니다. 20단계의 `normal_projection_centerline`(중심선 각 점에서 법선을 세워 좌/우 경계와의 교점 중점으로 갱신)을 두 맵의 파이프라인에 실제로 꽂고, 독립 피팅·전역 G1·곡률 오차를 다시 냈습니다. 결과는 기대와 달랐습니다 — 두 가지를 새로 배웠습니다.
+
+### 23-1. 법선 투영 자체에 견고성 결함이 있었다
+
+Autoware 샘플맵에 돌리자마자 **중심선이 14.6m 튀는 lanelet**이 나왔습니다(lanelet 95). 원인은 20단계에 구현한 `ray_polyline_intersection`에 거리 상한이 없었다는 것 — 좌우 경계 길이가 크게 다른(39.5m vs 31.7m) 쐐기형 lanelet의 끝점 근처에서, 법선이 가까운 경계가 아니라 폴리라인 반대편의 먼 지점과 교차해버렸습니다. 로컬 폭(그 지점 좌우 경계까지의 평균 거리)의 3배를 넘는 교점은 버리고, 실패하면 평균 방식으로 조용히 폴백하도록 고쳤습니다. 이 수정 하나로 이상치는 14.6m → 0.32m(20단계에서 잰 정상 범위)로 돌아왔습니다. 다만 폴백이 드문 일이 아니었습니다 — 전체 포인트의 6.9%(Autoware)~14.9%(Karlsruhe)가 법선 투영에 실패해 평균 방식으로 되돌아갔습니다.
+
+```python
+def normal_projection_centerline_bounded(centerline, left, right, n_iter=2, max_factor=3.0):
+    """max_factor: 로컬 폭(현재 평균 중심선 기준 좌우 거리) 대비 허용 교점 거리 배수."""
+    cl = centerline.copy()
+    for _ in range(n_iter):
+        new = cl.copy()
+        for i in range(len(cl)):
+            j0, j1 = max(i - 1, 0), min(i + 1, len(cl) - 1)
+            tangent = cl[j1] - cl[j0]
+            norm = np.linalg.norm(tangent)
+            if norm < 1e-9:
+                continue
+            normal = np.array([-tangent[1], tangent[0]]) / norm
+            local_half_width = (np.linalg.norm(left[i] - cl[i]) + np.linalg.norm(right[i] - cl[i])) / 2
+            cap = max(local_half_width * max_factor, 0.5)
+
+            pl = ray_polyline_intersection(cl[i], normal, left)
+            pr = ray_polyline_intersection(cl[i], normal, right)
+            ok_l = pl is not None and np.linalg.norm(pl - cl[i]) <= cap
+            ok_r = pr is not None and np.linalg.norm(pr - cl[i]) <= cap
+            if ok_l and ok_r:
+                new[i] = (pl + pr) / 2
+            # 실패하면 이번 반복에서 이 점은 건드리지 않는다 — 평균 방식 값 유지
+        cl = new
+    return cl
+```
+
+### 23-2. 버그를 고쳐도, 편향 제거가 잔차 개선으로 이어지지 않았다
+
+이게 진짜 반전입니다. 거리 상한을 넣어 견고성 결함을 없앤 뒤에도, **법선 투영 중심선으로 다시 피팅한 잔차가 평균 중심선보다 나아지지 않고 오히려 나빠졌습니다** — 적어도 노이즈가 있는 맵에서는.
+
+| 지표 | Karlsruhe (노이즈 있는 실측 맵) | Autoware 샘플맵 (깨끗한 맵) |
+|---|---|---|
+| 전역 G1 `fit_residual_max_m` — 평균 중심선 | 5.6cm | 1.2cm |
+| 전역 G1 `fit_residual_max_m` — 법선투영(수정판) | **9.6cm** (+4.0cm) | 1.2cm (±0.0cm) |
+| `curvature_error_max`(스무딩 기준) — 평균 중심선 | 7.5cm⁻¹→ 0.075 [1/m] | (19단계에서 미측정) |
+| `curvature_error_max`(스무딩 기준) — 법선투영(수정판) | **0.219 [1/m]** (약 3배) | 0.057 [1/m] |
+
+pairing 편향(20단계가 측정한 "평균 방식과 법선 투영의 차이") 자체는 정확히 없앴습니다 — 정의상 법선 투영이 새 기준이니 편향은 0이 됩니다. 하지만 **참조선 피팅이 맞추려는 목표가 부드러운 곡선이 아니라 점마다 독립적으로 계산된, 약간 들쭉날쭉한 점렬로 바뀌면서 오히려 피팅이 어려워졌습니다.** 30개 점을 하나씩 로컬 접선 기반으로 투영하다 보니 인접 점 사이에 작은 고주파 잡음이 생기고, 이게 line/arc 피팅과 곡률 추정 모두에 잡음으로 얹힙니다. 깨끗한 Autoware 맵에서는 이 잡음이 작아서 거의 중립이었지만, 이미 노이즈가 있는 Karlsruhe 실측 맵에서는 잡음 위에 잡음이 쌓여 잔차가 오히려 커졌습니다.
+
+**결론: "평균 대신 법선 투영으로 중심선을 미리 계산해두고 그 위에 참조선을 피팅한다"는 2단계 파이프라인 자체가 틀린 접근이었습니다.** 편향은 없앴지만 그 대가로 노이즈를 얻었을 뿐, 최종 목표(참조선이 실제 도로 중심을 정확히 따라가는 것)에는 순수하게 더 가까워지지 않았습니다. 더 나은 방향은 중심선을 별도 단계로 만들지 않고, **참조선 피팅 자체를 좌/우 경계 폴리라인 둘 다에 대한 대칭 목적함수**(예: 원본 중심선이 아니라 좌/우 경계까지의 거리 합이 같아지도록 하는 항을 `point_to_polyline_dist` 잔차에 추가)로 바꾸는 것입니다 — 18단계의 전역 최적화 틀을 그대로 쓰되, 맞추는 대상만 "미리 만든 중심선"에서 "좌우 경계 자체"로 바꾸는 확장입니다.
+
+---
+
+## 24단계: 참조선을 좌우 경계에 직접 대칭 피팅 — 이번엔 통했다
+
+23단계 끝에서 제안한 방향을 그대로 실행했습니다. 중심선이라는 중간 산출물을 아예 만들지 않고, 18단계의 전역 파라메트릭 곡선(시작 pose + 세그먼트별 κ·L)을 **좌/우 경계 폴리라인까지의 거리가 같아지도록** 직접 최적화합니다. 23단계의 실패 원인이 "30개 점을 하나씩 독립적으로 투영하면서 생긴 고주파 잡음"이었으니, 애초에 그런 점렬을 만드는 단계 자체를 없애면 매끄러움은 파라메트릭 표현이 공짜로 보장해줄 거라는 계산이었습니다.
+
+초기값은 기존처럼 평균 중심선 + 전역 G1 피팅으로 잡고(국소 최적화라 좋은 시작점이 필요합니다), 목적함수만 `d_left(s) - d_right(s)`(곡선 위 각 점에서 좌/우 경계까지 거리 차이)로 바꿔 재최적화합니다. 초기해에서 너무 벗어나지 않도록 약한 정규화 항도 더했습니다.
+
+한 가지 구현 함정이 있었습니다 — 기존 `chain_sample`은 세그먼트 길이 `L`에 비례해 샘플 개수를 정하는데(`L/ds`), 최적화 도중 `L`이 바뀌면 잔차 벡터 길이도 바뀌어서 `least_squares`가 `could not broadcast input array from shape (42,) into shape (43,)` 에러를 냅니다. 세그먼트당 샘플 개수를 고정하는 `chain_sample_fixed`로 바꿔서 해결했습니다.
+
+측정 지표도 바꿨습니다. "평균 중심선 기준 잔차"는 이제 비교용으로만 남기고, 진짜 품질 지표는 **대칭 잔차**(`|d_left - d_right|`) — 이 곡선이 실제로 도로 중앙에 있는지를 직접 잽니다. 비교 기준선으로 "평균 중심선 자체의 대칭 잔차"(즉 기존 방식이 애초에 얼마나 비대칭이었는지)도 같이 냈습니다.
+
+| 지표 | Karlsruhe (101개) | Autoware (163개) |
+|---|---|---|
+| 평균 중심선 자체의 대칭 잔차 — mean/max | 30cm / 132cm | 1.4cm / 6.9cm |
+| **경계 대칭 피팅 후 대칭 잔차 — mean/p95/max** | **6.6cm / 14.5cm / 39.8cm** | **1.5cm / 3.6cm / 8.4cm** |
+
+Karlsruhe에서 mean 30cm → 6.6cm로 확실히 줄었고, 무엇보다 최악 케이스가 132cm → 40cm로 3배 이상 좁혀졌습니다. 원래 깨끗했던 Autoware 맵에서도 mean 1.4cm → 1.5cm로 거의 그대로 — 퇴보 없이 유지됩니다. 23단계의 점별 투영이 노이즈를 더해 상황을 악화시켰던 것과 정반대로, 이번엔 노이즈 있는 맵일수록 개선 폭이 더 컸습니다.
+
+전체 실행 중 두 개의 큰 이상치("평균 중심선 기준 잔차")가 나와서 각각 조사했습니다.
+
+- **Karlsruhe 12.36m 이상치**: 확인해보니 **20단계에서 이미 "pairing 편향 최악 사례"로 지목했던 바로 그 lanelet**(id=9037740909199276460, 좌측 경계 24.4m / 우측 경계 126.6m로 5배 넘게 차이 나는 극단적 쐐기형)이었습니다. 새 피팅의 대칭 잔차는 0.40m로 정상 범위이고, 옛 평균 중심선(75m, 좌우 경계 길이의 단순 평균이라는 편향된 정의) 기준으로 크게 벗어난 건 **그 편향을 제대로 고쳤다는 증거**입니다.
+- **Autoware 1.85m 이상치**: 좌우 경계 길이가 거의 같은데(39.7m/40.2m) 벌어졌습니다. 그런데 대칭 잔차는 1.9cm로 오히려 데이터셋 평균보다 좋습니다. 즉 이 케이스는 좌우 인덱스 매칭이 어긋나 옛 평균 중심선 쪽이 이상하게 휘어 있었던 경우로 보이고, 새 피팅이 진짜 대칭 곡선을 제대로 찾아낸 것입니다.
+
+두 이상치 모두 "새 방법이 틀렸다"가 아니라 "옛 기준이 틀렸었다"는 걸 재확인해줬습니다. **20·22·23단계에 걸쳐 정의조차 흔들리던 "도로 중심선"이 이 단계에서 처음으로 명확한 기준(좌우 경계 등거리)과 그 기준을 만족하는 안정적인 수치로 확정됐습니다.**
+
+```python
+def chain_sample_fixed(params, n_segs, n_per_seg=15):
+    """chain_sample과 동일하지만, 세그먼트당 샘플 개수를 길이(L)와 무관하게
+    고정한다. least_squares는 반복마다 잔차 벡터 길이가 같아야 하는데,
+    원래 chain_sample은 L/ds로 샘플 수를 정해서 최적화 도중 L이 바뀌면
+    잔차 길이도 바뀌어 버린다."""
+    x, y, h = params[0], params[1], params[2]
+    kappas = params[3:3 + n_segs]
+    lengths = params[3 + n_segs:]
+    pts = [np.array([x, y])]
+    for k, L in zip(kappas, lengths):
+        s = np.linspace(0, L, n_per_seg + 1)[1:]
+        if abs(k) < 1e-9:
+            xs, ys = x + s * np.cos(h), y + s * np.sin(h)
+        else:
+            xs = x + (np.sin(h + k * s) - np.sin(h)) / k
+            ys = y - (np.cos(h + k * s) - np.cos(h)) / k
+            h = h + k * L
+        x, y = xs[-1], ys[-1]
+        pts.append(np.stack([xs, ys], axis=1))
+    return np.concatenate([pts[0][None, :]] + pts[1:], axis=0)
+
+
+def fit_reference_line_boundary_symmetric(left, right, epsilon=0.15, reg_weight=0.05):
+    """좌/우 경계 폴리라인에 참조선을 직접 대칭 피팅한다.
+    중심선이라는 중간 산출물을 만들지 않으므로, 23단계의 점별 투영이
+    만들어낸 고주파 잡음이 애초에 생기지 않는다."""
+    centerline = (left + right) / 2
+    x0, n_segs, stats0 = fit_reference_line_global(centerline, epsilon=epsilon)  # 18단계, 초기값용
+    if x0 is None:
+        return None, None, None
+
+    def residual(params):
+        poly = chain_sample_fixed(params, n_segs)
+        d_left = point_to_polyline_dist(poly, left)
+        d_right = point_to_polyline_dist(poly, right)
+        sym = d_left - d_right                       # 0이면 완전 대칭(도로 중심)
+        reg = reg_weight * (params - x0)              # 초기해에서 너무 안 벗어나게
+        return np.concatenate([sym, reg])
+
+    total_len = float(np.sum(x0[3 + n_segs:3 + 2 * n_segs]))
+    lo = np.concatenate([x0[:2] - 3.0, [x0[2] - 0.3],
+                         np.full(n_segs, -2.0), np.full(n_segs, 0.05)])
+    hi = np.concatenate([x0[:2] + 3.0, [x0[2] + 0.3],
+                         np.full(n_segs, 2.0), np.full(n_segs, max(total_len * 2.0, 1.0))])
+    sol = least_squares(residual, np.clip(x0, lo, hi), bounds=(lo, hi))
+
+    poly = chain_sample_fixed(sol.x, n_segs, n_per_seg=60)  # 평가용은 촘촘하게
+    d_left = point_to_polyline_dist(poly, left)
+    d_right = point_to_polyline_dist(poly, right)
+    sym_res = np.abs(d_left - d_right)
+    d_centerline = point_to_polyline_dist(poly, centerline)  # 옛 지표(비교용)
+    return sol.x, n_segs, {
+        "fit_residual_max_m": float(d_centerline.max()),
+        "sym_residual_max_m": float(sym_res.max()),           # 새 지표: 대칭성
+        "sym_residual_rms_m": float(np.sqrt(np.mean(sym_res ** 2))),
+    }
+```
+
+---
+
 ## 남은 빈틈: 다음 스파이크의 우선순위
 
-18~21단계에서 원래 이 목록에 있던 네 가지 — 세그먼트 연속성(실측 + 전역 G1 피팅으로 해결), 곡률 오차 실측, pairing 편향 실측, xodr 출력 + 라운드트립 검증 — 를 해소했습니다. 갱신된 목록을 중요한 순서대로 다시 정리합니다.
+18~24단계에서 이 목록의 여섯 항목 — 세그먼트 연속성, 곡률 오차, pairing 편향, xodr 출력 + 라운드트립 검증, 고도 피팅, 중심선 재정의 — 을 전부 스파이크했고, 마지막 항목(중심선 재정의)도 24단계에서 실제로 해결됐습니다. 갱신된 목록을 중요한 순서대로 다시 정리합니다.
 
-**1. 중심선 재정의 후 전면 재실측 — 새로운 최우선.** 20단계에서 확인했듯 지금까지의 모든 잔차는 편향된 중심선(최악 1.5m)을 타깃으로 잰 값입니다. 중심선 계산을 법선 투영(또는 lanelet2 공식 `centerline()`)으로 교체하고, 18~21단계의 수치를 전부 다시 내야 합니다. 이게 끝나기 전까지 "잔차 5.6cm"는 3DGS 정합 오차를 대변하지 못합니다.
+**1. 클로소이드(spiral) 도입 판단 — 새로운 최우선.** 전역 G1의 잔차 바닥과 곡률 계단이 두 맵 모두에서 실측됐고, 이제 중심선 기준까지 확정됐으니 회귀 테스트 허용치와 대조해 클로소이드 세그먼트(G2 연속)가 필요한지 결정할 수 있습니다.
 
-**2. 클로소이드(spiral) 도입 판단.** 전역 G1의 잔차 바닥(~5cm, 세그먼트를 잘게 나눠도 안 내려감)과 곡률 계단(mean 0.081, max 0.449 [1/m])이 실측됐으니, 이제 회귀 테스트 허용치와 대조해 클로소이드 세그먼트(G2 연속)가 필요한지 결정할 수 있습니다. 파라미터화는 (κᵢ) 상수를 (κ_start, κ_end) 선형으로 바꾸는 자연스러운 확장입니다.
+**2. Junction 생성.** 실제 OpenDRIVE `<junction>` 은 여전히 스키마 한 줄 외에 아무것도 없습니다. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이라, 고도 이음새(경사 불연속) 측정도 이 작업과 함께 처리할 수 있습니다.
 
-**3. Junction 생성.** 실제 OpenDRIVE `<junction>` — 교차로 안 connecting road의 지오메트리, `laneLink`, incoming road 연결 — 은 여전히 스키마 한 줄 외에 아무것도 없습니다. 21단계 라운드트립도 lanelet 단위 Road로만 검증했습니다. 참조선 피팅 다음으로 어려운 문제라 별도 스파이크가 필요합니다.
+**3. esmini/CARLA 실기 로딩.** opendrive2lanelet 파싱은 통과했지만, 시뮬레이터가 이 xodr을 실제로 로딩·주행하는지는 별개 문제입니다. 24단계에서 확정된 새 중심선 기준으로 xodr을 다시 익스포트해서 라운드트립도 재검증해야 합니다.
 
-**4. esmini/CARLA 실기 로딩.** opendrive2lanelet 파싱은 통과했지만, 시뮬레이터가 이 xodr을 실제로 로딩·주행하는지는 별개 문제입니다. esmini(`odrviewer`)가 가장 싼 다음 단계입니다.
+**4. `superelevation`(횡단 경사) + 고도 이음새.** 뱅크각을 담을 자리가 아직 없고, lanelet 간 경사 불연속도 미측정입니다.
 
-**5. `superelevation`(횡단 경사).** z(s) 누락을 잡아낸 것과 같은 논리로(3단계), 좌우 경계선의 z 차이가 담는 뱅크각을 IR에 담을 자리가 아직 없습니다.
+**5. 회사 실측 맵 검증.** 두 공개 맵에서도 결론이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 24단계의 경계 대칭 피팅이 회사 맵에서도 유지되는지가 특히 중요합니다.
 
-우선순위를 이렇게 두는 이유 — 1이 모든 수치의 신뢰도를 좌우하고, 2는 1의 재실측 결과와 허용치가 있어야 판단할 수 있습니다. 회사 실측 맵 검증은 그 다음입니다.
+우선순위를 이렇게 두는 이유 — 중심선 문제가 풀렸으니 이제 지금까지의 잔차·곡률 수치가 실제 정합 오차를 대변한다고 볼 수 있고, 그래서 1(클로소이드 여부)과 3(라운드트립 재검증)을 바로 판단할 수 있는 단계가 됐습니다. 2(Junction)가 그다음인 이유는 A(그룹핑) 작업이 4의 고도 이음새 측정과 5의 회사 맵 검증 모두의 선행 조건이기 때문입니다.
 
 ---
 
@@ -3105,34 +3292,163 @@ python3 -m venv rt_venv     # python 3.9
 ./rt_venv/bin/pip install "numpy<2" opendrive2lanelet "commonroad-io==2020.2"
 ```
 
+### 22단계: 고도 피팅 + 두 번째 맵 재현성 검증 (`spike_elevation.py`)
+
+18~21단계와 동일한 `spike_fit.py`(단, `OSM_PATH`를 이 맵으로 교체) 위에서 돌립니다. `fit_elevation_cubic`은 본문(22-1단계)에 실었고, 여기서는 ele를 포함한 로더와 3D 중심선 구성만 싣습니다.
+
+```python
+def load_osm_with_ele(path):
+    tree = ET.parse(path)
+    root = tree.getroot()
+
+    nodes, ele = {}, {}
+    for n in root.findall("node"):
+        nid = n.get("id")
+        nodes[nid] = (float(n.get("lat")), float(n.get("lon")))
+        for t in n.findall("tag"):
+            if t.get("k") == "ele":
+                ele[nid] = float(t.get("v"))
+
+    ways = {w.get("id"): [nd.get("ref") for nd in w.findall("nd")] for w in root.findall("way")}
+
+    lanelets = []
+    for rel in root.findall("relation"):
+        tags = {t.get("k"): t.get("v") for t in rel.findall("tag")}
+        if tags.get("type") != "lanelet":
+            continue
+        left_way = right_way = None
+        for m in rel.findall("member"):
+            if m.get("role") == "left":
+                left_way = m.get("ref")
+            elif m.get("role") == "right":
+                right_way = m.get("ref")
+        if left_way and right_way:
+            lanelets.append({"id": rel.get("id"), "left": left_way, "right": right_way,
+                              "subtype": tags.get("subtype")})
+    return nodes, ele, ways, lanelets
+
+
+def way_points_z(ways, xy, ele, way_id):
+    """way의 (x, y, z) 폴리라인. ele가 없는 노드는 이웃 값으로 선형 보간한다."""
+    ids = ways[way_id]
+    pts = np.array([xy[n] for n in ids])
+    z = np.array([ele.get(n, np.nan) for n in ids])
+    if np.isnan(z).any():
+        valid = ~np.isnan(z)
+        idx = np.arange(len(z))
+        z[~valid] = np.interp(idx[~valid], idx[valid], z[valid])
+    return pts, z
+
+
+def resample_xyz_to_common_length(a_xy, a_z, b_xy, b_z, n=30):
+    """resample_to_common_length과 동일한 감김 정렬 + 호길이 재샘플링을 z까지 확장."""
+    if np.linalg.norm(a_xy[0] - b_xy[-1]) < np.linalg.norm(a_xy[0] - b_xy[0]):
+        b_xy, b_z = b_xy[::-1], b_z[::-1]
+
+    def resample(pts, z, n):
+        s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+        query = np.linspace(0, s[-1], n)
+        return (np.stack([np.interp(query, s, pts[:, 0]), np.interp(query, s, pts[:, 1])], axis=1),
+                np.interp(query, s, z))
+
+    a_r, az_r = resample(a_xy, a_z, n)
+    b_r, bz_r = resample(b_xy, b_z, n)
+    return a_r, az_r, b_r, bz_r
+
+
+def iter_road_centerlines_3d(n_resample=30, min_length=1.0):
+    nodes, ele, ways, lanelets = load_osm_with_ele(OSM_PATH)
+    ref_lat, ref_lon = next(iter(nodes.values()))
+    xy = latlon_to_local_xy(nodes, ref_lat, ref_lon)
+    for ll in lanelets:
+        if ll["subtype"] != "road":
+            continue
+        try:
+            left_xy, left_z = way_points_z(ways, xy, ele, ll["left"])
+            right_xy, right_z = way_points_z(ways, xy, ele, ll["right"])
+        except KeyError:
+            continue
+        if len(left_xy) < 3 or len(right_xy) < 3:
+            continue
+        left_r, leftz_r, right_r, rightz_r = resample_xyz_to_common_length(
+            left_xy, left_z, right_xy, right_z, n=n_resample
+        )
+        centerline = (left_r + right_r) / 2
+        centerline_z = (leftz_r + rightz_r) / 2
+        if np.sum(np.linalg.norm(np.diff(centerline, axis=0), axis=1)) < min_length:
+            continue
+        yield ll, centerline, centerline_z
+```
+
+### 23단계: 법선 투영(수정판) 기준 재실측 (`spike_recenter_bounded.py`)
+
+`normal_projection_centerline_bounded`는 본문(23-1단계)에 실었습니다. `ray_polyline_intersection`은 20단계 코드와 동일합니다. 나머지는 두 맵을 순회하며 평균 중심선 vs 법선투영 중심선의 잔차를 나란히 내는 실행부입니다.
+
+```python
+def iter_road_centerlines_both(osm_path, n_resample=30, min_length=1.0):
+    nodes, ways, lanelets = load_osm(osm_path)
+    ref_lat, ref_lon = next(iter(nodes.values()))
+    xy = latlon_to_local_xy(nodes, ref_lat, ref_lon)
+    for ll in lanelets:
+        if ll["subtype"] != "road":
+            continue
+        try:
+            left = way_points(ways, xy, ll["left"])
+            right = way_points(ways, xy, ll["right"])
+        except KeyError:
+            continue
+        if len(left) < 3 or len(right) < 3:
+            continue
+        left_r, right_r = resample_to_common_length(left, right, n=n_resample)
+        cl_avg = (left_r + right_r) / 2
+        if polyline_length(cl_avg) < min_length:
+            continue
+        cl_bounded = normal_projection_centerline_bounded(cl_avg, left_r, right_r)
+        yield ll, cl_avg, cl_bounded, left_r, right_r
+
+
+def run_map(osm_path, label):
+    rows = []
+    for ll, cl_avg, cl_bnd, left_r, right_r in iter_road_centerlines_both(osm_path):
+        _, sa = fit_reference_line_independent(cl_avg)
+        _, sb = fit_reference_line_independent(cl_bnd)
+        _, na, ga = fit_reference_line_global(cl_avg)   # 18단계 전역 G1
+        _, nb, gb = fit_reference_line_global(cl_bnd)
+        if ga is None or gb is None:
+            continue
+        rows.append({"indep_avg": sa["fit_residual_max_m"], "indep_bnd": sb["fit_residual_max_m"],
+                      "global_avg": ga["fit_residual_max_m"], "global_bnd": gb["fit_residual_max_m"]})
+    # ... mean/p95/max 집계는 이전 단계들과 동일한 패턴 (본문 표 참고)
+```
+
 ---
 
 ## 지금까지 정한 것, 아직 정하지 않은 것
 
-**정한 것** — 21단계를 설계 결정만 남기고 추리면 다음과 같습니다. (각 결정의 근거와 실측 수치는 해당 단계 참고.)
+**정한 것** — 24단계를 설계 결정만 남기고 추리면 다음과 같습니다. (각 결정의 근거와 실측 수치는 해당 단계 참고.)
 
 - **방향**: Lanelet2 → OpenDRIVE 변환 도구는 생태계에 사실상 없어서 직접 만듭니다. 대신 성숙한 반대 방향 도구(opendrive2lanelet)는 라운드트립 검증에 재활용합니다(1단계).
 - **IR**: OpenDRIVE 모델(참조선 + 파라메트릭 단면)을 뼈대로 삼아, 어려운 문제(곡선 피팅)를 Lanelet2 → IR 한쪽 방향에 몰아넣습니다. 지리/토폴로지 정보와 프로버넌스(변환 근거·지표)를 분리해 설계합니다(2~3단계).
 - **정확도**: 위치 잔차(point-to-curve)에 허용치를 두되, 곡률 오차와 이음새 연속성을 별도 지표로 둡니다. 곡선 타입은 Line+Arc부터 시작해 필요한 만큼만 확장합니다(4단계). 샘플 맵 기준 독립 피팅 잔차 mean 2~3cm, 최악 14.6cm — 감김 방향 버그(14단계)와 대표 lanelet 선택 버그(17단계)를 잡은 뒤의 수치입니다.
 - **피팅 방식(B) 확정 — 전역 G1**: 독립 피팅은 이음새 헤딩 꺾임이 평균 8.8°(최대 43°)에 달해 그대로 쓸 수 없고, 탐욕 체인 피팅은 헤딩 오차 전파로 잔차가 폭발합니다(최악 1.4m). 참조선 체인 전체를 OpenDRIVE 네이티브 파라미터화(시작 pose + 세그먼트별 κ·L)로 놓는 전역 최적화로 확정 — 이음새 정확히 0, 잔차 mean 5.6cm/최악 21cm(18단계). 곡률 오차도 처음 실측했고, 기준 정의(스무딩)가 지표의 일부여야 한다는 것을 확인했습니다(19단계).
 - **검증 회로 완성**: 실제 `.xodr`을 익스포트해 TUM opendrive2lanelet으로 되돌리는 라운드트립을 돌렸습니다 — end-to-end 오차가 피팅 잔차와 사실상 동일(직렬화+파싱 오차 mm 수준), 101개 Road 전부 매칭(21단계).
+- **고도 피팅 첫 실측 + 두 번째 맵 검증**: 실제 `ele` 태그가 있는 다른 맵(Autoware 샘플맵)으로 `elevation_profile`을 처음 피팅했습니다 — 경사가 완만해(대부분 1% 이내) lanelet당 3차 다항식 하나로 충분했습니다(잔차 mean 1.0cm). 같은 맵에 18·20단계를 재실행해, "Line+Arc로 충분하다"는 결론은 더 강하게 재현됐지만, pairing 편향의 "지배 요인"(20단계는 경계 길이 불일치, 이 맵은 곡률)은 재현되지 않았습니다 — 맵마다 다르다는 것 자체가 새로운 결론입니다(22단계).
+- **중심선 "선-보정 후 피팅" 접근은 기각, "경계 직접 대칭 피팅"으로 확정**: pairing 편향을 없애려고 법선 투영 중심선을 실제로 파이프라인에 꽂아봤습니다. 도중에 거리 상한 없는 구현이 14.6m짜리 중심선 이탈을 내는 견고성 결함을 발견해 고쳤지만(23단계), 고친 뒤에도 노이즈 있는 맵(Karlsruhe)에서는 잔차가 오히려 나빠졌습니다(전역 G1 max +4.0cm, 곡률 오차 약 3배) — "중심선을 미리 보정하고 그 위에 참조선을 피팅"하는 2단계 구조 자체를 기각했습니다. 대신 중심선이라는 중간 산출물 없이 참조선을 좌/우 경계에 직접 대칭 피팅(`|d_left - d_right|` 최소화)했더니 이번엔 통했습니다 — Karlsruhe 대칭 잔차 mean 30cm→6.6cm, 최악 132cm→40cm, 원래 깨끗했던 Autoware는 퇴보 없이 유지(1.4cm→1.5cm). 발견된 이상치 2건도 조사해보니 새 방법의 결함이 아니라 옛 평균 중심선 정의 자체의 결함이 드러난 것으로 확인됐습니다(24단계). **20단계 이래 흔들리던 "도로 중심선" 정의가 이 시점에서 확정됐습니다.**
 - **검증 역할 분담**: 정밀 수치는 결정적 코드가 계산하고, LLM은 지표·시각화를 검토하는 리뷰어로 한정합니다(5단계). 이 원칙이 실제로 작동한다는 것도 확인했습니다 — 정량 지표로는 절대 못 잡는 렌더링 버그 2개를 시각 검토로 잡았습니다(15단계).
 - **그룹핑(A)**: node id 매칭 휴리스틱은 실측으로 한계를 확인했고(8~9단계), 공식 `RoutingGraph`를 쓰되 "합법적 차량 경로"가 아니라 "물리적 도로 연결성" 기준(Vehicle/Bicycle/Pedestrian 합집합)으로 재구현했습니다(10, 13단계). 그래도 남는 고립 조각은 알고리즘으로 완벽히 풀기보다 `topology_warnings`로 사람/LLM 검토에 넘깁니다.
 - **규제 정보**: `Signal`(정지선 s + 적용 차선), `road_mark`(경계 태그 매핑 — 샘플 맵 100% 성공), `elevation_profile`(z(s))을 IR에 추가했고, 통합 파이프라인에서 Signal 위치 계산 10/10을 확인했습니다(11~12, 14, 16~17단계).
 
 **아직 정하지 않은 것 / 남은 작업**
 
-- **중심선 재정의 후 전면 재실측** — pairing 편향이 최악 1.5m로 확인됐고(20단계), 지배 요인은 곡률이 아니라 좌우 경계 길이 불일치였습니다. 지금까지의 모든 잔차는 이 편향된 타깃 기준이라, 법선 투영(또는 lanelet2 공식 `centerline()`)으로 교체하고 18~21단계 수치를 다시 내야 합니다. 새로운 최우선 과제입니다('남은 빈틈' 1번).
-- **클로소이드(spiral) 도입 판단** — 전역 G1의 잔차 바닥(~5cm)과 곡률 계단(max 0.45 [1/m])이 회귀 테스트 허용치를 넘는지로 결정합니다('남은 빈틈' 2번).
-- **Junction 생성**(connecting road 지오메트리 + `laneLink`) — 여전히 미착수. 라운드트립도 lanelet 단위 Road로만 검증했습니다('남은 빈틈' 3번).
-- **esmini/CARLA 실기 로딩** — opendrive2lanelet 파싱은 통과했지만(21단계) 시뮬레이터 로딩은 미확인입니다('남은 빈틈' 4번).
-- `superelevation` — '남은 빈틈' 5번.
-- 이 결론들이 실제 회사 Lanelet2 맵(더 복잡한 교차로, 더 큰 실측 노이즈)에서도 유지되는지 검증 — 회사 맵은 이번엔 접근하지 못해 못 다뤘습니다.
-- `elevation_profile`을 실제로 채우는 고도 피팅 스파이크 — 이번 샘플 맵에는 `ele` 태그가 없어서, 실측 맵으로 z 데이터가 어떻게 들어오는지부터 확인이 필요합니다.
-- 회귀 테스트에서 실제로 감내 가능한 위치/곡률 오차 허용치의 수치 확정 — 전역 G1 기준 5~21cm가 "충분히 정밀한지"는 3DGS 씬 정합 오차 허용 범위와 대조해봐야 합니다.
+- **클로소이드(spiral) 도입 판단** — 전역 G1의 잔차 바닥과 곡률 계단, 그리고 이제 확정된 중심선 기준까지 갖춰졌으니, 회귀 테스트 허용치와 대조해 결정할 수 있습니다('남은 빈틈' 1번).
+- **Junction 생성**(connecting road 지오메트리 + `laneLink`) — 여전히 미착수. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이고, 고도 이음새 측정도 여기 얹을 수 있습니다('남은 빈틈' 2번).
+- **esmini/CARLA 실기 로딩 + 라운드트립 재검증** — opendrive2lanelet 파싱은 통과했지만(21단계) 시뮬레이터 로딩은 미확인이고, 21단계의 xodr 익스포트도 24단계에서 확정된 새 중심선 기준으로 다시 만들어 재검증해야 합니다('남은 빈틈' 3번).
+- `superelevation` + **고도 이음새**(lanelet 간 경사 불연속, A(그룹핑) 선행 필요) — '남은 빈틈' 4번.
+- **회사 실측 맵 검증** — 두 공개 맵에서도 pairing 편향의 지배 요인이 갈렸던 만큼(20·22·23단계), 회사 맵 검증의 필요성이 더 커졌습니다. 24단계의 경계 대칭 피팅이 회사 맵에서도 유지되는지가 특히 중요합니다('남은 빈틈' 5번).
+- 회귀 테스트에서 실제로 감내 가능한 위치/곡률 오차 허용치의 수치 확정 — 이제 중심선 기준이 확정됐으니, 24단계 수치(대칭 잔차 mean 1.5~6.6cm)를 3DGS 씬 정합 오차 허용 범위와 대조해봐야 합니다.
 - 실제 `ANTHROPIC_API_KEY`로 `call_llm_review`를 돌려서, 사람이 직접 본 것과 API로 호출한 모델의 판단이 일치하는지 확인.
 
-다음 글에서는 '남은 빈틈'의 1번 — 중심선 재정의(법선 투영)와 18~21단계 전면 재실측 — 그리고 Junction 생성 스파이크를 다룰 예정입니다.
+다음 글에서는 '남은 빈틈'의 1번(클로소이드 도입 판단)과 2번(A(그룹핑) 기반 Junction 생성 스파이크)을 다룰 예정입니다.
 
 ---
 
