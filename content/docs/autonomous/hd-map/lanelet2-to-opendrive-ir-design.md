@@ -31,6 +31,8 @@ description: "실차용 Lanelet2 맵을 시뮬레이션용 OpenDRIVE로 변환�
 
 더 파고들어 보니 이유가 명확했습니다. CommonRoad의 `Lanelet` 클래스도 `left_vertices`/`right_vertices`/`center_vertices`, 즉 좌표 점 나열로만 차선을 표현합니다 — Lanelet2와 표현 방식이 사실상 같은 종족입니다. 반면 OpenDRIVE → CommonRoad 변환기는 `PlanView`(참조선: 직선·원호·클로소이드·다항식 조합)와 `ParametricLane`(그 참조선 기준 s-좌표계의 폭 함수)을 먼저 만든 뒤, 최종 단계에서 좌표 점으로 샘플링해 CommonRoad에 담습니다. 즉 CommonRoad로 한 번 변환하고 나면 참조선 정보가 이미 사라진 상태라, CommonRoad을 경유해도 우리가 풀어야 할 핵심 난제(좌표 점 → 참조선 역추정)는 그대로 남습니다.
 
+다만 이 조사가 헛수고였던 건 아닙니다. 성숙한 반대 방향 도구는 나중에 우리 변환기의 **라운드트립 검증**에 재활용할 수 있습니다 — 우리가 만든 OpenDRIVE를 opendrive2lanelet으로 다시 Lanelet2로 변환해 원본 좌표와 비교하면, 변환 전체를 결정적으로 검사하는 회로가 하나 생깁니다. 이 검사는 21단계에서 실제로 수행합니다.
+
 ---
 
 ## 2단계: IR을 어느 쪽 모델에 맞출지 정한다
@@ -99,7 +101,7 @@ Signal
 
 `Signal`은 Lanelet2의 `RegulatoryElement`(TrafficLight, SpeedLimit, RightOfWay 등)를 OpenDRIVE의 `signal`/`object` 모델로 옮기기 위한 타입입니다. Lanelet2는 "위치 + 적용 대상"을 하나의 관계(RegulatoryElement가 lanelet을 참조)로 묶는 반면, OpenDRIVE는 위치(s, t)와 적용 범위(validity)를 분리해서 표현하므로, 변환 시 이 둘을 명시적으로 갈라 담아야 합니다. `road_id, s, t`를 계산하려면 그 도로의 참조선이 이미 피팅되어 있어야 하므로, `Signal` 변환은 항상 B단계(참조선 피팅) 뒤에 오는 종속 단계입니다.
 
-`elevation_profile`은 11단계 이후에 추가한 것으로, 참조선(x, y 평면 형상)과 별도로 z(s)를 관리합니다. OpenDRIVE 자체가 평면 형상과 고도를 독립된 두 레이어로 분리해서 표현하는 방식을 그대로 따른 것입니다 — 그래서 B단계(참조선 피팅)와 별개로 "고도 피팅"이라는 대칭적인 서브 단계가 하나 더 필요해집니다. 지금까지 스파이크에서 쓴 `latlon_to_local_xy`는 위도/경도만 평면 좌표로 바꾸고 z를 아예 다루지 않았다는 걸 확인했는데, 이게 정확히 이 누락을 만든 지점입니다 — z가 있는 노드라면 좌표 변환 단계에서부터 같이 뽑아야 합니다.
+`elevation_profile`은 11단계 이후에 추가한 것으로, 참조선(x, y 평면 형상)과 별도로 z(s)를 관리합니다. OpenDRIVE 자체가 평면 형상과 고도를 독립된 두 레이어로 분리해서 표현하는 방식을 그대로 따른 것입니다 — 그래서 B단계(참조선 피팅)와 별개로 "고도 피팅"이라는 대칭적인 서브 단계가 하나 더 필요해집니다. 지금까지 스파이크에서 쓴 `latlon_to_local_xy`는 위도/경도만 평면 좌표로 바꾸고 z를 아예 다루지 않았다는 걸 확인했는데, 이게 정확히 이 누락을 만든 지점입니다 — z가 있는 노드라면 좌표 변환 단계에서부터 같이 뽑아야 합니다. 그리고 같은 논리로 아직 남아 있는 누락이 하나 더 있습니다: Lanelet2의 3D 경계선은 좌/우 경계의 z 차이로 횡단 경사(뱅크각)를 암묵적으로 담는데, 참조선 위의 z(s) 하나로는 이걸 표현할 수 없습니다. OpenDRIVE의 대응물은 `superelevation`이고, 아직 IR에 자리가 없습니다(뒤의 '남은 빈틈' 섹션 참고).
 
 `road_mark`는 Lanelet2 경계 way의 `subtype`(`solid`/`dashed`) 태그를 거의 그대로 옮기면 되는, 상대적으로 간단한 매핑입니다. 차선 변경 가능 여부 판정과, 인지 스택이 3DGS 렌더링에서 보는 것과 일치하는 ground truth를 만드는 데 씁니다.
 
@@ -114,6 +116,7 @@ RoadProvenance
 ├── fit_method: "arc" | "line" | "paramPoly3"
 ├── fit_residual_max_m / fit_residual_rms_m    # 참조선 피팅이 원본과 얼마나 벗어났는지
 ├── curvature_error_max                        # 위치 오차와 별개로, 곡률 오차 지표
+├── joint_gap_max_m / joint_heading_jump_max_rad  # 세그먼트 이음새의 위치 갭·헤딩 꺾임 (4단계에서 정의, 18단계에서 실측)
 ├── lane_count_check: {source: n, derived: n}
 ├── dropped_attributes: [string]                # Signal로도 못 옮긴 나머지 규제 정보
 ├── mark_defaulted_count: n                     # road_mark를 애매한 태그라 기본값으로 채운 경계선 수
@@ -131,6 +134,9 @@ RoadProvenance
 - `fit_residual`(위치 오차)에 명시적 허용치를 두고, 넘으면 변환을 실패로 처리합니다. 허용치는 회귀 테스트에서 감내 가능한 위치 오차를 먼저 정하고 거꾸로 계산합니다.
 - 위치 오차만으로는 부족합니다. 곡률 오차는 조향 거동에 더 직접적으로 영향을 주므로 `curvature_error_max`를 프로버넌스에 별도로 둡니다.
 - Line + Arc만으로 허용치를 못 맞추는 도로 세그먼트가 나오면, 그때 가서 paramPoly3를 추가하는 식으로 곡선 타입을 필요한 만큼만 확장합니다. 처음부터 모든 곡선 타입을 지원하려 하지 않습니다.
+- 위치·곡률 "오차"와 별개로, **세그먼트 이음새의 연속성**을 별도 지표(`joint_gap_max_m`, `joint_heading_jump_max_rad`)로 둡니다. OpenDRIVE `planView`는 각 geometry가 (시작점, 헤딩, 길이)로 정의되어 이전 geometry의 끝에서 이어지는 체인 구조라, 구간별로 독립 피팅한 결과를 그대로 직렬화하면 이음새마다 위치 갭과 헤딩 꺾임이 생깁니다. `fit_residual`은 "각 구간이 자기 점들을 얼마나 잘 따라가는가"만 재기 때문에 이 불연속을 전혀 잡지 못합니다.
+
+이음새 중에서도 line→arc 전환점의 **곡률 계단**(곡률이 0에서 1/r로 점프)은 조향 거동에 가장 직접적으로 영향을 주는 불연속입니다 — OpenDRIVE에 클로소이드(spiral) 타입이 있는 이유가 정확히 이것입니다. 그래서 "허용치를 못 맞추면 paramPoly3 추가"라는 확장 순서보다, "이음새에 연속성 제약을 건 피팅(인접 구간과 끝점·헤딩을 공유하는 최적화)이 필요한가"가 먼저 나올 질문입니다. 이 불연속은 18단계에서 실측하고, 전역 최적화 피팅으로 해결합니다.
 
 토폴로지(교차로 연결 등) 오류는 틀리면 눈에 바로 띄어서 사람이 고치기 쉽지만, 곡률 오차는 조용히 결과를 왜곡시키기 때문에 더 위험하다고 판단했습니다.
 
@@ -302,6 +308,12 @@ B, C 함수의 본문을 실제로 채우고(직선 SVD 피팅, Kasa 방식 원 
 | `fit_residual_rms_m` | 0.93cm | - | 2.08cm | - |
 
 최댓값(9.9cm)이 나온 케이스도 110m짜리 긴 도로 하나였고, 나머지 대부분은 2~3cm 수준에 머물렀습니다. **이 샘플 맵 기준으로는 Line+Arc만으로 충분하고, paramPoly3까지 확장할 필요가 아직은 없어 보입니다.** 다만 이건 Lanelet2 공식 예제 맵(독일 Karlsruhe 지역) 결과이고, 실제 회사 맵(더 복잡한 교차로, LiDAR 실측 노이즈가 더 클 수 있는)으로 같은 검증을 반복해서 이 결론이 유지되는지 확인하는 작업이 남아 있습니다.
+
+이 잔차 수치를 읽을 때 주의할 점도 세 가지 짚어둡니다.
+
+1. **이음새 불연속은 측정에 안 들어가 있습니다.** 잔차는 구간별 독립 피팅의 point-to-curve 거리라, 4단계에서 말한 세그먼트 경계의 위치 갭·헤딩 꺾임·곡률 계단은 이 숫자에 전혀 반영되지 않습니다. 실제 OpenDRIVE 체인으로 직렬화했을 때의 오차는 이보다 나쁠 수 있습니다. (18단계에서 실측한 결과, 이음새 헤딩 꺾임이 평균 8.8°에 달했습니다.)
+2. **중심선 자체에 편향이 있을 수 있습니다.** 중심선을 좌우 경계의 호길이 비율 재샘플링 후 포인트별 평균으로 만드는데, 커브에서는 안쪽 경계가 바깥쪽보다 짧아 짝이 어긋난 점끼리 평균됩니다. 위에서 검증한 반경 1.4m 급커브가 정확히 이 편향이 최대가 되는 조건이라, 한쪽 경계에서 법선 투영으로 반대쪽 점을 찾는 방식과 비교해 편향을 정량화하는 작업이 필요합니다 — 지금의 2cm 잔차가 이 편향을 포함한 값인지 아직 모릅니다. (20단계에서 실측한 결과, 최악 1.5m에 달하는 편향이 확인됐습니다.)
+3. **곡률 오차는 아직 한 번도 측정하지 않았습니다.** 4단계에서 곡률 오차를 위치 오차보다 위험한 지표로 규정해놓고, 지금까지의 스파이크 결과는 전부 위치 잔차뿐입니다. `discrete_curvature`까지는 구현했지만, 피팅 세그먼트의 이론 곡률과 비교하는 `curvature_error`는 시그니처만 있는 상태입니다. 재샘플링된 30점 위의 3점 유한차분은 노이즈도 심해서, 실측할 때 측정 방법 자체(스무딩 창, 샘플 밀도)도 같이 정해야 합니다. (19단계에서 실측했습니다.)
 
 ---
 
@@ -1849,102 +1861,9 @@ import xml.etree.ElementTree as ET
 OSM_PATH = "/data/mapping_example.osm"
 
 
-# ---- B: 참조선 피팅 (7단계 spike_fit.py에서 그대로 가져옴) ----
-
-def fit_line(points: np.ndarray):
-    centroid = points.mean(axis=0)
-    centered = points - centroid
-    _, _, vt = np.linalg.svd(centered)
-    direction = vt[0]
-    normal = np.array([-direction[1], direction[0]])
-    residuals = centered @ normal
-    rms = float(np.sqrt(np.mean(residuals ** 2)))
-    max_res = float(np.max(np.abs(residuals)))
-    return rms, max_res
-
-
-def fit_arc(points: np.ndarray):
-    x, y = points[:, 0], points[:, 1]
-
-    def residual(params):
-        cx, cy, r = params
-        return np.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
-
-    x0 = np.array([x.mean(), y.mean(), np.ptp(x) / 2 + 1e-3])
-    sol = least_squares(residual, x0)
-    cx, cy, r = sol.x
-    dist_res = np.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
-    rms = float(np.sqrt(np.mean(dist_res ** 2)))
-    max_res = float(np.max(np.abs(dist_res)))
-    return rms, max_res
-
-
-def simplify_polyline(points: np.ndarray, epsilon: float):
-    def rdp(idxs):
-        if len(idxs) < 3:
-            return idxs
-        start, end = points[idxs[0]], points[idxs[-1]]
-        line_vec = end - start
-        line_len = np.linalg.norm(line_vec)
-        if line_len == 0:
-            dists = np.linalg.norm(points[idxs[1:-1]] - start, axis=1)
-        else:
-            normal = np.array([-line_vec[1], line_vec[0]]) / line_len
-            dists = np.abs((points[idxs[1:-1]] - start) @ normal)
-        if len(dists) == 0:
-            return idxs
-        max_i = np.argmax(dists)
-        if dists[max_i] > epsilon:
-            split = idxs[1:-1][max_i]
-            left = rdp(idxs[: idxs.index(split) + 1])
-            right = rdp(idxs[idxs.index(split):])
-            return left[:-1] + right
-        return [idxs[0], idxs[-1]]
-
-    idxs = rdp(list(range(len(points))))
-    return np.array(sorted(set(idxs)))
-
-
-def fit_reference_line(centerline: np.ndarray, epsilon: float = 0.15):
-    breakpoints = simplify_polyline(centerline, epsilon)
-    residuals_rms, residuals_max = [], []
-    for a, b in zip(breakpoints[:-1], breakpoints[1:]):
-        chunk = centerline[a:b + 1]
-        if len(chunk) < 3:
-            continue
-        line_rms, line_max = fit_line(chunk)
-        arc_rms, arc_max = fit_arc(chunk)
-        rms, mx = (line_rms, line_max) if line_rms <= arc_rms else (arc_rms, arc_max)
-        residuals_rms.append(rms)
-        residuals_max.append(mx)
-    return {
-        "fit_residual_max_m": max(residuals_max) if residuals_max else 0.0,
-        "fit_residual_rms_m": float(np.sqrt(np.mean(np.square(residuals_rms)))) if residuals_rms else 0.0,
-    }
-
-
-def align_winding(a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    d_start = np.linalg.norm(a[0] - b[0])
-    d_end = np.linalg.norm(a[0] - b[-1])
-    return b[::-1] if d_end < d_start else b
-
-
-def resample_to_common_length(a: np.ndarray, b: np.ndarray, n: int = 30):
-    b = align_winding(a, b)
-
-    def resample(pts, n):
-        seg_len = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-        s = np.concatenate([[0], np.cumsum(seg_len)])
-        total = s[-1]
-        if total == 0:
-            return np.repeat(pts[:1], n, axis=0)
-        query = np.linspace(0, total, n)
-        x = np.interp(query, s, pts[:, 0])
-        y = np.interp(query, s, pts[:, 1])
-        return np.stack([x, y], axis=1)
-
-    return resample(a, n), resample(b, n)
-
+# ---- B: 참조선 피팅 — 부록 spike_fit.py와 동일한 함수들이므로 생략 ----
+# (fit_line, fit_arc, simplify_polyline, fit_reference_line[잔차만 반환하는 축약판],
+#  align_winding, resample_to_common_length)
 
 def centerline_of(ll, coord_of):
     left = np.array([[p.x, p.y] for p in ll.leftBound])
@@ -1953,136 +1872,10 @@ def centerline_of(ll, coord_of):
     return (left_r + right_r) / 2
 
 
-def segment_intersection(p1, p2, p3, p4):
-    d1, d2 = p2 - p1, p4 - p3
-    denom = d1[0] * d2[1] - d1[1] * d2[0]
-    if abs(denom) < 1e-9:
-        return None
-    t = ((p3[0] - p1[0]) * d2[1] - (p3[1] - p1[1]) * d2[0]) / denom
-    u = ((p3[0] - p1[0]) * d1[1] - (p3[1] - p1[1]) * d1[0]) / denom
-    return p1 + t * d1 if (0 <= t <= 1 and 0 <= u <= 1) else None
+# ---- Signal: segment_intersection / find_stopline_s는 14단계와 동일 (생략) ----
 
-
-def find_stopline_s(centerline, ref_line_pts, endpoint_tol=2.0):
-    cum_s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(centerline, axis=0), axis=1))])
-    for i in range(len(centerline) - 1):
-        for j in range(len(ref_line_pts) - 1):
-            hit = segment_intersection(centerline[i], centerline[i + 1], ref_line_pts[j], ref_line_pts[j + 1])
-            if hit is not None:
-                return cum_s[i] + np.linalg.norm(hit - centerline[i]), "교차"
-    mid = ref_line_pts.mean(axis=0)
-    d0, d1 = np.linalg.norm(mid - centerline[0]), np.linalg.norm(mid - centerline[-1])
-    if min(d0, d1) <= endpoint_tol:
-        return (0.0, f"폴백(거리{min(d0,d1):.1f}m)") if d0 < d1 else (cum_s[-1], f"폴백(거리{min(d0,d1):.1f}m)")
-    return None, None
-
-
-# ---- A: 13단계의 다중 participant 그룹핑 ----
-
-class UnionFind:
-    def __init__(self):
-        self.parent = {}
-
-    def find(self, x):
-        self.parent.setdefault(x, x)
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
-
-    def union(self, a, b):
-        ra, rb = self.find(a), self.find(b)
-        if ra != rb:
-            self.parent[ra] = rb
-
-
-def build_graphs(lanelet_map):
-    participants = [
-        lanelet2.traffic_rules.Participants.Vehicle,
-        lanelet2.traffic_rules.Participants.Bicycle,
-        lanelet2.traffic_rules.Participants.Pedestrian,
-    ]
-    return [
-        lanelet2.routing.RoutingGraph(
-            lanelet_map, lanelet2.traffic_rules.create(lanelet2.traffic_rules.Locations.Germany, p)
-        )
-        for p in participants
-    ]
-
-
-def union_side_neighbor(graphs, ll, side):
-    for g in graphs:
-        neighbor = getattr(g, side)(ll)
-        if neighbor is not None:
-            return neighbor
-        adjacent = getattr(g, f"adjacent{side.capitalize()}")(ll)
-        if adjacent is not None:
-            return adjacent
-    return None
-
-
-def build_side_clusters(lanelet_map, graphs):
-    uf = UnionFind()
-    for ll in lanelet_map.laneletLayer:
-        uf.find(ll.id)
-        left = union_side_neighbor(graphs, ll, "left")
-        right = union_side_neighbor(graphs, ll, "right")
-        if left is not None:
-            uf.union(ll.id, left.id)
-        if right is not None:
-            uf.union(ll.id, right.id)
-    clusters = defaultdict(list)
-    for ll in lanelet_map.laneletLayer:
-        clusters[uf.find(ll.id)].append(ll.id)
-    return list(clusters.values())
-
-
-def union_following(graphs, ll):
-    result = {}
-    for g in graphs:
-        for f in g.following(ll):
-            result[f.id] = f
-    return list(result.values())
-
-
-def build_cluster_graph(lanelet_map, graphs, clusters):
-    cluster_of = {m: idx for idx, members in enumerate(clusters) for m in members}
-    successors, predecessors = defaultdict(set), defaultdict(set)
-    for idx, members in enumerate(clusters):
-        for m in members:
-            ll = lanelet_map.laneletLayer[m]
-            for f in union_following(graphs, ll):
-                if f.id in cluster_of and cluster_of[f.id] != idx:
-                    successors[idx].add(cluster_of[f.id])
-                    predecessors[cluster_of[f.id]].add(idx)
-    return successors, predecessors
-
-
-def segment_into_roads(clusters, successors, predecessors):
-    lane_count = {idx: len(members) for idx, members in enumerate(clusters)}
-    visited, roads = set(), []
-    for start_idx in range(len(clusters)):
-        if start_idx in visited:
-            continue
-        if len(predecessors[start_idx]) == 1:
-            pred = next(iter(predecessors[start_idx]))
-            if len(successors[pred]) == 1 and lane_count[pred] == lane_count[start_idx]:
-                continue
-        chain, cur = [start_idx], start_idx
-        visited.add(start_idx)
-        while (
-            len(successors[cur]) == 1
-            and len(predecessors[next(iter(successors[cur]))]) == 1
-            and lane_count[next(iter(successors[cur]))] == lane_count[cur]
-        ):
-            nxt = next(iter(successors[cur]))
-            if nxt in visited:
-                break
-            chain.append(nxt)
-            visited.add(nxt)
-            cur = nxt
-        roads.append(chain)
-    return roads
+# ---- A: 그룹핑 — 13단계 코드와 동일 (UnionFind, build_graphs, union_side_neighbor,
+#  build_side_clusters, union_following, build_cluster_graph, segment_into_roads) (생략) ----
 
 
 # ---- 통합: Road 참조선 + Lane id 부여 + Signal 재매핑 ----
@@ -2150,30 +1943,8 @@ def build_roads(lanelet_map, coord_of, clusters, roads_chain):
     return roads, lanelet_to_lane
 
 
-def load_regulatory_elements(path):
-    tree = ET.parse(path)
-    root = tree.getroot()
-    reg_elements = []
-    for rel in root.findall("relation"):
-        tags = {t.get("k"): t.get("v") for t in rel.findall("tag")}
-        if tags.get("type") != "regulatory_element":
-            continue
-        ref_line = None
-        for m in rel.findall("member"):
-            if m.get("role") == "ref_line":
-                ref_line = m.get("ref")
-        reg_elements.append({"id": rel.get("id"), "subtype": tags.get("subtype"), "ref_line": ref_line})
-    applicable = {re["id"]: [] for re in reg_elements}
-    for rel in root.findall("relation"):
-        tags = {t.get("k"): t.get("v") for t in rel.findall("tag")}
-        if tags.get("type") != "lanelet":
-            continue
-        for m in rel.findall("member"):
-            if m.get("role") == "regulatory_element" and m.get("ref") in applicable:
-                applicable[m.get("ref")].append(rel.get("id"))
-    for re in reg_elements:
-        re["applicable_lanelet_ids"] = applicable[re["id"]]
-    return reg_elements
+# load_regulatory_elements: 14단계와 동일한 파싱의 축약판(ref_line,
+# applicable_lanelet_ids만 수집) — 생략
 
 
 def main():
@@ -2276,11 +2047,277 @@ re=45234 lanelet=45088 -> road_41.lane[-1]  s=80.38m (교차)
 
 이 사례는 "정량 지표(잔차)가 괜찮아 보여도 파이프라인 설계상의 단순화가 특정 케이스에서 조용히 틀릴 수 있다"는 걸 보여줍니다 — `clusters[cluster_idx][0]`이라는 한 줄이, 신호등과 무관한 lanelet을 대표로 골라버리는 구체적인 실패로 이어졌습니다. 이런 종류의 버그는 전체 통계만 봐서는 안 보이고, 실패하는 개별 케이스를 하나씩 열어봐야 잡힙니다.
 
+한 가지 더 짚어둘 것: 지금의 `Signal.s`는 이어붙인 원시 중심선(폴리라인) 위의 호길이입니다. 최종 OpenDRIVE의 s-좌표는 **피팅된 참조선** 기준이라 둘은 미세하게 다릅니다 — 잔차가 cm 수준이니 차이도 그 수준이겠지만, 정지선 위치는 회귀 테스트의 정지 거동 판정에 직접 들어가는 값이라 익스포트 시점에는 피팅 곡선 위에서 재계산해야 합니다.
+
+---
+
+## 18단계: 이음새 불연속 실측, 그리고 전역 G1 피팅
+
+4단계에서 지표만 정의해두고 측정하지 않았던 이음새 불연속을 실측했습니다. 기존 독립 피팅(구간별로 line/arc를 따로 피팅)의 세그먼트 끝점·헤딩을 명시적으로 계산하도록 `fit_line`/`fit_arc`를 확장하고, 인접 세그먼트 간 지표를 쟀습니다. (이번 스캔부터는 `subtype: road`이면서 길이 1m 이상인 101개 lanelet 기준이라, 7·14단계와 표본이 조금 다릅니다. lanelet 단위 작업이라 `RoutingGraph`가 필요 없어서 Docker 없이 macOS에서 numpy/scipy만으로 돌렸습니다.)
+
+| 지표 (이음새 147개) | mean | p50 | p95 | max |
+|---|---|---|---|---|
+| `joint_gap_m` | 1.6cm | 1.0cm | 3.9cm | 43.5cm |
+| `joint_heading_jump` | 8.8° | 6.9° | 23.9° | 43.0° |
+| `curvature_step` [1/m] | 0.024 | 0.012 | 0.085 | 0.170 |
+
+우려가 사실로 확인됐습니다. 위치 갭은 대부분 cm 수준이지만, **헤딩 꺾임이 평균 8.8°, 최대 43°**입니다. `fit_residual` 2~3cm라는 숫자가 무색하게, 이 참조선을 그대로 직렬화하면 이음새마다 도로가 눈에 띄게 꺾입니다. "Line+Arc로 충분하다"던 7단계의 결론은 이음새를 재는 순간 절반만 맞는 얘기였습니다.
+
+그래서 G1 연속(위치+헤딩 공유) 피팅을 두 가지 방식으로 시도했습니다.
+
+**시도 1 — 탐욕(greedy) 체인: 실패.** 첫 구간은 자유 피팅하고, 이후 구간은 이전 끝점·끝헤딩에서 시작하도록 제약(직선은 남는 자유도 0, 원호는 곡률 하나)해 순서대로 피팅했습니다. 이음새는 정확히 0이 됐지만 잔차가 폭발했습니다 — mean 2.6cm → 22.4cm, 최악 1.38m. 원인은 명확합니다: 앞 구간의 헤딩 오차가 뒤로 그대로 전파되는데, 뒤 구간에는 그걸 만회할 자유도가 없습니다.
+
+**시도 2 — 전역 최적화: 성공.** 발상을 바꿔, 참조선 체인 전체를 OpenDRIVE 네이티브 파라미터화 — 시작 pose (x₀, y₀, h₀) + 세그먼트별 (κᵢ, Lᵢ) — 로 놓고, 원본 점들과 체인 곡선 사이 거리를 한 번에 최소화했습니다. 이 표현에서는 G0/G1 연속이 "제약 조건"이 아니라 **표현 자체의 성질**이라 이음새가 항상 정확히 0이고, xodr 직렬화도 직역이 됩니다(21단계). |κ| < 1e-4인 세그먼트를 익스포트 때 line으로 취급하면 되므로 line/arc 구분이 파라미터에서 아예 사라지는 부수 효과도 있습니다.
+
+| `fit_residual_max_m` | mean | p50 | p95 | max |
+|---|---|---|---|---|
+| 독립 피팅 (불연속) | 2.61cm | 2.24cm | 5.64cm | 14.58cm |
+| greedy G1 | 22.45cm | 13.68cm | 93.54cm | 137.99cm |
+| **전역 G1** | **5.58cm** | **4.57cm** | **13.57cm** | **21.18cm** |
+
+전역 G1은 완전한 연속성을 평균 +3cm의 잔차 비용으로 삽니다. 세그먼트 분할을 더 잘게(ε=0.15 → 0.05, 평균 세그먼트 2.4 → 3.4개) 해봐도 5.6 → 4.5cm로 개선이 미미했는데, 이는 잔차 바닥이 분할 개수가 아니라 **"조각별 상수 곡률" 모델 자체의 한계**라는 뜻입니다 — 실제 도로에는 곡률이 연속적으로 변하는(클로소이드적인) 구간이 많기 때문입니다. 남은 곡률 계단(G2 불연속)도 mean 0.081, max 0.449 [1/m]로 실측됐습니다. 이 계단이 조향 시뮬레이션에서 문제가 되는 수준인지가 클로소이드 세그먼트 도입 여부를 정하는 기준이 될 겁니다.
+
+```python
+def chain_sample(params, n_segs, ds=0.25):
+    """params = [x0, y0, h0, κ_1..K, L_1..K] 체인을 ds 간격으로 샘플링한다."""
+    x, y, h = params[0], params[1], params[2]
+    kappas = params[3:3 + n_segs]
+    lengths = params[3 + n_segs:]
+    pts = [np.array([x, y])]
+    for k, L in zip(kappas, lengths):
+        n = max(int(np.ceil(L / ds)), 2)
+        s = np.linspace(0, L, n + 1)[1:]
+        if abs(k) < 1e-9:
+            xs, ys = x + s * np.cos(h), y + s * np.sin(h)
+        else:
+            xs = x + (np.sin(h + k * s) - np.sin(h)) / k
+            ys = y - (np.cos(h + k * s) - np.cos(h)) / k
+            h = h + k * L
+        x, y = xs[-1], ys[-1]
+        pts.append(np.stack([xs, ys], axis=1))
+    return np.concatenate([pts[0][None, :]] + pts[1:], axis=0)
+
+
+def point_to_polyline_dist(points, poly):
+    """각 point에서 poly(폴리라인)까지의 최단거리 (선분 단위 정확 계산)."""
+    a, b = poly[:-1], poly[1:]
+    ab = b - a
+    ab_len2 = np.sum(ab ** 2, axis=1) + 1e-12
+    ap = points[:, None, :] - a[None, :, :]
+    t = np.clip(np.sum(ap * ab[None, :, :], axis=2) / ab_len2[None, :], 0.0, 1.0)
+    proj = a[None, :, :] + t[..., None] * ab[None, :, :]
+    return np.linalg.norm(points[:, None, :] - proj, axis=2).min(axis=1)
+
+
+def fit_reference_line_global(centerline: np.ndarray, epsilon: float = 0.15):
+    """독립 피팅으로 초기값을 만들고, 체인 전체를 전역 최적화한다."""
+    segs, _ = fit_reference_line_independent(centerline, epsilon)
+    if not segs:
+        return None, 0, None
+
+    x0 = np.concatenate([
+        segs[0]["start_pt"], [segs[0]["h_start"]],
+        [s["curvature"] for s in segs],
+        [max(s["length"], 0.2) for s in segs],
+    ])
+    n_segs = len(segs)
+    total_len = sum(s["length"] for s in segs)
+
+    def residual(params):
+        poly = chain_sample(params, n_segs)
+        d = point_to_polyline_dist(centerline, poly)
+        # 끝점 앵커: 체인이 원본보다 심하게 짧거나 길게 미끄러지는 것을 막는다
+        end_anchor = np.linalg.norm(poly[-1] - centerline[-1])
+        start_anchor = np.linalg.norm(poly[0] - centerline[0])
+        return np.concatenate([d, [end_anchor, start_anchor]])
+
+    lo = np.concatenate([x0[:2] - 5.0, [x0[2] - 0.5],
+                         np.full(n_segs, -2.0), np.full(n_segs, 0.05)])
+    hi = np.concatenate([x0[:2] + 5.0, [x0[2] + 0.5],
+                         np.full(n_segs, 2.0), np.full(n_segs, max(total_len * 2.0, 1.0))])
+    sol = least_squares(residual, np.clip(x0, lo, hi), bounds=(lo, hi))
+
+    poly = chain_sample(sol.x, n_segs, ds=0.1)
+    d = point_to_polyline_dist(centerline, poly)
+    kappas = sol.x[3:3 + n_segs]
+    steps = np.abs(np.diff(kappas))
+    return sol.x, n_segs, {
+        "fit_residual_max_m": float(d.max()),
+        "fit_residual_rms_m": float(np.sqrt(np.mean(d ** 2))),
+        "curvature_step_max": float(steps.max()) if len(steps) else 0.0,
+        "n_segs": n_segs,
+    }
+```
+
+---
+
+## 19단계: 곡률 오차 첫 실측
+
+4단계에서 "위치 오차보다 위험하다"고 규정만 해놓고 한 번도 계산하지 않았던 `curvature_error`를 전역 G1 피팅 결과에 대해 처음 측정했습니다. 기준(참값 근사)은 원본 중심선의 이산 곡률인데, **측정 방법이 결과를 지배한다**는 것부터 확인됐습니다.
+
+| `curvature_error_max` [1/m] | mean | p50 | p95 | max |
+|---|---|---|---|---|
+| 기준: 스무딩 없는 이산 곡률 | 0.291 | 0.180 | 1.004 | 2.120 |
+| 기준: 5점 이동평균 후 이산 곡률 | 0.075 | 0.044 | 0.230 | 0.350 |
+
+스무딩 전후 이산 곡률 차이(즉 측정 자체의 노이즈)의 lanelet별 최대가 mean 0.254 [1/m]로, 스무딩 없는 기준에서 잰 "오차" 0.291과 같은 자릿수입니다. 즉 **스무딩 없이 재면 곡률 오차의 대부분은 피팅 오차가 아니라 이산 곡률 추정 자체의 노이즈**입니다. 7단계 주의사항 3번이 예고한 그대로였고, `curvature_error`를 프로버넌스에 넣을 때는 기준 정의(스무딩 창, 샘플 밀도)를 지표 이름에 같이 박아야 다른 맵과 비교가 가능합니다. 스무딩 기준으로 남는 오차(mean 0.075, 전 구간 평균으로는 0.028)는 대부분 곡률 계단(18단계) 근처 구간에서 나옵니다.
+
+```python
+def smooth_points(points: np.ndarray, window: int = 5) -> np.ndarray:
+    """이동평균 스무딩(끝점 유지). 이산 곡률의 노이즈를 억제한다."""
+    if len(points) < window:
+        return points
+    kernel = np.ones(window) / window
+    sm = points.copy()
+    for d in range(2):
+        sm[:, d] = np.convolve(points[:, d], kernel, mode="same")
+    half = window // 2
+    sm[:half], sm[-half:] = points[:half], points[-half:]
+    return sm
+
+# 측정 루프의 핵심: 각 원본 점에서 가장 가까운 체인 샘플의 세그먼트 κ를 찾아 비교
+k_disc = discrete_curvature(smooth_points(centerline))[2:-2]   # 끝점 유한차분 제외
+k_fit = np.abs(fitted_kappa_at_points(params, n_segs, centerline[2:-2]))
+curvature_error = np.abs(k_fit - k_disc)
+```
+
+---
+
+## 20단계: 중심선 pairing 편향 실측 — 범인은 곡률보다 경계 길이 불일치
+
+7단계 주의사항 2번(호길이 비율 재샘플링 + 포인트별 평균 방식의 편향)을 실측했습니다. 평균 방식 중심선을 초기값으로, 각 점에서 로컬 접선의 법선을 세워 좌/우 경계 폴리라인과의 교점을 구하고 그 중점으로 갱신하는 **법선 투영 중심선**을 만들어, 두 중심선의 차이를 쟀습니다.
+
+| pairing 편향 (lanelet별 max) | mean | p50 | p95 | max |
+|---|---|---|---|---|
+| `bias_max_m` | 15.8cm | 4.5cm | 63.2cm | **146.9cm** |
+
+예상보다 훨씬 컸고, 원인 분석에서 반전이 있었습니다. 가설대로 급커브(r<10m)에서 편향이 커지긴 했지만(mean 27.8cm vs 완만한 구간 8.3cm), **최악 케이스(1.47m)는 최대 곡률 0.006 1/m(r≈157m)짜리 거의 직선 구간**이었습니다. 더 파보니 지배 요인은 곡률이 아니라 **좌우 경계의 길이 불일치**였습니다.
+
+| 구분 | 개수 | bias_max mean | max |
+|---|---|---|---|
+| 경계 길이비 > 1.2 | 44 | 30.2cm | 146.9cm |
+| 경계 길이비 ≤ 1.2 | 57 | 4.8cm | 33.8cm |
+
+로그 길이비와 편향의 상관계수는 0.711, 최악 lanelet은 왼쪽 경계 24.4m / 오른쪽 경계 126.6m짜리 쐐기형(교차로 모서리)이었습니다. 호길이 '비율'로 두 경계의 점을 짝짓는 방식은 **두 경계의 길이가 비슷할 때만 성립하는 암묵적 가정**이었던 겁니다.
+
+이 발견의 무게는 따로 짚어야 합니다: **지금까지의 모든 피팅 잔차는 이 편향된 중심선을 '정답'으로 놓고 잰 값**입니다. 잔차 5cm짜리 피팅이 실제 도로 중심에서는 1m 넘게 벗어나 있을 수 있다는 뜻이고, 3DGS 씬 정합이라는 최종 목적에는 잔차보다 이 편향이 더 큰 위협입니다. 중심선 계산을 법선 투영 방식(또는 lanelet2 공식 `centerline()`)으로 교체하고 지금까지의 수치를 전부 재실측하는 것이, 이 스파이크 이후의 새로운 최우선 작업이 됐습니다.
+
+```python
+def ray_polyline_intersection(origin, direction, poly):
+    """origin에서 ±direction 직선과 poly의 교점 중 origin에 가장 가까운 것."""
+    best, best_d = None, np.inf
+    for a, b in zip(poly[:-1], poly[1:]):
+        ab = b - a
+        denom = direction[0] * ab[1] - direction[1] * ab[0]
+        if abs(denom) < 1e-12:
+            continue
+        diff = a - origin
+        t = (diff[0] * ab[1] - diff[1] * ab[0]) / denom               # 직선 파라미터(양방향)
+        u = (diff[0] * direction[1] - diff[1] * direction[0]) / denom  # 선분 파라미터
+        if 0.0 <= u <= 1.0 and abs(t) < best_d:
+            best, best_d = a + u * ab, abs(t)
+    return best
+
+
+def normal_projection_centerline(centerline, left, right, n_iter=2):
+    """중심선 각 점에서 법선을 세워 좌/우 경계와의 교점 중점으로 갱신한다."""
+    cl = centerline.copy()
+    for _ in range(n_iter):
+        new = cl.copy()
+        for i in range(len(cl)):
+            j0, j1 = max(i - 1, 0), min(i + 1, len(cl) - 1)
+            tangent = cl[j1] - cl[j0]
+            norm = np.linalg.norm(tangent)
+            if norm < 1e-9:
+                continue
+            normal = np.array([-tangent[1], tangent[0]]) / norm
+            pl = ray_polyline_intersection(cl[i], normal, left)
+            pr = ray_polyline_intersection(cl[i], normal, right)
+            if pl is not None and pr is not None:
+                new[i] = (pl + pr) / 2
+        cl = new
+    return cl
+```
+
+---
+
+## 21단계: `.xodr` 익스포트와 opendrive2lanelet 라운드트립
+
+마지막으로, 아직 한 번도 만들어보지 않았던 실제 OpenDRIVE 파일을 만들어 서드파티 도구에 태웠습니다. 전역 G1 피팅 결과는 OpenDRIVE `planView`와 표현이 1:1이라 직렬화가 직역입니다 — (x₀, y₀, h₀)가 첫 `<geometry>`의 속성이 되고, 세그먼트별 (κ, L)이 `<arc>`/`<line>`(|κ| < 1e-4)이 됩니다. lanelet 하나를 Road 하나로(참조선=중심선, 좌우 각각 폭 w(s)/2 차선, `junction="-1"`) 내보내 101개 Road짜리 xodr을 만들었습니다.
+
+이 파일을 1단계에서 조사했던 TUM opendrive2lanelet(성숙한 반대 방향 변환기)에 넣어 lanelet으로 되돌리고, 돌아온 참조선(lane -1의 왼쪽 경계)을 **원본 Lanelet2 중심선**과 비교했습니다.
+
+```
+xodr 파싱: Road 101개 -> 변환된 lanelet 202개 (전부 매칭, 미매칭 0)
+
+end-to-end 오차 (원본 중심선 <-> 라운드트립 참조선)
+  road별 max:  mean=5.72cm p50=4.62cm p95=14.15cm max=21.53cm
+  road별 mean: mean=1.82cm p95=4.24cm
+```
+
+18단계의 전역 G1 피팅 잔차(mean 5.58cm, max 21.18cm)와 사실상 같습니다 — **직렬화 + 서드파티 파싱이 더하는 오차는 mm 수준이고, 오차 예산 전체가 피팅에서 나온다**는 것이 확인됐습니다. "우리가 만든 xodr을 성숙한 외부 도구가 정상적으로 읽고, 기하가 보존된다"까지가 이번 스파이크의 결론입니다. 전 구간이 결정적 코드로만 이루어진 검증 회로라, LLM 시각 검증(15단계)과 정확히 상호 보완됩니다.
+
+한계도 명확합니다. (1) lanelet 단위 Road라 Junction이 없습니다 — 교차로 모델링은 여전히 미착수. (2) esmini/CARLA 실기 로딩은 아직 안 돌렸습니다(opendrive2lanelet 파싱 통과로 문법·기하 유효성은 상당 부분 확인됐지만, 시뮬레이터가 실제로 받아들이는지는 별개). (3) 라운드트립 환경은 버전 조합이 까다로웠습니다 — macOS venv에 python 3.9 + `numpy<2` + `opendrive2lanelet==1.2.1` + `commonroad-io==2020.2`로 고정해야 돌아갑니다.
+
+```python
+# 익스포터 핵심: 전역 G1 파라미터 -> <planView> 직역
+def road_xml(road_id, params, n_segs, width_coeffs):
+    x, y, h = params[0], params[1], params[2]
+    kappas = params[3:3 + n_segs]
+    lengths = params[3 + n_segs:3 + 2 * n_segs]
+    geoms, s = [], 0.0
+    for k, L in zip(kappas, lengths):
+        body = "<line/>" if abs(k) < 1e-4 else f'<arc curvature="{k:.10f}"/>'
+        geoms.append(f'<geometry s="{s:.6f}" x="{x:.6f}" y="{y:.6f}" '
+                     f'hdg="{h:.10f}" length="{L:.6f}">{body}</geometry>')
+        if abs(k) < 1e-4:
+            x, y = x + L * np.cos(h), y + L * np.sin(h)
+        else:
+            x = x + (np.sin(h + k * L) - np.sin(h)) / k
+            y = y - (np.cos(h + k * L) - np.cos(h)) / k
+            h = h + k * L
+        s += L
+    # ... <lanes>: 좌/우 각각 <width a b c d> = w(s)/2 3차 다항식 (본문 생략)
+
+
+# 라운드트립 비교 핵심 (rt_venv에서 실행)
+from opendrive2lanelet.opendriveparser.parser import parse_opendrive
+from opendrive2lanelet.network import Network
+
+odr = parse_opendrive(etree.parse("roundtrip_map.xodr").getroot())
+net = Network()
+net.load_opendrive(odr)
+lanelets = net.export_commonroad_scenario().lanelet_network.lanelets
+
+for key, centerline in originals.items():           # 원본 Lanelet2 중심선들
+    # 원본 중심선과 가장 가까운 left boundary(=lane -1의 왼쪽 = 참조선)를 찾아 거리 측정
+    d = min(point_to_polyline_dist(centerline, np.asarray(l.left_vertices)).mean()
+            for l in candidate_lanelets)
+```
+
+---
+
+## 남은 빈틈: 다음 스파이크의 우선순위
+
+18~21단계에서 원래 이 목록에 있던 네 가지 — 세그먼트 연속성(실측 + 전역 G1 피팅으로 해결), 곡률 오차 실측, pairing 편향 실측, xodr 출력 + 라운드트립 검증 — 를 해소했습니다. 갱신된 목록을 중요한 순서대로 다시 정리합니다.
+
+**1. 중심선 재정의 후 전면 재실측 — 새로운 최우선.** 20단계에서 확인했듯 지금까지의 모든 잔차는 편향된 중심선(최악 1.5m)을 타깃으로 잰 값입니다. 중심선 계산을 법선 투영(또는 lanelet2 공식 `centerline()`)으로 교체하고, 18~21단계의 수치를 전부 다시 내야 합니다. 이게 끝나기 전까지 "잔차 5.6cm"는 3DGS 정합 오차를 대변하지 못합니다.
+
+**2. 클로소이드(spiral) 도입 판단.** 전역 G1의 잔차 바닥(~5cm, 세그먼트를 잘게 나눠도 안 내려감)과 곡률 계단(mean 0.081, max 0.449 [1/m])이 실측됐으니, 이제 회귀 테스트 허용치와 대조해 클로소이드 세그먼트(G2 연속)가 필요한지 결정할 수 있습니다. 파라미터화는 (κᵢ) 상수를 (κ_start, κ_end) 선형으로 바꾸는 자연스러운 확장입니다.
+
+**3. Junction 생성.** 실제 OpenDRIVE `<junction>` — 교차로 안 connecting road의 지오메트리, `laneLink`, incoming road 연결 — 은 여전히 스키마 한 줄 외에 아무것도 없습니다. 21단계 라운드트립도 lanelet 단위 Road로만 검증했습니다. 참조선 피팅 다음으로 어려운 문제라 별도 스파이크가 필요합니다.
+
+**4. esmini/CARLA 실기 로딩.** opendrive2lanelet 파싱은 통과했지만, 시뮬레이터가 이 xodr을 실제로 로딩·주행하는지는 별개 문제입니다. esmini(`odrviewer`)가 가장 싼 다음 단계입니다.
+
+**5. `superelevation`(횡단 경사).** z(s) 누락을 잡아낸 것과 같은 논리로(3단계), 좌우 경계선의 z 차이가 담는 뱅크각을 IR에 담을 자리가 아직 없습니다.
+
+우선순위를 이렇게 두는 이유 — 1이 모든 수치의 신뢰도를 좌우하고, 2는 1의 재실측 결과와 허용치가 있어야 판단할 수 있습니다. 회사 실측 맵 검증은 그 다음입니다.
+
 ---
 
 ## 부록: 스파이크 전체 코드
 
-7, 8단계에서 실제로 돌린 코드 전체입니다. `numpy`, `scipy`, `matplotlib`만 있으면 그대로 실행됩니다. 10단계의 `RoutingGraph` 기반 버전은 `lanelet2` 패키지가 필요하며(Docker `--platform linux/amd64` Linux 컨테이너에서 `pip install lanelet2`), 두 번째 코드 블록 뒤에 있습니다.
+본문에 전부 싣지 않은 스파이크 코드를 모아둔 부록입니다. `numpy`, `scipy`, `matplotlib`만 있으면 그대로 실행됩니다 — Docker(`--platform linux/amd64` 컨테이너에서 `pip install lanelet2`)가 필요한 것은 `RoutingGraph`를 쓰는 13·16단계뿐입니다. 10단계의 Vehicle 단독 `RoutingGraph` 버전은 13단계 코드에서 `participants` 리스트를 `Vehicle` 하나로 줄인 것과 같아 따로 싣지 않습니다.
 
 ### B, C: 참조선 피팅 + 곡률 오차 (`spike_fit.py`)
 
@@ -2827,201 +2864,275 @@ if __name__ == "__main__":
     main()
 ```
 
-### A (개정판): 공식 `RoutingGraph` 기반 그룹핑 (`spike_group_official.py`)
+### 18~21단계: 연속성·곡률·편향·라운드트립 보조 코드
+
+핵심 함수(`chain_sample`, `point_to_polyline_dist`, `fit_reference_line_global`, `smooth_points`, `ray_polyline_intersection`, `normal_projection_centerline`, `road_xml`의 planView 부분, 라운드트립 파싱)는 본문 18~21단계에 있습니다. 여기에는 본문에서 생략한 나머지 — 끝점/헤딩을 명시적으로 계산하는 확장 피팅, 이음새 지표, greedy 체인 피팅(실패 사례), 곡률 조회, 폭 다항식, 라운드트립 매칭 루프 — 를 싣습니다. `load_osm`/`latlon_to_local_xy`/`way_points`/`align_winding`/`resample_to_common_length`는 위 `spike_fit.py`의 것을 그대로 재사용합니다.
 
 ```python
-"""
-A. Lanelet2 -> Road 그룹핑, 공식 RoutingGraph 기반 버전.
-
-기존 node id 매칭 대신 lanelet2.routing.RoutingGraph가 제공하는
-following()/previous()(종방향), left()/right()/adjacentLeft()/adjacentRight()
-(횡방향) 관계를 그대로 쓴다.
-
-10단계에서 확인한 대로, Participants.Vehicle 규칙은 자전거/보행자 공유 구간을
-표준 차량 경로에서 제외하므로 이 스크립트의 분기/합류 통계는 "물리적 연결성"이
-아니라 "차량 경로 탐색 연결성" 기준이다. 다음 단계에서 이 부분을 교정할 예정이다.
-"""
-from collections import defaultdict
-import lanelet2
-from lanelet2.projection import UtmProjector
+def _wrap_angle(a):
+    return (a + np.pi) % (2 * np.pi) - np.pi
 
 
-class UnionFind:
-    def __init__(self):
-        self.parent = {}
+# ---- 맵 스캔 이터레이터: subtype=road, 길이 1m 이상 (18~21단계 공통) ----
 
-    def find(self, x):
-        self.parent.setdefault(x, x)
-        while self.parent[x] != x:
-            self.parent[x] = self.parent[self.parent[x]]
-            x = self.parent[x]
-        return x
-
-    def union(self, a, b):
-        ra, rb = self.find(a), self.find(b)
-        if ra != rb:
-            self.parent[ra] = rb
-
-
-def build_side_clusters(lanelet_map, routing_graph):
-    """RoutingGraph의 left/right(주행 가능) + adjacentLeft/adjacentRight(주행 불가,
-    예: 실선으로 분리된 옆 차선)를 모두 이용해 같은 단면(LaneSection) 후보로 묶는다."""
-    uf = UnionFind()
-    for ll in lanelet_map.laneletLayer:
-        uf.find(ll.id)
-        for neighbor in (
-            routing_graph.left(ll), routing_graph.right(ll),
-            routing_graph.adjacentLeft(ll), routing_graph.adjacentRight(ll),
-        ):
-            if neighbor is not None:
-                uf.union(ll.id, neighbor.id)
-
-    clusters = defaultdict(list)
-    for ll in lanelet_map.laneletLayer:
-        clusters[uf.find(ll.id)].append(ll.id)
-    return list(clusters.values())
-
-
-def build_cluster_graph(lanelet_map, routing_graph, clusters):
-    """클러스터 단위 successor/predecessor 그래프. lanelet 단위 following/previous를
-    클러스터 단위로 끌어올린다."""
-    cluster_of = {m: idx for idx, members in enumerate(clusters) for m in members}
-
-    successors = defaultdict(set)
-    predecessors = defaultdict(set)
-    for idx, members in enumerate(clusters):
-        for m in members:
-            ll = lanelet_map.laneletLayer[m]
-            for f in routing_graph.following(ll):
-                if f.id in cluster_of:
-                    j = cluster_of[f.id]
-                    if j != idx:
-                        successors[idx].add(j)
-                        predecessors[j].add(idx)
-    return successors, predecessors
-
-
-def segment_into_roads(clusters, successors, predecessors):
-    """차선 수가 바뀌거나 분기/합류가 있는 지점에서 Road를 끊는다."""
-    lane_count = {idx: len(members) for idx, members in enumerate(clusters)}
-
-    visited = set()
-    roads = []
-    for start_idx in range(len(clusters)):
-        if start_idx in visited:
+def iter_road_centerlines(n_resample=30, min_length=1.0):
+    nodes, ways, lanelets = load_osm()
+    ref_lat, ref_lon = next(iter(nodes.values()))
+    xy = latlon_to_local_xy(nodes, ref_lat, ref_lon)
+    for ll in lanelets:
+        if ll["subtype"] != "road":
             continue
-        if len(predecessors[start_idx]) == 1:
-            pred = next(iter(predecessors[start_idx]))
-            if len(successors[pred]) == 1 and lane_count[pred] == lane_count[start_idx]:
+        try:
+            left = way_points(ways, xy, ll["left"])
+            right = way_points(ways, xy, ll["right"])
+        except KeyError:
+            continue
+        if len(left) < 3 or len(right) < 3:
+            continue
+        left_r, right_r = resample_to_common_length(left, right, n=n_resample)
+        centerline = (left_r + right_r) / 2
+        if np.sum(np.linalg.norm(np.diff(centerline, axis=0), axis=1)) < min_length:
+            continue
+        yield ll, centerline, left_r, right_r
+
+
+# ---- 18단계: 끝점/헤딩을 명시적으로 계산하는 확장 피팅 ----
+# 기존 fit_line/fit_arc는 잔차만 반환해서 이음새를 잴 수 없었다.
+# seg dict: kind, start_pt, end_pt, h_start, h_end, curvature(0=line), length, rms, max
+
+def fit_line_free(points):
+    centroid = points.mean(axis=0)
+    centered = points - centroid
+    _, _, vt = np.linalg.svd(centered)
+    d = vt[0]
+    if np.dot(d, points[-1] - points[0]) < 0:   # 진행 방향과 부호 정렬
+        d = -d
+    proj = centered @ d
+    start_pt = centroid + proj[0] * d
+    end_pt = centroid + proj[-1] * d
+    normal = np.array([-d[1], d[0]])
+    res = centered @ normal
+    h = float(np.arctan2(d[1], d[0]))
+    return {"kind": "line", "start_pt": start_pt, "end_pt": end_pt,
+            "h_start": h, "h_end": h, "curvature": 0.0,
+            "length": float(np.linalg.norm(end_pt - start_pt)),
+            "rms": float(np.sqrt(np.mean(res ** 2))), "max": float(np.max(np.abs(res)))}
+
+
+def fit_arc_free(points):
+    x, y = points[:, 0], points[:, 1]
+
+    def residual(params):
+        cx, cy, r = params
+        return np.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+
+    sol = least_squares(residual, np.array([x.mean(), y.mean(), np.ptp(x) / 2 + 1e-3]))
+    cx, cy, r = sol.x
+    C, r = np.array([cx, cy]), abs(r)
+    theta = np.unwrap(np.arctan2(y - cy, x - cx))
+    dtheta = theta[-1] - theta[0]
+    sign = 1.0 if dtheta > 0 else -1.0          # +: ccw(좌회전)
+    start_pt = C + r * np.array([np.cos(theta[0]), np.sin(theta[0])])
+    end_pt = C + r * np.array([np.cos(theta[-1]), np.sin(theta[-1])])
+    res = np.sqrt((x - cx) ** 2 + (y - cy) ** 2) - r
+    return {"kind": "arc", "start_pt": start_pt, "end_pt": end_pt,
+            "h_start": _wrap_angle(float(theta[0] + sign * np.pi / 2)),
+            "h_end": _wrap_angle(float(theta[-1] + sign * np.pi / 2)),
+            "curvature": float(sign / r), "length": float(abs(dtheta) * r),
+            "center": C, "radius": float(r),
+            "rms": float(np.sqrt(np.mean(res ** 2))), "max": float(np.max(np.abs(res)))}
+
+
+def fit_reference_line_independent(centerline, epsilon=0.15):
+    """구간별 독립 피팅(기존 방식)을 확장 피팅으로 다시 구현한 것."""
+    breakpoints = simplify_polyline(centerline, epsilon)
+    segments = []
+    for a, b in zip(breakpoints[:-1], breakpoints[1:]):
+        chunk = centerline[a:b + 1]
+        if len(chunk) < 3:
+            continue
+        line_seg, arc_seg = fit_line_free(chunk), fit_arc_free(chunk)
+        seg = line_seg if line_seg["rms"] <= arc_seg["rms"] else arc_seg
+        segments.append(seg)
+    stats = {
+        "fit_residual_max_m": max((s["max"] for s in segments), default=0.0),
+        "fit_residual_rms_m": float(np.sqrt(np.mean([s["rms"] ** 2 for s in segments]))) if segments else 0.0,
+    }
+    return segments, stats
+
+
+def joint_metrics(segments):
+    """인접 세그먼트 간 위치 갭, 헤딩 꺾임, 곡률 계단."""
+    gaps, heading_jumps, curvature_steps = [], [], []
+    for prev, nxt in zip(segments[:-1], segments[1:]):
+        gaps.append(float(np.linalg.norm(nxt["start_pt"] - prev["end_pt"])))
+        heading_jumps.append(abs(_wrap_angle(nxt["h_start"] - prev["h_end"])))
+        curvature_steps.append(abs(nxt["curvature"] - prev["curvature"]))
+    return gaps, heading_jumps, curvature_steps
+
+
+# ---- 18단계 시도 1: greedy G1 체인 피팅 (실패 사례 — 기록용) ----
+# 이전 끝점 p0·끝헤딩 h0에 다음 구간의 시작을 고정한다. 직선은 남는 자유도 0,
+# 원호는 곡률 하나. 결과: 앞 구간의 헤딩 오차가 전파되어 잔차 폭발 (본문 참고).
+
+def fit_line_chained(points, p0, h0):
+    d = np.array([np.cos(h0), np.sin(h0)])
+    normal = np.array([-d[1], d[0]])
+    rel = points - p0
+    res = rel @ normal
+    end_pt = p0 + max(float(rel[-1] @ d), 0.0) * d
+    return {"kind": "line", "start_pt": p0, "end_pt": end_pt,
+            "h_start": h0, "h_end": h0, "curvature": 0.0,
+            "length": float(np.linalg.norm(end_pt - p0)),
+            "rms": float(np.sqrt(np.mean(res ** 2))), "max": float(np.max(np.abs(res)))}
+
+
+def fit_arc_chained(points, p0, h0):
+    t0 = np.array([np.cos(h0), np.sin(h0)])
+    n0 = np.array([-t0[1], t0[0]])              # 좌측 법선. κ>0(좌회전)이면 중심이 이쪽
+
+    def residual(kappa):
+        k = kappa[0] if abs(kappa[0]) > 1e-9 else 1e-9
+        C = p0 + n0 / k
+        return np.linalg.norm(points - C, axis=1) - abs(1.0 / k)
+
+    free = fit_arc_free(points) if len(points) >= 3 else None
+    chord = points[-1] - points[0]
+    turn_sign = 1.0 if (t0[0] * chord[1] - t0[1] * chord[0]) >= 0 else -1.0
+    k0 = turn_sign * (abs(free["curvature"]) if free else 1e-3)
+    sol = least_squares(residual, np.array([k0]))
+    k = sol.x[0] if abs(sol.x[0]) > 1e-9 else 1e-9
+
+    C, r = p0 + n0 / k, abs(1.0 / k)
+    theta_s = np.arctan2(p0[1] - C[1], p0[0] - C[0])
+    theta_e = np.arctan2(points[-1][1] - C[1], points[-1][0] - C[0])
+    dtheta = _wrap_angle(theta_e - theta_s)
+    end_pt = C + r * np.array([np.cos(theta_s + dtheta), np.sin(theta_s + dtheta)])
+    res = residual([k])
+    return {"kind": "arc", "start_pt": p0, "end_pt": end_pt,
+            "h_start": h0, "h_end": _wrap_angle(h0 + dtheta),
+            "curvature": float(k), "length": float(abs(dtheta) * r),
+            "rms": float(np.sqrt(np.mean(res ** 2))), "max": float(np.max(np.abs(res)))}
+
+
+def fit_reference_line_chained(centerline, epsilon=0.15):
+    breakpoints = simplify_polyline(centerline, epsilon)
+    segments, p0, h0 = [], None, None
+    for a, b in zip(breakpoints[:-1], breakpoints[1:]):
+        chunk = centerline[a:b + 1]
+        if len(chunk) < 3:
+            continue
+        if p0 is None:                            # 첫 구간만 자유 피팅
+            line_seg, arc_seg = fit_line_free(chunk), fit_arc_free(chunk)
+        else:
+            line_seg, arc_seg = fit_line_chained(chunk, p0, h0), fit_arc_chained(chunk, p0, h0)
+        seg = line_seg if line_seg["rms"] <= arc_seg["rms"] else arc_seg
+        segments.append(seg)
+        p0, h0 = seg["end_pt"], seg["h_end"]
+    return segments
+
+
+# ---- 19단계: 각 원본 점에 대응하는 피팅 곡률 조회 ----
+
+def fitted_kappa_at_points(params, n_segs, query_points):
+    """전역 G1 체인을 샘플링하고, 각 query point에서 가장 가까운 샘플의 세그먼트 κ."""
+    x, y, h = params[0], params[1], params[2]
+    kappas, lengths = params[3:3 + n_segs], params[3 + n_segs:]
+    samples, sample_kappa = [], []
+    for k, L in zip(kappas, lengths):
+        n = max(int(np.ceil(L / 0.1)), 2)
+        s = np.linspace(0, L, n + 1)[1:]
+        if abs(k) < 1e-9:
+            xs, ys = x + s * np.cos(h), y + s * np.sin(h)
+        else:
+            xs = x + (np.sin(h + k * s) - np.sin(h)) / k
+            ys = y - (np.cos(h + k * s) - np.cos(h)) / k
+            h = h + k * L
+        x, y = xs[-1], ys[-1]
+        samples.append(np.stack([xs, ys], axis=1))
+        sample_kappa.append(np.full(len(s), k))
+    samples = np.concatenate(samples, axis=0)
+    sample_kappa = np.concatenate(sample_kappa)
+    d = np.linalg.norm(query_points[:, None, :] - samples[None, :, :], axis=2)
+    return sample_kappa[np.argmin(d, axis=1)]
+
+
+# ---- 21단계: 차선 폭 다항식 + <lanes> 직렬화 ----
+
+def fit_width_poly(centerline, left_r, right_r):
+    """s(중심선 호길이)에 대한 전체 폭 w(s)의 3차 다항식 계수 (a, b, c, d)."""
+    s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(centerline, axis=0), axis=1))])
+    w = np.linalg.norm(left_r - right_r, axis=1)
+    coeffs = np.polyfit(s, w, 3 if len(s) >= 4 else 1)[::-1]   # 낮은 차수부터
+    out = np.zeros(4)
+    out[:len(coeffs)] = coeffs
+    return out
+
+# road_xml의 <lanes> 부분 (본문에서 생략한 부분). 좌/우 각각 폭 w(s)/2:
+#   <lanes><laneSection s="0.0">
+#     <left><lane id="1" type="driving"><width sOffset="0.0" a b c d/></lane></left>
+#     <center><lane id="0" type="none"/></center>
+#     <right><lane id="-1" type="driving"><width sOffset="0.0" a b c d/></lane></right>
+#   </laneSection></lanes>
+
+
+# ---- 21단계: 라운드트립 매칭 루프 (rt_venv에서 실행) ----
+
+def roundtrip_compare(originals, lanelets):
+    """originals: {road_id: 원본 중심선}, lanelets: 변환되어 돌아온 commonroad lanelet들.
+    각 원본 중심선과 가장 가까운 left boundary(=lane -1의 왼쪽 = 참조선)를 찾아 거리 측정."""
+    left_bounds = [np.asarray(l.left_vertices) for l in lanelets]
+    e2e_max, e2e_mean = [], []
+    for key, centerline in originals.items():
+        best_d, best = None, None
+        for lb in left_bounds:
+            # 빠른 필터: 중간점 기준 3m 밖이면 후보에서 제외
+            if np.min(np.linalg.norm(lb - centerline[len(centerline) // 2], axis=1)) > 3.0:
                 continue
-
-        chain = [start_idx]
-        visited.add(start_idx)
-        cur = start_idx
-        while (
-            len(successors[cur]) == 1
-            and len(predecessors[next(iter(successors[cur]))]) == 1
-            and lane_count[next(iter(successors[cur]))] == lane_count[cur]
-        ):
-            nxt = next(iter(successors[cur]))
-            if nxt in visited:
-                break
-            chain.append(nxt)
-            visited.add(nxt)
-            cur = nxt
-        roads.append(chain)
-
-    return roads
-
-
-def main():
-    origin = lanelet2.io.Origin(49.0, 8.4)
-    projector = UtmProjector(origin)
-    lanelet_map = lanelet2.io.load("/data/mapping_example.osm", projector)
-
-    traffic_rules = lanelet2.traffic_rules.create(
-        lanelet2.traffic_rules.Locations.Germany,
-        lanelet2.traffic_rules.Participants.Vehicle,
-    )
-    routing_graph = lanelet2.routing.RoutingGraph(lanelet_map, traffic_rules)
-
-    print(f"lanelets={len(lanelet_map.laneletLayer)}")
-
-    clusters = build_side_clusters(lanelet_map, routing_graph)
-    lane_counts = [len(c) for c in clusters]
-    print(f"단면 클러스터 수={len(clusters)}, 차선 수 분포: "
-          f"1차선={lane_counts.count(1)}, 2차선={lane_counts.count(2)}, "
-          f"3차선 이상={sum(1 for n in lane_counts if n >= 3)}")
-
-    successors, predecessors = build_cluster_graph(lanelet_map, routing_graph, clusters)
-    branch = sum(1 for i in range(len(clusters)) if len(successors[i]) >= 2)
-    merge = sum(1 for i in range(len(clusters)) if len(predecessors[i]) >= 2)
-    print(f"분기점(successor>=2)={branch}, 합류점(predecessor>=2)={merge}")
-
-    roads = segment_into_roads(clusters, successors, predecessors)
-    lens = [len(r) for r in roads]
-    print(f"Road 개수={len(roads)}")
-    print(f"Road당 평균 클러스터 수={sum(lens)/len(lens):.2f}, 최대={max(lens)}, "
-          f"단일 클러스터={lens.count(1)}")
-
-    single_roads = [r[0] for r in roads if len(r) == 1]
-    near_junction = sum(
-        1 for idx in single_roads
-        if len(successors[idx]) >= 2 or len(predecessors[idx]) >= 2
-        or any(len(successors[p]) >= 2 for p in predecessors[idx])
-        or any(len(predecessors[s]) >= 2 for s in successors[idx])
-    )
-    isolated = len(single_roads) - near_junction
-    print(f"단일 클러스터 Road {len(single_roads)}개 중 교차로 인접 {near_junction}개, "
-          f"고립 {isolated}개")
-
-
-if __name__ == "__main__":
-    main()
+            d = point_to_polyline_dist(centerline, lb)
+            if best_d is None or d.mean() < best_d:
+                best_d, best = d.mean(), d
+        if best is not None:
+            e2e_max.append(best.max())
+            e2e_mean.append(best.mean())
+    return np.array(e2e_max), np.array(e2e_mean)
 ```
 
-실행은 Docker 컨테이너 안에서 했습니다.
+라운드트립 환경(macOS)은 버전 조합이 까다로워 그대로 적어둡니다.
 
 ```bash
-docker run --rm --platform linux/amd64 \
-  -v /path/to/mapping_example.osm:/data/mapping_example.osm:ro \
-  -v /path/to/spike_group_official.py:/app/spike_group_official.py:ro \
-  python:3.11-slim bash -c "pip install --quiet lanelet2 && python3 /app/spike_group_official.py"
+python3 -m venv rt_venv     # python 3.9
+./rt_venv/bin/pip install "numpy<2" opendrive2lanelet "commonroad-io==2020.2"
 ```
 
 ---
 
 ## 지금까지 정한 것, 아직 정하지 않은 것
 
-**정한 것**
-- 조사 결과 반대 방향(Lanelet2 → OpenDRIVE) 변환 도구가 사실상 없다는 것을 확인했습니다.
-- IR은 OpenDRIVE 모델(참조선 + 파라메트릭 단면)을 뼈대로 하고, 지리 정보와 프로버넌스 정보를 분리해서 설계합니다.
-- 정확도 우선순위: 위치 오차보다 곡률 오차를 더 중요하게 다루고, 곡선 타입은 필요한 만큼만 확장합니다.
-- LLM은 정량 지표 계산이 아니라 그 지표와 시각화를 검토하는 역할로 씁니다.
-- 그룹핑(A) → 참조선 피팅(B) → 곡률/폭 추출(C) 세 알고리즘의 함수 시그니처와 IR 데이터 구조를 스켈레톤으로 잡았고, `fit_residual`은 point-to-curve 최근접 거리 기준으로 계산하기로 정했습니다.
-- B, C를 실제 구현으로 채워 Lanelet2 표준 예제 맵으로 스파이크한 결과, Line+Arc만으로 잔차가 대부분 2~3cm, 최악 케이스도 10cm 이내로 나왔습니다 — 이 정도 데이터로는 paramPoly3 없이도 Line+Arc로 충분해 보입니다.
-- A(그룹핑)를 union-find 기반 좌우 클러스터링 + node id 일치 기반 종방향 연결로 구현했고, "단일 클러스터 Road가 81%"라는 결과가 대부분(87%) 교차로 인접 지점이라는 걸 확인해 알고리즘 방향이 맞다는 걸 검증했습니다.
-- 나머지 고립 조각도 대부분(18개 중 10개)이 `bicycle_lane`/`rail`/`crosswalk`/`walkway`처럼 애초에 차량 도로망과 무관한 subtype이라 정상이라는 걸 확인했고, `subtype: road`인데 고립된 8개만 진짜 검토 대상으로 좁혔습니다.
-- 그 8개 중 4개는 왼쪽·오른쪽 경계선을 모두 봐야 연결이 잡히는 케이스였고, 이 조건을 넣었더니 스퓨리어스 매치가 두 배 넘게 급증하는 부작용을 확인했습니다 — node id 정확 일치 방식의 한계를 데이터로 확인했고, A(그룹핑)는 직접 재구현보다 Lanelet2 공식 `RoutingGraph` 라이브러리를 쓰는 쪽으로 방향을 틀기로 했습니다.
-- Docker(`--platform linux/amd64`)로 `lanelet2` 파이썬 바인딩을 설치해 공식 `RoutingGraph`로 최종 검증했습니다. 8개 중 3개는 실제로 연결되어 있었고 5개는 진짜 맵 데이터 결측으로 확인됐습니다. 특히 제가 만든 `either` 휴리스틱이 "회복시켰다"고 판단한 4개 중 하나(45582)가 실제로는 거짓 양성이었다는 것도 확인했습니다.
-- `RoutingGraph`를 A(그룹핑) 전체에 통합해 재구현했고, 분기점·합류점이 64→23으로 줄고 Road당 평균 클러스터 수가 늘어나는 개선을 확인했습니다. 동시에 `Participants.Vehicle` 교통규칙이 자전거·보행자 공유 구간을 표준 차량 경로에서 제외한다는 걸 발견했습니다 — A(그룹핑)는 "합법적 차량 경로"가 아니라 "물리적 도로 연결성" 기준으로 설계해야 한다는 걸 확정했습니다.
-- 신호등·정지선·속도제한 같은 규제 정보가 IR에 아예 없었다는 빈틈을 확인하고, `Signal` 타입(road_id, s, t, kind, applicable_lane_ids)을 IR 스키마에 추가했습니다. 샘플 맵의 `RegulatoryElement` 구조(정지선 `ref_line` + 신호등 형상 `refers` + 참조 lanelet)를 확인해, s/t 위치와 적용 차선을 계산하는 데 필요한 정보가 뭔지 파악했습니다.
-- 지금까지 좌표 변환(`latlon_to_local_xy`)이 z를 아예 버리고 있었다는 걸 확인하고, `Road.elevation_profile`(참조선과 독립적인 z(s) 다항식)을 IR에 추가했습니다. 3DGS 씬은 실제 고저차를 담고 있으므로, 이 누락을 그대로 두면 도로 모델이 씬과 수직으로 어긋납니다. 동시에 `Lane.road_mark`(경계선 solid/dashed 타입)도 추가했습니다.
-- `road_mark` 매핑 규칙을 실제로 짜서 337개 lanelet의 경계선 674개에 돌렸습니다. `virtual`/`curbstone`처럼 애초에 도로 표시가 아닌 물리적 경계와, `zebra_marking`/`zig-zag`처럼 "마킹 패턴" 개념 자체가 안 맞는 요소를 `none`으로 분리 처리하는 규칙을 추가해 **100% 매핑 성공**을 확인했습니다. 이 과정에서 "애매해서 기본값을 적용한 케이스"를 남길 `mark_defaulted_count` 필드도 `RoadProvenance`에 추가했습니다.
-- A(그룹핑)를 "물리적 도로 연결성" 기준으로 재구현했습니다. `Participants.Vehicle` 단독 대신 Vehicle/Bicycle/Pedestrian 세 `RoutingGraph`의 합집합을 쓰는 방식으로, 스퓨리어스 매치를 늘리지 않으면서(분기점 23→25로 거의 그대로) `subtype: road` 고립 클러스터를 21→14개로 줄였습니다. 남은 14개는 완벽히 풀기보다 `RoadProvenance.topology_warnings`에 담아 사람/LLM이 검토하도록 넘기는 것으로 정리했습니다 — 5단계에서 세운 "정량 지표는 코드가, 판단은 LLM/사람이" 원칙과 일관됩니다.
-- B단계의 중심선 계산에 **좌우 경계선 감김 방향이 반대인 경우를 못 맞추는 버그**가 있었다는 걸 발견해 수정했습니다. 이 버그 때문에 7단계 스캔에서 20개 lanelet이 조용히 누락됐었고, 수정 후 재검증한 결과 "Line+Arc로 충분하다"는 결론은 유지되지만 최악 케이스 잔차가 9.9cm → 14.6cm로 올라갔습니다.
-- 이 수정을 반영한 뒤 `Signal.s` 계산(정지선-중심선 교차)을 실제로 스파이크했습니다. 정지선이 lanelet 경계에 정확히 걸쳐 있어 순수 교차 판정만으로는 4/10이 실패했는데, 가장 가까운 끝점으로 폴백하는 로직을 추가해 8/10(80%)까지 해결했습니다. 나머지 2개는 억지로 맞추지 않고 검토 대상으로 남겼습니다.
-- LLM 시각 검증 파이프라인(인터랙티브 웹 뷰어 + Playwright 스크린샷 + Claude 비전 검토)을 실제로 만들어 돌렸습니다. API 호출 없이 스크린샷만 봐도 정량 지표로는 안 잡히는 렌더링 버그 2개(밝은 테마 저대비, 줌인 시 선 두께 왜곡)를 찾아 고쳤고, "전체 뷰가 듬성듬성한 게 버그가 아니라 샘플 맵이 합성 예제 모음이기 때문"이라는 것도 확인했습니다 — 5단계 원칙이 실제로 작동한다는 걸 검증했습니다.
-- A(그룹핑) + B(참조선 피팅) + Signal을 하나의 파이프라인으로 통합했습니다. Road 단위(여러 lanelet을 이어붙인)로 참조선을 피팅해도 lanelet 단위 때와 비슷한 정확도가 유지된다는 걸 확인했고, `applicable_lane_ids`를 원본 lanelet id에서 최종 `(road_id, lane_id)`로 매핑하는 것까지 끝냈습니다.
-- `road_24`의 Signal 실패 원인을 추적해 **클러스터 대표 lanelet을 무작위(`[0]`)로 고르던 버그**를 찾았습니다 — 신호등과 무관한 lanelet이 대표로 뽑혀 Road 중심선이 실제 정지선에서 5m 가까이 벌어졌습니다. 대표를 클러스터 멤버 전체의 평균 중심선으로 바꿔서 **Signal 10개 전부(100%) 해결**했고, 참조선 피팅 잔차도 거의 그대로 유지됨을 확인했습니다.
+**정한 것** — 21단계를 설계 결정만 남기고 추리면 다음과 같습니다. (각 결정의 근거와 실측 수치는 해당 단계 참고.)
 
-**아직 정하지 않은 것**
-- 이 결론들이 실제 회사 Lanelet2 맵(더 복잡한 교차로, 더 큰 실측 노이즈)에서도 유지되는지 검증이 남아 있습니다(회사 맵은 이번엔 접근하지 못해 못 다뤘습니다).
-- `elevation_profile`을 실제로 채우는 고도 피팅 코드(B단계의 참조선 피팅과 대칭적인 z(s) 피팅)는 아직 스파이크하지 않았습니다 — 이번 샘플 맵에는 `ele` 태그가 없어서 실측 맵으로 z 데이터가 어떻게 들어오는지부터 확인이 필요합니다.
-- 회귀 테스트에서 실제로 감내 가능한 위치/곡률 오차 허용치를 아직 수치로 정하지 않았습니다 — 지금 나온 2~15cm가 "충분히 정밀한지"는 3DGS 씬 정합 오차 허용 범위와 대조해봐야 확정됩니다.
-- 실제 `ANTHROPIC_API_KEY`로 `call_llm_review`를 돌려서, 제가 직접 본 것과 API로 호출한 모델의 판단이 일치하는지는 아직 확인하지 않았습니다.
+- **방향**: Lanelet2 → OpenDRIVE 변환 도구는 생태계에 사실상 없어서 직접 만듭니다. 대신 성숙한 반대 방향 도구(opendrive2lanelet)는 라운드트립 검증에 재활용합니다(1단계).
+- **IR**: OpenDRIVE 모델(참조선 + 파라메트릭 단면)을 뼈대로 삼아, 어려운 문제(곡선 피팅)를 Lanelet2 → IR 한쪽 방향에 몰아넣습니다. 지리/토폴로지 정보와 프로버넌스(변환 근거·지표)를 분리해 설계합니다(2~3단계).
+- **정확도**: 위치 잔차(point-to-curve)에 허용치를 두되, 곡률 오차와 이음새 연속성을 별도 지표로 둡니다. 곡선 타입은 Line+Arc부터 시작해 필요한 만큼만 확장합니다(4단계). 샘플 맵 기준 독립 피팅 잔차 mean 2~3cm, 최악 14.6cm — 감김 방향 버그(14단계)와 대표 lanelet 선택 버그(17단계)를 잡은 뒤의 수치입니다.
+- **피팅 방식(B) 확정 — 전역 G1**: 독립 피팅은 이음새 헤딩 꺾임이 평균 8.8°(최대 43°)에 달해 그대로 쓸 수 없고, 탐욕 체인 피팅은 헤딩 오차 전파로 잔차가 폭발합니다(최악 1.4m). 참조선 체인 전체를 OpenDRIVE 네이티브 파라미터화(시작 pose + 세그먼트별 κ·L)로 놓는 전역 최적화로 확정 — 이음새 정확히 0, 잔차 mean 5.6cm/최악 21cm(18단계). 곡률 오차도 처음 실측했고, 기준 정의(스무딩)가 지표의 일부여야 한다는 것을 확인했습니다(19단계).
+- **검증 회로 완성**: 실제 `.xodr`을 익스포트해 TUM opendrive2lanelet으로 되돌리는 라운드트립을 돌렸습니다 — end-to-end 오차가 피팅 잔차와 사실상 동일(직렬화+파싱 오차 mm 수준), 101개 Road 전부 매칭(21단계).
+- **검증 역할 분담**: 정밀 수치는 결정적 코드가 계산하고, LLM은 지표·시각화를 검토하는 리뷰어로 한정합니다(5단계). 이 원칙이 실제로 작동한다는 것도 확인했습니다 — 정량 지표로는 절대 못 잡는 렌더링 버그 2개를 시각 검토로 잡았습니다(15단계).
+- **그룹핑(A)**: node id 매칭 휴리스틱은 실측으로 한계를 확인했고(8~9단계), 공식 `RoutingGraph`를 쓰되 "합법적 차량 경로"가 아니라 "물리적 도로 연결성" 기준(Vehicle/Bicycle/Pedestrian 합집합)으로 재구현했습니다(10, 13단계). 그래도 남는 고립 조각은 알고리즘으로 완벽히 풀기보다 `topology_warnings`로 사람/LLM 검토에 넘깁니다.
+- **규제 정보**: `Signal`(정지선 s + 적용 차선), `road_mark`(경계 태그 매핑 — 샘플 맵 100% 성공), `elevation_profile`(z(s))을 IR에 추가했고, 통합 파이프라인에서 Signal 위치 계산 10/10을 확인했습니다(11~12, 14, 16~17단계).
 
-다음 글에서는 고도 변환 스파이크와 회사 실측 맵으로의 검증을 다룰 예정입니다.
+**아직 정하지 않은 것 / 남은 작업**
+
+- **중심선 재정의 후 전면 재실측** — pairing 편향이 최악 1.5m로 확인됐고(20단계), 지배 요인은 곡률이 아니라 좌우 경계 길이 불일치였습니다. 지금까지의 모든 잔차는 이 편향된 타깃 기준이라, 법선 투영(또는 lanelet2 공식 `centerline()`)으로 교체하고 18~21단계 수치를 다시 내야 합니다. 새로운 최우선 과제입니다('남은 빈틈' 1번).
+- **클로소이드(spiral) 도입 판단** — 전역 G1의 잔차 바닥(~5cm)과 곡률 계단(max 0.45 [1/m])이 회귀 테스트 허용치를 넘는지로 결정합니다('남은 빈틈' 2번).
+- **Junction 생성**(connecting road 지오메트리 + `laneLink`) — 여전히 미착수. 라운드트립도 lanelet 단위 Road로만 검증했습니다('남은 빈틈' 3번).
+- **esmini/CARLA 실기 로딩** — opendrive2lanelet 파싱은 통과했지만(21단계) 시뮬레이터 로딩은 미확인입니다('남은 빈틈' 4번).
+- `superelevation` — '남은 빈틈' 5번.
+- 이 결론들이 실제 회사 Lanelet2 맵(더 복잡한 교차로, 더 큰 실측 노이즈)에서도 유지되는지 검증 — 회사 맵은 이번엔 접근하지 못해 못 다뤘습니다.
+- `elevation_profile`을 실제로 채우는 고도 피팅 스파이크 — 이번 샘플 맵에는 `ele` 태그가 없어서, 실측 맵으로 z 데이터가 어떻게 들어오는지부터 확인이 필요합니다.
+- 회귀 테스트에서 실제로 감내 가능한 위치/곡률 오차 허용치의 수치 확정 — 전역 G1 기준 5~21cm가 "충분히 정밀한지"는 3DGS 씬 정합 오차 허용 범위와 대조해봐야 합니다.
+- 실제 `ANTHROPIC_API_KEY`로 `call_llm_review`를 돌려서, 사람이 직접 본 것과 API로 호출한 모델의 판단이 일치하는지 확인.
+
+다음 글에서는 '남은 빈틈'의 1번 — 중심선 재정의(법선 투영)와 18~21단계 전면 재실측 — 그리고 Junction 생성 스파이크를 다룰 예정입니다.
 
 ---
 
