@@ -1,7 +1,7 @@
 ---
 title: "Lanelet2 → OpenDRIVE 변환기 설계하기: IR과 LLM 검증"
 date: 2026-07-18T00:00:00+09:00
-draft: false
+draft: true
 tags: ["자율주행", "HD맵", "OpenDRIVE", "Lanelet2", "IR", "DSL", "LLM", "회귀테스트"]
 categories: ["autonomous"]
 description: "실차용 Lanelet2 맵을 시뮬레이션용 OpenDRIVE로 변환하기 위한 중간 표현(IR)을 설계하고, LLM을 변환 검증에 활용하는 파이프라인을 단계별로 정리합니다."
@@ -2697,19 +2697,154 @@ def fit_reference_line_jerk_penalized(left, right, jerk_weight=0.0, joint_weight
 
 ---
 
+## 29단계: Junction 생성 첫 스파이크
+
+허용치 확정은 도메인 판단이 필요해 제가 못 하는 항목이라, '남은 빈틈' 2번(Junction 생성)으로 넘어갔습니다. 지금까지 중 가장 큰 새 서브시스템이라, 이번엔 전체 맵을 다 처리하지 않고 **대표 교차로 하나로 파이프라인이 실제로 작동하는지**만 확인하는 스코프로 잡았습니다.
+
+### A(그룹핑)로 교차로 후보 찾기
+
+13단계 코드(Vehicle/Bicycle/Pedestrian 합집합 `RoutingGraph`)를 그대로 재사용해서, `successors≥2` 또는 `predecessors≥2`인 클러스터를 교차로 후보로 뽑았습니다. Docker(`--platform linux/amd64`, `pip install lanelet2`)에서 실행했는데, `lanelet2`의 `AttributeMap`이 파이썬 dict가 아니라서 `.attributes.get("subtype")`이 `AttributeError`를 내는 걸 `"subtype" in ll.attributes` 방식으로 고쳐야 했습니다.
+
+```
+교차로 후보 클러스터 37개
+가장 복잡한 후보: incoming=6, outgoing=4
+```
+
+이 중 가장 복잡한 교차로(진입 6개, 진출 4개 lanelet)를 데모 대상으로 골랐습니다.
+
+### connecting road 지오메트리: 클로소이드 최적화 대신 Hermite 닫힌 형태
+
+24~28단계에서 만든 클로소이드 도구는 "기존 경계에 잘 맞도록" 반복 최적화하는 방식인데, connecting road는 애초에 맞출 기존 경계가 없습니다(새로 만드는 도로라서). 대신 OpenDRIVE가 네이티브로 지원하는 `paramPoly3`(3차 Hermite)를 썼습니다 — 시작/끝 pose(위치+헤딩)를 항상 정확히 만족하는 닫힌 형태 해라서, 최적화 수렴 실패 위험이 아예 없습니다.
+
+```python
+def hermite_connecting_road(p0, h0, p1, h1, n_samples=50):
+    """P0(위치)+h0(헤딩) -> P1+h1을 잇는 3차 Hermite 곡선.
+    탄젠트 크기는 두 점 사이 직선 거리의 1/3로 잡는다(표준 관례).
+
+    OpenDRIVE의 <geometry>는 (x, y, hdg)로 로컬 좌표계 원점+방향을 고정하고,
+    <paramPoly3>의 (u, v)는 그 로컬 좌표계 기준이다 — world 좌표 그대로 쓰면
+    안 되고, p0를 원점으로 -h0만큼 회전시켜 로컬 프레임으로 옮긴 뒤 그 프레임에서
+    Hermite 계수를 뽑아야 한다."""
+    p0, p1 = np.array(p0), np.array(p1)
+    chord = np.linalg.norm(p1 - p0)
+    scale = max(chord / 3.0, 0.5)
+    t0 = np.array([math.cos(h0), math.sin(h0)]) * scale
+    t1 = np.array([math.cos(h1), math.sin(h1)]) * scale
+
+    t = np.linspace(0, 1, n_samples)
+    h00 = 2*t**3 - 3*t**2 + 1
+    h10 = t**3 - 2*t**2 + t
+    h01 = -2*t**3 + 3*t**2
+    h11 = t**3 - t**2
+    pts = (h00[:, None]*p0 + h10[:, None]*t0 + h01[:, None]*p1 + h11[:, None]*t1)
+    length = float(np.sum(np.linalg.norm(np.diff(pts, axis=0), axis=1)))
+
+    # ---- 로컬 프레임(원점=p0, u축=h0 방향)으로 좌표 변환 ----
+    c, s = math.cos(-h0), math.sin(-h0)
+    R = np.array([[c, -s], [s, c]])
+    p1_local = R @ (p1 - p0)
+    t0_local, t1_local = R @ t0, R @ t1
+
+    coeffs_u = {"a": 0.0, "b": float(t0_local[0]),
+                "c": float(3*p1_local[0] - 2*t0_local[0] - t1_local[0]),
+                "d": float(2*(-p1_local[0]) + t0_local[0] + t1_local[0])}
+    coeffs_v = {"a": 0.0, "b": float(t0_local[1]),
+                "c": float(3*p1_local[1] - 2*t0_local[1] - t1_local[1]),
+                "d": float(2*(-p1_local[1]) + t0_local[1] + t1_local[1])}
+    return pts, length, coeffs_u, coeffs_v
+```
+
+처음엔 `paramPoly3`의 `aU/bU/cU/dU`에 검증 안 된 더미값(`aU=0, bU=1, ...`)을 그대로 박아넣는 버그가 있었습니다 — world 좌표 Hermite 계수를 그대로 쓰면 안 되고, 로컬 프레임(원점=시작점, u축=시작 헤딩 방향)으로 회전 변환해야 한다는 걸 놓쳤습니다. 로컬 프레임 계수를 다시 world로 복원해서 원래 Hermite 곡선과 일치하는지 왕복 검증을 추가해 확인했습니다(오차 < 1e-6m).
+
+### lane 짝짓기: 태그가 없으면 곡률로 판단
+
+진입 lanelet 하나를 어느 진출 lanelet에 연결할지 정하는 게 laneLink입니다. 처음엔 "위치가 가장 가까운 진출 lanelet"으로 짝지었는데, 결과 connecting road 중 일부의 최소 회전 반경이 0.4m까지 나왔습니다 — 실제 차량이 돌 수 없는 반경입니다. Autoware 샘플맵에는 `turn_direction`(straight/right/left) 태그가 있어서 이걸로 짝지을 수 있는데, **이 맵(Karlsruhe)에는 이 태그 자체가 없습니다.**
+
+대신 "이었을 때 나오는 Hermite 곡선의 최대곡률이 가장 작은(가장 매끄러운) 진출 lanelet"을 고르는 물리적 휴리스틱으로 바꿨습니다 — 급하게 꺾어야 하는 연결보다 부드럽게 이어지는 연결이 실제 도로 연결일 가능성이 높다는 가정입니다.
+
+| | 최근접 위치 매칭 | 최소곡률 매칭 |
+|---|---|---|
+| connecting road 최대곡률 | 0.75~2.50 [1/m] | **0.38~1.12 [1/m]** |
+| 최소 회전 반경 | 0.40m | **0.90m** |
+
+반경이 0.4m→0.9m로 개선됐지만, 승용차의 통상적인 최소 회전 반경(5~6m)에는 여전히 못 미칩니다 — 태그 없이 순수 지오메트리 휴리스틱만으로는 완전히 타당한 짝짓기를 보장 못 한다는 뜻입니다. 8~13단계에서 A(그룹핑) 때 겪었던 것과 같은 패턴입니다: 완벽한 알고리즘 하나로 풀기보다, 곡률이 비정상적으로 큰 연결은 `topology_warnings`로 남겨 사람/LLM 검토로 넘기는 게 맞는 방향으로 보입니다.
+
+```
+connecting road 6개 생성 (진입 6, 진출 4 중 매칭)
+길이: min=7.74 max=13.64m
+최대곡률: min=0.3782 max=1.1161 [1/m] (최소 반경 0.90m)
+```
+
+이번 스파이크는 **파이프라인이 끝에서 끝까지 작동한다는 걸 보여주는 데까지**입니다 — 교차로 후보 탐지 → connecting road 지오메트리(검증된 닫힌 형태) → laneLink 매핑 → 최소 `<junction>`/`<connection>` XML까지 한 교차로에 대해 확인했습니다. 아직 안 한 것: 37개 후보 전체로 확장, `topology_warnings` 임계치 설계(곡률이 얼마 이상이면 경고로 남길지), opendrive2lanelet 라운드트립 검증(21단계처럼).
+
+---
+
+## 30단계: Junction 37개 전체로 확장 — heading 추정 버그와 스퓨리어스 매치 재발견
+
+29단계의 대표 교차로 1개를 37개 전체(connecting road 96개)로 확장했습니다. 처음 돌린 결과가 심각했습니다:
+
+```
+회전 반경: mean=0.90m p50=0.56m p90=2.02m min=0.00m max=9.46m
+물리적 임계치(반경 < 5m) 플래그: 95/96개 (99.0%)
+```
+
+거의 전부가 승용차 최소 회전반경(~5m)보다 좁았습니다. 최악 케이스를 뜯어보니 원인이 나왔습니다 — lanelet 45312의 끝점과 45314의 시작점이 **좌표가 완전히 같은데** 추정된 헤딩만 159도 차이가 났습니다. 두 lanelet은 원래 Lanelet2 토폴로지에서 정상적으로 이어진 구간인데, 짧은 lanelet의 헤딩을 끝쪽 2~3개 점만으로 추정하다 보니(29단계 `lanelet_end_pose`) 노이즈에 크게 흔들린 겁니다. 최악 9개를 전부 조사했더니 헤딩 차이가 71~245도로 제각각이라, 실제 회전각이 아니라 추정 오류였습니다.
+
+헤딩 추정을 끝쪽 최대 6개 점의 SVD 직선 피팅(주축 방향)으로 바꿨습니다 — 2점 유한차분보다 노이즈에 덜 민감합니다.
+
+```python
+def lanelet_end_pose(ll, is_start: bool, n_fit_points: int = 6):
+    """끝쪽 최대 n_fit_points개 점을 직선 피팅해서 헤딩을 잡는다."""
+    ...
+    k = min(n_fit_points, n)
+    chunk = center[:k] if is_start else center[-k:]
+    cx = sum(p[0] for p in chunk) / len(chunk)
+    cy = sum(p[1] for p in chunk) / len(chunk)
+    sxx = sum((p[0]-cx)**2 for p in chunk)
+    syy = sum((p[1]-cy)**2 for p in chunk)
+    sxy = sum((p[0]-cx)*(p[1]-cy) for p in chunk)
+    theta = 0.5 * math.atan2(2*sxy, sxx - syy)  # 주축 각도
+    direction = (math.cos(theta), math.sin(theta))
+    chord = (chunk[-1][0]-chunk[0][0], chunk[-1][1]-chunk[0][1])
+    if direction[0]*chord[0] + direction[1]*chord[1] < 0:   # 진행 방향 부호 정렬
+        direction = (-direction[0], -direction[1])
+    heading = math.atan2(direction[1], direction[0])
+```
+
+재실행 결과:
+
+```
+회전 반경: mean=52088m(직선 케이스가 평균을 왜곡) p50=1.65m p90=18.02m min=0.01m max=1,000,000m
+물리적 임계치(반경 < 5m) 플래그: 75/96개 (78.1%)
+```
+
+중앙값이 0.56m → 1.65m로 3배 개선됐습니다. 하지만 78%가 여전히 임계치 아래였습니다. 최악 10개를 다시 조사했더니 이번엔 패턴이 달랐습니다 — **대부분 진출 후보가 1개뿐**이었습니다(휴리스틱이 여러 후보 중 나쁜 걸 고른 게 아니라, 애초에 선택지가 없었다는 뜻). 그런데 그중 3개는 위치가 완전히 같은데도 헤딩차 125~133도가 남아 있었습니다 — 헤딩 추정을 6점 피팅으로 고쳤는데도 안 없어진 걸 보면, 이건 노이즈가 아니라 **13단계에서 이미 봤던 것과 같은 종류의 그룹핑 스퓨리어스 매치**로 보입니다(Vehicle+Bicycle+Pedestrian 합집합 `RoutingGraph`가 만든 물리적으로 부자연스러운 연결).
+
+**결론: 완벽히 풀기보다 `topology_warnings`로 넘기는 게 맞는 지점입니다** — 8~13단계에서 A(그룹핑) 스퓨리어스 매치를 다룰 때 이미 세운 원칙과 같습니다. 최소 `<junction>` XML에 회전반경 5m 미만인 연결(75개)을 주석으로 표시해뒀습니다.
+
+```
+교차로 37개, connecting road 96개 생성 완료
+all_connections.json 저장 완료 (96개, topology_warning=75개)
+junction_all.xodr 저장 완료 (96개 connection, 75개 경고 주석)
+```
+
+이번 단계로 확인한 것: (1) 헤딩 추정 방법 하나가 회전반경 중앙값을 3배 바꿀 만큼 결과에 큰 영향을 준다는 것, (2) 그래도 남는 문제의 상당수는 알고리즘 개선이 아니라 A(그룹핑) 자체의 한계(13단계)로 되돌아간다는 것. 78%라는 플래그 비율 자체는 임계치(5m)가 너무 보수적일 가능성도 있어서, 실제 규칙은 26~29단계와 마찬가지로 아직 정해지지 않은 회귀 테스트 허용치와 함께 정해야 합니다.
+
+---
+
 ## 남은 빈틈: 다음 스파이크의 우선순위
 
-18~28단계에서 이 목록의 열 항목 — 세그먼트 연속성, 곡률 오차, pairing 편향, xodr 출력 + 라운드트립 검증, 고도 피팅, 중심선 재정의, 클로소이드 도입 판단, superelevation, 클로소이드 전환 길이 자유화, jerk 페널티 통합 — 을 전부 스파이크했습니다. jerk 페널티 통합(28단계)으로 "잔차-승차감을 조절하는 손잡이"는 확보했지만, 그 손잡이를 어디로 맞출지는 아직 정해지지 않은 회귀 테스트 허용치에 달려 있어 완전히 닫히진 않았습니다. 갱신된 목록을 중요한 순서대로 다시 정리합니다.
+18~30단계에서 이 목록의 열두 항목 — 세그먼트 연속성, 곡률 오차, pairing 편향, xodr 출력 + 라운드트립 검증, 고도 피팅, 중심선 재정의, 클로소이드 도입 판단, superelevation, 클로소이드 전환 길이 자유화, jerk 페널티 통합, Junction 생성, Junction 37개 확장 — 을 전부 스파이크했습니다. Junction은 37개 전체로 확장하고 heading 추정 버그까지 잡았지만, 남은 78% 플래그 중 상당수가 그룹핑 자체의 스퓨리어스 매치로 되돌아가는 걸 확인했습니다. 갱신된 목록을 중요한 순서대로 다시 정리합니다.
 
-**1. 회귀 테스트 허용치 확정 — 최우선으로 격상.** 28단계에서 jerk_weight를 스윕하면 잔차와 jerk가 정확히 트레이드오프한다는 걸 확인했지만, "몇 %의 잔차를 희생해서 몇 m/s³까지 낮출 것인가"는 3DGS 씬 정합 오차 허용 범위와 회귀 테스트가 감내할 승차감 기준이 있어야 정할 수 있습니다. 지금까지 계속 미뤄왔던 이 항목이, 이제 클로소이드 알고리즘의 유일한 남은 자유도가 됐습니다.
+**1. 회귀 테스트 허용치 확정 — 여전히 최우선.** 28단계 클로소이드의 jerk_weight도, 30단계 Junction의 `topology_warnings` 임계치(회전반경 5m라는 값이 실제로 적정한지)도 결국 3DGS 씬 정합 오차 허용 범위와 회귀 테스트가 감내할 승차감 기준 없이는 못 정합니다. 세 번째로 같은 지점에서 막혔습니다.
 
-**2. Junction 생성.** 실제 OpenDRIVE `<junction>` 은 여전히 스키마 한 줄 외에 아무것도 없습니다. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이라, **고도 이음새(경사 불연속) 측정**도 이 작업과 함께 처리할 수 있습니다 — 26단계는 lanelet 단위로만 쟀고, Road 체인 간 이음새는 여전히 미측정입니다.
+**2. A(그룹핑) 스퓨리어스 매치 재점검.** 30단계에서 heading 추정을 고쳐도 안 없어지는 문제(위치가 같은데 헤딩만 130도 차이)가 남았는데, 이건 13단계에서 이미 발견했던 "Vehicle+Bicycle+Pedestrian 합집합 `RoutingGraph`가 만드는 물리적으로 부자연스러운 연결"과 같은 패턴으로 보입니다. Junction 품질을 더 올리려면 여기로 돌아가야 합니다. **고도 이음새(경사 불연속) 측정**도 이 인프라 위에서 함께 처리할 수 있습니다.
 
-**3. esmini/CARLA 실기 로딩.** opendrive2lanelet 파싱은 통과했지만, 시뮬레이터가 이 xodr을 실제로 로딩·주행하는지는 별개 문제입니다. 24단계에서 확정된 새 중심선 기준으로 xodr을 다시 익스포트해서 라운드트립도 재검증해야 하고, 이제 `superelevation`(26단계)까지 반영해서 내보내야 합니다.
+**3. esmini/CARLA 실기 로딩 + Junction 라운드트립 검증.** opendrive2lanelet 파싱은 통과했지만(21단계), 시뮬레이터가 이 xodr을 실제로 로딩·주행하는지는 별개 문제입니다. 30단계의 `<junction>`/`paramPoly3` connecting road도 21단계처럼 라운드트립 검증을 거친 적이 없습니다.
 
-**4. 회사 실측 맵 검증.** 두 공개 맵에서도 결론이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 24~28단계 결론이 회사 맵에서도 유지되는지가 특히 중요합니다.
+**4. 회사 실측 맵 검증.** 두 공개 맵에서도 결론이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 29단계에서 확인했듯 `turn_direction` 태그 유무가 맵마다 다른데, 회사 맵에 이 태그가 있으면 laneLink 짝짓기가 지금의 지오메트리 휴리스틱보다 훨씬 신뢰도 높아질 여지가 있습니다.
 
-우선순위를 이렇게 두는 이유 — 28단계에서 클로소이드의 기술적 메커니즘(잔차 vs jerk 조절)은 완성됐으니, 남은 건 순수하게 1(허용치 확정)이라는 도메인 판단뿐입니다. 이건 더 이상 스파이크로 풀 수 있는 문제가 아니라 3DGS 정합 예산과 회귀 테스트 목적에 대한 결정이 필요합니다. 2(Junction)가 그다음인 이유는 A(그룹핑) 작업이 고도 이음새 측정과 4의 회사 맵 검증 모두의 선행 조건이기 때문입니다.
+우선순위를 이렇게 두는 이유 — 1(허용치)은 클로소이드와 Junction 양쪽의 임계치를 동시에 좌우하는 공통 병목이라 여전히 최상단입니다. 2(그룹핑 재점검)는 30단계에서 Junction 품질의 병목이 다시 A(그룹핑)로 좁혀졌으니 그다음입니다.
 
 ---
 
@@ -3729,11 +3864,68 @@ def scan_generalization(osm_path, label, n_lanelets=15):
     # ... mean/p95/max 집계, jerk = v^3 * step / L_opt 계산은 본문 표 참고
 ```
 
+### 29단계: Junction 후보 탐지 (`find_junctions.py`, Docker + `lanelet2` 필요)
+
+`hermite_connecting_road`는 본문에 실었습니다. 그룹핑 함수(`UnionFind`, `build_graphs`, `union_following`, `union_side_neighbor`, `build_side_clusters`, `build_cluster_graph`)는 13단계 코드와 동일합니다 — `lanelet2`의 `AttributeMap`이 dict가 아니라 `.get()`을 못 써서 `"subtype" in ll.attributes` 방식으로 바꾼 것만 다릅니다.
+
+```python
+def lanelet_end_pose(ll, is_start: bool):
+    """lanelet 중심선의 시작/끝 pose(x, y, heading)를 근사한다."""
+    left = [(p.x, p.y) for p in ll.leftBound]
+    right = [(p.x, p.y) for p in ll.rightBound]
+    n = min(len(left), len(right))
+    center = [((left[i][0] + right[min(i, len(right)-1)][0]) / 2,
+               (left[i][1] + right[min(i, len(right)-1)][1]) / 2) for i in range(n)]
+    if is_start:
+        p1, p2 = center[min(1, n-1)], center[min(2, n-1)]
+    else:
+        p1, p2 = center[-2] if n >= 2 else center[0], center[-1]
+    heading = math.atan2(p2[1]-p1[1], p2[0]-p1[0])
+    pos = center[0] if is_start else center[-1]
+    return {"x": pos[0], "y": pos[1], "heading": heading}
+
+
+def main():
+    origin = lanelet2.io.Origin(49.0, 8.4)
+    lanelet_map = lanelet2.io.load("/data/mapping_example.osm", UtmProjector(origin))
+    graphs = build_graphs(lanelet_map)
+    clusters = build_side_clusters(lanelet_map, graphs)
+    successors, predecessors = build_cluster_graph(lanelet_map, graphs, clusters)
+    ll_by_id = {ll.id: ll for ll in lanelet_map.laneletLayer}
+
+    junctions = []
+    for idx in range(len(clusters)):
+        if len(successors[idx]) >= 2 or len(predecessors[idx]) >= 2:
+            # subtype=road인 진입/진출 lanelet만 모아 pose를 뽑고 junctions.json으로 낸다
+            # (본문 결과: 후보 37개, 최다 진입/진출은 6/4)
+            ...
+```
+
+라운드트립 검증(23단계 패턴 재사용): 로컬 프레임 `paramPoly3` 계수를 다시 world로 복원해 원본 Hermite 곡선과 비교.
+
+```python
+t_chk = np.linspace(0, 1, 50)
+u_chk = cx["a"] + cx["b"]*t_chk + cx["c"]*t_chk**2 + cx["d"]*t_chk**3
+v_chk = cy["a"] + cy["b"]*t_chk + cy["c"]*t_chk**2 + cy["d"]*t_chk**3
+c_, s_ = math.cos(h0), math.sin(h0)
+R_back = np.array([[c_, -s_], [s_, c_]])
+world_chk = (R_back @ np.stack([u_chk, v_chk])).T + np.array(p0)
+roundtrip_err = float(np.max(np.linalg.norm(world_chk - pts, axis=1)))  # < 1e-6m 확인됨
+```
+
+```bash
+docker run --rm --platform linux/amd64 \
+  -v "$(pwd)/mapping_example.osm:/data/mapping_example.osm:ro" \
+  -v "$(pwd)/find_junctions.py:/app/find_junctions.py:ro" \
+  -v "$(pwd):/data" \
+  python:3.11-slim bash -c "pip install --quiet lanelet2 && python3 /app/find_junctions.py"
+```
+
 ---
 
 ## 지금까지 정한 것, 아직 정하지 않은 것
 
-**정한 것** — 28단계를 설계 결정만 남기고 추리면 다음과 같습니다. (각 결정의 근거와 실측 수치는 해당 단계 참고.)
+**정한 것** — 30단계를 설계 결정만 남기고 추리면 다음과 같습니다. (각 결정의 근거와 실측 수치는 해당 단계 참고.)
 
 - **방향**: Lanelet2 → OpenDRIVE 변환 도구는 생태계에 사실상 없어서 직접 만듭니다. 대신 성숙한 반대 방향 도구(opendrive2lanelet)는 라운드트립 검증에 재활용합니다(1단계).
 - **IR**: OpenDRIVE 모델(참조선 + 파라메트릭 단면)을 뼈대로 삼아, 어려운 문제(곡선 피팅)를 Lanelet2 → IR 한쪽 방향에 몰아넣습니다. 지리/토폴로지 정보와 프로버넌스(변환 근거·지표)를 분리해 설계합니다(2~3단계).
@@ -3749,16 +3941,18 @@ def scan_generalization(osm_path, label, n_lanelets=15):
 - **`superelevation`(횡단 경사) 추가**: 22단계 고도 피팅 인프라를 재사용해 `cross_slope(s) = (z_left - z_right) / w(s)`를 처음 측정했습니다 — Autoware 샘플맵 기준 lanelet당 최대 횡단 경사 mean 2.5%, 최악 4.6%, **lanelet의 87.7%가 실제 도로 설계 슈퍼일리베이션 범위(2~8%)에 들어갔습니다.** `elevation_profile`과 같은 3차 다항식으로 잘 피팅되고(잔차 mean 0.47%), IR에 `Road.superelevation` 필드로 추가했습니다(26단계).
 - **클로소이드 전환 길이 "잔차 최소화"는 틀린 목적함수였다**: 25단계의 고정 길이(3m) 삽입 실패를 고쳐보려고 전환 길이를 자유 변수로 최적화했더니, 대칭 잔차는 확실히 잡혔습니다(최악 케이스 1.23m→0.014m, 두 맵 30개 표본에서 자유 L이 고정 L보다 나쁜 경우 0건). 하지만 최적 길이가 평균 0.28m로 지나치게 짧아서 jerk(횡가속도 변화율)로 환산해보니 **30개 표본 전부가 편안한 승차감 한계(4 m/s³)를 벗어났습니다**(v=8m/s 기준 mean 450~715 m/s³) — 경계에 딱 맞는 최단 경로를 찾는 것과 곡률을 부드럽게 바꾸는 것은 서로 경쟁하는 목적함수였습니다. 사후 패치가 아니라 24단계 전역 최적화 자체에 jerk 페널티를 넣어야 한다는 게 새 결론입니다(27단계).
 - **jerk 페널티를 전역 최적화에 통합, 트레이드오프 손잡이 확보**: 모든 세그먼트를 일반화된 클로소이드(κ_start, κ_end, L)로 표현하고 목적함수에 이음새 페널티 + jerk 페널티를 추가했습니다. `jerk_weight`를 스윕하면 잔차와 jerk가 정확히 트레이드오프하는 걸 확인했고(최악 케이스 기준 jerk 2,876→167 m/s³, 17배 감소), 일반화 검증(가중치 0.05, 표본 20개)에서도 잔차 +10~15% 비용으로 jerk가 2~7배 줄었습니다. 다만 가장 극단적인 케이스(반경 0.76m 코너)는 어떤 가중치로도 편안한 한계를 못 맞췄는데, 역산해보면 필요한 전환 길이(167m)가 이 지도의 어떤 lanelet보다 길어서 — 이건 알고리즘 한계가 아니라 애초에 저속 구간(진입로·주차장 모서리)일 가능성이 높다는 것을 정량적으로 확인했습니다. **메커니즘은 완성됐지만, 정확한 운용점(가중치)은 회귀 테스트 허용치 없이는 못 정합니다**(28단계).
+- **Junction 생성 파이프라인 첫 검증**: A(그룹핑)로 교차로 후보 37개를 찾고(13단계 코드 재사용), 가장 복잡한 것(진입 6/진출 4)에 대해 connecting road를 실제로 만들었습니다. 24~28단계의 반복 최적화 클로소이드 대신, 맞출 기존 경계가 없는 이 문제에는 시작/끝 pose를 항상 정확히 만족하는 닫힌 형태(Hermite/`paramPoly3`)가 더 적합했습니다 — world 좌표를 그대로 XML에 넣는 버그를 로컬 프레임 변환 + 왕복 검증(오차 <1e-6m)으로 잡았습니다. laneLink 짝짓기는 `turn_direction` 태그가 이 맵엔 없어서 "가장 매끄러운(최소곡률) 진출 lanelet"으로 정했는데, 최근접 위치 매칭보다는 나아졌지만(최소 회전반경 0.4m→0.9m) 여전히 승용차 최소 회전반경(5~6m)엔 못 미칩니다. **파이프라인이 끝에서 끝까지 작동한다는 것까지 확인했고, 37개 전체로 확장하는 건 남은 작업입니다**(29단계).
+- **Junction 37개 전체 확장, heading 추정 버그 발견 — 남은 문제는 다시 A(그룹핑)로**: 96개 connecting road로 확장했더니 99%가 승용차 최소 회전반경(5m) 미만으로 나와서 조사했더니, 짧은 lanelet의 heading을 2~3점 유한차분으로 추정하다 보니 위치가 같은 지점에서도 헤딩이 최대 245도까지 어긋나는 버그였습니다. 끝쪽 6점 SVD 직선 피팅으로 바꿔서 회전반경 중앙값이 0.56m→1.65m로 3배 개선됐지만, 여전히 78%가 임계치 아래였습니다. 최악 케이스를 다시 조사하니 대부분 "진출 후보가 1개뿐"이라 휴리스틱이 고를 여지가 없었고, 그중 위치가 같은데 헤딩만 130도 어긋나는 3개는 heading 추정을 고쳐도 안 없어져서 — 13단계에서 이미 봤던 그룹핑 스퓨리어스 매치로 재확인됩니다. 완벽히 풀기보다 `topology_warnings`로 넘기는 방향으로 정리했습니다(30단계).
 
 **아직 정하지 않은 것 / 남은 작업**
 
-- **회귀 테스트 허용치 확정 — 새로운 최우선.** 28단계에서 클로소이드 알고리즘의 마지막 자유도(jerk_weight)까지 확보했지만, 이걸 어디로 맞출지는 3DGS 씬 정합 오차 허용 범위와 회귀 테스트가 감내할 승차감 기준이 있어야 정할 수 있습니다. 더 이상 스파이크로 풀 수 있는 기술 문제가 아니라 도메인 판단이 필요한 지점입니다('남은 빈틈' 1번).
-- **Junction 생성**(connecting road 지오메트리 + `laneLink`) — 여전히 미착수. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이고, **고도 이음새**(lanelet 간 경사 불연속, 26단계는 lanelet 단위로만 재서 미측정)도 여기 얹을 수 있습니다('남은 빈틈' 2번).
-- **esmini/CARLA 실기 로딩 + 라운드트립 재검증** — opendrive2lanelet 파싱은 통과했지만(21단계) 시뮬레이터 로딩은 미확인이고, 21단계의 xodr 익스포트도 24단계 새 중심선과 26단계 superelevation, 28단계 jerk-penalized 클로소이드를 반영해 다시 만들어 재검증해야 합니다('남은 빈틈' 3번).
-- **회사 실측 맵 검증** — 두 공개 맵에서도 pairing 편향의 지배 요인이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 24~28단계 결론이 회사 맵에서도 유지되는지가 특히 중요합니다('남은 빈틈' 4번).
+- **회귀 테스트 허용치 확정 — 여전히 최우선.** 클로소이드(28단계)의 jerk_weight도, Junction의 `topology_warnings` 임계치(30단계, 회전반경 5m가 적정한지)도 결국 3DGS 씬 정합 오차 허용 범위와 회귀 테스트가 감내할 승차감 기준 없이는 못 정합니다. 세 번째로 같은 지점에서 막혔습니다('남은 빈틈' 1번).
+- **A(그룹핑) 스퓨리어스 매치 재점검** — 30단계에서 Junction 품질의 병목이 heading 추정이 아니라 13단계의 그룹핑 자체로 되돌아간다는 게 재확인됐습니다. **고도 이음새**(lanelet 간 경사 불연속, 26단계는 lanelet 단위로만 재서 미측정)도 이 인프라 위에서 함께 처리할 수 있습니다('남은 빈틈' 2번).
+- **esmini/CARLA 실기 로딩 + Junction 라운드트립 재검증** — opendrive2lanelet 파싱은 통과했지만(21단계) 시뮬레이터 로딩은 미확인이고, 21단계의 xodr 익스포트도 24단계 새 중심선·26단계 superelevation·28단계 jerk-penalized 클로소이드·29~30단계 Junction을 반영해 다시 만들어 재검증해야 합니다('남은 빈틈' 3번).
+- **회사 실측 맵 검증** — 두 공개 맵에서도 pairing 편향의 지배 요인이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 29단계에서 `turn_direction` 태그 유무가 맵마다 다르다는 걸 확인했으니, 회사 맵에 이 태그가 있는지부터 확인이 필요합니다('남은 빈틈' 4번).
 - `call_llm_review`를 실제 LLM으로 돌려서 사람이 직접 본 판단과 일치하는지 확인하는 건 지금 범위에서 제외합니다 — 사내 GPU에 vLLM을 띄운 뒤에 그쪽 환경에서 진행할 계획입니다.
 
-다음 글에서는 '남은 빈틈'의 2번(A(그룹핑) 기반 Junction 생성 스파이크)을 다룰 예정입니다 — 1번(허용치 확정)은 스파이크가 아니라 도메인 판단이 필요한 항목이라 별도로 결정이 필요합니다.
+다음 글에서는 '남은 빈틈'의 2번(A(그룹핑) 스퓨리어스 매치 재점검 + 고도 이음새)을 다룰 예정입니다 — 1번(허용치 확정)은 스파이크가 아니라 도메인 판단이 필요한 항목이라 별도로 결정이 필요합니다.
 
 ---
 
