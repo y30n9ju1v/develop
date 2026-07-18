@@ -9,3 +9,4 @@ title: "Books"
 - **[함수형 프로그래밍으로 보는 비동기의 근간](fp-backbone-of-async/)** — Python의 async/await, Monad, Functor, Applicative, Observable이 사실은 함수형 프로그래밍의 오래된 개념 위에 서 있다는 것을 따라가는 책
 - **[SICP in Lean 4](sicp-in-lean4/)** — SICP의 아이디어를 챕터·절 순서대로 따라가며, 모든 Scheme 코드를 Lean 4로 다시 작성해보는 책
 - **[Category Theory for Programmers](category-theory-for-programmers/)** — Bartosz Milewski가 프로그래머를 위해 쓴 범주론 입문서를 장별로 옮긴 한국어 번역
+- **[Lanelet2를 OpenDRIVE로](lanelet2-to-opendrive/)** — 실차 자율주행 스택의 Lanelet2 HD맵을 3DGS 시뮬레이션 회귀 테스트용 OpenDRIVE로 변환하는 파이프라인을, IR 설계부터 참조선 피팅·중심선·클로소이드·그룹핑·교차로·검증까지 순서대로 설명하는 책

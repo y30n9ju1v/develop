@@ -1,0 +1,121 @@
+---
+title: "9장: 고도, 횡단 경사, 신호등, 차선 마킹"
+date: 2026-07-18T00:00:00+09:00
+draft: true
+tags: ["자율주행", "HD맵", "OpenDRIVE", "book"]
+categories: ["books"]
+description: "참조선 외에 필요한 나머지 요소 — 고도, 횡단 경사, 신호등 위치, 차선 마킹 — 를 실측 데이터로 채우는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-junctions/[8장: 교차로] · 다음: link:../10-validation-and-whats-left/[10장: 검증과 남은 과제]_
+
+'''
+
+지금까지는 참조선의 평면(x, y) 형상에만 집중했습니다. 이 장에서는 나머지 — 고도, 횡단 경사, 신호등, 차선 마킹 — 를 다룹니다. 이 네 가지는 처음부터 계획했던 게 아니라, 파이프라인을 만들다가 **빠져 있다는 걸 뒤늦게 발견한** 것들이라는 공통점이 있습니다. 그 발견 과정 자체가 배울 점입니다.
+
+== z가 어디로 갔지?
+
+1장의 좌표 변환 코드를 다시 봅시다.
+
+[source,python]
+----
+def latlon_to_local_xy(nodes, ref_lat, ref_lon):
+    R = 6378137.0
+    xy = {}
+    for nid, (lat, lon) in nodes.items():
+        dlat, dlon = np.radians(lat - ref_lat), np.radians(lon - ref_lon)
+        xy[nid] = np.array([dlon * R * np.cos(np.radians(ref_lat)), dlat * R])
+    return xy
+----
+
+이 함수는 위도·경도만 평면 좌표로 바꾸고 **고도(z)는 아예 안 씁니다.** Lanelet2 노드에 `ele` 태그가 있는데도 말이죠. 3DGS 씬은 실측 좌표계 그대로 고저차를 담고 있으니, 이 누락을 그대로 두면 도로 모델이 씬과 수직으로 어긋나게 됩니다.
+
+수정은 z를 좌표 변환 단계에서부터 같이 뽑는 겁니다. 참조선(x, y)의 호길이 `s`를 그대로 재사용해서, `z(s)`를 참조선과 **별도의 레이어**로 관리합니다 — 2장에서 본 `elevationProfile`의 IR판입니다.
+
+[source,python]
+----
+def fit_elevation_cubic(s, z):
+    """z(s) = a + b*ds + c*ds^2 + d*ds^3"""
+    ds = s - s[0]
+    coeffs = np.polyfit(ds, z, deg=3 if len(ds) >= 4 else 1)
+    residual = z - np.polyval(coeffs, ds)
+    return coeffs[::-1], float(np.max(np.abs(residual)))
+----
+
+`ele` 태그가 있는 Autoware 샘플맵에 돌려보면, 경사가 대부분 1% 이내로 완만해서 lanelet당 3차 다항식 하나로 충분합니다(잔차 평균 1.0cm). 참조선(2부)만큼 복잡한 문제는 아니지만, "z가 있는 노드라면 좌표 변환 단계에서부터 같이 뽑아야 한다"는 교훈은 참조선 못지않게 중요합니다 — 누락 자체를 알아채는 게 제일 어려운 부분이기 때문입니다.
+
+== 횡단 경사(superelevation)도 마찬가지였다
+
+z(s) 하나를 추가하고 나서, 같은 논리로 **또 다른 누락**을 발견합니다. Lanelet2의 3D 경계선은 좌/우 경계의 z 차이로 뱅크각(횡단 경사)을 암묵적으로 담고 있는데, 참조선 위의 z(s) 하나로는 이걸 표현할 수 없습니다. 2장에서 본 `<superelevation>`이 이 대응물입니다.
+
+정의는 간단합니다 — 왼쪽 경계 고도 `z_left(s)`, 오른쪽 경계 고도 `z_right(s)`, 그 지점 도로 폭 `w(s)`가 있으면:
+
+[source,python]
+----
+def cross_slope_of(left_z, right_z, width):
+    """cross_slope(s) = (z_left - z_right) / w(s). +면 왼쪽이 높다."""
+    return (left_z - right_z) / np.maximum(width, 0.1)
+----
+
+이 함수 하나를 `fit_elevation_cubic`에 그대로 넣으면 — `z(s)` 대신 `cross_slope(s)`를 넣기만 하면 — 똑같은 3차 다항식 피팅이 재사용됩니다. Autoware 샘플맵에 돌려보면 lanelet당 최대 횡단 경사가 평균 2.5%, 최악 4.6%로 나오고, **lanelet의 87.7%가 실제 도로 설계 슈퍼일리베이션 범위(2~8%)에 들어갑니다.** 무시할 수 없는 크기입니다 — IR에 `Road.superelevation` 필드로 추가할 근거가 충분합니다.
+
+이 두 절에서 반복된 패턴을 정리해두면 도움이 됩니다: **하나의 누락을 고치는 논리를, 다른 유사한 필드에도 그대로 적용해보는 습관**이 새로운 빈틈을 찾아냅니다. z(s)를 고치다가 "z 차이로 담기는 다른 정보가 또 있나?"를 물었더니 횡단 경사가 나온 겁니다.
+
+== 신호등 위치 계산
+
+1장에서 봤듯, Lanelet2는 신호등을 `regulatory_element`로 표현하고 정지선(`ref_line` 역할의 way)과 물리적 형상(`refers` 역할)을 갖습니다. OpenDRIVE로 옮기려면 이걸 `(road_id, s, t)`로 바꿔야 합니다 — **정지선이 참조선과 교차하는 지점의 s값**이 그겁니다.
+
+[source,python]
+----
+def find_stopline_s(centerline, ref_line_pts, endpoint_tol=2.0):
+    cum_s = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(centerline, axis=0), axis=1))])
+    for i in range(len(centerline)-1):
+        for j in range(len(ref_line_pts)-1):
+            hit = segment_intersection(centerline[i], centerline[i+1], ref_line_pts[j], ref_line_pts[j+1])
+            if hit is not None:
+                return cum_s[i] + np.linalg.norm(hit - centerline[i]), "교차"
+    # 교차점이 없으면(정지선이 lanelet 경계에 걸쳐 있는 경우) 가장 가까운 끝점으로 폴백
+    mid = ref_line_pts.mean(axis=0)
+    d0, d1 = np.linalg.norm(mid-centerline[0]), np.linalg.norm(mid-centerline[-1])
+    if min(d0, d1) <= endpoint_tol:
+        return (0.0 if d0 < d1 else cum_s[-1]), f"폴백(거리{min(d0,d1):.1f}m)"
+    return None, None
+----
+
+순수 교차 판정만 쓰면 실패하는 케이스가 적잖게 나옵니다 — 지도 제작 관례상 정지선을 lanelet 경계에 정확히 걸쳐 그리는 경우가 많아서, 교차점이 선분 "내부"가 아니라 끝점 부근에 있기 때문입니다. 가장 가까운 중심선 끝점으로 폴백하는 로직을 추가하면 대부분 해결됩니다.
+
+여기서 짚어둘 게 있습니다 — 이 계산은 **참조선 피팅(4~6장)이 끝난 뒤에야** 할 수 있는, 명확히 종속적인 단계입니다. `Signal` 변환은 항상 참조선 확정 뒤에 옵니다.
+
+== 차선 마킹
+
+Lanelet2 경계 way의 `type`(물리적 형태: `line_thin`, `curbstone`, `road_border`, ...)과 `subtype`(패턴: `dashed`, `solid`, ...)을 OpenDRIVE `roadMark`(type, color)로 매핑합니다.
+
+[source,python]
+----
+NO_MARK_TYPES = {"virtual", "road_border", "curbstone", "fence", "wall", "guard_rail"}
+MARK_RULES = {
+    ("line_thin", "dashed"): ("broken", "white"),
+    ("line_thin", "solid"): ("solid", "white"),
+    ("line_thick", "dashed"): ("broken", "white"),
+    ("line_thick", "solid"): ("solid", "white"),
+}
+
+def way_to_road_mark(way_tags, way_id):
+    tags = way_tags.get(way_id, {})
+    wtype, wsubtype = tags.get("type"), tags.get("subtype")
+    if wtype in NO_MARK_TYPES:
+        return ("none", "standard")   # 애초에 도로 표시가 아닌 물리적 경계
+    return MARK_RULES.get((wtype, wsubtype), ("solid", "white"))  # 미매칭은 기본값
+----
+
+`virtual`(가상 경계선, 도색 없음)이나 `curbstone`(연석)처럼 애초에 도로 표시가 아닌 물리적 경계는 `none`으로 고정하고, `zebra_marking`(횡단보도)이나 `zig-zag`(자전거 우선구간)처럼 "마킹 패턴"이라는 개념 자체가 안 맞는 것도 `none`으로 둡니다 — 이런 요소는 나중에 OpenDRIVE의 `<object>`로 별도로 다뤄야 합니다. 이 두 갈래를 나눈 규칙으로 실제 맵(674개 경계선)에 돌리면 100% 매핑됩니다.
+
+기본값(`("solid", "white")`)으로 떨어지는 애매한 케이스는 IR의 프로버넌스(3장)에 `mark_defaulted_count`로 기록해둡니다 — 조용히 틀린 값을 쓰는 대신, "여기는 확신 없이 기본값을 썼다"는 걸 남기는 게 목적입니다.
+
+== 이 장의 패턴
+
+네 가지 사례(고도, 횡단 경사, 신호등, 차선 마킹) 전부 공통된 구조를 보입니다 — **각각이 참조선 피팅과 독립된 별도 레이어이거나 종속 단계**이고, 각각 실측 데이터를 직접 봐야 필요성과 매핑 규칙을 알 수 있었습니다. 마지막 장에서는 지금까지 만든 전체 파이프라인을 어떻게 검증할지, 그리고 아직 안 풀린 문제가 뭔지 정리합니다.
+
+TIP: 원본 시리즈의 link:../../autonomous/hd-map/lanelet2-to-opendrive-ir-design/[11, 12, 14, 22, 26단계]에서 각 필드의 발견 과정과 실측 수치를 더 자세히 다룹니다.
+// end::body[]

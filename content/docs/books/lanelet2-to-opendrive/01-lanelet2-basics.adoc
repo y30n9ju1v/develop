@@ -1,0 +1,137 @@
+---
+title: "1장: Lanelet2 기초 — 좌표점이 곧 도로다"
+date: 2026-07-18T00:00:00+09:00
+draft: true
+tags: ["자율주행", "HD맵", "Lanelet2", "book"]
+categories: ["books"]
+description: "실차 자율주행 스택이 쓰는 Lanelet2 포맷의 구조 — lanelet, way, node, regulatory element — 를 예제 하나로 익히는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-opendrive-basics/[2장: OpenDRIVE 기초]_
+
+'''
+
+== 왜 실차는 Lanelet2를 쓰는가
+
+자율주행 실차의 인지·플래닝 스택은 라이다로 도로를 스캔하고, 그 결과를 사람이 검수해서 지도로 만듭니다. 이 작업 방식에서 가장 자연스러운 표현은 "실측한 점을 그대로 옮겨 담는 것"입니다 — 도로 경계에서 1미터 간격으로 점을 찍어나가면, 그 점들을 순서대로 이은 폴리라인이 곧 도로 모양이 됩니다. Lanelet2는 정확히 이 발상 위에 서 있는 포맷입니다.
+
+== 기본 단위: node, way, lanelet
+
+Lanelet2는 OpenStreetMap의 XML 스키마(`.osm`)를 그대로 빌려 씁니다. 세 가지 요소만 알면 됩니다.
+
+[cols="1,3"]
+|===
+| 요소 | 의미
+
+| `node`
+| 위도·경도(그리고 있으면 고도) 좌표 하나. 라이다 실측점 하나에 대응합니다.
+
+| `way`
+| `node`를 순서대로 이은 폴리라인. 차선 경계선 하나(왼쪽 경계 또는 오른쪽 경계)에 대응합니다.
+
+| `lanelet`
+| 왼쪽 `way`와 오른쪽 `way`를 짝지은 것. 차선 하나(정확히는 "차선 조각")에 대응합니다.
+|===
+
+실제 파일이 어떻게 생겼는지 보는 게 제일 빠릅니다. 아래는 lanelet 하나의 최소 예시입니다.
+
+[source,xml]
+----
+<node id='1' lat='35.90204788913' lon='139.93223216702'>
+  <tag k='ele' v='19.546' />
+</node>
+<node id='2' lat='35.90203772221' lon='139.93220925051'>
+  <tag k='ele' v='19.54' />
+</node>
+<!-- ... 더 많은 node ... -->
+
+<way id='100'>
+  <nd ref='1' /><nd ref='2' /> <!-- 왼쪽 경계 -->
+</way>
+<way id='101'>
+  <nd ref='11' /><nd ref='12' /> <!-- 오른쪽 경계 -->
+</way>
+
+<relation id='1000'>
+  <member type='way' ref='100' role='left' />
+  <member type='way' ref='101' role='right' />
+  <tag k='type' v='lanelet' />
+  <tag k='subtype' v='road' />
+  <tag k='location' v='urban' />
+  <tag k='one_way' v='yes' />
+  <tag k='speed_limit' v='30' />
+</relation>
+----
+
+`lanelet`은 사실 OSM의 `relation` 요소를 재활용한 것입니다 — `role='left'`/`role='right'`로 두 `way`를 좌우 경계로 지정하고, `subtype='road'` 태그로 이게 차량 도로임을 표시합니다. 이 구조가 갖는 의미가 중요합니다: **차선의 형상 정보는 전부 좌우 경계선의 점 나열에 들어 있습니다.** 곡선을 표현하는 별도의 수식이 없습니다 — 커브를 표현하려면 점을 촘촘히 찍는 수밖에 없습니다.
+
+== regulatory element — 신호등과 규제 정보
+
+신호등, 정지선, 속도 제한 같은 규제 정보는 `regulatory_element`라는 별도 relation으로 표현되고, 적용 대상 lanelet이 그걸 참조합니다.
+
+[source,xml]
+----
+<relation id='2000'>
+  <member type='way' ref='200' role='ref_line' />  <!-- 정지선 -->
+  <member type='way' ref='201' role='refers' />     <!-- 신호등 기둥 형상 -->
+  <tag k='subtype' v='traffic_light' />
+  <tag k='type' v='regulatory_element' />
+</relation>
+
+<relation id='1000'>
+  <!-- ... left/right 멤버 생략 ... -->
+  <member type='relation' ref='2000' role='regulatory_element' />
+</relation>
+----
+
+여기서 짚어둘 특징이 하나 있습니다 — Lanelet2는 "위치 + 적용 대상"을 **하나의 관계**로 묶습니다. `regulatory_element`가 lanelet을 참조하는 형태죠. 이 특징은 나중에 OpenDRIVE로 옮길 때 문제가 됩니다(9장에서 다시 다룹니다) — OpenDRIVE는 신호의 위치(s, t 좌표)와 적용 범위(validity)를 서로 다른 개념으로 분리해서 표현하기 때문입니다.
+
+== lanelet의 나머지 속성들
+
+이 책 전체에서 계속 마주칠 몇 가지 태그를 미리 정리해둡니다.
+
+* `subtype`: `road`(차량 도로), `bicycle_lane`, `walkway`, `crosswalk` 등. 이 책은 `road`만 다룹니다 — 나머지는 차량 도로망과 무관한 별도 네트워크입니다.
+* 경계 `way`의 `type`/`subtype`: `line_thin`/`dashed` 같은 조합으로 차선 도색을, `curbstone`(연석)·`road_border`(비도색 경계)로 물리적 구조물을 표시합니다. 9장에서 이걸 OpenDRIVE의 차선 마킹으로 옮깁니다.
+* `turn_direction`: `straight`/`left`/`right`. 교차로 진입 lanelet에 붙는데, **모든 맵에 있는 건 아닙니다** — 이 책에서 다루는 실측 예제 맵 중 하나는 이 태그가 아예 없습니다. 8장에서 이게 왜 문제가 되는지 다룹니다.
+
+== 이 책에서 쓰는 예제 맵
+
+이 책은 실제로 두 개의 Lanelet2 맵에 코드를 돌려서 결과를 보여줍니다.
+
+* *Karlsruhe 맵*: Lanelet2 공식 저장소가 배포하는 표준 예제 맵(`mapping_example.osm`)입니다. 독일 Karlsruhe 도심 교차로를 실측한 371개 lanelet으로 구성되어 있고, 실측 노이즈가 있는 진짜 지도입니다.
+* *Autoware 샘플맵*: Autoware 플래닝 시뮬레이터가 배포하는 샘플맵으로, 전체 노드에 고도(`ele`) 태그가 붙어 있어 4부(고도)에서 유용합니다. Karlsruhe 맵보다 좌표가 훨씬 깔끔합니다(정밀 제작된 맵으로 보입니다).
+
+두 맵의 성격이 다르다는 게 이 책에서 반복적으로 중요해집니다 — "노이즈 있는 실측 데이터"와 "깨끗한 정밀 데이터"에서 같은 알고리즘이 다르게 행동하는 걸 여러 번 보게 될 겁니다.
+
+Python으로 이 XML을 읽는 최소 코드는 이렇습니다 — `lanelet` relation에서 `left`/`right` `way` id를 뽑고, 각 `way`가 참조하는 `node`의 좌표를 모으면 됩니다.
+
+[source,python]
+----
+import xml.etree.ElementTree as ET
+
+def load_osm(path):
+    root = ET.parse(path).getroot()
+    nodes = {n.get("id"): (float(n.get("lat")), float(n.get("lon")))
+             for n in root.findall("node")}
+    ways = {w.get("id"): [nd.get("ref") for nd in w.findall("nd")]
+            for w in root.findall("way")}
+
+    lanelets = []
+    for rel in root.findall("relation"):
+        tags = {t.get("k"): t.get("v") for t in rel.findall("tag")}
+        if tags.get("type") != "lanelet":
+            continue
+        left = right = None
+        for m in rel.findall("member"):
+            if m.get("role") == "left":
+                left = m.get("ref")
+            elif m.get("role") == "right":
+                right = m.get("ref")
+        if left and right:
+            lanelets.append({"left": left, "right": right, "subtype": tags.get("subtype")})
+    return nodes, ways, lanelets
+----
+
+이게 이 책 전체에서 쓰는 로더의 뼈대입니다. 다음 장에서는 도착지, OpenDRIVE가 도로를 어떻게 다르게 표현하는지 보겠습니다.
+// end::body[]
