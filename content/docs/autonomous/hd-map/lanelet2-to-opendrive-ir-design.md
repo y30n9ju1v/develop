@@ -64,6 +64,7 @@ Road
 ├── id
 ├── reference_line: ReferenceLine    # 참조선 (평면 형상)
 ├── elevation_profile: ElevationProfile   # 고도 (수직 형상) — 참조선과 독립적으로 관리
+├── superelevation: SuperelevationProfile   # 횡단 경사(뱅크각) — 26단계에서 추가
 ├── lane_sections: [LaneSection]     # s-구간별 차선 단면
 └── predecessor / successor: RoadLink | JunctionLink
 
@@ -72,6 +73,9 @@ ReferenceLine
 
 ElevationProfile
 └── segments: [ElevPoly(s_start, coeffs: PolyCoeffs)]   # z(s) = a + b*ds + c*ds^2 + d*ds^3
+
+SuperelevationProfile
+└── segments: [SuperelevPoly(s_start, coeffs: PolyCoeffs)]   # cross_slope(s) = a + b*ds + c*ds^2 + d*ds^3 (무차원 기울기)
 
 LaneSection
 ├── s_start
@@ -101,7 +105,7 @@ Signal
 
 `Signal`은 Lanelet2의 `RegulatoryElement`(TrafficLight, SpeedLimit, RightOfWay 등)를 OpenDRIVE의 `signal`/`object` 모델로 옮기기 위한 타입입니다. Lanelet2는 "위치 + 적용 대상"을 하나의 관계(RegulatoryElement가 lanelet을 참조)로 묶는 반면, OpenDRIVE는 위치(s, t)와 적용 범위(validity)를 분리해서 표현하므로, 변환 시 이 둘을 명시적으로 갈라 담아야 합니다. `road_id, s, t`를 계산하려면 그 도로의 참조선이 이미 피팅되어 있어야 하므로, `Signal` 변환은 항상 B단계(참조선 피팅) 뒤에 오는 종속 단계입니다.
 
-`elevation_profile`은 11단계 이후에 추가한 것으로, 참조선(x, y 평면 형상)과 별도로 z(s)를 관리합니다. OpenDRIVE 자체가 평면 형상과 고도를 독립된 두 레이어로 분리해서 표현하는 방식을 그대로 따른 것입니다 — 그래서 B단계(참조선 피팅)와 별개로 "고도 피팅"이라는 대칭적인 서브 단계가 하나 더 필요해집니다. 지금까지 스파이크에서 쓴 `latlon_to_local_xy`는 위도/경도만 평면 좌표로 바꾸고 z를 아예 다루지 않았다는 걸 확인했는데, 이게 정확히 이 누락을 만든 지점입니다 — z가 있는 노드라면 좌표 변환 단계에서부터 같이 뽑아야 합니다. 그리고 같은 논리로 아직 남아 있는 누락이 하나 더 있습니다: Lanelet2의 3D 경계선은 좌/우 경계의 z 차이로 횡단 경사(뱅크각)를 암묵적으로 담는데, 참조선 위의 z(s) 하나로는 이걸 표현할 수 없습니다. OpenDRIVE의 대응물은 `superelevation`이고, 아직 IR에 자리가 없습니다(뒤의 '남은 빈틈' 섹션 참고).
+`elevation_profile`은 11단계 이후에 추가한 것으로, 참조선(x, y 평면 형상)과 별도로 z(s)를 관리합니다. OpenDRIVE 자체가 평면 형상과 고도를 독립된 두 레이어로 분리해서 표현하는 방식을 그대로 따른 것입니다 — 그래서 B단계(참조선 피팅)와 별개로 "고도 피팅"이라는 대칭적인 서브 단계가 하나 더 필요해집니다. 지금까지 스파이크에서 쓴 `latlon_to_local_xy`는 위도/경도만 평면 좌표로 바꾸고 z를 아예 다루지 않았다는 걸 확인했는데, 이게 정확히 이 누락을 만든 지점입니다 — z가 있는 노드라면 좌표 변환 단계에서부터 같이 뽑아야 합니다. 그리고 같은 논리로 처음엔 빠져 있던 누락이 하나 더 있었습니다: Lanelet2의 3D 경계선은 좌/우 경계의 z 차이로 횡단 경사(뱅크각)를 암묵적으로 담는데, 참조선 위의 z(s) 하나로는 이걸 표현할 수 없습니다. OpenDRIVE의 대응물은 `superelevation`이고, 26단계에서 실측을 거쳐 IR에 추가했습니다.
 
 `road_mark`는 Lanelet2 경계 way의 `subtype`(`solid`/`dashed`) 태그를 거의 그대로 옮기면 되는, 상대적으로 간단한 매핑입니다. 차선 변경 가능 여부 판정과, 인지 스택이 3DGS 렌더링에서 보는 것과 일치하는 ground truth를 만드는 데 씁니다.
 
@@ -2484,21 +2488,94 @@ def fit_reference_line_boundary_symmetric(left, right, epsilon=0.15, reg_weight=
 
 ---
 
+## 25단계: 클로소이드 도입 판단 — "충분하다"던 결론을 뒤집다
+
+24단계에서 참조선 정의(경계 대칭 피팅)가 확정됐으니, '남은 빈틈' 1번이었던 클로소이드 도입 여부를 이제 판단할 수 있습니다. 먼저 18단계의 곡률 계단 수치는 옛 방식(평균 중심선 기준) 기준이라 24단계 방식으로 다시 쟀습니다.
+
+곡률 계단을 그냥 [1/m] 단위로 보면 "이 정도면 큰가 작은가"를 판단하기 어렵습니다. 그래서 회귀 테스트가 실제로 신경 쓰는 물리량으로 바꿨습니다 — 곡률이 Δκ만큼 순간적으로 튀는 지점을 속도 v로 지나가면, 횡가속도가 **Δa = v² · Δκ** 만큼 즉각 점프합니다. 조향 컨트롤러 입장에서는 스텝 입력이나 마찬가지입니다.
+
+| 속도 | Δa > 2 m/s² 비율 (Karlsruhe) | Δa > 4 m/s² 비율 (Karlsruhe) |
+|---|---|---|
+| 18km/h | 48.3% | 25.2% |
+| 29km/h | 75.5% | 55.1% |
+| 50km/h | 87.8% | 79.6% |
+
+(Autoware 샘플맵도 방향은 같고 크기만 작습니다 — 18km/h에서 24.2%/12.1%, 50km/h에서 55.6%/43.7%.)
+
+승용차 급조향 수준(4 m/s²)을 넘는 순간 가속도 점프가 도심 속도(18km/h)에서도 이음새의 4분의 1, 시속 50km에서는 5개 중 4개꼴로 발생합니다. **이건 7단계에서 "이 정도 데이터로는 paramPoly3 없이도 Line+Arc로 충분해 보인다"고 내렸던 결론을 사실상 뒤집는 결과입니다.** 그때는 위치 잔차(2~3cm)만 보고 판단했는데, 곡률 불연속이 만드는 동역학적 충격은 위치 잔차와는 다른 이야기였습니다. **판단: 클로소이드가 필요합니다.**
+
+다만 "필요하다"와 "쉽게 넣을 수 있다"는 별개였습니다. 곡률 계단이 가장 큰 케이스(1.31 [1/m], 거의 직선(κ≈0.014)에서 반경 0.76m짜리 급커브(κ≈1.32)로 전환)에 길이 3m 고정 클로소이드를 끼워 넣어봤더니, 대칭 잔차가 0.03m → **1.23m로 오히려 폭발했습니다.**
+
+```python
+def spiral_sample(x0, y0, h0, k0, k1, L, s_query):
+    """선형 곡률 램프(클로소이드) 위 s_query 지점들의 (x, y, 최종 heading).
+    닫힌 형태가 없어서 heading을 촘촘히 적분한 뒤 s_query에 보간한다."""
+    n_fine = max(len(s_query) * 20, 200)
+    s_fine = np.linspace(0, L, n_fine)
+    theta_fine = h0 + k0 * s_fine + 0.5 * (k1 - k0) / L * s_fine ** 2
+    x_fine = x0 + np.concatenate([[0], cumulative_trapezoid(np.cos(theta_fine), s_fine)])
+    y_fine = y0 + np.concatenate([[0], cumulative_trapezoid(np.sin(theta_fine), s_fine)])
+    x_q = np.interp(s_query, s_fine, x_fine)
+    y_q = np.interp(s_query, s_fine, y_fine)
+    theta_end = h0 + k0 * L + 0.5 * (k1 - k0) / L * L ** 2
+    return x_q, y_q, theta_end
+```
+
+전환 길이를 3m로 고정한 게 문제였습니다 — 곡률이 그렇게 크게 튀는 구간(거의 직선에서 반경 1m 미만 커브로)을 3m 안에 욱여넣으니 경로 자체가 원래 경계에서 크게 벗어난 겁니다. **전환 길이도 피팅 대상에 포함시켜야 한다는 게 이번 스파이크의 결론입니다** — 다음 시도는 24단계의 전역 최적화에 클로소이드 세그먼트(κ_start, κ_end, L 전부 자유 변수)를 추가해서, 대칭 잔차와 곡률 연속성을 동시에 최적화하는 것입니다. (이 최악 케이스 자체가 반경 0.76m라는 이례적인 값이라, 보도 경계 모서리 같은 비정상 지오메트리일 가능성도 있어 대표성은 더 봐야 합니다.)
+
+---
+
+## 26단계: `superelevation`(횡단 경사) 첫 실측
+
+'남은 빈틈'에는 Junction 생성과 나란히 남아 있었지만, Junction은 A(그룹핑) + `RoutingGraph` + 커넥팅 로드 지오메트리까지 새로 설계해야 하는 큰 작업인 반면, superelevation은 22단계에서 이미 만든 고도 피팅 인프라(`load_osm_with_ele`, `resample_xyz_to_common_length`, `fit_elevation_cubic`)를 거의 그대로 재사용할 수 있어서 먼저 처리했습니다.
+
+정의는 간단합니다. 왼쪽 경계 고도 `z_left(s)`, 오른쪽 경계 고도 `z_right(s)`, 그 지점의 도로 폭 `w(s)`가 있으면, 횡단 경사(무차원 기울기)는
+
+```
+cross_slope(s) = (z_left(s) - z_right(s)) / w(s)
+```
+
+OpenDRIVE의 `<superelevation>`도 `elevation_profile`과 똑같이 s에 대한 3차 다항식이라, 피팅 코드도 그대로 재사용했습니다 — `fit_elevation_cubic`에 z(s) 대신 `cross_slope(s)`를 넣기만 하면 됩니다. (A(그룹핑) 없이 lanelet 단위로만 쟀으므로, "고도 이음새"는 여전히 이번 스코프 밖입니다 — Road 체인이 있어야 잴 수 있는 건 22단계와 동일합니다.)
+
+Autoware 샘플맵(22단계와 같은, ele 데이터가 있는 유일한 맵)의 subtype=road lanelet 163개에 돌린 결과:
+
+| 지표 | mean | p50 | p95 | max |
+|---|---|---|---|---|
+| lanelet당 최대 \|cross_slope\| | 2.50% | 2.45% | 3.56% | 4.57% |
+| cross_slope(s) 피팅 잔차(max) | 0.47% | - | 1.15% | 1.87% |
+
+무시할 수 있는 크기가 아니었습니다. 통상 도로 설계의 슈퍼일리베이션 범위가 2~8%(급커브 구간은 10%+)인데, **이 맵 lanelet의 87.7%가 이미 2%를 넘습니다.** 3차 다항식 피팅 잔차도 작아서(mean 0.47%), `elevation_profile`과 같은 방식으로 무리 없이 모델링됩니다. z(s) 하나만 담던 22단계의 IR로는 이 뱅크각이 통째로 사라졌을 거라는 뜻이고, 3DGS 씬은 이 뱅크각을 그대로 담고 있을 테니 방치하면 도로 모델이 씬과 옆으로 기울어 어긋나는 문제였습니다. `Road.superelevation` 필드를 IR 스키마(3단계)에 추가했습니다.
+
+```python
+def cross_slope_of(left_r, leftz_r, right_r, rightz_r):
+    """cross_slope(s) = (z_left - z_right) / width(s). +면 왼쪽이 높다."""
+    width = np.linalg.norm(left_r - right_r, axis=1)
+    width = np.maximum(width, 0.1)  # 폭 0 근처에서 발산 방지
+    return (leftz_r - rightz_r) / width
+
+
+# 실행 루프의 핵심 — 나머지는 22단계 iter_road_centerlines_3d와 거의 동일
+for ll, centerline, left_r, leftz_r, right_r, rightz_r in iter_road_boundaries_3d():
+    s = s_of(centerline)
+    slope = cross_slope_of(left_r, leftz_r, right_r, rightz_r)
+    coeffs, max_r, rms_r = fit_elevation_cubic(s, slope)  # z(s) 대신 slope(s)를 피팅
+```
+
+---
+
 ## 남은 빈틈: 다음 스파이크의 우선순위
 
-18~24단계에서 이 목록의 여섯 항목 — 세그먼트 연속성, 곡률 오차, pairing 편향, xodr 출력 + 라운드트립 검증, 고도 피팅, 중심선 재정의 — 을 전부 스파이크했고, 마지막 항목(중심선 재정의)도 24단계에서 실제로 해결됐습니다. 갱신된 목록을 중요한 순서대로 다시 정리합니다.
+18~26단계에서 이 목록의 여덟 항목 — 세그먼트 연속성, 곡률 오차, pairing 편향, xodr 출력 + 라운드트립 검증, 고도 피팅, 중심선 재정의, 클로소이드 도입 판단, superelevation — 을 전부 스파이크했습니다. superelevation은 26단계에서 실제로 해결됐고, 클로소이드는 "필요하다"는 판단까지는 끝났고 "어떻게 넣을지"가 과제로 남았습니다. 갱신된 목록을 중요한 순서대로 다시 정리합니다.
 
-**1. 클로소이드(spiral) 도입 판단 — 새로운 최우선.** 전역 G1의 잔차 바닥과 곡률 계단이 두 맵 모두에서 실측됐고, 이제 중심선 기준까지 확정됐으니 회귀 테스트 허용치와 대조해 클로소이드 세그먼트(G2 연속)가 필요한지 결정할 수 있습니다.
+**1. 클로소이드 전환 길이를 자유 변수로 넣어 재피팅 — 최우선.** 25단계에서 "필요하다"는 판단은 끝났지만, 전환 길이를 고정값(3m)으로 넣었더니 최악 케이스에서 잔차가 폭발했습니다. 24단계의 전역 최적화에 (κ_start, κ_end, L)이 모두 자유 변수인 클로소이드 세그먼트를 추가해, 대칭 잔차와 곡률 연속성을 동시에 만족하는 전환을 찾아야 합니다.
 
-**2. Junction 생성.** 실제 OpenDRIVE `<junction>` 은 여전히 스키마 한 줄 외에 아무것도 없습니다. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이라, 고도 이음새(경사 불연속) 측정도 이 작업과 함께 처리할 수 있습니다.
+**2. Junction 생성.** 실제 OpenDRIVE `<junction>` 은 여전히 스키마 한 줄 외에 아무것도 없습니다. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이라, **고도 이음새(경사 불연속) 측정**도 이 작업과 함께 처리할 수 있습니다 — 26단계는 lanelet 단위로만 쟀고, Road 체인 간 이음새는 여전히 미측정입니다.
 
-**3. esmini/CARLA 실기 로딩.** opendrive2lanelet 파싱은 통과했지만, 시뮬레이터가 이 xodr을 실제로 로딩·주행하는지는 별개 문제입니다. 24단계에서 확정된 새 중심선 기준으로 xodr을 다시 익스포트해서 라운드트립도 재검증해야 합니다.
+**3. esmini/CARLA 실기 로딩.** opendrive2lanelet 파싱은 통과했지만, 시뮬레이터가 이 xodr을 실제로 로딩·주행하는지는 별개 문제입니다. 24단계에서 확정된 새 중심선 기준으로 xodr을 다시 익스포트해서 라운드트립도 재검증해야 하고, 이제 `superelevation`(26단계)까지 반영해서 내보내야 합니다.
 
-**4. `superelevation`(횡단 경사) + 고도 이음새.** 뱅크각을 담을 자리가 아직 없고, lanelet 간 경사 불연속도 미측정입니다.
+**4. 회사 실측 맵 검증.** 두 공개 맵에서도 결론이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 24단계의 경계 대칭 피팅, 25단계의 클로소이드 필요성 판단, 26단계의 superelevation 크기가 회사 맵에서도 유지되는지가 특히 중요합니다.
 
-**5. 회사 실측 맵 검증.** 두 공개 맵에서도 결론이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 24단계의 경계 대칭 피팅이 회사 맵에서도 유지되는지가 특히 중요합니다.
-
-우선순위를 이렇게 두는 이유 — 중심선 문제가 풀렸으니 이제 지금까지의 잔차·곡률 수치가 실제 정합 오차를 대변한다고 볼 수 있고, 그래서 1(클로소이드 여부)과 3(라운드트립 재검증)을 바로 판단할 수 있는 단계가 됐습니다. 2(Junction)가 그다음인 이유는 A(그룹핑) 작업이 4의 고도 이음새 측정과 5의 회사 맵 검증 모두의 선행 조건이기 때문입니다.
+우선순위를 이렇게 두는 이유 — 25단계에서 클로소이드가 실제로 필요하다는 게 물리적으로 확인됐으니, 1(전환 길이 자유화)이 이제 곡률 정확도 전체를 좌우합니다. 2(Junction)가 그다음인 이유는 A(그룹핑) 작업이 고도 이음새 측정과 4의 회사 맵 검증 모두의 선행 조건이기 때문입니다.
 
 ---
 
@@ -3421,11 +3498,62 @@ def run_map(osm_path, label):
     # ... mean/p95/max 집계는 이전 단계들과 동일한 패턴 (본문 표 참고)
 ```
 
+### 25단계: 클로소이드 도입 판단 (`spike_clothoid_decision.py`)
+
+`spiral_sample`은 본문에 실었습니다. 나머지는 24단계 결과에서 곡률 계단을 뽑아 횡가속도로 환산하는 부분과, 최악 이음새를 찾아 삽입 데모를 돌리는 실행부입니다.
+
+```python
+def curvature_steps_of(params, n_segs):
+    kappas = params[3:3 + n_segs]
+    return np.abs(np.diff(kappas))
+
+
+def insert_spiral_at_worst_joint(left, right, spiral_len=3.0, n_per_seg=20):
+    """가장 곡률 계단이 큰 이음새를 찾아, 그 사이에 길이 spiral_len짜리
+    클로소이드를 끼워넣고 나머지 구조는 그대로 유지한 채 위치 잔차를 잰다."""
+    params, n_segs, stats = fit_reference_line_boundary_symmetric(left, right)  # 24단계
+    if stats is None or n_segs < 2:
+        return None
+
+    steps = curvature_steps_of(params, n_segs)
+    worst_i = int(np.argmax(steps))
+
+    x, y, h = params[0], params[1], params[2]
+    kappas = params[3:3 + n_segs]
+    lengths = params[3 + n_segs:3 + 2 * n_segs]
+    for k, L in zip(kappas[:worst_i + 1], lengths[:worst_i + 1]):   # 이음새 지점까지 원래 체인을 따라간다
+        if abs(k) < 1e-9:
+            x, y = x + L * np.cos(h), y + L * np.sin(h)
+        else:
+            x = x + (np.sin(h + k * L) - np.sin(h)) / k
+            y = y - (np.cos(h + k * L) - np.cos(h)) / k
+            h = h + k * L
+
+    k_before, k_after = kappas[worst_i], kappas[worst_i + 1]
+    s_q = np.linspace(0, spiral_len, n_per_seg)
+    xs, ys, h_end = spiral_sample(x, y, h, k_before, k_after, spiral_len, s_q)
+    spiral_pts = np.stack([xs, ys], axis=1)
+    d_left_s = point_to_polyline_dist(spiral_pts, left)
+    d_right_s = point_to_polyline_dist(spiral_pts, right)
+    return {
+        "worst_step_1pm": float(steps[worst_i]),
+        "spiral_sym_residual": float(np.abs(d_left_s - d_right_s).max()),
+    }
+
+
+# 속도별 횡가속도 점프 환산 (본문 표를 만든 핵심 계산)
+TEST_SPEEDS_MS = [5.0, 8.0, 13.9]  # 18/29/50km/h
+for v in TEST_SPEEDS_MS:
+    da = curvature_steps * v * v          # Δa = v² · Δκ
+    frac_over_2 = np.mean(da > 2.0)       # 급조향 승차감 한계 대비 비율
+    frac_over_4 = np.mean(da > 4.0)
+```
+
 ---
 
 ## 지금까지 정한 것, 아직 정하지 않은 것
 
-**정한 것** — 24단계를 설계 결정만 남기고 추리면 다음과 같습니다. (각 결정의 근거와 실측 수치는 해당 단계 참고.)
+**정한 것** — 26단계를 설계 결정만 남기고 추리면 다음과 같습니다. (각 결정의 근거와 실측 수치는 해당 단계 참고.)
 
 - **방향**: Lanelet2 → OpenDRIVE 변환 도구는 생태계에 사실상 없어서 직접 만듭니다. 대신 성숙한 반대 방향 도구(opendrive2lanelet)는 라운드트립 검증에 재활용합니다(1단계).
 - **IR**: OpenDRIVE 모델(참조선 + 파라메트릭 단면)을 뼈대로 삼아, 어려운 문제(곡선 피팅)를 Lanelet2 → IR 한쪽 방향에 몰아넣습니다. 지리/토폴로지 정보와 프로버넌스(변환 근거·지표)를 분리해 설계합니다(2~3단계).
@@ -3437,18 +3565,19 @@ def run_map(osm_path, label):
 - **검증 역할 분담**: 정밀 수치는 결정적 코드가 계산하고, LLM은 지표·시각화를 검토하는 리뷰어로 한정합니다(5단계). 이 원칙이 실제로 작동한다는 것도 확인했습니다 — 정량 지표로는 절대 못 잡는 렌더링 버그 2개를 시각 검토로 잡았습니다(15단계).
 - **그룹핑(A)**: node id 매칭 휴리스틱은 실측으로 한계를 확인했고(8~9단계), 공식 `RoutingGraph`를 쓰되 "합법적 차량 경로"가 아니라 "물리적 도로 연결성" 기준(Vehicle/Bicycle/Pedestrian 합집합)으로 재구현했습니다(10, 13단계). 그래도 남는 고립 조각은 알고리즘으로 완벽히 풀기보다 `topology_warnings`로 사람/LLM 검토에 넘깁니다.
 - **규제 정보**: `Signal`(정지선 s + 적용 차선), `road_mark`(경계 태그 매핑 — 샘플 맵 100% 성공), `elevation_profile`(z(s))을 IR에 추가했고, 통합 파이프라인에서 Signal 위치 계산 10/10을 확인했습니다(11~12, 14, 16~17단계).
+- **클로소이드 필요성 확정, "7단계 결론" 수정**: 곡률 계단을 횡가속도 점프(Δa=v²Δκ)로 환산해보니, 도심 속도(18km/h)에서도 이음새의 48%가 승차감 한계(2 m/s²)를 넘고 시속 50km에서는 80%가 급조향 수준(4 m/s²)을 넘습니다. 위치 잔차만 보고 "Line+Arc로 충분하다"던 7단계 결론을 사실상 뒤집는 결과라, 클로소이드 도입이 필요하다고 판단했습니다. 다만 전환 길이를 고정값(3m)으로 넣어봤더니 최악 케이스에서 잔차가 0.03m→1.23m로 폭발해, 전환 길이 자체도 자유 변수로 최적화해야 한다는 게 다음 과제로 남았습니다(25단계).
+- **`superelevation`(횡단 경사) 추가**: 22단계 고도 피팅 인프라를 재사용해 `cross_slope(s) = (z_left - z_right) / w(s)`를 처음 측정했습니다 — Autoware 샘플맵 기준 lanelet당 최대 횡단 경사 mean 2.5%, 최악 4.6%, **lanelet의 87.7%가 실제 도로 설계 슈퍼일리베이션 범위(2~8%)에 들어갔습니다.** `elevation_profile`과 같은 3차 다항식으로 잘 피팅되고(잔차 mean 0.47%), IR에 `Road.superelevation` 필드로 추가했습니다(26단계).
 
 **아직 정하지 않은 것 / 남은 작업**
 
-- **클로소이드(spiral) 도입 판단** — 전역 G1의 잔차 바닥과 곡률 계단, 그리고 이제 확정된 중심선 기준까지 갖춰졌으니, 회귀 테스트 허용치와 대조해 결정할 수 있습니다('남은 빈틈' 1번).
-- **Junction 생성**(connecting road 지오메트리 + `laneLink`) — 여전히 미착수. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이고, 고도 이음새 측정도 여기 얹을 수 있습니다('남은 빈틈' 2번).
-- **esmini/CARLA 실기 로딩 + 라운드트립 재검증** — opendrive2lanelet 파싱은 통과했지만(21단계) 시뮬레이터 로딩은 미확인이고, 21단계의 xodr 익스포트도 24단계에서 확정된 새 중심선 기준으로 다시 만들어 재검증해야 합니다('남은 빈틈' 3번).
-- `superelevation` + **고도 이음새**(lanelet 간 경사 불연속, A(그룹핑) 선행 필요) — '남은 빈틈' 4번.
-- **회사 실측 맵 검증** — 두 공개 맵에서도 pairing 편향의 지배 요인이 갈렸던 만큼(20·22·23단계), 회사 맵 검증의 필요성이 더 커졌습니다. 24단계의 경계 대칭 피팅이 회사 맵에서도 유지되는지가 특히 중요합니다('남은 빈틈' 5번).
-- 회귀 테스트에서 실제로 감내 가능한 위치/곡률 오차 허용치의 수치 확정 — 이제 중심선 기준이 확정됐으니, 24단계 수치(대칭 잔차 mean 1.5~6.6cm)를 3DGS 씬 정합 오차 허용 범위와 대조해봐야 합니다.
-- 실제 `ANTHROPIC_API_KEY`로 `call_llm_review`를 돌려서, 사람이 직접 본 것과 API로 호출한 모델의 판단이 일치하는지 확인.
+- **클로소이드 전환 길이를 자유 변수로 넣어 재피팅** — 25단계에서 필요성은 확정됐지만 고정 길이 삽입은 실패했습니다. 24단계 전역 최적화에 (κ_start, κ_end, L)이 모두 자유인 클로소이드 세그먼트를 추가하는 게 최우선 과제입니다('남은 빈틈' 1번).
+- **Junction 생성**(connecting road 지오메트리 + `laneLink`) — 여전히 미착수. A(그룹핑)로 Road 체인을 만드는 게 선행 조건이고, **고도 이음새**(lanelet 간 경사 불연속, 26단계는 lanelet 단위로만 재서 미측정)도 여기 얹을 수 있습니다('남은 빈틈' 2번).
+- **esmini/CARLA 실기 로딩 + 라운드트립 재검증** — opendrive2lanelet 파싱은 통과했지만(21단계) 시뮬레이터 로딩은 미확인이고, 21단계의 xodr 익스포트도 24단계 새 중심선과 26단계 superelevation을 반영해 다시 만들어 재검증해야 합니다('남은 빈틈' 3번).
+- **회사 실측 맵 검증** — 두 공개 맵에서도 pairing 편향의 지배 요인이 갈렸던 만큼(20·22·23단계), 회사 맵은 세 번째 데이터 포인트로서 더 중요해졌습니다. 24~26단계 결론이 회사 맵에서도 유지되는지가 특히 중요합니다('남은 빈틈' 4번).
+- 회귀 테스트에서 실제로 감내 가능한 위치/곡률 오차 허용치의 수치 확정 — 이제 중심선 기준이 확정됐으니, 24단계 수치(대칭 잔차 mean 1.5~6.6cm)와 25단계의 횡가속도 점프 수치를 3DGS 씬 정합 오차 허용 범위와 대조해봐야 합니다.
+- `call_llm_review`를 실제 LLM으로 돌려서 사람이 직접 본 판단과 일치하는지 확인하는 건 지금 범위에서 제외합니다 — 사내 GPU에 vLLM을 띄운 뒤에 그쪽 환경에서 진행할 계획입니다.
 
-다음 글에서는 '남은 빈틈'의 1번(클로소이드 도입 판단)과 2번(A(그룹핑) 기반 Junction 생성 스파이크)을 다룰 예정입니다.
+다음 글에서는 '남은 빈틈'의 1번(클로소이드 전환 길이 자유화)과 2번(A(그룹핑) 기반 Junction 생성 스파이크)을 다룰 예정입니다.
 
 ---
 
