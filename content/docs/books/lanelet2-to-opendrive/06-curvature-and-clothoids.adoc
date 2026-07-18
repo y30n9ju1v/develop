@@ -62,7 +62,7 @@ def discrete_curvature(points):
 
 [source,python]
 ----
-def fit_reference_line_jerk_penalized(left, right, jerk_weight=0.0, joint_weight=1.0):
+def fit_reference_line_jerk_penalized(left, right, jerk_weight=0.05, joint_weight=1.0):
     x0_base, n_segs, _ = fit_reference_line_boundary_symmetric(left, right)  # 5장 결과가 초기값
     kappas = x0_base[3:3+n_segs]
     lengths = x0_base[3+n_segs:3+2*n_segs]
@@ -88,7 +88,7 @@ def fit_reference_line_jerk_penalized(left, right, jerk_weight=0.0, joint_weight
 
 == 이 장에서 남은 질문
 
-`jerk_weight`를 얼마로 둘지는 이 장의 코드만으로는 정할 수 없습니다 — "잔차를 몇 % 희생해서 jerk를 몇 m/s³까지 낮출 것인가"는 시뮬레이션의 정합 오차 허용 범위와 회귀 테스트가 감내할 승차감 기준이 있어야 정해지는 값입니다. 이건 알고리즘이 아니라 **도메인 판단**이 필요한 질문이고, 10장에서 다시 다룹니다.
+`jerk_weight`를 얼마로 둘지는 원칙적으로 시뮬레이션의 정합 오차 허용 범위와 회귀 테스트가 감내할 승차감 기준이 있어야 정확히 정해지는 값이라, 이 장의 실측만으로 "정답"을 낼 수는 없습니다. 다만 언제까지나 미정으로 남겨두는 대신, 이 책은 **`jerk_weight=0.05`를 기본값으로 채택**합니다 — 실측한 스윕에서 잔차를 10%만 희생하고 jerk를 절반으로 줄이는, 비용 대비 효과가 가장 급격히 꺾이는 지점이기 때문입니다(가중치를 더 올려도 잔차는 계속 늘지만 jerk 개선폭은 둔화됩니다). 이 값은 "이 맵·이 프로젝트의 잠정 기본값"이지 보편 상수는 아닙니다 — 실제 회귀 테스트 허용치가 정해지면 그 기준으로 다시 스윕해서 조정해야 합니다. 10장에서 이 채택 기준을 다시 정리합니다.
 
 여기까지가 참조선(2부) 전체의 결론입니다: 처음엔 위치 잔차 하나만 봤지만, 그걸로 부족하다는 게 이음새 헤딩(4장) → 중심선 정의(5장) → 곡률 연속성(6장)을 거치며 계속 드러났습니다. 다음 장부터는 3부 — 낱개의 차선을 도로로 묶고 교차로를 만드는 작업입니다.
 
