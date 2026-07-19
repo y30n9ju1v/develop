@@ -55,6 +55,24 @@ failed to synthesize instance of type class
 
 직역하면 "`HAdd Nat String`이라는 타입 클래스의 인스턴스를 찾지 못했다"입니다. 낯선 단어는 일단 제쳐두고 타입 이름 두 개만 읽어도 원인이 보입니다 — "`Nat`과 `String`을 더하는(`HAdd`) 방법을 Lean4가 모른다"는 뜻입니다. Lean4의 에러는 이렇게 "무엇을 하려다 무엇을 못 찾았는지"를 말해주는 형식이 많으므로, 전부 이해하려 하지 말고 아는 이름부터 찾아 읽는 게 요령입니다. (`HAdd` 같은 "계약"의 정체는 4장에서 밝혀집니다.)
 
+앞으로 가장 자주 만날 에러도 하나 미리 봐둡시다.
+
+[source,lean]
+----
+def n : Nat := "hello"  -- 에러
+----
+
+----
+Type mismatch
+  "hello"
+has type
+  String
+but is expected to have type
+  Nat
+----
+
+"`Nat`이 와야 할 자리(`: Nat`이라고 선언했으므로)에 `String`이 왔다"는 뜻입니다. 참고로 Lean4는 `Nat`과 `Float` 사이 같은 자동 형변환도 해주지 않습니다 — 타입이 다르면 언제나 명시적으로 바꿔야 하고, 그 대가로 "실행 전에 잡히는 실수"의 범위가 넓어집니다.
+
 당장은 이게 불편한 제약처럼 보일 수 있지만, 2부에서 증명을 다룰 때 이 정적 타입 검사가 그대로 "증명이 논리적으로 맞는지 확인하는 절차"로 재활용됩니다. 지금은 "실행하기 전에 실수를 잡아준다" 정도로 기억해두면 충분합니다.
 
 == 이름 붙이기: def
@@ -115,4 +133,19 @@ TIP: 더 깊이 들어가려면 — 식·타입·정의는 link:../../../program
 * `#check (1, "one", 2.5)`의 결과를 먼저 종이에 예상해보고, 실행해서 맞춰보세요.
 * 세제곱을 구하는 `cube (n : Nat) : Nat`을 정의하고 `#eval cube 3`이 27이 나오는지 확인해보세요.
 * `if` 식으로 두 자연수 중 큰 쪽을 돌려주는 `maxOf (a b : Nat) : Nat`을 정의해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+-- 1. #check (1, "one", 2.5)  -- (1, "one", 2.5) : Nat × String × Float
+
+def cube (n : Nat) : Nat := n * n * n
+#eval cube 3  -- 27
+
+def maxOf (a b : Nat) : Nat := if a ≥ b then a else b
+#eval maxOf 3 7  -- 7
+----
+====
 // end::body[]

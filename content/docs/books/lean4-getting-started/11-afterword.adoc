@@ -30,6 +30,19 @@ _link:../[전체 목차] · 이전: link:../10-writing-a-tactic/[10장: 나만�
 * *2부(증명)가 재밌었다면* → link:../../../programming/lean/theorem-proving-in-lean4/[Theorem Proving in Lean 4]. 이 책의 6~8장이 다룬 내용의 훨씬 엄밀하고 완전한 버전이라고 보면 됩니다.
 * *3부(메타프로그래밍)가 재밌었다면* → link:../../../programming/lean/metaprogramming-in-lean4/[Metaprogramming in Lean 4]. `Syntax`, `Expr`, `MetaM`을 훨씬 깊이 다루고, DSL 설계까지 다룹니다.
 
+== 다음 프로젝트를 시작하려면: lake
+
+지금까지는 파일 하나로 충분했지만, 본격적인 프로젝트는 Lean4의 빌드 도구 `lake`로 만듭니다. 다음 세 줄이면 Mathlib(커뮤니티가 쌓아 올린 수학 라이브러리)이 연결된 새 프로젝트가 생깁니다.
+
+[source,bash]
+----
+lake +v4.32.0 new my_project math
+cd my_project
+lake update && lake exe cache get
+----
+
+마지막 줄은 Mathlib을 소스부터 컴파일하는 대신 미리 빌드된 캐시를 내려받는 명령입니다 — 건너뛰면 첫 빌드에 수십 분이 걸리니 꼭 실행하세요. 자세한 과정과 문제 해결은 link:../../../programming/lean/lean4-vscode-mathlib-setup/[VS Code에서 Lean 4 + Mathlib4 셋업하기]에 정리되어 있습니다.
+
 == 막히면 어디서 물어보나
 
 Lean 커뮤니티는 https://leanprover.zulipchat.com/[Lean Zulip]에 모여 있습니다. 초보 질문 전용 채널(*#new members*)이 따로 있고, 질문에 답이 빠르기로 유명합니다. 질문할 때는 막힌 코드 전체와 에러 메시지(또는 InfoView의 목표 상태)를 함께 붙이면 됩니다 — 문제를 그대로 재현하는 링크를 만들어주는 https://live.lean-lang.org/[웹 에디터]도 유용합니다.

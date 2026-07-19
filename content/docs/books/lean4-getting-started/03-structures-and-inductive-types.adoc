@@ -100,4 +100,40 @@ TIP: 더 깊이 들어가려면 — 구조체·귀납적 타입·패턴 매칭�
 * `Shape`에 밑변과 높이를 받는 `triangle` 생성자를 추가해보세요 — 단, `area`를 고치기 전에 먼저 컴파일해서, 빠뜨린 경우를 컴파일러가 어떻게 알려주는지 확인해보세요.
 * 제목(`String`)과 쪽수(`Nat`)를 갖는 `structure Book`을 정의하고, 값을 하나 만들어 필드를 `#eval`로 꺼내보세요.
 * `MyOption Nat` 값에서 값이 있으면 그 값을, 없으면 기본값을 돌려주는 `getOrElse : MyOption Nat → Nat → Nat`을 패턴 매칭으로 정의해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+-- 1. triangle을 추가하고 area를 그대로 두면, 패턴 매칭에서 빠진 경우를
+--    알려주는 컴파일 에러(missing cases)가 난다.
+inductive Shape where
+  | empty : Shape
+  | circle (radius : Float) : Shape
+  | rect (w h : Float) : Shape
+  | triangle (base height : Float) : Shape
+
+def area : Shape → Float
+  | .empty => 0.0
+  | .circle r => 3.14159 * r * r
+  | .rect w h => w * h
+  | .triangle b h => 0.5 * b * h
+
+#eval area (.triangle 6.0 4.0)  -- 12.000000
+
+structure Book where
+  title : String
+  pages : Nat
+
+def myBook : Book := { title := "Lean4 입문", pages := 300 }
+#eval myBook.pages  -- 300
+
+def getOrElse : MyOption Nat → Nat → Nat
+  | .none,   d => d
+  | .some v, _ => v
+
+#eval getOrElse (safeDiv 10 0) 99  -- 99
+----
+====
 // end::body[]

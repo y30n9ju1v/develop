@@ -95,7 +95,35 @@ h : p ∧ q
 ⊢ q ∧ p
 ----
 
-`⊢` 위는 지금까지 얻은 가정들, `⊢` 아래는 지금 증명해야 할 목표입니다. 전술을 한 줄씩 적용할 때마다 이 화면이 바뀌는 걸 지켜보는 게 전술 증명을 익히는 가장 빠른 방법입니다 — 눈으로 읽기보다 직접 VS Code에서 한 줄씩 눌러보길 권합니다.
+`⊢` 위는 지금까지 얻은 가정들, `⊢` 아래는 지금 증명해야 할 목표입니다.
+
+이 화면이 전술 한 줄에 어떻게 바뀌는지가 핵심입니다. 위 상태에서 `constructor`를 실행한 직후, InfoView는 이렇게 바뀝니다.
+
+----
+case left
+p q : Prop
+h : p ∧ q
+⊢ q
+
+case right
+p q : Prop
+h : p ∧ q
+⊢ p
+----
+
+목표 하나(`q ∧ p`)가 두 개(`q`와 `p`)로 쪼개졌고 각각 `case left`/`case right`라는 이름이 붙었습니다 — `·`(불릿)이 하나씩 맡아 처리하는 게 바로 이 목표들입니다. 이렇게 전술 실행 전/후의 InfoView를 대조하며 지켜보는 게 전술 증명을 익히는 가장 빠른 방법입니다 — 눈으로 읽기보다 직접 VS Code에서 한 줄씩 눌러보길 권합니다.
+
+그리고 목표를 다 닫지 못한 채 증명을 끝내면 이런 에러를 만납니다.
+
+----
+error: unsolved goals
+case right
+p q : Prop
+h : p ∧ q
+⊢ p
+----
+
+무섭게 생겼지만 내용은 InfoView 화면과 똑같습니다 — "아직 `case right`(`⊢ p`)가 안 닫혔다"는 안내일 뿐입니다. 남은 목표를 마저 증명하면 사라집니다.
 
 == 이 장이 왜 중요한가
 
@@ -110,4 +138,25 @@ TIP: 더 깊이 들어가려면 — 전술의 전체 목록과 조합 방법은 
 * `p → q → p ∧ q`를 전술로 증명해보세요. (`intro` 두 번 → `constructor` → 각 목표를 `exact`로.)
 * `(h1 : a = b)`와 `(h2 : b = c)`가 가정으로 있을 때 `a = c`를 `rw`로 증명해보세요.
 * `(h : 2 * n + 1 = 9)`에서 `n = 4`를 `omega`로 증명해보고, `omega`를 지우면 InfoView에 어떤 목표가 남는지도 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+theorem ex1 (p q : Prop) : p → q → p ∧ q := by
+  intro hp
+  intro hq
+  constructor
+  · exact hp
+  · exact hq
+
+theorem ex2 (a b c : Nat) (h1 : a = b) (h2 : b = c) : a = c := by
+  rw [h1, h2]
+
+theorem ex3 (n : Nat) (h : 2 * n + 1 = 9) : n = 4 := by
+  omega
+-- omega를 지우면 남는 목표:  h : 2 * n + 1 = 9  ⊢ n = 4
+----
+====
 // end::body[]

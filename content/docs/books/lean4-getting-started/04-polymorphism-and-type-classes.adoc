@@ -91,4 +91,31 @@ TIP: 더 깊이 들어가려면 — 타입 클래스와 인스턴스 탐색의 �
 * 3장의 `Shape`에 `Summary` 인스턴스를 만들어 `describe (Shape.circle 2.0)`이 동작하게 해보세요.
 * `firstOr`를 참고해 리스트의 마지막 원소를 돌려주는 `lastOr (default : α) : List α → α`를 정의해보세요. (끝까지 재귀로 내려가야 합니다 — 원소가 하나 남은 경우를 잡는 `[x]` 패턴이 유용합니다.)
 * `Point`에 `ToString` 인스턴스(문자열 변환 함수 `toString` 하나를 요구하는 표준 계약)를 만들어보세요. 만들고 나면 `#eval (Point.mk 1.0 2.0)`이 바로 동작하게 됩니다 — `#eval`이 값을 찍을 때 찾는 계약이 바로 이것이기 때문입니다.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+instance : Summary Shape where
+  summarize
+    | .empty => "빈 도형"
+    | .circle r => s!"반지름 {r}인 원"
+    | .rect w h => s!"{w}×{h} 직사각형"
+
+#eval describe (Shape.circle 2.0)  -- "값: 반지름 2.000000인 원"
+
+def lastOr (default : α) : List α → α
+  | [] => default
+  | [x] => x
+  | _ :: xs => lastOr default xs
+
+#eval lastOr 0 [1, 2, 3]  -- 3
+
+instance : ToString Point where
+  toString p := s!"({p.x}, {p.y})"
+
+#eval Point.mk 1.0 2.0  -- (1.000000, 2.000000)
+----
+====
 // end::body[]

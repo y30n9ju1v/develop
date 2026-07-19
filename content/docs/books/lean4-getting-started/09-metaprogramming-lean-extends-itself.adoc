@@ -75,4 +75,23 @@ TIP: 더 깊이 들어가려면 — link:../../../programming/lean/metaprogrammi
 * `twice`를 참고해 `thrice x`(x를 세 번 더하기) macro를 만들어보세요. `#eval thrice 5`는 15가 나와야 합니다.
 * `#eval twice (twice 10)`은 몇일까요? macro가 펼쳐지는 과정을 종이에 먼저 적어본 다음, 실행해서 확인해보세요.
 * `typeOf%`에 `"hello"`, `(fun n : Nat => n + 1)` 등 여러 식을 넣어 어떤 타입이 찍히는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+macro "thrice " x:term : term => `($x + $x + $x)
+
+#eval thrice 5  -- 15
+
+-- twice (twice 10)
+--   → twice 10 + twice 10       (바깥 twice가 먼저 펼쳐진다)
+--   → (10 + 10) + (10 + 10)
+--   → 40
+
+-- typeOf% "hello"                → 정보 메시지: String
+-- typeOf% (fun n : Nat => n + 1) → 정보 메시지: Nat → Nat
+----
+====
 // end::body[]

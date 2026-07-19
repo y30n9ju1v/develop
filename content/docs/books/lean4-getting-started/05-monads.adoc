@@ -90,6 +90,19 @@ def twoSteps'' (a b c : Nat) : Option Nat := do
 
 `let r1 ← safeDiv a b`는 "`safeDiv a b`를 계산하고, 실패하지 않았다면 그 결과를 `r1`이라는 이름에 담아 다음 줄로 넘어간다"는 뜻입니다. 겉모습은 완전히 명령형처럼 보이지만, 실제로는 이 `do` 블록 전체가 앞서 손으로 쓴 `andThen` 연쇄로 그대로 풀립니다. `greet` 함수도 마찬가지입니다 — `IO` 계산을 순서대로 나열한 것처럼 보이지만, 사실은 `Monad IO` 인스턴스의 `bind`를 반복 적용한 것입니다.
 
+`do` 블록 안에서는 `←`와 `:=`를 구분하는 게 중요합니다. `←`는 `Option` 같은 포장을 벗겨 값을 꺼내는 것(그래서 실패가 전파될 수 있는 것)이고, `:=`는 1장부터 써온 평범한 값 정의입니다 — 실패할 게 없는 순수 계산에는 `←`가 필요 없습니다.
+
+[source,lean]
+----
+def twoStepsSum (a b c : Nat) : Option Nat := do
+  let r1 ← safeDiv a b   -- Option에서 값을 꺼낸다 (none이면 여기서 전체 중단)
+  let r2 ← safeDiv r1 c
+  let total := r1 + r2   -- 평범한 계산에는 :=
+  pure total
+
+#eval twoStepsSum 100 5 4  -- some 25
+----
+
 == 1부를 마치며
 
 1부에서는 Lean4를 증명이나 메타프로그래밍 이야기 없이 하나의 함수형 언어로만 다뤘습니다 — 값과 타입, 재귀와 패턴 매칭, 나만의 자료구조, 다형성과 타입 클래스, 그리고 그 타입 클래스의 대표적인 응용인 모나드까지 왔습니다. 이 다섯 개념(특히 "모든 식은 타입을 갖는다"와 "타입이 여러 모양 중 하나로 정의된다")이 2부의 출발점이 됩니다 — 다음 장에서 그 두 가지가 어떻게 "증명"이라는 완전히 새로운 영역으로 그대로 이어지는지 보게 됩니다.
@@ -101,4 +114,40 @@ TIP: 더 깊이 들어가려면 — 모나드는 link:../../../programming/lean/
 * `twoSteps''`에 나눗셈을 한 단계 더 추가한 `threeSteps (a b c d : Nat) : Option Nat`을 `do`로 정의하고, 중간에 0이 끼면 전체가 `none`이 되는지 확인해보세요.
 * 뺄셈 결과가 음수가 될 것 같으면 실패하는 `safeSub (a b : Nat) : Option Nat`을 만들고, `do` 블록 안에서 `safeDiv`와 섞어 써보세요.
 * `greet`를 고쳐 이름과 사는 곳을 차례로 입력받아 한 문장으로 출력해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def threeSteps (a b c d : Nat) : Option Nat := do
+  let r1 ← safeDiv a b
+  let r2 ← safeDiv r1 c
+  let r3 ← safeDiv r2 d
+  pure r3
+
+#eval threeSteps 100 5 2 2  -- some 5
+#eval threeSteps 100 5 0 2  -- none
+
+def safeSub (a b : Nat) : Option Nat :=
+  if b > a then none else some (a - b)
+
+def subThenDiv (a b c : Nat) : Option Nat := do
+  let d ← safeSub a b
+  safeDiv d c
+
+#eval subThenDiv 10 4 2  -- some 3
+#eval subThenDiv 4 10 2  -- none
+
+-- getLine 결과에는 줄바꿈 문자가 붙어 있어 출력 모양이 조금 어색할 수
+-- 있지만, 계산을 순서대로 잇는 연습으로는 충분합니다.
+def greet2 : IO Unit := do
+  IO.println "이름을 입력하세요:"
+  let stdin ← IO.getStdin
+  let name ← stdin.getLine
+  IO.println "사는 곳을 입력하세요:"
+  let city ← stdin.getLine
+  IO.println s!"{city}에 사는 {name}님, 반갑습니다!"
+----
+====
 // end::body[]
