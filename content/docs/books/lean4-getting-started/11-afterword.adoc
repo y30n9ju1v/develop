@@ -12,6 +12,42 @@ _link:../[전체 목차] · 이전: link:../10-writing-a-tactic/[10장: 나만�
 
 '''
 
+== 실습: 1~3부를 하나로 묶는 미니 프로젝트
+
+마지막으로 이 책의 1부(함수형 프로그래밍), 2부(정리 증명), 3부(메타프로그래밍)에서 배운 재료를 하나로 묶는 작은 실습을 만들어봅시다. **"검증된 미니 계산기 엔진"**입니다.
+
+[source,lean]
+----
+-- 1. [1부 FP] 식(Expr) 자료구조와 계산(evalExpr) 함수 구현
+inductive Expr where
+  | num (n : Nat)
+  | add (e1 e2 : Expr)
+
+def evalExpr : Expr → Nat
+  | .num n => n
+  | .add e1 e2 => evalExpr e1 + evalExpr e2
+
+#eval evalExpr (.add (.num 3) (.num 5))  -- 8
+
+-- 2. [2부 증명] "이 계산기는 덧셈 순서를 바꿔도 결과가 같음"을 컴파일러에게 증명
+theorem evalExpr_add_comm (e1 e2 : Expr) : evalExpr (.add e1 e2) = evalExpr (.add e2 e1) := by
+  simp [evalExpr]  -- evalExpr 정의를 펼침 (목표: ⊢ evalExpr e1 + evalExpr e2 = evalExpr e2 + evalExpr e1)
+  omega            -- 덧셈 교환법칙 산술 증명 자동 완료
+
+-- 3. [3부 메타프로그래밍] 사용자가 편리하게 쓰도록 미니 문법(매크로) 붙이기
+macro "calc% " e:term : term => `(evalExpr $e)
+
+#eval calc% (.add (.num 10) (.num 20))  -- 30
+----
+
+단 20줄의 코드지만, 여기에 Lean4의 핵심 3대 레이어가 모두 들어있습니다:
+
+1. **나만의 자료구조와 계산 로직을 정의하고 (1부)**
+2. **그 계산 로직이 절대로 틀리지 않는다는 것을 컴파일러에게 증명하며 (2부)**
+3. **사용자가 보기 좋은 문법으로 언어 자체를 확장했습니다 (3부)**
+
+보통의 언어에서는 프로그램 개발과 코드 검증, 그리고 문법 확장이 완전히 별개의 도구로 분리되어 있지만, Lean4에서는 이 세 가지가 하나의 언어 안에서 매끄럽게 작동합니다.
+
 == 이 책이 일부러 건너뛴 것들
 
 이 책은 열 개의 장에 걸쳐 세 권의 책을 빠르게 훑었지만, 각 책 안에는 이 책이 다루지 않은 내용이 훨씬 많습니다. 몇 가지만 짚어봅니다.
