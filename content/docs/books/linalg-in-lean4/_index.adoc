@@ -43,6 +43,13 @@ title: "Lean4로 증명하는 응용 선형대수"
 . *link:15-qr-algorithm-and-similarity/[QR 알고리즘과 닮음: 고유값을 반복으로 찾기]*
 . *link:16-application-pca/[응용: 공분산 행렬의 고유벡터로 데이터의 주축 찾기]*
 
+*4부: 컴퓨터 비전과 딥러닝을 위한 확장*
+
+[start=17]
+. *link:17-homogeneous-coordinates/[동차좌표와 변환 행렬: 회전과 이동을 하나의 곱셈으로]*
+. *link:18-singular-value-decomposition/[특이값분해: 정사각이 아닌 행렬도 회전·스케일·회전으로]*
+. *link:19-jacobian-and-gradient/[야코비안과 경사: 딥러닝 역전파의 선형대수]*
+
 '''
 
 [#part-1]
@@ -176,3 +183,29 @@ include::15-qr-algorithm-and-similarity.adoc[tag=body,leveloffset=+1]
 == 16. 응용: 공분산 행렬의 고유벡터로 데이터의 주축 찾기
 
 include::16-application-pca.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-4]
+== 제4부: 컴퓨터 비전과 딥러닝을 위한 확장
+
+'''
+
+[#chapter-17]
+== 17. 동차좌표와 변환 행렬: 회전과 이동을 하나의 곱셈으로
+
+include::17-homogeneous-coordinates.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-18]
+== 18. 특이값분해: 정사각이 아닌 행렬도 회전·스케일·회전으로
+
+include::18-singular-value-decomposition.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-19]
+== 19. 야코비안과 경사: 딥러닝 역전파의 선형대수
+
+include::19-jacobian-and-gradient.adoc[tag=body,leveloffset=+1]
