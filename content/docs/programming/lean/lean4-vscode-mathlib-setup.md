@@ -30,10 +30,10 @@ VS Code를 열고 확장 탭(`Cmd+Shift+X`)에서 `lean4`를 검색해, `leanpro
 `lake new` 명령에 `math` 템플릿을 지정하면, Mathlib4를 의존성으로 미리 잡아둔 프로젝트가 생성됩니다.
 
 ```bash
-lake +v4.24.0 new my_project math
+lake +v4.32.0 new my_project math
 ```
 
-`+v4.24.0` 부분은 사용할 Lean 버전을 지정하는 `elan` 문법입니다 — [Mathlib4 저장소](https://github.com/leanprover-community/mathlib4)의 `lean-toolchain` 파일을 확인해서 Mathlib이 현재 어떤 버전을 쓰는지 맞춰주는 것이 안전합니다(버전이 어긋나면 뒤의 `lake update`/`lake exe cache get` 단계에서 캐시가 안 맞아 처음부터 컴파일하게 될 수 있습니다).
+`+v4.32.0` 부분은 사용할 Lean 버전을 지정하는 `elan` 문법입니다 — [Mathlib4 저장소](https://github.com/leanprover-community/mathlib4)의 `lean-toolchain` 파일을 확인해서 Mathlib이 현재 어떤 버전을 쓰는지 맞춰주는 것이 안전합니다(버전이 어긋나면 뒤의 `lake update`/`lake exe cache get` 단계에서 캐시가 안 맞아 처음부터 컴파일하게 될 수 있습니다).
 
 `math` 템플릿이 만들어주는 프로젝트는 다음을 이미 갖추고 있습니다:
 

@@ -34,6 +34,47 @@ _link:../[전체 목차] · 다음: link:../01-vectors-and-operations/[벡터란
 
 각 장마다 그 장의 핵심 정리 1~2개는 `sorry` 없이 끝까지 증명합니다 — 예를 들어 4장의 코시-슈바르츠 부등식이 그렇습니다. 반면 결합법칙·교환법칙처럼 정의를 그대로 펼치면 기계적으로 따라오는 성질들은, 증명의 방향(어떤 정리를 어떤 순서로 적용해야 하는지)만 스케치하고 실제 완성은 연습 문제로 남깁니다 — 막혀서 포기하지 않도록, 방향은 분명히 제시합니다.
 
+== 직접 실습하려면
+
+이 책의 증명을 직접 따라 치고 Infoview로 확인하려면 Lean4 + Mathlib4 개발 환경이 필요합니다. Lean4는 VS Code를 표준 개발 환경으로 삼습니다 — Infoview가 커서 위치에 따라 증명 상태(goal, hypothesis, 오류)를 실시간으로 보여주는 방식이 핵심이라, 셀을 실행해야만 결과를 보는 다른 환경보다 증명을 시행착오하며 다듬는 작업에 훨씬 잘 맞습니다.
+
+**1. `elan`으로 Lean 4 툴체인 설치.** `elan`은 Lean 버전 매니저입니다 — 프로젝트마다 다른 Lean 버전을 요구할 수 있는데(`lean-toolchain` 파일로 지정), `elan`이 그 파일을 보고 알맞은 버전을 자동으로 골라 씁니다.
+
+[source,bash]
+----
+curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh
+source ~/.profile
+lean --version
+----
+
+NOTE: Apple Silicon(M1/M2/M3 등) Mac 기준으로 `elan`/Lean 4 자체는 arm64 네이티브로 잘 동작하고, 뒤에서 받는 Mathlib 바이너리 캐시(`lake exe cache get`)도 arm64를 지원하니 별도 우회가 필요 없습니다.
+
+**2. VS Code에 Lean 4 확장 설치.** VS Code를 열고 확장 탭(`Cmd+Shift+X`)에서 `lean4`를 검색해, `leanprover`가 배포하는 공식 **Lean 4** 확장을 설치합니다. 이 확장이 Infoview, 구문 강조, `#eval`/`#check` 결과 표시, 진행 상황까지 다 처리합니다.
+
+**3. Mathlib이 포함된 프로젝트 생성.** `lake new` 명령에 `math` 템플릿을 지정하면, Mathlib4를 의존성으로 미리 잡아둔 프로젝트가 생성됩니다.
+
+[source,bash]
+----
+lake +v4.32.0 new my_project math
+----
+
+`+v4.32.0` 부분은 사용할 Lean 버전을 지정하는 `elan` 문법입니다 — link:https://github.com/leanprover-community/mathlib4[Mathlib4 저장소]의 `lean-toolchain` 파일을 확인해서 Mathlib이 현재 어떤 버전을 쓰는지 맞춰주는 것이 안전합니다(버전이 어긋나면 뒤의 `lake update`/`lake exe cache get` 단계에서 캐시가 안 맞아 처음부터 컴파일하게 될 수 있습니다).
+
+**4. 의존성 받고 바이너리 캐시 내려받기.**
+
+[source,bash]
+----
+cd my_project
+lake update
+lake exe cache get
+----
+
+`lake update`가 `lakefile`에 적힌 의존성(Mathlib4 및 그 하위 의존성)을 실제로 받아옵니다. `lake exe cache get`은 Mathlib을 처음부터 컴파일하는 대신 미리 빌드된 바이너리(`.olean`) 캐시를 내려받습니다 — 이 단계를 건너뛰면 `lake build`가 Mathlib 전체를 소스에서 컴파일하느라 수십 분 이상 걸리니 반드시 실행하세요.
+
+**5. VS Code로 열고 확인하기.** `code .`로 열거나 File → Open Folder로 `my_project` 폴더를 엽니다. 새 파일을 만들어 커서를 `by` 다음 줄에 두면 Infoview에 남은 목표(goal)가 실시간으로 뜨고, 증명이 끝나면 목표가 사라집니다 — 이 실시간 피드백이 이 책 전체에서 계속 쓰는 워크플로우입니다.
+
+TIP: 버전 불일치, `lake exe cache get` 재실행 시점, Loogle을 이용한 정리 검색 같은 실전 팁은 link:../../../programming/lean/lean4-vscode-mathlib-setup/[VS Code에서 Lean 4 + Mathlib4 셋업하기]에 더 자세히 정리해뒀습니다.
+
 == 읽는 순서
 
 1부(1~6장)는 벡터만 다룹니다 — 벡터의 정의와 연산, 선형결합, 내적과 노름, 각도와 직교성, 선형독립과 기저, 그리고 이 개념들을 실제로 써보는 응용 장으로 마무리합니다. 2부(7~12장)는 행렬을, 3부(13~16장)는 최소자승법을 다루며, 이 책 한 권으로 벡터부터 선형회귀까지 이어집니다. 선형대수를 처음 접한다면 1장부터, 기본 연산에는 익숙하고 증명 부분만 보고 싶다면 3장(내적과 노름)부터 읽어도 무방합니다.
