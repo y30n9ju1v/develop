@@ -4,6 +4,7 @@ title: "Books"
 
 이해하고 싶은 책을 직접 번역했거나, AI에게 책으로 써달라고 요청해서 만든 기록입니다.
 
+- **[Lean4 입문: 함수형 프로그래밍에서 증명, 메타프로그래밍까지](lean4-getting-started/)** — Functional Programming in Lean, Theorem Proving in Lean 4, Metaprogramming in Lean 4 세 권을 초보자용으로 이어 읽을 수 있게 새로 쓴 책. 왜 배우는지부터 시작해 값·재귀·자료구조·모나드(1부) → 명제-타입 대응·전술·귀납 증명(2부) → 매크로·나만의 tactic(3부) 순서로 쌓아 올린다
 - **[Lean4로 증명하는 응용 선형대수](linalg-in-lean4/)** — 벡터의 덧셈에서 시작해 내적·노름·코시-슈바르츠 부등식·선형독립을 Lean4로 직접 증명하며 쌓는, VMLS류 응용 선형대수 커리큘럼을 새로 쓴 책 (1부: 벡터)
 - **[nand2npu: Lean4로 증명하며 게이트에서 NPU까지](nand2npu/)** — nand2tetris의 상향식 여정(게이트→ALU→CPU→어셈블러→VM→컴파일러→OS)을 Lean4 증명과 MLIR/CIRCT 방출로 쌓고, MAC 유닛·시스톨릭 어레이·양자화까지 얹어 최소 NPU로 확장하는 책
 - **[함수형 프로그래밍으로 보는 비동기의 근간](fp-backbone-of-async/)** — Python의 async/await, Monad, Functor, Applicative, Observable이 사실은 함수형 프로그래밍의 오래된 개념 위에 서 있다는 것을 따라가는 책
