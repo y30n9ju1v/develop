@@ -1,0 +1,106 @@
+---
+title: "9장: 부정과 모순으로 증명하기"
+date: 2026-07-19T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "theorem-proving", "book"]
+categories: ["books"]
+description: "값을 하나도 만들 수 없는 타입 False를 통해 '아니다'를 증명하는 법과, 모순으로부터 원하는 결론을 끌어내는 exfalso 전술을 익히며 2부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-proof-by-induction/[8장: 귀납으로 증명하기] · 다음: link:../10-metaprogramming-lean-extends-itself/[10장: Lean은 스스로를 확장한다]_
+
+'''
+
+== 왜 "아니다"도 증명해야 하는가
+
+6~8장에서는 줄곧 "이 명제가 참이다"를 증명했습니다. 그런데 "두 자연수를 더하면 자기 자신보다 작아질 수 없다"처럼, 어떤 일이 **일어나지 않는다**는 것도 증명해야 할 때가 많습니다. 6장의 Curry-Howard 대응표 맨 아래 줄에 이미 힌트가 있었습니다 — "값을 하나도 못 만드는 타입"이 곧 거짓(`False`)이라는 것입니다. 이 장에서는 그 줄을 정면으로 다룹니다.
+
+== False: 생성자가 하나도 없는 타입
+
+3장에서 ``Shape``는 생성자가 셋, ``Option``은 둘이었습니다. Lean4의 ``False``는 생성자가 **0개**인 타입입니다.
+
+[source,lean]
+----
+#check False  -- Prop
+----
+
+생성자가 없다는 게 무슨 뜻일까요? `Shape` 값을 만들려면 `.empty`, `.circle`, `.rect` 중 하나를 골라야 했습니다. `False` 값을 만들려면 고를 수 있는 방법이 아예 없습니다 — 그래서 ``False``는 값을 가질 수 없는 타입이고, Curry-Howard 대응에서 이게 정확히 "거짓"에 대응합니다.
+
+== ¬p는 사실 p → False다
+
+"명제 ``p``가 거짓이다"를 Lean4는 "``p``를 가정하면 결국 ``False``에 이른다"는 함수로 표현합니다. 이게 부정(negation) ``¬p``이고, 실제로는 ``p → False``라는 평범한 함수 타입입니다.
+
+[source,lean]
+----
+theorem one_ne_two : (1 : Nat) ≠ 2 := by
+  omega
+
+theorem false_implies_anything (p : Prop) (h : False) : p :=
+  h.elim
+----
+
+``≠``는 ``¬(a = b)``를 줄여 쓴 표기이므로, ``one_ne_two``의 진짜 타입은 ``(1 = 2) → False``입니다 — "``1 = 2``라는 증명을 준다면 ``False``를 만들어내겠다"는 함수입니다. ``1 = 2``의 증명은 존재하지 않으니 이 함수가 실제로 호출될 일은 없지만, 함수 "타입"으로서는 완벽하게 성립합니다. 이게 바로 ``omega``가 방금 자동으로 만들어준 값입니다.
+
+``false_implies_anything``은 반대 방향을 보여줍니다 — ``False``의 값(`h`)이 하나라도 손에 있다면, 그걸로 **아무 명제나** 증명할 수 있습니다(`h.elim`). 3장의 ``MyOption``에서 "``.none``이면 값을 꺼낼 방법이 없다"고 했던 것과 같은 원리입니다 — ``False``는 경우의 수가 0개인 패턴 매칭이라서, 어떤 반환 타입이든 문제없이 채워집니다.
+
+== exfalso: 목표를 False로 바꿔치기
+
+가정들이 서로 모순이라면, 원래 목표가 무엇이든 증명할 수 있어야 합니다(방금 본 ``false_implies_anything``이 정확히 그 원리입니다). `exfalso` 전술은 지금 목표를 통째로 ``False``로 바꿔서, 이 원리를 실제로 써먹게 해줍니다.
+
+[source,lean]
+----
+example (n : Nat) (h1 : n < 3) (h2 : n > 5) (p : Prop) : p := by
+  exfalso
+  omega
+----
+
+목표가 원래 `p`(아무 명제)였는데, ``h1 : n < 3``과 ``h2 : n > 5``는 동시에 참일 수 없는 모순된 가정입니다. ``exfalso``로 목표를 ``⊢ False``로 바꾸고 나면, ``omega``가 ``h1``과 ``h2``만으로 그 ``False``를 만들어냅니다 — 목표가 원래 뭐였는지는 상관없습니다.
+
+부정을 다루는 또 다른 흔한 패턴은 함의의 대우(contrapositive)입니다 — "``p``면 ``q``다"가 참이면 "``q``가 아니면 ``p``도 아니다"도 참입니다.
+
+[source,lean]
+----
+theorem contrapositive_demo (p q : Prop) (h : p → q) (hnq : ¬q) : ¬p := by
+  intro hp
+  exact hnq (h hp)
+----
+
+``¬p``도 결국 ``p → False``이므로, 증명은 "``p``의 증명(`hp`)을 받아서 ``False``를 내놓는 함수"를 만드는 일입니다. ``h hp``로 ``q``의 증명을 얻고, `hnq`(즉 `q → False`)에 넘기면 원하는 ``False``가 나옵니다 — 새로운 도구가 아니라 지금까지 배운 함수 적용을 그대로 조합한 것뿐입니다.
+
+== 이 장이 왜 중요한가
+
+이 장에서 진짜로 배운 건 새 문법이 아니라 관점입니다 — ``False``는 3장의 ``inductive``가 생성자 0개인 극단적인 경우일 뿐이고, ``¬p``는 2장부터 써온 함수 타입 ``→``의 특별한 경우일 뿐입니다. ``exfalso``조차 "값이 없는 타입에서는 무엇이든 증명된다"는 원리를 전술로 감싼 것에 지나지 않습니다. 6~9장을 관통하는 이 태도 — 새 논리 개념처럼 보이는 것도 사실 이미 아는 타입 도구의 재조합이라는 것 — 가 2부의 핵심입니다.
+
+다음 장부터는 3부입니다 — Lean4가 자기 자신의 문법과 증명 자동화를 코드로 확장하는 원리를 보고, 여러분만의 tactic과 표기법을 직접 만들어봅니다.
+
+TIP: 더 깊이 들어가려면 — 부정과 고전 논리(배중률, 이중 부정 제거 등)의 경계는 link:../../../programming/lean/theorem-proving-in-lean4/03-propositions-and-proofs/[Theorem Proving in Lean 4의 3장: 명제와 증명]에서 다룹니다.
+
+== 직접 해보기
+
+* ``(3 : Nat) ≠ 5``를 ``omega``로 증명해보세요.
+* ``false_implies_anything``과 똑같은 뜻을, `h.elim` 대신 ``False.elim h``로 다시 써보세요.
+* ``h1 : n < 10``과 ``h2 : n > 20``처럼 모순된 가정 두 개로, 아무 결론(예: `n = 42`)이나 ``exfalso``와 ``omega``로 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+theorem three_ne_five : (3 : Nat) ≠ 5 := by omega
+
+theorem anything_from_false (p : Prop) (h : False) : p := False.elim h
+
+example (n : Nat) (h1 : n < 10) (h2 : n > 20) : n = 42 := by
+  exfalso
+  omega
+----
+====
+
+== 요약
+
+* ``False``는 생성자가 0개인 `inductive` 타입이다 — 값을 하나도 만들 수 없으므로 "거짓"에 대응한다.
+* ``¬p``는 새 개념이 아니라 ``p → False``라는 함수 타입의 표기일 뿐이다.
+* ``False``의 값이 하나라도 있으면(`h.elim`/`False.elim`) 아무 명제나 증명할 수 있다.
+* ``exfalso``는 지금 목표를 ``False``로 바꿔서, 모순된 가정으로부터 원래 목표가 뭐였든 증명을 끝낼 수 있게 해준다.
+// end::body[]

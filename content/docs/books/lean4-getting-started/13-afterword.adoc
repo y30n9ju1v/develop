@@ -1,5 +1,5 @@
 ---
-title: "11장: 맺음말 — 어디로 갈 것인가"
+title: "13장: 맺음말 — 어디로 갈 것인가"
 date: 2026-07-19T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "book"]
@@ -8,7 +8,7 @@ description: "이 책이 일부러 생략한 것들을 정리하고, 더 깊이 
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../10-writing-a-tactic/[10장: 나만의 tactic 만들기]_
+_link:../[전체 목차] · 이전: link:../12-custom-notation/[12장: 나만의 표기법 만들기]_
 
 '''
 
@@ -50,7 +50,7 @@ macro "calc% " e:term : term => `(evalExpr $e)
 
 == 이 책이 일부러 건너뛴 것들
 
-이 책은 열 개의 장에 걸쳐 세 권의 책을 빠르게 훑었지만, 각 책 안에는 이 책이 다루지 않은 내용이 훨씬 많습니다. 몇 가지만 짚어봅니다.
+이 책은 열두 개의 장에 걸쳐 세 권의 책을 빠르게 훑었지만, 각 책 안에는 이 책이 다루지 않은 내용이 훨씬 많습니다. 몇 가지만 짚어봅니다.
 
 1부(함수형 프로그래밍)에서는 모나드 변환기(여러 모나드를 겹쳐 쓰는 법), 의존 타입으로 색인화된 자료구조, 꼬리재귀 최적화와 종료성 증명의 세부 기법을 다루지 않았습니다.
 
@@ -63,12 +63,12 @@ macro "calc% " e:term : term => `(evalExpr $e)
 이 책에서 어떤 장이 가장 흥미로웠는지에 따라 다음 행선지가 갈립니다.
 
 * *1부(함수형 프로그래밍)가 재밌었다면* → link:../../../programming/lean/functional-programming-in-lean/[Functional Programming in Lean]. 특히 모나드 변환기(6장)와 의존 타입 색인화(7장)를 더 깊이 다룹니다.
-* *2부(증명)가 재밌었다면* → link:../../../programming/lean/theorem-proving-in-lean4/[Theorem Proving in Lean 4]. 이 책의 6~8장이 다룬 내용의 훨씬 엄밀하고 완전한 버전이라고 보면 됩니다.
-* *3부(메타프로그래밍)가 재밌었다면* → link:../../../programming/lean/metaprogramming-in-lean4/[Metaprogramming in Lean 4]. `Syntax`, `Expr`, `MetaM`을 훨씬 깊이 다루고, DSL 설계까지 다룹니다.
+* *2부(증명)가 재밌었다면* → link:../../../programming/lean/theorem-proving-in-lean4/[Theorem Proving in Lean 4]. 이 책의 6~9장이 다룬 내용의 훨씬 엄밀하고 완전한 버전이라고 보면 됩니다.
+* *3부(메타프로그래밍)가 재밌었다면* → link:../../../programming/lean/metaprogramming-in-lean4/[Metaprogramming in Lean 4]. `Syntax`, `Expr`, ``MetaM``을 훨씬 깊이 다루고, DSL 설계까지 다룹니다.
 
 == 다음 프로젝트를 시작하려면: lake
 
-지금까지는 파일 하나로 충분했지만, 본격적인 프로젝트는 Lean4의 빌드 도구 `lake`로 만듭니다. 다음 세 줄이면 Mathlib(커뮤니티가 쌓아 올린 수학 라이브러리)이 연결된 새 프로젝트가 생깁니다.
+지금까지는 파일 하나로 충분했지만, 본격적인 프로젝트는 Lean4의 빌드 도구 ``lake``로 만듭니다. 다음 세 줄이면 Mathlib(커뮤니티가 쌓아 올린 수학 라이브러리)이 연결된 새 프로젝트가 생깁니다.
 
 [source,bash]
 ----

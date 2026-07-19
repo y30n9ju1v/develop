@@ -5,7 +5,7 @@ draft: false
 
 Functional Programming in Lean, Theorem Proving in Lean 4, Metaprogramming in Lean 4 세 권을 초보자도 하나의 흐름으로 이어 읽을 수 있게 새로 쓴 입문서입니다. 왜 이걸 배우는지를 각 장 맨 앞에 놓고, 값과 타입 같은 기초부터 시작해 재귀, 나만의 자료구조, 다형성, 모나드(1부) → 명제도 타입이라는 발상, 전술, 귀납 증명(2부) → Lean이 스스로를 확장하는 원리와 나만의 tactic 만들기(3부)까지, 필요한 개념만 순서대로 쌓아 올립니다.
 
-이 책의 코드 예제는 전부 이 책을 위해 새로 짠 것이며, 원본 세 책의 내용을 그대로 옮기지 않습니다. 더 깊이 들어가고 싶다면 각 장 끝, 그리고 11장(맺음말)에서 원본 책으로 가는 길을 안내합니다.
+이 책의 코드 예제는 전부 이 책을 위해 새로 짠 것이며, 원본 세 책의 내용을 그대로 옮기지 않습니다. 더 깊이 들어가고 싶다면 각 장 끝, 그리고 13장(맺음말)에서 원본 책으로 가는 길을 안내합니다.
 
 이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
 
@@ -29,17 +29,19 @@ Functional Programming in Lean, Theorem Proving in Lean 4, Metaprogramming in Le
 . *link:06-propositions-as-types/[명제도 타입이다: Curry-Howard 대응]*
 . *link:07-writing-proofs-with-tactics/[전술로 증명 쓰기]*
 . *link:08-proof-by-induction/[귀납으로 증명하기: 무한히 많은 경우를 유한한 단계로]*
+. *link:09-negation-and-contradiction/[부정과 모순으로 증명하기]*
 
 *3부: 메타프로그래밍 맛보기*
 
-[start=9]
-. *link:09-metaprogramming-lean-extends-itself/[Lean은 스스로를 확장한다: 매크로와 elaboration]*
-. *link:10-writing-a-tactic/[나만의 tactic 만들기]*
+[start=10]
+. *link:10-metaprogramming-lean-extends-itself/[Lean은 스스로를 확장한다: 매크로와 elaboration]*
+. *link:11-writing-a-tactic/[나만의 tactic 만들기]*
+. *link:12-custom-notation/[나만의 표기법 만들기]*
 
 *맺음말*
 
-[start=11]
-. *link:11-afterword/[어디로 갈 것인가]*
+[start=13]
+. *link:13-afterword/[어디로 갈 것인가]*
 
 '''
 
@@ -116,26 +118,40 @@ include::08-proof-by-induction.adoc[tag=body,leveloffset=+1]
 
 '''
 
+[#chapter-09]
+== 9. 부정과 모순으로 증명하기
+
+include::09-negation-and-contradiction.adoc[tag=body,leveloffset=+1]
+
+'''
+
 [#part-3]
 == 제3부: 메타프로그래밍 맛보기
 
 '''
 
-[#chapter-09]
-== 9. Lean은 스스로를 확장한다: 매크로와 elaboration
-
-include::09-metaprogramming-lean-extends-itself.adoc[tag=body,leveloffset=+1]
-
-'''
-
 [#chapter-10]
-== 10. 나만의 tactic 만들기
+== 10. Lean은 스스로를 확장한다: 매크로와 elaboration
 
-include::10-writing-a-tactic.adoc[tag=body,leveloffset=+1]
+include::10-metaprogramming-lean-extends-itself.adoc[tag=body,leveloffset=+1]
 
 '''
 
 [#chapter-11]
-== 11. 맺음말: 어디로 갈 것인가
+== 11. 나만의 tactic 만들기
 
-include::11-afterword.adoc[tag=body,leveloffset=+1]
+include::11-writing-a-tactic.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-12]
+== 12. 나만의 표기법 만들기
+
+include::12-custom-notation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-13]
+== 13. 맺음말: 어디로 갈 것인가
+
+include::13-afterword.adoc[tag=body,leveloffset=+1]
