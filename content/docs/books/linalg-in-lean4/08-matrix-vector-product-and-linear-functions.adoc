@@ -93,7 +93,7 @@ theorem Mat.identity_mulVec {n : ℕ} (v : Vec n) : (Mat.identity n) *ᵥ v = v 
   show ∑ j, (if i = j then 1 else 0) * v j = v i
   sorry
   -- 힌트: 1부 2장의 stdBasis_expansion 증명에서 썼던
-  -- Finset.sum_ite_eq'를 여기서도 그대로 씁니다 — if 조건과 곱셈 순서가
+  -- Finset.sum_ite_eq를 여기서도 그대로 씁니다 — if 조건과 곱셈 순서가
   -- stdBasis_expansion 때와 살짝 다르니(i = j vs j = i), 필요하면 eq_comm으로 조건을 뒤집으세요.
 
 end LinAlg

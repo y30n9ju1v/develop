@@ -27,7 +27,7 @@ import Vectors.Independence
 
 namespace LinAlg.Vec
 
-def dist {n : ℕ} (u v : Vec n) : ℝ := ‖u - v‖
+noncomputable def dist {n : ℕ} (u v : Vec n) : ℝ := ‖u - v‖
 
 end LinAlg.Vec
 ----
@@ -42,12 +42,12 @@ namespace LinAlg.Vec
 
 /-- Fin (m+1) 위에서 f의 값이 최소가 되는 인덱스. m+1개 후보 중 첫 번째부터
     순회하며 지금까지의 최솟값을 갱신하는 방식으로 구현합니다. -/
-def argmin {m : ℕ} (f : Fin (m + 1) → ℝ) : Fin (m + 1) :=
+noncomputable def argmin {m : ℕ} (f : Fin (m + 1) → ℝ) : Fin (m + 1) :=
   (List.finRange (m + 1)).tail.foldl
     (fun best i => if f i < f best then i else best)
     ⟨0, Nat.zero_lt_succ m⟩
 
-def nearestNeighbor {n m : ℕ} (candidates : Fin (m + 1) → Vec n) (query : Vec n) : Fin (m + 1) :=
+noncomputable def nearestNeighbor {n m : ℕ} (candidates : Fin (m + 1) → Vec n) (query : Vec n) : Fin (m + 1) :=
   argmin (fun i => dist (candidates i) query)
 
 end LinAlg.Vec
@@ -76,45 +76,41 @@ namespace LinAlg.Vec
 /-- 조각 1: foldl의 결과는 시작값보다 나쁠 수 없다. -/
 theorem foldl_le_start {m : ℕ} (f : Fin (m+1) → ℝ) (l : List (Fin (m+1))) (start : Fin (m+1)) :
     f (l.foldl (fun best i => if f i < f best then i else best) start) ≤ f start := by
-  sorry
-  -- 힌트: l에 대한 귀납(induction l with | nil | cons hd tl ih).
-  -- nil: foldl [] start = start이므로 f start ≤ f start (le_refl).
-  -- cons hd tl: List.foldl_cons로 (hd::tl).foldl _ start = tl.foldl _ (if f hd < f start then hd else start)를
-  --   먼저 전개한 뒤, by_cases hlt : f hd < f start로 두 경우를 나눕니다.
-  --   두 경우 모두 "새 시작값의 f값 ≤ f start"라는 것을 먼저 확인하고(hlt인 경우는 le_of_lt hlt,
-  --   아닌 경우는 not_lt.mp hlt), 그 다음 ih를 새 시작값에 적용한 뒤 le_trans로 이어붙입니다.
+  induction l generalizing start with
+  | nil => exact le_refl _
+  | cons hd tl ih =>
+      simp only [List.foldl_cons]
+      by_cases hlt : f hd < f start
+      · simp only [if_pos hlt]
+        exact (ih hd).trans (le_of_lt hlt)
+      · simp only [if_neg hlt]
+        exact ih start
 
 /-- 조각 2: foldl의 결과는 순회한 모든 원소보다 나쁠 수 없다. -/
 theorem foldl_le_mem {m : ℕ} (f : Fin (m+1) → ℝ) (l : List (Fin (m+1))) (start : Fin (m+1)) :
     ∀ j ∈ l, f (l.foldl (fun best i => if f i < f best then i else best) start) ≤ f j := by
-  induction l with
+  induction l generalizing start with
   | nil => intro j hj; simp at hj
   | cons hd tl ih =>
       intro j hj
       simp only [List.foldl_cons]
-      rcases List.mem_cons.mp hj with h | h
-      · subst h
-        by_cases hlt : f hd < f start
-        · -- hd로 갱신된 경우: 이제부터 시작값이 hd이므로, foldl_le_start를 그 새 시작값에 적용
-          calc f (tl.foldl (fun best i => if f i < f best then i else best) hd) ≤ f hd :=
-                 foldl_le_start f tl hd
-        · -- 갱신되지 않은 경우: 새 시작값이 여전히 start이고, f start ≤ f hd(hlt가 거짓이므로)를 거쳐야 함
-          have hge : f start ≤ f hd := not_lt.mp hlt
-          calc f (tl.foldl (fun best i => if f i < f best then i else best) start) ≤ f start :=
-                 foldl_le_start f tl start
-            _ ≤ f hd := hge
-      · -- j가 tl 안에 있는 경우: 새 시작값(hd로 갱신되었든 아니든)에서 시작해 ih를 적용
-        by_cases hlt : f hd < f start
-        · exact ih hd hd (List.mem_cons_self hd tl) |>.trans (le_refl _) |>.trans (foldl_le_start f tl hd)
-              -- 위 한 줄이 어색하다면, 아래처럼 두 단계로 나눠 써도 됩니다:
-              -- have := ih hd j h  -- tl.foldl _ hd에 대한 부등식 (j ∈ tl)
-              -- exact this
+      by_cases hlt : f hd < f start
+      · simp only [if_pos hlt]
+        rcases List.mem_cons.mp hj with h | h
+        · rw [h]; exact foldl_le_start f tl hd
+        · exact ih hd j h
+      · simp only [if_neg hlt]
+        rcases List.mem_cons.mp hj with h | h
+        · rw [h]
+          calc f (tl.foldl (fun best i => if f i < f best then i else best) start)
+              ≤ f start := foldl_le_start f tl start
+            _ ≤ f hd := not_lt.mp hlt
         · exact ih start j h
 
 end LinAlg.Vec
 ----
 
-`foldl_le_mem`의 `cons` 경우 중 "j가 tl 안에 있는 경우" 갈래는 일부러 두 가지 표현을 나란히 남겨뒀습니다 — `calc`/`trans` 체이닝이 익숙하지 않다면 주석 처리된 두 줄짜리 버전(`ih hd j h`를 직접 쓰는 것)이 더 읽기 쉬울 수 있습니다. 어느 쪽이든 핵심은 같습니다 — **`ih`(귀납 가설)는 "tl을 어떤 시작값으로 `foldl`하든 그 결과가 tl의 원소들보다 작거나 같다"는 것을 이미 알고 있으므로, 지금 시작값이 뭐로 바뀌었는지만 파악해서 `ih`에 넣어주면 됩니다.**
+두 정리 모두 `induction l generalizing start`로 시작한다는 게 핵심입니다 — `start`를 고정한 채 귀납하면, 재귀 호출마다 시작값이 `hd`나 `start`로 바뀌는 `foldl`의 동작을 귀납 가설이 따라가지 못합니다. `generalizing start`로 "임의의 시작값에 대해 성립한다"는 형태로 귀납 가설을 일반화해두면, `ih hd`나 `ih start`처럼 바뀐 시작값을 그대로 대입해 쓸 수 있습니다. `foldl_le_mem`의 `cons` 경우에서 "j가 tl 안에 있는 경우" 갈래가 정확히 이 일반화 덕분에 짧아집니다 — **`ih`(귀납 가설)는 "tl을 어떤 시작값으로 `foldl`하든 그 결과가 tl의 원소들보다 작거나 같다"는 것을 이미 알고 있으므로, 지금 시작값이 뭐로 바뀌었는지만 파악해서 `ih`에 넣어주면 됩니다.**
 
 === 세 조각을 조합해 최종 정리 완성하기
 
@@ -141,9 +137,9 @@ end LinAlg.Vec
 
 이제 최종 정리는 `by_cases`로 "`j`가 시작 인덱스 0인가, 아닌가"만 나누고, 각 경우에 위에서 만든 `foldl_le_start`(0인 경우) 또는 `foldl_le_mem`(0이 아닌 경우)을 그대로 호출하는 것으로 끝납니다. 남은 `sorry` 하나(`hmem`)는 "0이 아닌 인덱스는 전체 범위 리스트의 꼬리 부분에 있다"는, 리스트 자체의 구조에 대한 사실이라 선형대수와는 무관한 순수 리스트 조작입니다.
 
-전체 증명이 `sorry`가 세 곳(`foldl_le_start`, `foldl_le_mem`의 한 갈래, `hmem`)으로 줄었고, 그 세 곳 각각에 어떤 전술 조합을 시도해야 하는지 구체적으로 적어뒀습니다 — 이전보다 훨씬 좁혀진 목표들입니다.
+`foldl_le_start`와 `foldl_le_mem`(핵심 두 조각)은 완전히 증명되어 있습니다 — 남은 `sorry`는 `hmem` 하나뿐이고, 힌트에 어떤 리스트 정리를 조합해야 하는지 적어뒀습니다.
 
-이 정리는 이 책 1부에서 유일하게 "완전히 증명"과 "연습 문제"의 경계가 흐릿한 사례입니다 — 정리의 전체 구조(리스트 귀납으로 "지금까지 본 원소 중 최소"라는 불변식을 유지한다는 것을 보인다)는 확정했지만, 세부 단계 중 상당수를 `sorry`로 남겼습니다. `foldl`에 대한 귀납은 원리적으로 새로운 게 없지만, 리스트 인덱스와 `Fin` 타입 사이의 변환(`List.mem_finRange`, `List.tail_cons`)이 지루하게 반복되어 지면에 전부 담기엔 부담이 큽니다. 힌트에 적어둔 대로 `List.foldl`에 대한 표준적인 불변식 증명 패턴을 따라가면 채울 수 있습니다.
+이 정리는 이 책 1부에서 "완전히 증명"과 "연습 문제"가 한 정리 안에서 섞이는 사례입니다 — 정리의 실질적인 핵심(리스트 귀납으로 "지금까지 본 원소 중 최소"라는 불변식을 유지한다는 것)은 완전히 증명했지만, 리스트 인덱스와 `Fin` 타입 사이의 변환(`hmem`)만 연습 문제로 남겼습니다 — 이건 선형대수의 내용이 아니라 `List.finRange`의 구조에 대한 사실이라, 힌트에 적어둔 대로 `List.mem_finRange`, `List.tail_cons` 같은 정리를 조합하면 채울 수 있습니다.
 
 == 이 정리가 왜 이 책의 마무리로 적절한가
 

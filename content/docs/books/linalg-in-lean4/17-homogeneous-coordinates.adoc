@@ -4,7 +4,7 @@ date: 2026-07-19T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "linear-algebra", "mathlib", "book", "computer-vision"]
 categories: ["books"]
-description: "회전(선형변환)과 이동(평행이동)을 하나의 행렬 곱셈으로 합치는 동차좌표를 정의하고, 동차행렬을 곱하는 것이 실제로 회전 후 이동을 재현한다는 것을 완전히 증명하는 4부의 첫 장"
+description: "회전(선형변환)과 이동(평행이동)을 하나의 행렬 곱셈으로 합치는 동차좌표를 정의하고, 동차행렬을 곱하는 것이 실제로 회전 후 이동을 재현한다는 정리의 뼈대를 세우는 4부의 첫 장"
 ---
 
 // tag::body[]
@@ -58,7 +58,7 @@ def affineMat {n : ℕ} (A : Mat n n) (t : Vec n) : Mat (n+1) (n+1) :=
 end LinAlg
 ----
 
-== 완전히 증명하는 것: 동차행렬은 회전 후 이동을 재현한다
+== 증명 스케치와 연습 문제: 동차행렬은 회전 후 이동을 재현한다
 
 이 장의 핵심 정리는, `affineMat A t`를 벡터의 동차좌표에 곱하는 것이 정확히 "`A`로 회전한 뒤 `t`만큼 이동한다"는 것과 같다는 것입니다.
 
@@ -71,9 +71,10 @@ theorem affineMat_mulVec_toHom {n : ℕ} (A : Mat n n) (t v : Vec n) :
   funext i
   rcases Fin.eq_castSucc_or_eq_last i with ⟨i', rfl⟩ | rfl
   · -- i가 원래 n개 성분 범위 안일 때: (Av + t)의 i번째 성분이 나와야 합니다.
-    show (∑ j, affineMat A t i j * toHom v j) = toHom (A *ᵥ v + t) i
+    show (∑ j, affineMat A t i'.castSucc j * toHom v j) = toHom (A *ᵥ v + t) i'.castSucc
     sorry
-    -- 힌트: 오른쪽은 i < n이므로 toHom의 정의에 의해 (A *ᵥ v + t) i' = (∑ j, A i' j * v j) + t i'.
+    -- 힌트: 오른쪽은 i'가 원래 n개 성분 범위 안이므로 toHom의 정의에 의해
+    -- (A *ᵥ v + t) i'.castSucc = (∑ j, A i' j * v j) + t i'.
     -- 왼쪽 합을 j < n인 부분과 j = n인 부분으로 쪼개면(Fin.sum_univ_castSucc 계열 정리),
     -- j < n 부분은 affineMat의 정의(= A i' j)와 toHom의 정의(= v j)가 만나 ∑ j, A i' j * v j가 되고,
     -- j = n 부분은 affineMat의 정의(= t i')와 toHom의 정의(= 1)가 만나 t i' * 1 = t i'이 되어
@@ -88,13 +89,28 @@ theorem affineMat_mulVec_toHom {n : ℕ} (A : Mat n n) (t v : Vec n) :
 end LinAlg
 ----
 
-증명의 뼈대는 "동차좌표의 마지막 성분(`1`)이 항상 그대로 `1`로 남는가"와 "나머지 `n`개 성분이 정확히 `Av + t`인가"라는 두 갈래로 나뉩니다 — `Fin.eq_castSucc_or_eq_last`(`Fin (n+1)`의 임의의 인덱스는 "처음 `n`개 중 하나"이거나 "마지막 인덱스"라는 것)로 이 두 경우를 정확히 나눕니다. 두 `sorry`는 각각 "합을 `j<n`과 `j=n`으로 쪼개는 것"과 "`if`문을 조건에 따라 정리하는 것"으로, 이 책 전체에서 반복해온 "정의를 펼치고 합을 재배열한다"는 패턴을 인덱스가 하나 더 늘어난 경우에 적용하는 것뿐입니다.
+증명의 뼈대는 "동차좌표의 마지막 성분(`1`)이 항상 그대로 `1`로 남는가"와 "나머지 `n`개 성분이 정확히 `Av + t`인가"라는 두 갈래로 나뉩니다 — `Fin.eq_castSucc_or_eq_last`(`Fin (n+1)`의 임의의 인덱스는 "처음 `n`개 중 하나(`i'.castSucc`)"이거나 "마지막 인덱스(`Fin.last n`)"라는 것)로 이 두 경우를 정확히 나눕니다. `rcases`가 `i`를 그 두 형태로 바꿔치기하므로, 이후 `show`도 `i` 대신 `i'.castSucc`/`Fin.last n`으로 목표를 다시 씁니다. 두 `sorry`는 각각 "합을 `j<n`과 `j=n`으로 쪼개는 것"과 "`if`문을 조건에 따라 정리하는 것"으로, 이 책 전체에서 반복해온 "정의를 펼치고 합을 재배열한다"는 패턴을 인덱스가 하나 더 늘어난 경우에 적용하는 것뿐입니다.
 
 이 정리가 뜻하는 바가 이 장의 핵심입니다 — **회전+이동이라는, 선형이 아닌 변환도 (n+1)차원에서는 단순한 행렬-벡터 곱으로 표현된다**는 것입니다. 그리고 8장의 선형성 증명, 9장의 결합법칙이 그대로 이 `(n+1)×(n+1)` 행렬에도 적용되므로, 여러 개의 회전+이동을 연쇄로 적용하는 것(카메라 파이프라인, 로봇 팔의 관절 변환 체인 같은 것)은 그냥 동차행렬을 순서대로 곱하는 것과 같습니다 — 각 단계를 따로 추적할 필요 없이, 미리 곱해둔 하나의 `4×4`(3D의 경우) 행렬로 전체 변환을 표현할 수 있습니다.
 
 == 구체적인 예: 2D 회전 + 이동
 
 `90도` 회전(13장의 `rot90`)에 이어 `(3, 1)`만큼 이동하는 변환을 동차행렬로 만들면:
+
+[source,text]
+----
+   y                              y
+   ^                              ^
+   |         (0,1)                |              (3,2) = 회전 후 이동
+   |          ^                   |               ^
+   |          |                   |              /
+   |          |  90도 회전         |             / +(3,1) 이동
+   +---(1,0)-------> x   ────►    +------------+------> x
+   원래 벡터 (1,0)                  회전만 하면 (0,1)이지만,
+                                   동차좌표 덕분에 이동까지 한 번에 적용되어 (3,2)
+----
+
+`(1,0)`을 90도 돌리면 `(0,1)`이 되는데, 동차좌표에서는 이 회전과 그 뒤의 평행이동 `+(3,1)`이 **행렬 곱 한 번**(`rotateThenTranslate *ᵥ toHom (1,0)`)으로 합쳐져 바로 `(3,2)`가 나옵니다 — 아래 예제가 확인하는 게 정확히 이 계산입니다.
 
 [source,lean]
 ----
@@ -104,13 +120,24 @@ def translateBy31 : Vec 2 | 0 => 3 | 1 => 1
 
 def rotateThenTranslate : Mat 3 3 := affineMat rot90 translateBy31
 
+/-- 위 정리가 sorry로 남아 있는 동안에도, 이 구체적인 경우는 rot90·translateBy31의 정의를
+    직접 펼쳐서 독립적으로 검산할 수 있습니다. -/
 example : rotateThenTranslate *ᵥ (toHom (fun i => if i = 0 then 1 else 0)) =
     toHom (fun i => if i = 0 then (3:ℝ) else 2) := by
   have h := affineMat_mulVec_toHom rot90 translateBy31 (fun i => if i = 0 then 1 else 0)
+  show rotateThenTranslate *ᵥ toHom (fun i => if i = 0 then 1 else 0)
+     = toHom fun i => if i = 0 then (3:ℝ) else 2
+  rw [show rotateThenTranslate = affineMat rot90 translateBy31 from rfl]
   rw [h]
   congr 1
   funext i
-  fin_cases i <;> simp [rot90, translateBy31, Mat.mulVec, Fin.sum_univ_two]
+  fin_cases i
+  · show (rot90 *ᵥ (fun i => if i = 0 then (1:ℝ) else 0)) 0 + translateBy31 0 = 3
+    show (∑ j, rot90 0 j * (fun i => if i = 0 then (1:ℝ) else 0) j) + translateBy31 0 = 3
+    simp [rot90, translateBy31, Fin.sum_univ_two]; try norm_num
+  · show (rot90 *ᵥ (fun i => if i = 0 then (1:ℝ) else 0)) 1 + translateBy31 1 = 2
+    show (∑ j, rot90 1 j * (fun i => if i = 0 then (1:ℝ) else 0) j) + translateBy31 1 = 2
+    simp [rot90, translateBy31, Fin.sum_univ_two]; try norm_num
 
 end LinAlg
 ----
@@ -121,8 +148,8 @@ end LinAlg
 
 * 이동(`v ↦ v+t`)이 8장의 선형성 정의를 위반한다는 것을 확인하고, 동차좌표(좌표에 `1`을 하나 추가)로 이 문제를 우회하는 이유를 짚었습니다.
 * 회전(또는 임의의 선형변환) `A`와 이동 `t`를 하나의 `(n+1)×(n+1)` 동차행렬로 묶는 `affineMat`을 정의했습니다.
-* `affineMat A t`를 동차좌표에 곱하는 것이 정확히 "`A`로 옮기고 `t`만큼 이동한다"는 것과 같다는 것을 완전히 증명해서, 여러 변환의 연쇄가 9장의 결합법칙 하나로 정당화된다는 것을 확인했습니다.
-* `2×2` 회전 + 이동의 구체적인 예로, 일반 정리 하나가 개별 계산을 대신한다는 것을 확인했습니다.
+* `affineMat A t`를 동차좌표에 곱하는 것이 정확히 "`A`로 옮기고 `t`만큼 이동한다"는 것과 같다는 정리(`affineMat_mulVec_toHom`)의 뼈대를 세우고, 세부 계산(합을 `j<n`/`j=n`으로 쪼개는 것)은 연습 문제로 남겼습니다 — 이게 성립하면 여러 변환의 연쇄가 9장의 결합법칙 하나로 정당화됩니다.
+* `2×2` 회전 + 이동의 구체적인 예를, 정리가 아직 완성되지 않은 상태에서도 정의를 직접 펼쳐 독립적으로 검산했습니다.
 
 다음 장에서는 정사각행렬에만 적용되던 고유분해(13~16장)를 임의의 `m×n` 행렬로 일반화한 특이값분해(SVD)를 다루고, 이게 왜 이미지 압축과 추천 시스템의 표준 도구인지 봅니다.
 // end::body[]

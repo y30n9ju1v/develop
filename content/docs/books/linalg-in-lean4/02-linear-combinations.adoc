@@ -64,15 +64,38 @@ theorem stdBasis_expansion {n : ℕ} (v : Vec n) :
   show ∑ i, v i * (stdBasis n i) j = v j
   unfold stdBasis
   simp only [mul_ite, mul_one, mul_zero]
-  rw [Finset.sum_ite_eq' Finset.univ j (fun i => v i)]
+  rw [Finset.sum_ite_eq Finset.univ j (fun i => v i)]
   simp
 
 end LinAlg.Vec
 ----
 
-증명을 한 줄씩 따라가 보면, 1장에서 세운 패턴(`funext`로 성분 하나로 좁히기)이 여기서도 첫걸음입니다. `j`번째 성분에 대한 명제로 좁힌 뒤, `stdBasis`의 정의(`if j = i then 1 else 0` — 주의: `stdBasis n i`의 `j`번째 성분이므로 조건은 `j = i`)를 펼치면 합 안의 각 항이 `v i * 1`(i=j일 때) 또는 `v i * 0`(그 외)로 갈립니다. `Finset.sum_ite_eq'`는 "`if` 조건이 정확히 한 인덱스에서만 참인 합은 그 인덱스의 항만 남는다"는 Mathlib의 표준 정리이고, 이게 적용되면 합 전체가 `v j` 하나로 줄어듭니다.
+증명을 한 줄씩 따라가 보면, 1장에서 세운 패턴(`funext`로 성분 하나로 좁히기)이 여기서도 첫걸음입니다. `j`번째 성분에 대한 명제로 좁힌 뒤, `stdBasis`의 정의(`if j = i then 1 else 0` — 주의: `stdBasis n i`의 `j`번째 성분이므로 조건은 `j = i`)를 펼치면 합 안의 각 항이 `v i * 1`(i=j일 때) 또는 `v i * 0`(그 외)로 갈립니다. `Finset.sum_ite_eq`는 "`if` 조건이 정확히 한 인덱스에서만 참인 합은 그 인덱스의 항만 남는다"는 Mathlib의 표준 정리이고, 이게 적용되면 합 전체가 `v j` 하나로 줄어듭니다(마지막 `simp`은 `rw`가 남긴 "`j`가 전체 집합에 속한다"는 자명한 조건을 정리합니다).
 
 이 정리가 왜 중요한지는 이름에 담겨 있습니다 — "임의의 벡터를 표준 기저의 선형결합으로 전개할 수 있다"는 것은, n차원 벡터 전체가 표준 기저 n개만으로 전부 만들어진다는 뜻입니다. 5장에서 이 성질을 "기저(basis)"라는 개념으로 일반화합니다.
+
+=== 완전히 증명하는 것: 그 전개는 유일하다
+
+`stdBasis_expansion`이 "표현할 수 있다"(존재성)를 보였다면, 실전에서 이 못지않게 중요한 것은 "그 표현이 유일하다"는 것입니다 — 만약 같은 벡터 `v`를 서로 다른 계수로도 표준 기저의 선형결합으로 만들 수 있다면, "`v`의 `i`번째 성분"이라는 말 자체가 애매해집니다. 다행히 이 유일성은 새로운 개념 없이, `stdBasis_expansion`과 정확히 같은 계산을 반대 방향으로 밟는 것으로 증명됩니다.
+
+[source,lean]
+----
+namespace LinAlg.Vec
+
+theorem stdBasis_expansion_unique {n : ℕ} (v : Vec n) (c : Fin n → ℝ)
+    (h : linComb c (stdBasis n) = v) : c = (fun i => v i) := by
+  funext i
+  have hi := congrFun h i
+  show (∑ j, c j * (stdBasis n j) i) = v i at hi
+  unfold stdBasis at hi
+  simp only [mul_ite, mul_one, mul_zero] at hi
+  rw [Finset.sum_ite_eq Finset.univ i (fun j => c j)] at hi
+  simpa using hi
+
+end LinAlg.Vec
+----
+
+이 증명은 `stdBasis_expansion`의 증명을 거의 그대로 뒤집은 것입니다 — 그때는 "`v`의 성분을 계수로 쓰면 표준 기저의 선형결합이 `v`가 된다"는 방향을 보였다면, 여기서는 거꾸로 "어떤 계수로 선형결합해서 `v`가 나왔다면, 그 계수는 `v`의 성분과 같을 수밖에 없다"는 방향을 보입니다. 가정(`linComb c (stdBasis n) = v`)의 `i`번째 성분을 `congrFun`으로 뽑아내면, `stdBasis`의 정의를 펼쳤을 때 `j = i`인 항만 남는다는 것은 앞선 증명과 똑같은 `Finset.sum_ite_eq`로 처리됩니다. 이걸로 "표준 기저 표현은 존재하고, 그 표현은 유일하다"는 두 조건이 모두 이 장 안에서 완전히 증명됩니다.
 
 === 연습 문제로 남기는 것: 선형결합의 선형성
 
@@ -98,7 +121,7 @@ end LinAlg.Vec
 == 이 장에서 확정한 것
 
 * 선형결합을 `Finset.sum`으로 정의하고, 표준 기저 벡터를 `if-then-else`로 정의했습니다.
-* "임의의 벡터가 표준 기저의 유일한 선형결합으로 전개된다"는 정리를 `Finset.sum_ite_eq'`를 이용해 완전히 증명했습니다.
+* "임의의 벡터가 표준 기저의 선형결합으로 전개된다"는 존재성(`stdBasis_expansion`)과 "그 전개가 유일하다"는 유일성(`stdBasis_expansion_unique`)을 각각 완전히 증명했습니다 — 둘 다 `Finset.sum_ite_eq` 하나로 끝나는, 사실상 같은 계산의 두 방향입니다.
 * 선형결합이 계수에 대해 스칼라곱·덧셈과 호환된다는 성질을 연습 문제로 남겼습니다 — 이 성질이 5장에서 "선형독립"을 정의할 때 다시 쓰입니다.
 
 다음 장에서는 벡터의 "크기"를 재는 방법 — 내적과 노름 — 을 다루고, 이 책에서 가장 중요한 정리 중 하나인 코시-슈바르츠 부등식으로 가는 발판을 놓습니다.

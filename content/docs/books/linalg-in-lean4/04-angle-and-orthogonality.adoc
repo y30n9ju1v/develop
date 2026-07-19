@@ -74,19 +74,27 @@ theorem inner_mul_inner_self_le {n : ℕ} (u v : Vec n) :
   rcases eq_or_ne (v ⬝ v) 0 with hv | hv
   · -- v ⬝ v = 0이면 v = 0 (3장의 norm_eq_zero_iff에서 이미 증명), 그러면 u ⬝ v = 0
     have hv0 : v = 0 := by
-      have := (norm_eq_zero_iff v).mp (by
-        show Real.sqrt (v ⬝ v) = 0
-        rw [hv]; exact Real.sqrt_zero)
-      exact this
+      have hsqrt : Real.sqrt (v ⬝ v) = 0 := by rw [hv]; exact Real.sqrt_zero
+      exact (norm_eq_zero_iff v).mp hsqrt
     subst hv0
-    simp [inner]
+    show (∑ i, u i * (0:Vec n) i) ^ 2 ≤ (∑ i, u i * u i) * ∑ i, (0:Vec n) i * (0:Vec n) i
+    have hz : ∀ i, (0:Vec n) i = (0:ℝ) := fun i => rfl
+    simp [hz]
   · -- v ⬝ v ≠ 0인 일반적인 경우: t = (u⬝v)/(v⬝v)를 대입한 non-negativity에서 유도
     have key : 0 ≤ (u ⬝ u) - (u ⬝ v)^2 / (v ⬝ v) := by
       have expand : (u ⬝ u) - (u ⬝ v)^2 / (v ⬝ v) =
           (‖u - ((u ⬝ v) / (v ⬝ v)) • v‖)^2 := by
-        show _ = (u - ((u ⬝ v) / (v ⬝ v)) • v) ⬝ (u - ((u ⬝ v) / (v ⬝ v)) • v)
-        unfold inner
-        simp only [smul_eq_mul]
+        show (u ⬝ u) - (u ⬝ v)^2 / (v ⬝ v) =
+          (Real.sqrt ((u - ((u ⬝ v)/(v ⬝ v)) • v) ⬝ (u - ((u ⬝ v)/(v ⬝ v)) • v)))^2
+        rw [Real.sq_sqrt (inner_self_nonneg _)]
+        set c : ℝ := (u ⬝ v) / (v ⬝ v) with hc
+        show (u ⬝ u) - (u ⬝ v)^2 / (v ⬝ v) = ∑ i, (u i - c * v i) * (u i - c * v i)
+        have expand2 : ∀ i, (u i - c * v i) * (u i - c * v i)
+            = u i * u i - 2*c*(u i * v i) + c^2 * (v i * v i) := by intro i; ring
+        simp_rw [expand2]
+        rw [Finset.sum_add_distrib, Finset.sum_sub_distrib, ← Finset.mul_sum, ← Finset.mul_sum]
+        show (u ⬝ u) - (u ⬝ v)^2 / (v ⬝ v) = (u ⬝ u) - 2*c*(u ⬝ v) + c^2 * (v ⬝ v)
+        rw [hc]
         field_simp
         ring
       rw [expand]
@@ -110,7 +118,7 @@ theorem abs_inner_le_norm_mul_norm {n : ℕ} (u v : Vec n) :
 end LinAlg.Vec
 ----
 
-`inner_mul_inner_self_le`가 이 장의 핵심 증명입니다. `v ⬝ v = 0`인 경우(즉 `v`가 영벡터인 경우)와 그렇지 않은 경우로 나누는데, 전자는 3장에서 증명한 `norm_eq_zero_iff`를 바로 재사용해서 몇 줄로 끝납니다 — 앞 장의 정리가 이 장에서 그대로 부품으로 쓰이는 첫 사례입니다. 후자(일반적인 경우)에서 `expand` 부분이 판별식 트릭의 핵심입니다 — "`‖u - t•v‖²`을 전개하면 `u⬝u - (u⬝v)²/(v⬝v)`가 된다"는 대수적 항등식을 `field_simp`와 `ring`으로 확인하고, 좌변이 노름의 제곱(`sq_nonneg`에 의해 항상 0 이상)이라는 사실에서 원하는 부등식을 끌어냅니다. 그다음 `abs_inner_le_norm_mul_norm`은 이 결과에 제곱근을 씌워 최종 형태로 바꾸는, 비교적 기계적인 마무리입니다.
+`inner_mul_inner_self_le`가 이 장의 핵심 증명입니다. `v ⬝ v = 0`인 경우(즉 `v`가 영벡터인 경우)와 그렇지 않은 경우로 나누는데, 전자는 3장에서 증명한 `norm_eq_zero_iff`를 바로 재사용해서 몇 줄로 끝납니다 — 앞 장의 정리가 이 장에서 그대로 부품으로 쓰이는 첫 사례입니다. 후자(일반적인 경우)에서 `expand` 부분이 판별식 트릭의 핵심입니다 — "`‖u - t•v‖²`을 전개하면 `u⬝u - (u⬝v)²/(v⬝v)`가 된다"는 대수적 항등식을, 먼저 노름의 제곱을 `Real.sq_sqrt`로 내적으로 바꾸고 각 항을 `(u i - c*v i)²`으로 성분별로 펼친 뒤 `Finset.sum_add_distrib`/`Finset.mul_sum`으로 합을 재배열하고 `field_simp`·`ring`으로 마무리해 확인하고, 좌변이 노름의 제곱(`sq_nonneg`에 의해 항상 0 이상)이라는 사실에서 원하는 부등식을 끌어냅니다. 그다음 `abs_inner_le_norm_mul_norm`은 이 결과에 제곱근을 씌워 최종 형태로 바꾸는, 비교적 기계적인 마무리입니다.
 
 == 삼각부등식: 코시-슈바르츠의 첫 번째 보상
 
@@ -148,10 +156,21 @@ def IsOrthogonal {n : ℕ} (u v : Vec n) : Prop := u ⬝ v = 0
 /-- 직교하는 두 벡터의 합의 노름 제곱은, 각 노름 제곱의 합과 같습니다 (피타고라스 정리). -/
 theorem norm_sq_add_of_orthogonal {n : ℕ} (u v : Vec n) (h : IsOrthogonal u v) :
     ‖u + v‖ ^ 2 = ‖u‖ ^ 2 + ‖v‖ ^ 2 := by
-  show (u + v) ⬝ (u + v) = u ⬝ u + v ⬝ v
-  unfold inner IsOrthogonal at *
-  simp only [Vec.add]
-  sorry  -- 힌트: (u+v)⬝(u+v)를 전개하면 u⬝u + 2(u⬝v) + v⬝v가 나오고, h로 u⬝v = 0을 대입하면 끝
+  have hL : ‖u + v‖ ^ 2 = (u + v) ⬝ (u + v) := Real.sq_sqrt (inner_self_nonneg _)
+  have hU : ‖u‖ ^ 2 = u ⬝ u := Real.sq_sqrt (inner_self_nonneg _)
+  have hV : ‖v‖ ^ 2 = v ⬝ v := Real.sq_sqrt (inner_self_nonneg _)
+  rw [hL, hU, hV]
+  unfold IsOrthogonal at h
+  show (∑ i, (u + v) i * (u + v) i) = (∑ i, u i * u i) + ∑ i, v i * v i
+  have expand : ∀ i, (u + v) i * (u + v) i = u i * u i + v i * v i + 2 * (u i * v i) := by
+    intro i
+    show (u i + v i) * (u i + v i) = u i * u i + v i * v i + 2 * (u i * v i)
+    ring
+  simp_rw [expand]
+  rw [Finset.sum_add_distrib, Finset.sum_add_distrib, ← Finset.mul_sum]
+  show (u ⬝ u) + v ⬝ v + 2 * (u ⬝ v) = u ⬝ u + v ⬝ v
+  rw [h]
+  ring
 
 end LinAlg.Vec
 ----

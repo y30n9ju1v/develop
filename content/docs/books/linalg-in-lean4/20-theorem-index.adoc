@@ -1,0 +1,137 @@
+---
+title: "부록: 정리 색인"
+date: 2026-07-19T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "이 책 전체에서 이름으로 다시 소환되는 핵심 정리들을 정의된 장, 명제, 재사용되는 장과 함께 정리한 색인"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../19-jacobian-and-gradient/[야코비안과 경사: 딥러닝 역전파의 선형대수]_
+
+'''
+
+이 책은 "8장의 `mulVec_smul`을 그대로 호출합니다", "9장의 결합법칙 하나로 끝납니다"처럼, 정리를 이름으로 다시 불러와 새 장의 증명을 짧게 만드는 방식을 반복합니다. 그때마다 그 정리가 어느 장에서 무엇을 증명했는지 다시 찾아야 한다면 이 재사용 구조의 장점이 반감됩니다. 아래 표는 이후 장에서 이름으로 다시 소환되는 핵심 정리들을, 어느 장에서 정의됐고 어느 장에서 재사용되는지와 함께 정리한 것입니다 — 증명을 다시 읽을 필요 없이, "이 정리가 무엇을 말하는지"만 빠르게 확인하는 용도로 씁니다.
+
+== 1부: 벡터
+
+[cols="2,4,1,3", options="header"]
+|===
+| 정리 | 명제 | 정의된 장 | 재사용되는 장
+
+| `stdBasis_expansion`
+| 임의의 벡터는 표준 기저의 선형결합으로 전개된다
+| 2장
+| 8장(항등행렬), 5장(표준 기저가 선형독립)
+
+| `stdBasis_expansion_unique`
+| 그 전개는 유일하다
+| 2장
+| (참조용 — 이후 장은 존재성만 재사용)
+
+| `inner_self_nonneg`, `norm_eq_zero_iff`
+| 자기 자신과의 내적은 0 이상이고, 노름이 0인 건 영벡터뿐이다
+| 3장
+| 4장(코시-슈바르츠), 5장(직교→독립), 12장(그람-슈미트)
+
+| `abs_inner_le_norm_mul_norm`
+| 코시-슈바르츠 부등식 `\|u⬝v\| ≤ ‖u‖‖v‖`
+| 4장
+| 삼각부등식·직교성 정의의 근거(4장 내)
+
+| `orthogonal_indep`
+| 0이 아닌 직교 벡터들은 선형독립이다
+| 5장
+| 5장의 `stdBasis_indep`
+
+|===
+
+== 2부: 행렬
+
+[cols="2,4,1,3", options="header"]
+|===
+| 정리 | 명제 | 정의된 장 | 재사용되는 장
+
+| `Mat.mulVec_add`, `Mat.mulVec_smul`
+| 행렬-벡터 곱은 덧셈·스칼라곱을 보존한다(선형성)
+| 8장
+| 13장(고유공간), 14장, 15장, 18장, 19장
+
+| `Mat.identity_mulVec`
+| 항등행렬을 곱해도 벡터가 그대로 나온다
+| 8장
+| 11장, 14장
+
+| `Mat.mul_assoc`
+| 행렬 곱셈의 결합법칙 `(AB)C = A(BC)`
+| 9장
+| 11장(역행렬 유일성), 14장, 15장
+
+| `Mat.transpose_mul`, `Mat.transpose_transpose`
+| `(AB)ᵀ = BᵀAᵀ`, `Aᵀᵀ = A`
+| 10장
+| 10장의 `transpose_mul_self_symmetric`, 16장
+
+| `Mat.transpose_mul_self_symmetric`
+| `AᵀA`는 항상 대칭이다
+| 10장
+| 16장(공분산 행렬이 대칭인 이유)
+
+| `Mat.left_inverse_eq_right_inverse`
+| 왼쪽 역과 오른쪽 역이 둘 다 있으면 같다(역행렬 유일성)
+| 11장
+| 14장(대각화의 전제 조건)
+
+| `Mat.mulVec_assoc`
+| 행렬 곱과 행렬-벡터 곱은 결합된다 — `(AB) *ᵥ v = A *ᵥ (B *ᵥ v)`
+| 13장
+| 14장, 15장, 18장, 19장(`jacobian_of_composition`)
+
+|===
+
+== 3부·4부: 고유값과 그 확장
+
+[cols="2,4,1,3", options="header"]
+|===
+| 정리 | 명제 | 정의된 장 | 재사용되는 장
+
+| `Mat.pow_mulVec_eigenvector`
+| 고유벡터 방향으로는 `Aᵏv = λᵏv`
+| 13장
+| 14장(대각화의 동기)
+
+| `Mat.pow_diagonalized`
+| 대각화 가능하면 `Aᵏ = PDᵏP⁻¹`
+| 14장
+| —
+
+| `Mat.similar_shares_eigenvalue`
+| 닮은 행렬은 같은 고유값을 공유한다
+| 15장
+| QR 알고리즘의 대수적 근거(15장 내)
+
+| `mulVec_inner_eq_inner_transpose_mulVec`
+| `(Au)⬝w = u⬝(Aᵀw)`
+| 16장
+| 19장(이차형식의 경사)
+
+| `Mat.symmetric_eigenvectors_orthogonal`
+| 대칭행렬의 서로 다른 고유값의 고유벡터는 직교한다(스펙트럼 정리의 핵심 조각)
+| 16장
+| PCA의 근거(16장 내)
+
+| `Mat.singular_sq_eq_covariance_eigenvalue`
+| 특이값의 제곱은 `AᵀA`의 고유값이다
+| 18장
+| SVD 계산이 16장의 고유분해로 환원되는 근거
+
+| `jacobian_of_composition`
+| 선형 층을 이어붙인 합성의 야코비안은 각 층 야코비안의 곱이다(사슬법칙)
+| 19장
+| —
+
+|===
+
+이 표에 없는 정리(각 장의 벡터공간 공리, `add_comm` 계열 등)는 그 장 안에서만 쓰이고 뒤에서 이름으로 다시 소환되지 않는 것들입니다 — 표는 "장을 넘어 재사용되는" 정리만 추렸습니다.
+// end::body[]

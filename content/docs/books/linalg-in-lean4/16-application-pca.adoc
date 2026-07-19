@@ -12,7 +12,7 @@ _link:../[전체 목차] · 이전: link:../15-qr-algorithm-and-similarity/[QR �
 
 '''
 
-3부의 마지막 장입니다. 1부의 벡터·노름, 2부의 행렬·전치·직교성, 3부의 고유값·대각화를 실제 문제 — 데이터에서 "가장 중요한 방향"을 찾는 주성분분석(PCA, Principal Component Analysis) — 에 적용합니다. 이 장이 왜 필요한지는, 13~15장의 정리들이 전부 일반적인 행렬 `A`에 대한 추상적인 명제였다는 데 있습니다 — "고유벡터는 방향을 보존한다"는 알아도, 그게 "이 데이터셋에서 어느 방향이 가장 중요한가"라는 실제 질문과 어떻게 연결되는지는 별개의 작업입니다. 이 장은 그 다리를 놓습니다. 핵심 재료는 이미 10장에 있습니다 — 임의의 행렬 `A`에 대해 `AᵀA`는 항상 대칭이라는 정리(`transpose_mul_self_symmetric`)입니다. 데이터를 행렬 `A`(각 행이 데이터 점 하나)로 모으면 `AᵀA`(또는 그 스케일된 버전)가 정확히 **공분산 행렬**이 되고, 대칭행렬의 고유벡터들이 서로 직교한다는 사실(스펙트럼 정리)로부터 "데이터가 가장 넓게 퍼진 축"을 찾는 알고리즘이 바로 나옵니다. 그래픽스에서는 이 방법이 객체의 방향에 맞춰 정렬된 바운딩 박스를 계산하거나 점군(point cloud)의 주축을 찾는 데 쓰이고, 딥러닝·통계에서는 고차원 데이터를 소수의 중요한 방향으로 압축하는 차원 축소의 표준 기법입니다.
+3부의 마지막 장입니다. 1부의 벡터·노름, 2부의 행렬·전치·직교성, 3부의 고유값·대각화를 실제 문제 — 데이터에서 "가장 중요한 방향"을 찾는 주성분분석(PCA, Principal Component Analysis) — 에 적용합니다. 이 장이 왜 필요한지는, 13~15장의 정리들이 전부 일반적인 행렬 `A`에 대한 추상적인 명제였다는 데 있습니다 — "고유벡터는 방향을 보존한다"는 알아도, 그게 "이 데이터셋에서 어느 방향이 가장 중요한가"라는 실제 질문과 어떻게 연결되는지는 별개의 작업입니다. 이 장은 그 다리를 놓습니다. 핵심 재료는 이미 10장에 있습니다 — 임의의 행렬 `A`에 대해 `AᵀA`는 항상 대칭이라는 정리(`transpose_mul_self_symmetric`)입니다. 데이터를 행렬 `A`(각 행이 데이터 점 하나)로 모으면 `AᵀA`(또는 그 스케일된 버전)가 정확히 **공분산 행렬**이 되고, 대칭행렬의 고유벡터들이 서로 직교한다는 사실(스펙트럼 정리)로부터 "데이터가 가장 넓게 퍼진 축"을 찾는 알고리즘이 바로 나옵니다. 그래픽스에서는 이 방법이 객체의 방향에 맞춰 정렬된 바운딩 박스를 계산하거나 점군(point cloud)의 주축을 찾는 데 쓰이고, 딥러닝·통계에서는 고차원 데이터를 소수의 중요한 방향으로 압축하는 차원 축소의 표준 기법입니다. 이건 사실 1~2부에서 계속 썼던 로봇 예제로도 바로 이어집니다 — 로봇이 여러 날에 걸쳐 기록한 구간별 거리 행렬(7장)의 공분산을 고유분해하면, "이 로봇의 주행 패턴이 가장 크게 갈리는 방향(예: 어떤 구간들이 함께 길어지고 짧아지는가)"이 가장 큰 고유값의 고유벡터로 그대로 나옵니다.
 
 == 왜 대칭행렬이 특별한가: 스펙트럼 정리
 
@@ -31,18 +31,17 @@ import Eigen.Similarity
 import Matrices.Transpose
 
 namespace LinAlg
+open Vec
 
 theorem mulVec_inner_eq_inner_transpose_mulVec {m n : ℕ}
     (A : Mat m n) (u : Vec n) (w : Vec m) :
     (A *ᵥ u) ⬝ w = u ⬝ (Aᵀ *ᵥ w) := by
   show (∑ i, (∑ j, A i j * u j) * w i) = ∑ j, u j * (∑ i, Aᵀ j i * w i)
   simp only [Mat.transpose]
+  simp only [Finset.sum_mul, Finset.mul_sum]
   rw [Finset.sum_comm]
-  congr 1
-  funext i
-  rw [Finset.sum_mul, Finset.mul_sum]
-  congr 1
-  funext j
+  congr 1; funext i
+  congr 1; funext j
   ring
 
 theorem Mat.symmetric_eigenvectors_orthogonal {n : ℕ} (A : Mat n n) (lam mu : ℝ)
@@ -63,10 +62,8 @@ theorem Mat.symmetric_eigenvectors_orthogonal {n : ℕ} (A : Mat n n) (lam mu : 
     unfold Mat.IsSymmetric at hsym
     rw [hsym]
   have key : lam * (u ⬝ v) = mu * (u ⬝ v) := by rw [← h1, h3, h2]
-  have : (lam - mu) * (u ⬝ v) = 0 := by
-    show lam * (u ⬝ v) - mu * (u ⬝ v) = 0
-    rw [key]; ring
-  rcases mul_eq_zero.mp this with h | h
+  have hz : (lam - mu) * (u ⬝ v) = 0 := by linear_combination key
+  rcases mul_eq_zero.mp hz with h | h
   · exact absurd (sub_eq_zero.mp h) hlam
   · exact h
 
@@ -84,6 +81,7 @@ end LinAlg
 [source,lean]
 ----
 namespace LinAlg
+open Vec
 
 def covarianceMatrix {k n : ℕ} (A : Mat k n) : Mat n n := Aᵀ * A
 

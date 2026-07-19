@@ -50,7 +50,7 @@ end LinAlg
 ----
 namespace LinAlg
 
-def shearA : Mat 2 2 := fun i j =>
+def diagA : Mat 2 2 := fun i j =>
   match i, j with
   | 0, 0 => 2 | 0, 1 => 0
   | 1, 0 => 0 | 1, 1 => 5
@@ -58,24 +58,32 @@ def shearA : Mat 2 2 := fun i j =>
 def eigVec1 : Vec 2 | 0 => 1 | 1 => 0
 def eigVec2 : Vec 2 | 0 => 0 | 1 => 1
 
-example : shearA.IsEigenvector eigVec1 2 := by
+example : diagA.IsEigenvector eigVec1 2 := by
   constructor
-  · intro h; have := congrFun h 0; simp [eigVec1] at this
+  · intro h
+    have h0 := congrFun h 0
+    have hz : (0:Vec 2) 0 = (0:ℝ) := rfl
+    rw [hz] at h0
+    simp [eigVec1] at h0
   · funext i
-    show ∑ j, shearA i j * eigVec1 j = (2:ℝ) * eigVec1 i
-    fin_cases i <;> simp [shearA, eigVec1, Fin.sum_univ_two]
+    show ∑ j, diagA i j * eigVec1 j = (2:ℝ) * eigVec1 i
+    fin_cases i <;> simp [diagA, eigVec1, Fin.sum_univ_two]
 
-example : shearA.IsEigenvector eigVec2 5 := by
+example : diagA.IsEigenvector eigVec2 5 := by
   constructor
-  · intro h; have := congrFun h 1; simp [eigVec2] at this
+  · intro h
+    have h0 := congrFun h 1
+    have hz : (0:Vec 2) 1 = (0:ℝ) := rfl
+    rw [hz] at h0
+    simp [eigVec2] at h0
   · funext i
-    show ∑ j, shearA i j * eigVec2 j = (5:ℝ) * eigVec2 i
-    fin_cases i <;> simp [shearA, eigVec2, Fin.sum_univ_two]
+    show ∑ j, diagA i j * eigVec2 j = (5:ℝ) * eigVec2 i
+    fin_cases i <;> simp [diagA, eigVec2, Fin.sum_univ_two]
 
 end LinAlg
 ----
 
-`shearA`는 대각행렬이라 사실 특별할 게 없는 예입니다만, 목적은 정확히 그것입니다 — "정의를 그대로 대입하면 확인된다"는 가장 단순한 경우를 손으로 짚어보는 것입니다.
+`diagA`는 대각행렬이라 사실 특별할 게 없는 예입니다만, 목적은 정확히 그것입니다 — "정의를 그대로 대입하면 확인된다"는 가장 단순한 경우를 손으로 짚어보는 것입니다.
 
 == 2×2 행렬식으로 고유값을 직접 찾기
 
@@ -102,22 +110,30 @@ def genEigVec2 : Vec 2 | 0 => 1 | 1 => -2
 
 example : genA.IsEigenvector genEigVec5 5 := by
   constructor
-  · intro h; have := congrFun h 0; simp [genEigVec5] at this
+  · intro h
+    have h0 := congrFun h 0
+    have hz : (0:Vec 2) 0 = (0:ℝ) := rfl
+    rw [hz] at h0
+    simp [genEigVec5] at h0
   · funext i
     show ∑ j, genA i j * genEigVec5 j = (5:ℝ) * genEigVec5 i
-    fin_cases i <;> simp [genA, genEigVec5, Fin.sum_univ_two]
+    fin_cases i <;> simp [genA, genEigVec5, Fin.sum_univ_two] <;> ring
 
 example : genA.IsEigenvector genEigVec2 2 := by
   constructor
-  · intro h; have := congrFun h 0; simp [genEigVec2] at this
+  · intro h
+    have h0 := congrFun h 0
+    have hz : (0:Vec 2) 0 = (0:ℝ) := rfl
+    rw [hz] at h0
+    simp [genEigVec2] at h0
   · funext i
     show ∑ j, genA i j * genEigVec2 j = (2:ℝ) * genEigVec2 i
-    fin_cases i <;> simp [genA, genEigVec2, Fin.sum_univ_two]
+    fin_cases i <;> simp [genA, genEigVec2, Fin.sum_univ_two] <;> ring
 
 end LinAlg
 ----
 
-이 예가 `shearA`와 다른 지점은, 고유벡터를 미리 알려주고 검산만 한 게 아니라 특성방정식을 실제로 풀어서 `λ = 5, 2`라는 답을 손으로 **찾아냈다**는 것입니다 — Lean4 코드 자체는 여전히 "찾은 답을 대입해서 확인한다"는 검산이지만(이 책은 `n×n` 행렬식과 다항식의 근을 구하는 일반 이론을 다루지 않으므로), 그 답이 어디서 나왔는지가 이번엔 손 계산으로 분명합니다.
+이 예가 `diagA`와 다른 지점은, 고유벡터를 미리 알려주고 검산만 한 게 아니라 특성방정식을 실제로 풀어서 `λ = 5, 2`라는 답을 손으로 **찾아냈다**는 것입니다 — Lean4 코드 자체는 여전히 "찾은 답을 대입해서 확인한다"는 검산이지만(이 책은 `n×n` 행렬식과 다항식의 근을 구하는 일반 이론을 다루지 않으므로), 그 답이 어디서 나왔는지가 이번엔 손 계산으로 분명합니다.
 
 == 실수 고유값이 아예 없는 경우: 회전행렬
 
@@ -137,16 +153,35 @@ theorem rot90_no_real_eigenvector (v : Vec 2) (lam : ℝ) (hv : v ≠ 0) :
   intro h
   have h0 := congrFun h 0
   have h1 := congrFun h 1
-  simp only [rot90] at h0 h1
-  show False
-  sorry
-  -- 힌트: h0은 -(v 1) = lam * v 0, h1은 v 0 = lam * v 1이라는 두 실수 방정식을 줍니다.
-  -- 이 둘을 연립하면 v 0 = -(lam^2) * v 0, 즉 (1 + lam^2) * v 0 = 0이 나오는데
-  -- lam^2 ≥ 0이므로 1 + lam^2 > 0이라 v 0 = 0이어야 하고, 같은 논증으로 v 1 = 0도 나와
-  -- v = 0이 되어 hv(v ≠ 0)와 모순입니다. nlinarith가 마지막 대수 정리에 유용합니다.
+  have hL0 : (rot90 *ᵥ v) 0 = -(v 1) := by
+    show ∑ j, rot90 0 j * v j = -(v 1)
+    simp [rot90, Fin.sum_univ_two]
+  have hL1 : (rot90 *ᵥ v) 1 = v 0 := by
+    show ∑ j, rot90 1 j * v j = v 0
+    simp [rot90, Fin.sum_univ_two]
+  have hR0 : (lam • v) 0 = lam * v 0 := rfl
+  have hR1 : (lam • v) 1 = lam * v 1 := rfl
+  rw [hL0, hR0] at h0
+  rw [hL1, hR1] at h1
+  have key : (1 + lam^2) * v 0 = 0 := by linear_combination -lam * h0 + h1
+  have hpos : (1:ℝ) + lam^2 > 0 := by nlinarith [sq_nonneg lam]
+  have hv0z : v 0 = 0 := by
+    rcases mul_eq_zero.mp key with h' | h'
+    · linarith
+    · exact h'
+  have hv1z : v 1 = 0 := by
+    rw [hv0z] at h0
+    linarith
+  apply hv
+  funext i
+  fin_cases i
+  · show v 0 = (0:Vec 2) 0; rw [hv0z]; rfl
+  · show v 1 = (0:Vec 2) 1; rw [hv1z]; rfl
 
 end LinAlg
 ----
+
+`h0`, `h1`은 각각 `rot90 *ᵥ v = lam • v`라는 벡터 등식의 0번째, 1번째 성분입니다 — `hL0`/`hL1`(좌변을 행렬-벡터 곱의 정의로 펼친 것)와 `hR0`/`hR1`(우변을 스칼라곱의 정의로 펼친 것, 정의를 그대로 대입하면 참이므로 `rfl`)을 대입해서 두 개의 실수 방정식 `-(v 1) = lam * v 0`, `v 0 = lam * v 1`로 바꿉니다. `key`가 이 증명의 핵심 대수 계산입니다 — 두 방정식을 `-lam`배와 `1`배로 조합하면(`linear_combination`) `v 1` 항이 정확히 상쇄되어 `(1+lam²) * v 0 = 0`만 남습니다. `lam² ≥ 0`이므로 `1+lam² > 0`이고, 곱이 0이려면 `v 0 = 0`이어야 합니다 — 이걸 다시 `h0`에 대입하면 `v 1 = 0`도 따라옵니다. 두 성분이 모두 0이면 `v`가 영벡터라는 뜻인데, 이건 가정(`hv : v ≠ 0`)과 모순입니다.
 
 이 정리가 왜 중요한지는 14장에서 바로 쓰입니다 — 실수 고유값이 없는 행렬은 대각화도 불가능합니다(대각화는 실수 고유값·고유벡터를 재료로 쓰므로). 회전행렬은 이 책의 정의로 직접 반례를 만들 수 있는 가장 간단한 "대각화 불가능한 행렬"의 예입니다.
 
@@ -204,6 +239,17 @@ def Mat.pow {n : ℕ} (A : Mat n n) : ℕ → Mat n n
   | 0 => Mat.identity n
   | k + 1 => A * Mat.pow A k
 
+/-- 행렬 곱과 행렬-벡터 곱은 결합됩니다 — (AB)에 v를 곱한 것은 B에 v를 곱한 뒤 A를 곱한 것과 같습니다. -/
+theorem Mat.mulVec_assoc {m n p : ℕ} (A : Mat m n) (B : Mat n p) (v : Vec p) :
+    (A * B) *ᵥ v = A *ᵥ (B *ᵥ v) := by
+  funext i
+  show (∑ j, (∑ k, A i k * B k j) * v j) = ∑ k, A i k * (∑ j, B k j * v j)
+  simp only [Finset.sum_mul, Finset.mul_sum]
+  rw [Finset.sum_comm]
+  congr 1; funext k
+  congr 1; funext j
+  ring
+
 theorem Mat.pow_mulVec_eigenvector {n : ℕ} (A : Mat n n) (lam : ℝ) (v : Vec n)
     (hv : A.EigenspaceMember lam v) :
     ∀ k, (Mat.pow A k) *ᵥ v = (lam ^ k) • v := by
@@ -214,8 +260,8 @@ theorem Mat.pow_mulVec_eigenvector {n : ℕ} (A : Mat n n) (lam : ℝ) (v : Vec 
     rw [Mat.identity_mulVec]
     funext i; show v i = (1:ℝ) * v i; ring
   | succ k ih =>
-    show A *ᵥ ((Mat.pow A k) *ᵥ v) = (lam ^ (k+1)) • v
-    rw [ih]
+    show (A * Mat.pow A k) *ᵥ v = (lam ^ (k+1)) • v
+    rw [Mat.mulVec_assoc, ih]
     have : A *ᵥ ((lam ^ k) • v) = (lam ^ k) • (A *ᵥ v) := by
       sorry -- 힌트: Mat.mulVec_smul(8장)을 그대로 적용
     rw [this, hv]
@@ -226,7 +272,9 @@ theorem Mat.pow_mulVec_eigenvector {n : ℕ} (A : Mat n n) (lam : ℝ) (v : Vec 
 end LinAlg
 ----
 
-증명 구조는 자연수에 대한 귀납법입니다 — 밑변(`k = 0`)은 `A⁰ = I`(항등행렬)이므로 8장의 `identity_mulVec`으로 즉시 끝나고, 귀납 단계(`k+1`)는 "`k`번 곱한 결과가 `λᵏ • v`라는 귀납 가정"에 `A`를 한 번 더 곱했을 때, 그게 `λᵏ⁺¹ • v`와 같다는 것을 보입니다. 핵심은 `A *ᵥ ((λᵏ) • v)`를 `(λᵏ) • (A *ᵥ v)`로 바꿔치기하는 자리(`sorry`로 남긴 부분)인데, 이건 방금 연습 문제로 남긴 `eigenspace_smul`이 아니라 8장의 `mulVec_smul`을 직접 쓰는 것으로 끝납니다 — 스칼라를 행렬-벡터 곱 안팎으로 자유롭게 옮길 수 있다는, 이 책에서 몇 번이고 재사용해온 그 성질입니다.
+`Mat.pow (k+1)`은 정의상 `A * Mat.pow A k`(행렬 곱)이라, 귀납 단계에서 등장하는 건 `A *ᵥ (...)`가 아니라 `(A * Mat.pow A k) *ᵥ v`입니다 — 이 둘이 같다는 것(행렬 곱과 행렬-벡터 곱의 결합성)은 정의를 펼친다고 저절로 나오는 사실이 아니라 별도로 증명해야 하는 등식이라, `Mat.mulVec_assoc`으로 먼저 완전히 증명해둡니다. 이 증명은 9장의 `Mat.mul_assoc`과 글자 그대로 같은 전략(이중 합을 풀어헤친 뒤 `Finset.sum_comm`으로 순서를 바꾸고 `ring`으로 맞춘다)입니다 — 결합법칙이 여기서도 형태만 바꿔 다시 등장합니다.
+
+증명 구조는 자연수에 대한 귀납법입니다 — 밑변(`k = 0`)은 `A⁰ = I`(항등행렬)이므로 8장의 `identity_mulVec`으로 즉시 끝나고, 귀납 단계(`k+1`)는 `mulVec_assoc`으로 `(A * Mat.pow A k) *ᵥ v`를 `A *ᵥ ((Mat.pow A k) *ᵥ v)`로 바꾼 뒤, "`k`번 곱한 결과가 `λᵏ • v`라는 귀납 가정"을 대입해 그게 `λᵏ⁺¹ • v`와 같다는 것을 보입니다. 남은 핵심은 `A *ᵥ ((λᵏ) • v)`를 `(λᵏ) • (A *ᵥ v)`로 바꿔치기하는 자리(`sorry`로 남긴 부분)인데, 이건 방금 연습 문제로 남긴 `eigenspace_smul`이 아니라 8장의 `mulVec_smul`을 직접 쓰는 것으로 끝납니다 — 스칼라를 행렬-벡터 곱 안팎으로 자유롭게 옮길 수 있다는, 이 책에서 몇 번이고 재사용해온 그 성질입니다.
 
 이 정리가 왜 중요한지는 그래픽스와 딥러닝 양쪽에서 바로 보입니다. 그래픽스에서 같은 변환(예: 특정 축을 중심으로 한 스케일)을 프레임마다 반복 적용하는 경우, 고유벡터 방향의 성분은 매 프레임 `λ`배씩 커지거나 작아진다는 것을 미리 압니다 — 화면 밖으로 발산하는지, 원점으로 수렴하는지가 `|λ|`가 1보다 큰지 작은지로 즉시 결정됩니다. 딥러닝에서 신경망의 반복 연산(예: 순환 신경망의 은닉 상태 갱신)이 발산·소실하는지를 분석할 때도 정확히 이 정리 — 지배적인 고유값의 절댓값이 1보다 큰가 작은가 — 가 척도로 쓰입니다.
 
