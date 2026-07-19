@@ -101,6 +101,8 @@ def zip : List Nat → List String → List (Nat × String)
 
 다음 장에서는 이런 자료구조 자체를 직접 설계하는 법 — 구조체와 귀납적 타입 — 을 다룹니다. `List`나 `Nat`도 사실 Lean4 안에서 여러분이 만들 수 있는 것과 똑같은 방식으로 정의된 평범한 타입입니다.
 
+TIP: 더 깊이 들어가려면 — 재귀와 패턴 매칭의 더 많은 예제는 link:../../../programming/lean/functional-programming-in-lean/ch01/[Functional Programming in Lean Ch.1], 종료성 증명의 세부 기법은 link:../../../programming/lean/functional-programming-in-lean/ch08/[같은 책 Ch.8: 프로그래밍, 증명, 성능]을 보세요.
+
 == 직접 해보기
 
 * `sumTo`를 참고해 `factorial : Nat → Nat`을 재귀로 정의해보세요. `#eval factorial 5`는 120이 나와야 합니다.

@@ -93,6 +93,8 @@ def safeDiv (a b : Nat) : MyOption Nat :=
 
 다음 장에서는 `Shape`나 `MyList`처럼 서로 다른 타입에 공통된 동작(더하기, 비교하기, 출력하기)을 붙이는 법 — 다형성과 타입 클래스를 다룹니다.
 
+TIP: 더 깊이 들어가려면 — 구조체·귀납적 타입·패턴 매칭의 더 풍부한 예제는 link:../../../programming/lean/functional-programming-in-lean/ch01/[Functional Programming in Lean Ch.1]을 보세요.
+
 == 직접 해보기
 
 * `Shape`에 밑변과 높이를 받는 `triangle` 생성자를 추가해보세요 — 단, `area`를 고치기 전에 먼저 컴파일해서, 빠뜨린 경우를 컴파일러가 어떻게 알려주는지 확인해보세요.

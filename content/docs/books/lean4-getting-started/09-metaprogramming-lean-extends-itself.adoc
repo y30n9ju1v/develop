@@ -68,6 +68,8 @@ elab "typeOf% " e:term : term => do
 
 다음 장에서는 이 재료들을 가지고 아주 작은 나만의 tactic을 직접 만들어보면서, "전술을 짠다"는 게 실제로 어떤 느낌인지 확인합니다.
 
+TIP: 더 깊이 들어가려면 — link:../../../programming/lean/metaprogramming-in-lean4/05-syntax/[Metaprogramming in Lean 4의 5장(구문)], link:../../../programming/lean/metaprogramming-in-lean4/06-macros/[6장(매크로)], link:../../../programming/lean/metaprogramming-in-lean4/07-elaboration/[7장(정교화)]이 이 장의 각 단계를 하나씩 깊게 다룹니다.
+
 == 직접 해보기
 
 * `twice`를 참고해 `thrice x`(x를 세 번 더하기) macro를 만들어보세요. `#eval thrice 5`는 15가 나와야 합니다.

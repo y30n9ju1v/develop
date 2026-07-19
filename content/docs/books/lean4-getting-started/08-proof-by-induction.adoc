@@ -92,6 +92,8 @@ theorem listLen_append (as bs : List Nat) :
 
 3부에서는 시선을 한 단계 더 올립니다 — `induction`, `simp`, `omega` 같은 전술들이 대체 어떻게 동작하는지, 그리고 여러분이 직접 그런 전술을 만들 수 있는지를 봅니다.
 
+TIP: 더 깊이 들어가려면 — 귀납적 타입의 이론적 토대는 link:../../../programming/lean/theorem-proving-in-lean4/07-inductive-types/[Theorem Proving in Lean 4의 7장: 귀납적 타입], 더 복잡한 귀납·재귀 패턴은 link:../../../programming/lean/theorem-proving-in-lean4/08-induction-and-recursion/[같은 책 8장: 귀납과 재귀]를 보세요.
+
 == 직접 해보기
 
 * `myAdd n (m + 1) = myAdd n m + 1`을 `n`에 대한 귀납으로 증명해보세요. 본문의 `myAdd_zero`와 거의 같은 뼈대로 됩니다.

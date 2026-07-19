@@ -84,6 +84,8 @@ def describe [Summary α] (x : α) : String :=
 
 다음 장에서는 "실패할 수도 있는 계산", "값을 여러 개 낼 수 있는 계산", "입출력이 섞인 계산"처럼 서로 다른 종류의 계산을 하나의 공통 패턴으로 묶는 모나드를 다룹니다 — 사실 모나드도 타입 클래스의 한 종류일 뿐입니다.
 
+TIP: 더 깊이 들어가려면 — 타입 클래스와 인스턴스 탐색의 전모는 link:../../../programming/lean/functional-programming-in-lean/ch03/[Functional Programming in Lean Ch.3: 오버로딩과 타입 클래스]에서 다룹니다.
+
 == 직접 해보기
 
 * 3장의 `Shape`에 `Summary` 인스턴스를 만들어 `describe (Shape.circle 2.0)`이 동작하게 해보세요.

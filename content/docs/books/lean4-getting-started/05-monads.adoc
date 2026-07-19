@@ -94,6 +94,8 @@ def twoSteps'' (a b c : Nat) : Option Nat := do
 
 1부에서는 Lean4를 증명이나 메타프로그래밍 이야기 없이 하나의 함수형 언어로만 다뤘습니다 — 값과 타입, 재귀와 패턴 매칭, 나만의 자료구조, 다형성과 타입 클래스, 그리고 그 타입 클래스의 대표적인 응용인 모나드까지 왔습니다. 이 다섯 개념(특히 "모든 식은 타입을 갖는다"와 "타입이 여러 모양 중 하나로 정의된다")이 2부의 출발점이 됩니다 — 다음 장에서 그 두 가지가 어떻게 "증명"이라는 완전히 새로운 영역으로 그대로 이어지는지 보게 됩니다.
 
+TIP: 더 깊이 들어가려면 — 모나드는 link:../../../programming/lean/functional-programming-in-lean/ch04/[Functional Programming in Lean Ch.4], 그 주변 개념(펑터, 어플리커티브 펑터)은 link:../../../programming/lean/functional-programming-in-lean/ch05/[같은 책 Ch.5]에서 다룹니다.
+
 == 직접 해보기
 
 * `twoSteps''`에 나눗셈을 한 단계 더 추가한 `threeSteps (a b c d : Nat) : Option Nat`을 `do`로 정의하고, 중간에 0이 끼면 전체가 `none`이 되는지 확인해보세요.

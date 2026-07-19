@@ -103,6 +103,8 @@ h : p ∧ q
 
 다음 장에서는 "모든 자연수에 대해" 같은, 경우의 수가 무한한 명제를 어떻게 유한한 단계로 증명하는지 — 귀납법을 다룹니다.
 
+TIP: 더 깊이 들어가려면 — 전술의 전체 목록과 조합 방법은 link:../../../programming/lean/theorem-proving-in-lean4/05-tactics/[Theorem Proving in Lean 4의 5장: 전술]에서 다룹니다.
+
 == 직접 해보기
 
 * `p → q → p ∧ q`를 전술로 증명해보세요. (`intro` 두 번 → `constructor` → 각 목표를 `exact`로.)

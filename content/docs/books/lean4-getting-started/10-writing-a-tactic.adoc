@@ -69,6 +69,8 @@ theorem t2 : 3 + 4 = 7 := by close_refl
 
 마지막 장에서는 이 책이 다루지 못한 부분, 그리고 더 깊이 들어가고 싶을 때 원본 세 책 중 어디로 가면 되는지 정리합니다.
 
+TIP: 더 깊이 들어가려면 — tactic 작성의 본격적인 안내는 link:../../../programming/lean/metaprogramming-in-lean4/09-tactics/[Metaprogramming in Lean 4의 9장: Tactic 작성하기], 그 재료인 `Expr`과 `MetaM`은 link:../../../programming/lean/metaprogramming-in-lean4/03-expressions/[3장]과 link:../../../programming/lean/metaprogramming-in-lean4/04-metam/[4장]에서 다룹니다.
+
 == 직접 해보기
 
 * `close_trivial`은 목표가 `True`가 아니어도 무작정 `True.intro`를 채우려다 알기 어려운 에러를 냅니다. `mvarId.getType`으로 목표를 꺼내, `True`가 아니면 `throwError`로 친절한 메시지를 내도록 고쳐보세요. (힌트: `+target.isConstOf ``True+`)

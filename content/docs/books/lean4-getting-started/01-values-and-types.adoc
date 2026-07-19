@@ -108,6 +108,8 @@ C나 Java의 `if`는 "이 조건이면 이 문장을 실행"하는 제어 흐름
 
 다음 장에서는 인자가 여러 개인 함수, 그리고 함수가 자기 자신을 호출하는 재귀를 다룹니다.
 
+TIP: 더 깊이 들어가려면 — 식·타입·정의는 link:../../../programming/lean/functional-programming-in-lean/ch01/[Functional Programming in Lean Ch.1: Lean 시작하기]에서 훨씬 자세히 다룹니다.
+
 == 직접 해보기
 
 * `#check (1, "one", 2.5)`의 결과를 먼저 종이에 예상해보고, 실행해서 맞춰보세요.

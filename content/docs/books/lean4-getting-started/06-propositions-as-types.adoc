@@ -103,6 +103,8 @@ inductive Or' (p q : Prop) : Prop where
 
 다음 장에서는 `And'`나 `Or'`의 값을 매번 손으로 조립하는 대신, "전술"이라는 반자동 도구로 증명을 훨씬 편하게 쓰는 법을 다룹니다.
 
+TIP: 더 깊이 들어가려면 — 명제·증명·논리 연결사의 엄밀한 전개는 link:../../../programming/lean/theorem-proving-in-lean4/03-propositions-and-proofs/[Theorem Proving in Lean 4의 3장: 명제와 증명]을 보세요.
+
 == 직접 해보기
 
 * `5 * 5 = 25`를 `rfl`로 증명해보세요. 그다음 우변을 `26`으로 바꿔보고, Lean4가 어떤 에러로 거부하는지 읽어보세요.
