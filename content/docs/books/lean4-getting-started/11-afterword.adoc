@@ -14,7 +14,7 @@ _link:../[전체 목차] · 이전: link:../10-writing-a-tactic/[10장: 나만�
 
 == 이 책이 일부러 건너뛴 것들
 
-이 책은 11장에 걸쳐 세 권의 책을 빠르게 훑었지만, 각 책 안에는 이 책이 다루지 않은 내용이 훨씬 많습니다. 몇 가지만 짚어봅니다.
+이 책은 열 개의 장에 걸쳐 세 권의 책을 빠르게 훑었지만, 각 책 안에는 이 책이 다루지 않은 내용이 훨씬 많습니다. 몇 가지만 짚어봅니다.
 
 1부(함수형 프로그래밍)에서는 모나드 변환기(여러 모나드를 겹쳐 쓰는 법), 의존 타입으로 색인화된 자료구조, 꼬리재귀 최적화와 종료성 증명의 세부 기법을 다루지 않았습니다.
 
@@ -29,6 +29,10 @@ _link:../[전체 목차] · 이전: link:../10-writing-a-tactic/[10장: 나만�
 * *1부(함수형 프로그래밍)가 재밌었다면* → link:../../../programming/lean/functional-programming-in-lean/[Functional Programming in Lean]. 특히 모나드 변환기(6장)와 의존 타입 색인화(7장)를 더 깊이 다룹니다.
 * *2부(증명)가 재밌었다면* → link:../../../programming/lean/theorem-proving-in-lean4/[Theorem Proving in Lean 4]. 이 책의 6~8장이 다룬 내용의 훨씬 엄밀하고 완전한 버전이라고 보면 됩니다.
 * *3부(메타프로그래밍)가 재밌었다면* → link:../../../programming/lean/metaprogramming-in-lean4/[Metaprogramming in Lean 4]. `Syntax`, `Expr`, `MetaM`을 훨씬 깊이 다루고, DSL 설계까지 다룹니다.
+
+== 막히면 어디서 물어보나
+
+Lean 커뮤니티는 https://leanprover.zulipchat.com/[Lean Zulip]에 모여 있습니다. 초보 질문 전용 채널(*#new members*)이 따로 있고, 질문에 답이 빠르기로 유명합니다. 질문할 때는 막힌 코드 전체와 에러 메시지(또는 InfoView의 목표 상태)를 함께 붙이면 됩니다 — 문제를 그대로 재현하는 링크를 만들어주는 https://live.lean-lang.org/[웹 에디터]도 유용합니다.
 
 == 마지막으로: 손으로 눌러보세요
 

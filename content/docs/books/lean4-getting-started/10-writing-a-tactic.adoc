@@ -16,10 +16,12 @@ _link:../[전체 목차] · 이전: link:../09-metaprogramming-lean-extends-itse
 
 9장에서 `elab`으로 정교화 단계에 개입하는 걸 봤습니다. tactic은 그 응용의 한 갈래입니다 — 다른 점은, tactic이 다루는 대상이 "만들어야 할 값"이 아니라 "지금 열려 있는 목표들의 목록"이라는 것뿐입니다. 이 목표 목록을 조작하는 전용 모나드가 `TacticM`입니다.
 
-가장 간단한 예로, 목표가 `True`일 때 자동으로 끝내주는 tactic을 만들어봅시다.
+가장 간단한 예로, 목표가 `True`일 때 자동으로 끝내주는 tactic을 만들어봅시다. (9장과 마찬가지로 파일 맨 위에 `import Lean`이 필요합니다.)
 
 [source,lean]
 ----
+import Lean
+
 open Lean Elab Tactic in
 elab "close_trivial" : tactic => do
   liftMetaTactic fun mvarId => do
@@ -29,7 +31,7 @@ elab "close_trivial" : tactic => do
 theorem t1 : True := by close_trivial
 ----
 
-`liftMetaTactic`은 "목표(`mvarId`, metavariable id)를 받아서, 그 자리에 채울 값을 정해주는" 작업을 하게 해주는 통로입니다. `mvarId.assign (mkConst ``True.intro)`가 하는 일은 "이 목표 자리에 `True.intro`라는 이미 정의된 증명 값을 채워 넣어라"는 것입니다. 마지막의 `return []`은 "새로 남는 하위 목표는 없다"는 뜻입니다 — 목표를 완전히 닫았기 때문입니다.
+새 용어 하나 — Lean4는 "아직 채워지지 않은 구멍"을 metavariable이라고 부릅니다. 증명 도중의 목표 하나하나가 곧 채워야 할 구멍이고, `mvarId`는 그 구멍을 가리키는 식별자(metavariable id)입니다. `liftMetaTactic`은 "그 구멍을 받아서, 자리에 채울 값을 정해주는" 작업을 하게 해주는 통로입니다. `mvarId.assign (mkConst ``True.intro)`가 하는 일은 "이 목표 자리에 `True.intro`라는 이미 정의된 증명 값을 채워 넣어라"는 것입니다. 마지막의 `return []`은 "새로 남는 하위 목표는 없다"는 뜻입니다 — 목표를 완전히 닫았기 때문입니다.
 
 == 목표를 보고 판단하는 tactic
 
@@ -66,4 +68,9 @@ theorem t2 : 3 + 4 = 7 := by close_refl
 지금까지 만든 tactic은 장난감 수준이지만, 원리는 실제 `simp`, `omega`, `induction`과 다르지 않습니다 — 목표의 `Expr`을 읽고, 판단하고, 값을 채우거나 새 목표로 쪼갭니다. 이 사실이 왜 중요할까요? 여러분이 반복해서 손으로 쓰는 증명 패턴이 있다면, 그건 언젠가 tactic으로 자동화할 수 있는 후보라는 뜻입니다. 이 책 범위를 벗어난 실전에서는 특정 도메인(선형대수, 컴파일러 IR 등)에 맞춘 전용 tactic을 만들어 증명을 대폭 줄이는 일이 흔합니다.
 
 마지막 장에서는 이 책이 다루지 못한 부분, 그리고 더 깊이 들어가고 싶을 때 원본 세 책 중 어디로 가면 되는지 정리합니다.
+
+== 직접 해보기
+
+* `close_trivial`은 목표가 `True`가 아니어도 무작정 `True.intro`를 채우려다 알기 어려운 에러를 냅니다. `mvarId.getType`으로 목표를 꺼내, `True`가 아니면 `throwError`로 친절한 메시지를 내도록 고쳐보세요. (힌트: `+target.isConstOf ``True+`)
+* `close_refl`에 `3 + 4 = 8`을 줘보세요. 두 `throwError` 중 어느 쪽 메시지가 나올까요? — `3 + 4 = 8`도 등식 "모양"이기는 하다는 점을 생각해보세요.
 // end::body[]

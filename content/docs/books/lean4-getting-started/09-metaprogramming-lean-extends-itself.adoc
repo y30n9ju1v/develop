@@ -45,10 +45,14 @@ macro "twice " x:term : term => `($x + $x)
 
 macro로는 부족한 경우가 있습니다 — 단순 치환이 아니라 "지금 어떤 타입을 기대하고 있는지"처럼 정교화 중에만 알 수 있는 정보가 필요한 경우입니다. 이럴 땐 `elab`으로 정교화 단계에 직접 개입합니다.
 
+준비물이 하나 있습니다 — `elab`은 Lean4 컴파일러 자신의 API를 쓰기 때문에, 파일 맨 위에 `import Lean` 한 줄이 필요합니다(위의 `macro`까지는 없어도 됩니다). 이 한 줄을 빼먹으면 `Unknown identifier` 에러가 쏟아지니 기억해두세요.
+
 [source,lean]
 ----
+import Lean
+
 elab "typeOf% " e:term : term => do
-  let e' ← Lean.Elab.Term.elabTerm e none
+  let e' ← Lean.Elab.Term.elabTermAndSynthesize e none
   let t ← Lean.Meta.inferType e'
   Lean.logInfo m!"{t}"
   return e'
@@ -56,11 +60,17 @@ elab "typeOf% " e:term : term => do
 #eval typeOf% (1 + 2)  -- 정보 메시지: Nat
 ----
 
-`elab`은 macro와 달리 `MetaM`이라는 모나드 안에서 동작하며, 지금까지 정교화된 다른 표현의 타입을 물어보거나(`inferType`), 새로운 표현을 만들어내는 등 macro보다 훨씬 많은 걸 할 수 있습니다. 대신 그만큼 더 저수준입니다.
+`elabTermAndSynthesize`가 받은 문법 조각(`Syntax`)을 실제 `Expr`로 정교화하고, `inferType`이 그 타입을 알아냅니다. `elab`은 macro와 달리 `MetaM`이라는 모나드 안에서 동작하며, 이렇게 지금까지 정교화된 표현의 타입을 물어보거나 새로운 표현을 만들어내는 등 macro보다 훨씬 많은 걸 할 수 있습니다. 대신 그만큼 더 저수준입니다.
 
 == 이 장이 왜 중요한가
 
 여러분이 7~8장에서 아무 의심 없이 썼던 `by induction n with | zero => ... | succ k ih => ...` 문법도 이 `Syntax` → 처리 → `Expr` 파이프라인의 산물입니다. `induction`은 특별 취급되는 언어 내장 키워드가 아니라, 목표의 `Expr`을 들여다보고 "이 타입이 어떤 방식들로 만들어질 수 있는지"(3장에서 본 `inductive` 정의)를 스스로 찾아내서 하위 목표를 만들어내는 프로그램입니다.
 
 다음 장에서는 이 재료들을 가지고 아주 작은 나만의 tactic을 직접 만들어보면서, "전술을 짠다"는 게 실제로 어떤 느낌인지 확인합니다.
+
+== 직접 해보기
+
+* `twice`를 참고해 `thrice x`(x를 세 번 더하기) macro를 만들어보세요. `#eval thrice 5`는 15가 나와야 합니다.
+* `#eval twice (twice 10)`은 몇일까요? macro가 펼쳐지는 과정을 종이에 먼저 적어본 다음, 실행해서 확인해보세요.
+* `typeOf%`에 `"hello"`, `(fun n : Nat => n + 1)` 등 여러 식을 넣어 어떤 타입이 찍히는지 확인해보세요.
 // end::body[]
