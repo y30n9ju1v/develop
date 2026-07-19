@@ -1,7 +1,7 @@
 ---
 title: "7장: 전술로 증명 쓰기"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "theorem-proving", "book"]
 categories: ["books"]
 description: "증명 값을 손으로 조립하는 대신 intro·apply·rw·simp 같은 전술로 목표를 좁혀가며 증명하는 법을 익히는 장"

@@ -1,7 +1,7 @@
 ---
 title: "5장: 모나드 — 서로 다른 계산을 하나의 틀로"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "functional-programming", "book"]
 categories: ["books"]
 description: "실패할 수 있는 계산, 입출력이 섞인 계산이 왜 같은 패턴으로 묶이는지, do 표기법으로 그 패턴을 어떻게 편하게 쓰는지 익히는 1부 마지막 장"

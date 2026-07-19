@@ -1,7 +1,7 @@
 ---
 title: "11장: 맺음말 — 어디로 갈 것인가"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "book"]
 categories: ["books"]
 description: "이 책이 일부러 생략한 것들을 정리하고, 더 깊이 들어가고 싶을 때 원본 세 책 중 어디로 가면 되는지 안내하는 마지막 장"

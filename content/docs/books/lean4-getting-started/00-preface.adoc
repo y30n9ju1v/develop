@@ -1,7 +1,7 @@
 ---
 title: "서문: 세 권을 한 권으로"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "functional-programming", "theorem-proving", "metaprogramming", "book"]
 categories: ["books"]
 description: "Functional Programming in Lean, Theorem Proving in Lean 4, Metaprogramming in Lean 4 세 권을 초보자가 왜-먼저 순서로 이어 읽는 입문서의 서문"

@@ -1,6 +1,6 @@
 ---
 title: "Lean4 입문: 함수형 프로그래밍에서 증명, 메타프로그래밍까지"
-draft: true
+draft: false
 ---
 
 Functional Programming in Lean, Theorem Proving in Lean 4, Metaprogramming in Lean 4 세 권을 초보자도 하나의 흐름으로 이어 읽을 수 있게 새로 쓴 입문서입니다. 왜 이걸 배우는지를 각 장 맨 앞에 놓고, 값과 타입 같은 기초부터 시작해 재귀, 나만의 자료구조, 다형성, 모나드(1부) → 명제도 타입이라는 발상, 전술, 귀납 증명(2부) → Lean이 스스로를 확장하는 원리와 나만의 tactic 만들기(3부)까지, 필요한 개념만 순서대로 쌓아 올립니다.

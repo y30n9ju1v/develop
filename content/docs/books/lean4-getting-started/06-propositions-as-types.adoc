@@ -1,7 +1,7 @@
 ---
 title: "6장: 명제도 타입이다 — Curry-Howard 대응"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "theorem-proving", "book"]
 categories: ["books"]
 description: "1부에서 배운 함수와 타입을 그대로 재활용해, 증명이란 결국 특정 타입의 값을 만드는 일이라는 것을 확인하는 2부 시작 장"

@@ -1,7 +1,7 @@
 ---
 title: "8장: 귀납으로 증명하기 — 무한히 많은 경우를 유한한 단계로"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "theorem-proving", "book"]
 categories: ["books"]
 description: "재귀 정의와 귀납 증명이 왜 사실 같은 구조인지 확인하고, induction 전술로 자연수와 리스트에 대한 정리를 증명하며 2부를 마무리하는 장"

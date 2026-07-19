@@ -1,7 +1,7 @@
 ---
 title: "10장: 나만의 tactic 만들기"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "metaprogramming", "book"]
 categories: ["books"]
 description: "반복되는 전술 조합을 매크로로 묶는 쉬운 길부터, TacticM으로 목표를 직접 조작하는 저수준 tactic까지 만들어보며 7~8장 전술들의 실체를 확인하는 장"

@@ -1,7 +1,7 @@
 ---
 title: "9장: Lean은 스스로를 확장한다 — 매크로와 elaboration"
 date: 2026-07-19T00:00:00+09:00
-draft: true
+draft: false
 tags: ["lean", "lean4", "metaprogramming", "book"]
 categories: ["books"]
 description: "코드가 컴파일되는 과정을 파싱-정교화-실행 세 단계로 나눠 보고, macro로 새 문법을 직접 추가해보며 induction 같은 전술이 어떻게 만들어졌는지 감을 잡는 3부 시작 장"
