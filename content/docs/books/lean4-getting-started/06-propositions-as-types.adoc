@@ -124,4 +124,11 @@ theorem and_left (p q : Prop) : p ∧ q → p := fun h => h.left
 theorem or_intro (p q : Prop) : p → p ∨ q := fun hp => Or.inl hp
 ----
 ====
+
+== 요약
+
+* Curry-Howard 대응: 명제는 타입이고, 증명은 그 타입에 속하는 값이다 — "참임을 증명한다" = "그 타입의 값을 하나 만들어낸다."
+* `theorem`은 사실상 `def`와 같다 — 이름·타입·값(증명)을 정의하는 문법이 동일하다.
+* 함수 타입 `A → B`가 곧 함의("A면 B다")다 — 함수를 만드는 것과 함의를 증명하는 것은 같은 행위다.
+* "그리고(`∧`)"는 3장의 `structure`(양쪽을 다 가짐), "또는(`∨`)"는 `inductive`(둘 중 하나면 충분)로 정의된다.
 // end::body[]

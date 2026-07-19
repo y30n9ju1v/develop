@@ -136,4 +136,11 @@ def getOrElse : MyOption Nat → Nat → Nat
 #eval getOrElse (safeDiv 10 0) 99  -- 99
 ----
 ====
+
+== 요약
+
+* `structure`는 여러 값을 한 덩어리로 묶는다(모든 필드를 가진 값 하나).
+* `inductive`는 값이 여러 "모양" 중 하나임을 표현한다 — 모든 경우를 패턴 매칭으로 빠짐없이 다뤄야 컴파일된다.
+* `Nat`, `List`, `Option`, `Bool` 같은 Lean4의 기본 타입도 특별 취급 없이 전부 `inductive`로 정의되어 있다.
+* 타입은 `MyList α`처럼 다른 타입을 인자로 받을 수 있다 — 다음 장의 다형성으로 이어지는 지점이다.
 // end::body[]
