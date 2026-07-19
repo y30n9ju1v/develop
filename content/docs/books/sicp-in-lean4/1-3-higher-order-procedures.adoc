@@ -7,24 +7,18 @@ categories: ["books"]
 description: "SICP 1장 3절의 아이디어(고차 절차, sum 추상화, lambda/let, 이분법과 고정점, 절차를 반환하는 절차, 뉴턴법, 일급 절차)를 Lean 4로 다시 짜 봅니다."
 ---
 
-// tag::body[]
 _link:../[전체 목차] · 이전: link:../1-2-procedures-and-processes/[1.2. 절차와 절차가 만들어내는 프로세스] · 다음: link:../2-1-introduction-to-data-abstraction/[2.1. 데이터 추상화 입문]_
 
 '''
 
-The link:../1-2-procedures-and-processes/[previous post] was about the shape a process takes once it starts running. This one steps back up a level: procedures that take _other procedures_ as arguments, or hand back a procedure as their result. SICP calls these _higher-order procedures_, and argues they're where a language's expressive power really shows up — the difference between being able to compute a cube and being able to talk about "cubing" as a concept in its own right.
-
+// tag::body[]
 link:../1-2-procedures-and-processes/[이전 글]은 프로세스가 실행되면서 어떤 모양을 띠는지에 관한 것이었습니다. 이번 글은 한 단계 올라갑니다 — 다른 절차를 인자로 받거나, 절차 자체를 결과로 돌려주는 절차입니다. SICP는 이를 _고차 절차(higher-order procedures)_라고 부르고, 언어의 표현력이 진짜로 드러나는 지점이라고 말합니다 — 세제곱을 _계산_할 수 있는 것과, "세제곱하기"라는 개념 자체를 이야기할 수 있는 것의 차이입니다.
 
 '''
 
 == 1.3.1. 인자로서의 절차
 
-Three procedures — summing plain integers, summing their cubes, summing the reciprocal-product series that converges to stem:[\pi/8] — turn out to share an identical skeleton once you squint: each is ``0`` at the base case, and otherwise "compute a term from the current index, then add it to the sum of the rest." The only things that differ are _which_ term function is used and _how_ the index advances. Mathematicians noticed this same pattern centuries ago and gave it a name and notation — stem:[\sum] — precisely so they could reason about summation itself, independent of any one series.
-
 정수를 더하는 절차, 그 세제곱을 더하는 절차, stem:[\pi/8]로 수렴하는 역수곱 급수를 더하는 절차 — 이 셋을 자세히 보면 똑같은 뼈대를 공유합니다. 기저 사례에서는 ``0``이고, 그렇지 않으면 "현재 인덱스에서 항을 계산하고, 나머지의 합에 더한다"는 것입니다. 다른 것은 오직 _어떤_ 항 함수를 쓰는지와 인덱스가 _어떻게_ 전진하는지뿐입니다. 수학자들은 수백 년 전에 이미 같은 패턴을 발견하고, 합산 자체를 개별 급수와 무관하게 추론할 수 있도록 이름과 표기법(stem:[\sum])을 붙였습니다.
-
-We can do the same thing procedurally, by turning the varying pieces of the shared skeleton into formal parameters — ``term`` and ``next`` become ordinary arguments, just like any number would be:
 
 우리도 절차적으로 똑같이 할 수 있습니다 — 공유된 뼈대에서 달라지는 부분을 형식 매개변수로 바꾸면 됩니다. ``term``과 ``next``가 다른 숫자 인자와 마찬가지로 평범한 인자가 됩니다.
 
@@ -55,21 +49,13 @@ def piSum (a b : Float) : Float := sum piTerm a piNext b
 -- 3.139593
 ----
 
-One Lean-specific wrinkle: Scheme's numeric tower lets a single ``sum`` be called with integer bounds in one place and floating-point bounds elsewhere without anyone declaring a type. Lean's ``sum`` has to commit to one concrete parameter type, so we've settled on ``Float`` throughout — the loss is that ``sumIntegers``, which is conceptually "about" natural numbers, now carries a ``Float`` signature purely to stay compatible with ``piSum``'s continuous range. A fully general version would parameterize ``sum`` over a numeric type class instead; we'll leave that generalization aside here to keep the parallel with SICP's code direct.
-
 Lean 고유의 주름이 하나 있습니다 — Scheme의 숫자 타워는 하나의 ``sum``을 어떤 곳에서는 정수 범위로, 다른 곳에서는 부동소수점 범위로, 누구도 타입을 선언하지 않고도 호출할 수 있게 해줍니다. Lean의 ``sum``은 하나의 구체적인 매개변수 타입에 확정해야 하므로, 여기서는 전체를 ``Float``로 통일했습니다 — 그 대가로, 개념적으로는 자연수를 "다루는" ``sumIntegers``가 ``piSum``의 연속적인 범위와 호환되기 위해서만 ``Float`` 시그니처를 갖게 됩니다. 완전히 일반적인 버전이라면 ``sum``을 숫자 타입클래스에 대해 매개변수화하겠지만, SICP 코드와의 직접적인 대응을 유지하기 위해 여기서는 그 일반화를 미뤄둡니다.
 
-> *참고 (컴파일되는 코드 아님)*: 방향만 보여주는 의사코드입니다. ``α``에 대해 사칙연산과 순서 비교가 모두 필요하므로, 실전에서는 아래처럼 하나씩 제약을 나열하기보다 ``LinearOrderedField`` 같은 기존 타입클래스 하나로 묶는 편이 낫습니다.
->
-> ```lean
-> -- 개념적 스케치 — 실제로 컴파일해보지 않았습니다
-> partial def sumGeneric {α : Type} [Add α] [OfNat α 0] [LT α] [DecidableEq α]
->     (term : α → α) (a : α) (next : α → α) (b : α) : α :=
->   if a > b then 0
->   else term a + sumGeneric term (next a) next b
-> ```
-
-Once ``sum`` exists, it becomes a building block for further abstractions — numerical integration, for instance, is just a scaled sum of samples spaced ``dx`` apart:
+[NOTE]
+.완전히 일반적인 버전으로 가는 방향
+====
+``α``에 대해 사칙연산과 순서 비교가 모두 필요하므로, ``sum``을 진짜로 일반화한다면 ``Add α``·``LT α`` 같은 제약을 하나씩 나열하기보다 Mathlib의 ``LinearOrderedField``처럼 필요한 연산을 한 번에 묶어주는 기존 타입클래스 하나로 매개변수화하는 편이 낫습니다. 이 글에서는 SICP 코드와의 직접적인 대응을 유지하기 위해 그 일반화를 하지 않습니다.
+====
 
 ``sum``이 생기고 나면 더 많은 추상화를 위한 재료가 됩니다 — 예를 들어 수치 적분은 ``dx`` 간격으로 떨어진 표본들의 합을 스케일링한 것일 뿐입니다.
 
@@ -79,7 +65,7 @@ def integral (f : Float → Float) (a b dx : Float) : Float :=
   sum f (a + dx / 2.0) (fun x => x + dx) b * dx
 
 #eval integral cube 0 1 0.01
--- 0.249987
+-- 0.249988
 
 #eval integral cube 0 1 0.001
 -- 0.250000
@@ -99,8 +85,6 @@ partial def sumIter (term : Float → Float) (a : Float) (next : Float → Float
 
 == 1.3.2. ``lambda``로 절차 만들기 — Lean의 ``fun``과 ``let``
 
-Defining a tiny throwaway procedure like ``piTerm`` just to hand it to ``sum`` once feels like overkill. Scheme's answer is ``lambda``: a special form that builds a procedure without binding it to any name at all. Lean's direct counterpart is ``fun``:
-
 ``piTerm``처럼 ``sum``에 딱 한 번 넘기려고 자잘한 일회용 절차를 정의하는 건 과하게 느껴집니다. Scheme의 답은 ``lambda``입니다 — 이름에 전혀 묶지 않고 절차를 만드는 특수 형식입니다. Lean에서 이에 정확히 대응하는 것이 ``fun``입니다.
 
 [source,lean]
@@ -112,11 +96,7 @@ def integral' (f : Float → Float) (a b dx : Float) : Float :=
   sum f (a + dx / 2.0) (fun x => x + dx) b * dx
 ----
 
-Just as ``(define (plus4 x) (+ x 4))`` is only sugar for ``(define plus4 (lambda (x) (+ x 4)))``, Lean's ``def plus4 (x : Float) : Float := x + 4`` is sugar for ``def plus4 : Float → Float := fun x => x + 4`` — naming a procedure is really just applying ``def`` to an anonymous one.
-
 ``(define (plus4 x) (+ x 4))``가 ``(define plus4 (lambda (x) (+ x 4)))``의 설탕일 뿐이듯, Lean의 ``def plus4 (x : Float) : Float := x + 4``도 ``def plus4 : Float → Float := fun x => x + 4``의 설탕입니다 — 절차에 이름을 붙이는 것은 사실 익명 절차에 ``def``를 적용하는 것뿐입니다.
-
-A ``fun`` expression can be applied immediately, without ever being named:
 
 ``fun`` 표현식은 이름을 붙이지 않고도 곧바로 적용할 수 있습니다.
 
@@ -125,8 +105,6 @@ A ``fun`` expression can be applied immediately, without ever being named:
 #eval (fun (x y z : Float) => x + y + z * z) 1 2 3
 -- 12.000000
 ----
-
-``lambda`` has a second job in Scheme: introducing local variables, via ``let``. SICP's example computes stem:[f(x,y) = xa^2 + yb + ab] where stem:[a = 1+xy] and stem:[b = 1-y] are intermediate names worth giving to avoid repeating the expressions:
 
 Scheme에서 ``lambda``는 두 번째 역할도 합니다 — ``let``을 통해 지역 변수를 도입하는 것입니다. SICP의 예제는 stem:[f(x,y) = xa^2 + yb + ab]를 계산하는데, 여기서 stem:[a = 1+xy]와 stem:[b = 1-y]는 표현식을 반복하지 않기 위해 이름 붙일 만한 중간값입니다.
 
@@ -140,11 +118,7 @@ def f (x y : Float) : Float :=
 #eval f 2 3
 ----
 
-SICP is careful to explain that ``let`` is not a new mechanism at all — it's syntactic sugar for immediately applying a ``lambda``. Lean's ``let`` looks the same on the surface, but it isn't purely a macro over function application: ``let`` is a primitive term-former in Lean's own core language (it even carries its own reduction rule, ``zeta``-reduction, distinct from the ``beta``-reduction that handles ordinary application). The observable behavior — a name scoped to the body that follows it — ends up identical either way, but it's worth noticing that Lean chose to make ``let`` a first-class citizen of the kernel rather than eliminating it in favor of ``fun`` application, the way SICP's Scheme does.
-
 SICP는 ``let``이 전혀 새로운 메커니즘이 아니라, ``lambda``를 즉시 적용하는 것에 대한 구문적 설탕일 뿐이라고 꼼꼼히 설명합니다. Lean의 ``let``도 겉보기엔 비슷해 보이지만, 순수하게 함수 적용에 대한 매크로는 아닙니다 — ``let``은 Lean 자체 핵심 언어의 원시 항 생성자입니다(일반 적용을 처리하는 베타 축약과는 별개로, 자기만의 축약 규칙인 제타 축약을 가지고 있습니다). 겉으로 관찰되는 동작 — 이름이 뒤따르는 본문에 국한된다는 것 — 은 결국 어느 쪽이든 동일하지만, Lean은 SICP의 Scheme처럼 ``let``을 ``fun`` 적용으로 완전히 없애버리는 대신 커널의 일급 시민으로 만들었다는 점은 눈여겨볼 만합니다.
-
-The scoping subtleties SICP points out with ``let`` carry over unchanged. A ``let``-bound name shadows an outer name of the same spelling only inside the ``let``'s body, and the expressions on the right-hand side of each binding are evaluated in the _outer_ scope, before any of the ``let``'s own names come into existence:
 
 SICP가 ``let``에 대해 짚는 스코프 관련 미묘함은 그대로 옮겨집니다. ``let``으로 묶인 이름은 오직 ``let``의 본문 안에서만 같은 철자의 바깥 이름을 가립니다. 그리고 각 바인딩의 우변 표현식은 ``let`` 자신의 이름들이 생기기 _전에_, 바깥 스코프에서 평가됩니다.
 
@@ -169,13 +143,9 @@ def yOuter : Float := 2
 
 == 1.3.3. 일반적인 방법으로서의 절차
 
-Higher-order procedures let us express not just particular computations but _general methods_ — techniques independent of which specific function they're being applied to. SICP demonstrates this with two classics: the half-interval method for finding roots, and fixed-point search.
-
 고차 절차는 특정 계산뿐 아니라 _일반적인 방법(general method)_ — 어떤 구체적인 함수에 적용되든 상관없는 기법 — 을 표현하게 해줍니다. SICP는 이를 두 가지 고전적인 예로 보여줍니다 — 근을 찾는 이분법과 고정점 탐색입니다.
 
 === 이분법
-
-If stem:[f(a) < 0 < f(b)] for a continuous stem:[f], there must be a zero somewhere between stem:[a] and stem:[b]. Checking the sign of stem:[f] at the midpoint tells us which half to recurse into, and each step halves the interval of uncertainty:
 
 연속 함수 stem:[f]에 대해 stem:[f(a) < 0 < f(b)]라면, stem:[a]와 stem:[b] 사이 어딘가에 근이 있어야 합니다. 중점에서 stem:[f]의 부호를 확인하면 어느 절반으로 재귀할지 알 수 있고, 각 단계마다 불확실한 구간이 절반으로 줄어듭니다.
 
@@ -194,8 +164,6 @@ partial def search (f : Float → Float) (negPoint posPoint : Float) : Float :=
     else if testValue < 0 then search f midpoint posPoint
     else midpoint
 ----
-
-Scheme's ``half-interval-method`` guards against being handed two points where stem:[f] doesn't actually change sign by calling ``error``, which aborts the whole computation with a message. Lean tends to prefer making "this might not produce an answer" visible in the _type_ rather than as an ambient runtime abort — the same instinct we saw with ``IO`` for the Fermat test in the previous post. Here, ``Option Float`` fits naturally: ``none`` means "these points don't bracket a root," and the caller is forced by the type system to handle that case rather than being able to forget it:
 
 Scheme의 ``half-interval-method``는 stem:[f]가 실제로 부호를 바꾸지 않는 두 점이 주어졌을 때 ``error``를 호출해 전체 계산을 메시지와 함께 중단시켜 방어합니다. Lean은 "답이 나오지 않을 수도 있다"는 것을 주변 런타임 중단이 아니라 _타입_에 드러내는 쪽을 선호하는 경향이 있습니다 — 이전 글에서 페르마 테스트에 ``IO``를 썼을 때와 같은 본능입니다. 여기서는 ``Option Float``가 자연스럽게 들어맞습니다 — ``none``은 "이 두 점이 근을 감싸지 않는다"는 뜻이고, 타입 시스템이 호출하는 쪽에서 이 경우를 잊지 못하고 반드시 처리하도록 강제합니다.
 
@@ -217,8 +185,6 @@ def halfIntervalMethod (f : Float → Float) (a b : Float) : Option Float :=
 
 === 고정점 탐색
 
-A number stem:[x] is a _fixed point_ of stem:[f] if stem:[f(x) = x]; for many functions, repeatedly applying stem:[f] to a starting guess homes in on such a point. This gives us a second general-purpose search procedure, parameterized by the function whose fixed point we want and a starting guess:
-
 stem:[f(x) = x]를 만족하면 stem:[x]는 stem:[f]의 _고정점(fixed point)_입니다. 많은 함수에 대해, 시작 추측값에 stem:[f]를 반복 적용하면 그런 점으로 수렴합니다. 이는 고정점을 찾을 함수와 시작 추측값으로 매개변수화된 두 번째 범용 탐색 절차를 줍니다.
 
 [source,lean]
@@ -233,13 +199,11 @@ partial def fixedPoint (f : Float → Float) (firstGuess : Float) : Float :=
   try_ firstGuess
 
 #eval fixedPoint Float.cos 1.0
--- 0.739085
+-- 0.739082
 
 #eval fixedPoint (fun y => Float.sin y + Float.cos y) 1.0
--- 1.258727
+-- 1.258732
 ----
-
-Square roots turn out to be a fixed point of stem:[y \mapsto x/y] — but searching for that fixed point directly oscillates forever without converging, since each guess just flips back to the previous one. Averaging the guess with stem:[x/y] instead of jumping straight to it damps the oscillation, and this _average damping_ trick recovers exactly the same sequence of approximations as the Newton's-method square root from the first post in this series:
 
 제곱근은 stem:[y \mapsto x/y]의 고정점임이 드러납니다 — 하지만 이 고정점을 곧바로 찾으려 하면 각 추측값이 그저 이전 값으로 되돌아가면서 영원히 진동하며 수렴하지 않습니다. stem:[x/y]로 곧장 뛰는 대신 추측값과 stem:[x/y]의 평균을 내면 진동이 감쇠되는데, 이 _평균 감쇠(average damping)_ 기법은 이 시리즈 첫 글의 뉴턴법 제곱근과 정확히 같은 근사 수열을 재현합니다.
 
@@ -256,8 +220,6 @@ def sqrtFP (x : Float) : Float :=
 
 == 1.3.4. 값으로 반환되는 절차
 
-Passing procedures as arguments was already powerful; letting a procedure _return_ another procedure opens up a further layer. Average damping itself is a reusable transformation — given any stem:[f], it produces a new function whose value at stem:[x] is the average of stem:[x] and stem:[f(x)]:
-
 절차를 인자로 넘기는 것만으로도 이미 강력했지만, 절차가 _다른 절차를 반환하게_ 하면 한 층이 더 열립니다. 평균 감쇠 자체가 재사용 가능한 변환입니다 — 어떤 stem:[f]가 주어지든, stem:[x]에서의 값이 stem:[x]와 stem:[f(x)]의 평균인 새 함수를 만들어냅니다.
 
 [source,lean]
@@ -268,8 +230,6 @@ def averageDamp (f : Float → Float) : Float → Float :=
 #eval (averageDamp (fun x => x * x)) 10
 -- 55.000000
 ----
-
-The type of ``averageDamp`` — ``(Float → Float) → (Float → Float)`` — says out loud exactly what SICP's prose says: this is a procedure that eats a function and hands back a function. With it, the square-root fixed-point search from the last section can be rephrased so that its three ideas — fixed-point search, average damping, and the function stem:[y \mapsto x/y] — are each named separately instead of tangled together:
 
 ``averageDamp``의 타입 — ``(Float → Float) → (Float → Float)`` — 은 SICP의 산문이 말하는 것을 그대로 소리 내어 말해줍니다. 함수를 먹고 함수를 돌려주는 절차라는 것입니다. 이걸 쓰면, 앞 절의 제곱근 고정점 탐색을 세 가지 아이디어 — 고정점 탐색, 평균 감쇠, 함수 stem:[y \mapsto x/y] — 가 뒤엉키지 않고 각각 이름 붙은 채로 다시 표현할 수 있습니다.
 
@@ -283,8 +243,6 @@ def cubeRoot (x : Float) : Float :=
 ----
 
 === 뉴턴법
-
-Newton's method, introduced informally back in the first post, is really the fixed-point search applied to a specific transform: a zero of stem:[g] is a fixed point of stem:[x \mapsto x - g(x)/Dg(x)], where stem:[Dg] is stem:[g]'s derivative. "Derivative," like average damping, is itself a function-to-function transformation, which we can approximate directly from its limit definition:
 
 첫 글에서 비공식적으로 소개했던 뉴턴법은 사실 특정 변환에 적용된 고정점 탐색입니다 — stem:[g]의 근은 stem:[x \mapsto x - g(x)/Dg(x)]의 고정점이고, 여기서 stem:[Dg]는 stem:[g]의 도함수입니다. "도함수"는 평균 감쇠와 마찬가지로 함수를 함수로 바꾸는 변환 자체이며, 극한 정의로부터 직접 근사할 수 있습니다.
 
@@ -313,8 +271,6 @@ def sqrtNewton (x : Float) : Float :=
 
 === 추상화와 일급 절차
 
-Both square-root derivations share an even more general shape: start with a function ``g``, apply some ``transform`` to it, then search for a fixed point of the result.
-
 두 제곱근 유도 모두 훨씬 더 일반적인 모양을 공유합니다 — 함수 ``g``에서 시작해, 어떤 ``transform``을 적용하고, 그 결과의 고정점을 찾습니다.
 
 [source,lean]
@@ -329,8 +285,6 @@ def sqrtA (x : Float) : Float :=
 def sqrtB (x : Float) : Float :=
   fixedPointOfTransform (fun y => y * y - x) newtonTransform 1.0
 ----
-
-``fixedPointOfTransform``'s second parameter has type ``(Float → Float) → (Float → Float)`` — a function that takes a function and returns a function, itself passed as an ordinary argument to another function. Being willing to write a type like that is really what SICP means by _first-class_ status: procedures can be named, passed as arguments, returned as results, and stored in data structures, with no second-class citizens among them. Lean's type system doesn't just permit this — it requires us to spell out, at every level of nesting, exactly what kind of function is flowing where, which is the price (and the guardrail) that comes with making higher-order procedures this explicit.
 
 ``fixedPointOfTransform``의 두 번째 매개변수 타입은 ``(Float → Float) → (Float → Float)``입니다 — 함수를 받아 함수를 돌려주는 함수이고, 그 자체가 다른 함수에 평범한 인자로 전달됩니다. 이런 타입을 기꺼이 쓸 수 있다는 것이야말로 SICP가 말하는 _일급(first-class)_ 지위의 의미입니다 — 절차는 이름 붙일 수 있고, 인자로 넘길 수 있고, 결과로 반환할 수 있고, 데이터 구조에 담을 수 있으며, 그중 어느 것도 이등 시민이 아닙니다. Lean의 타입 시스템은 이를 허용하는 데서 그치지 않고, 중첩의 매 층마다 정확히 어떤 종류의 함수가 어디로 흐르는지를 명시하도록 요구합니다 — 고차 절차를 이렇게까지 명시적으로 만드는 데 따르는 대가(이자 안전장치)입니다.
 
@@ -370,9 +324,9 @@ def repeated (f : Float → Float) : Nat → (Float → Float)
 |``lambda`` |이름 없는 절차 생성 |``fun x => …``
 |``let`` |``lambda`` 적용에 대한 구문 설탕 |커널의 원시 항 구성자(제타 축약)
 |오류 신호 |``error``로 런타임 중단 |``Option``/``Except``로 타입에 드러냄
-|절차를 반환하는 절차 |``average-damp``, ``deriv``, ``newton-transform`` |``Float → Float → Float``처럼 중첩된 함수 타입
+|절차를 반환하는 절차 |``average-damp``, ``deriv``, ``newton-transform`` |``(Float → Float) → (Float → Float)``처럼 중첩된 함수 타입
 |일급 지위 |이름 붙이기·인자·반환·자료구조 모두 허용 |위와 동일 + 타입 시그니처로 명시 강제
 |===
 
-1.3절이 SICP 전체에서 강조하는 것은 결국 "절차도 데이터처럼 다룰 수 있어야 한다"는 것입니다. Lean에서는 이 이야기가 그대로 통하되, 매번 함수의 함수라는 타입을 명시적으로 써야 한다는 점에서 한 겹 더 형식화됩니다. 다음 글에서는 1.4절 — 조건문을 파생 표현식으로 다루는 방식과, 인터프리터 자체를 절차로 보는 관점 — 을 다룹니다.
+1.3절이 SICP 전체에서 강조하는 것은 결국 "절차도 데이터처럼 다룰 수 있어야 한다"는 것입니다. Lean에서는 이 이야기가 그대로 통하되, 매번 함수의 함수라는 타입을 명시적으로 써야 한다는 점에서 한 겹 더 형식화됩니다. 이것으로 절차에 관한 1장이 끝납니다. 다음 글에서는 2장의 시작인 2.1절 — 복합 데이터의 세부 표현을 감추는 데이터 추상화와, 생성자·선택자로 추상화 장벽을 긋는 방법 — 을 다룹니다.
 // end::body[]

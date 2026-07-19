@@ -7,24 +7,18 @@ categories: ["books"]
 description: "SICP 1장 2절의 아이디어(선형 재귀/반복, 트리 재귀, 증가 차수, 거듭제곱, 최대공약수, 소수 판정)를 Lean 4 코드와 종료성 증명 관점에서 다시 짜 봅니다."
 ---
 
-// tag::body[]
 _link:../[전체 목차] · 이전: link:../1-1-elements-of-programming/[1.1. 프로그래밍의 요소] · 다음: link:../1-3-higher-order-procedures/[1.3. 고차 절차로 추상화 정식화하기]_
 
 '''
 
-The link:../1-1-elements-of-programming/[previous post] covered the raw ingredients of a language — primitives, combination, abstraction. Knowing the ingredients doesn't yet mean you can predict what a procedure _does_ once it starts running: two procedures can compute the exact same mathematical function and still behave completely differently as processes, using different amounts of time and memory. This post follows SICP's second section and asks the same question in Lean, where the added twist is that the type checker itself has an opinion about which of these processes it can confirm will ever finish.
-
+// tag::body[]
 link:../1-1-elements-of-programming/[이전 글]에서는 언어의 원재료 — 원시 요소, 조합, 추상화 — 를 다뤘습니다. 재료를 안다고 해서 절차가 실제로 실행될 때 _무엇을 하는지_까지 예측할 수 있는 건 아닙니다. 두 절차가 정확히 같은 수학 함수를 계산하면서도, 프로세스로서는 완전히 다르게 동작하며 서로 다른 시간과 메모리를 쓸 수 있습니다. 이 글은 SICP 2절을 따라 같은 질문을 Lean에서 던져보는데, 여기에 더해지는 새로운 변수는 타입 검사기 자신이 "이 프로세스가 언젠가 끝난다는 걸 확인할 수 있는가"에 대한 의견을 갖고 있다는 점입니다.
-
-A procedure only describes the _local_ rule for how one step of a computation leads to the next; the _global_ shape that unfolds from repeatedly applying that rule — whether it expands and then contracts, whether it stays flat, whether it branches like a tree — is a separate thing worth learning to see. SICP's running examples here are deliberately simple, playing the same role that test charts play in photography: not practical programs in their own right, but patterns simple enough to let the shape of the process show through clearly.
 
 절차는 계산의 한 단계가 다음 단계로 어떻게 이어지는지에 대한 _지역적(local)_ 규칙만을 기술합니다. 그 규칙을 반복 적용했을 때 펼쳐지는 _전역적(global)_ 모양 — 팽창했다가 수축하는지, 평평하게 유지되는지, 나무처럼 가지를 치는지 — 은 따로 눈여겨볼 만한 별개의 것입니다. 여기서 SICP가 쓰는 예제들은 일부러 단순한데, 사진에서 테스트 차트가 하는 역할과 같습니다 — 그 자체로 실용적인 프로그램이 아니라, 프로세스의 모양이 뚜렷이 드러날 만큼 단순한 패턴입니다.
 
 '''
 
 == 1.2.1. 선형 재귀와 선형 반복
-
-Factorial has an obvious recursive definition — stem:[n!] is stem:[n] times stem:[(n-1)!] — which translates directly into a procedure that calls itself on a smaller argument:
 
 팩토리얼에는 뚜렷한 재귀적 정의가 있습니다 — stem:[n!]은 stem:[n] 곱하기 stem:[(n-1)!]입니다 — 그리고 이는 더 작은 인자로 자기 자신을 호출하는 절차로 곧바로 옮겨집니다.
 
@@ -38,15 +32,9 @@ def factorial : Nat → Nat
 -- 720
 ----
 
-Because each call's argument is structurally smaller than the one before it — ``n + 1`` calls ``factorial n`` — Lean's termination checker accepts this definition automatically, with no ``partial`` keyword needed. This is worth noticing: it's the first procedure in this series where the type checker independently confirms what SICP's substitution-model trace only shows informally, that the chain of deferred multiplications is finite.
-
 각 호출의 인자가 바로 앞 호출보다 구조적으로 더 작기 때문에 — ``n + 1``이 ``factorial n``을 호출합니다 — Lean의 종료성 검사기는 ``partial`` 키워드 없이도 이 정의를 자동으로 받아들입니다. 이 점은 눈여겨볼 만합니다 — 이 시리즈에서 처음으로, 타입 검사기가 SICP의 치환 모델 추적이 비형식적으로만 보여주던 것 — 미뤄진 곱셈의 사슬이 유한하다는 것 — 을 독립적으로 확인해주는 절차입니다.
 
-Watching this run by hand reveals a shape of _expansion followed by contraction_: a chain of deferred multiplications builds up until the base case is hit, then the chain collapses back down as each multiplication actually happens. A process with this shape is a _recursive process_, and since the chain here grows in direct proportion to stem:[n], it's specifically a _linear recursive process_.
-
 이를 손으로 추적해보면 _팽창 후 수축_하는 모양이 드러납니다 — 기저 사례에 도달할 때까지 미뤄진 곱셈의 사슬이 쌓이다가, 각 곱셈이 실제로 수행되면서 그 사슬이 다시 접혀 들어갑니다. 이런 모양의 프로세스를 _재귀적 프로세스(recursive process)_라고 부르는데, 여기서 사슬이 stem:[n]에 정비례해서 자라나므로 특히 _선형 재귀 프로세스(linear recursive process)_입니다.
-
-There's a second way to compute the same function that doesn't build up any chain at all: keep a running product and a counter, and update both simultaneously at every step until the counter passes stem:[n].
 
 같은 함수를 계산하는 두 번째 방법이 있는데, 이번에는 어떤 사슬도 전혀 쌓지 않습니다 — 누적곱과 카운터를 유지하면서, 카운터가 stem:[n]을 넘을 때까지 매 단계마다 둘을 동시에 갱신합니다.
 
@@ -62,19 +50,15 @@ def factorialIter (n : Nat) : Nat := factIter 1 1 n
 -- 720
 ----
 
-Here ``counter`` counts _up toward_ ``maxCount`` rather than down toward zero, so Lean can't see a structurally decreasing argument and we have to mark the definition ``partial`` (the same escape hatch we reached for with ``sqrtIter`` in the previous post). This is exactly the process SICP calls _iterative_: at every point, the entire state that matters — ``product``, ``counter``, ``maxCount`` — fits in three fixed variables, with no hidden chain of deferred work growing alongside it.
-
 여기서는 ``counter``가 0을 향해 내려가는 대신 ``maxCount``를 향해 _올라가므로_, Lean은 구조적으로 감소하는 인자를 찾지 못하고 정의를 ``partial``로 표시해야 합니다(이전 글에서 ``sqrtIter``에 썼던 것과 같은 탈출구입니다). 이것이 정확히 SICP가 _반복적(iterative)_이라고 부르는 프로세스입니다 — 어느 시점에서든 중요한 상태 전체가 ``product``, ``counter``, ``maxCount``라는 세 개의 고정된 변수에 담기고, 그와 함께 자라나는 숨은 미뤄진 작업의 사슬이 없습니다.
 
 [IMPORTANT]
 .``partial``은 프로세스가 아니라 절차에 대한 신호입니다
 ====
-The crucial distinction SICP hammers on is that "recursive" and "iterative" describe the _process_, not the _procedure_ — ``factIter`` is syntactically a recursive procedure (its own definition mentions its own name), yet the process it generates is iterative. Lean's ``partial`` keyword is a syntactic signal about the procedure (the termination checker gave up on proving it), and it's easy to conflate that with the process being somehow less well-behaved; SICP's whole point is that these are orthogonal. A production-quality Lean implementation of ``factIter`` would supply a ``termination_by`` measure like ``maxCount + 1 - counter`` to let the checker prove termination directly, without changing anything about the iterative shape of the resulting process.
-
 SICP가 강조하는 결정적인 구분은 "재귀적"과 "반복적"이 _절차(procedure)_가 아니라 _프로세스(process)_를 기술한다는 점입니다 — ``factIter``는 구문적으로는 재귀적 절차입니다(자기 정의 안에서 자기 이름을 언급합니다), 하지만 그것이 만들어내는 프로세스는 반복적입니다. Lean의 ``partial`` 키워드는 절차에 대한 구문적 신호이고(종료성 검사기가 증명을 포기했다는 뜻), 이걸 프로세스 자체가 어딘가 덜 정돈됐다는 의미로 착각하기 쉽습니다. SICP가 짚는 핵심은 이 둘이 서로 독립적이라는 것입니다.
 ====
 
-이를 직접 확인해볼 수 있는 방법이 두 가지 있습니다. 첫째, ``counter``가 올라가는 대신 ``n``이 내려가도록 상태를 다시 짜면 — ``fibIter``에서 했던 것과 같은 방향 전환 — Lean은 ``partial`` 없이도 구조적 재귀로 받아들입니다.
+이를 직접 확인해볼 수 있는 방법이 두 가지 있습니다. 첫째, ``counter``가 올라가는 대신 ``n``이 내려가도록 상태를 다시 짜면 — 잠시 뒤 1.2.2절의 ``fibIter``에서 다시 보게 될 방향 전환입니다 — Lean은 ``partial`` 없이도 구조적 재귀로 받아들입니다.
 
 [source,lean]
 ----
@@ -121,8 +105,6 @@ partial def addB (a b : Nat) : Nat :=
 
 == 1.2.2. 트리 재귀
 
-The Fibonacci sequence gives us a process with a genuinely different shape. Each Fibonacci number is defined in terms of the two before it, so a direct translation of the definition calls itself _twice_ per step:
-
 피보나치 수열은 진짜로 다른 모양의 프로세스를 보여줍니다. 각 피보나치 수는 그 앞의 두 수로 정의되므로, 정의를 그대로 옮기면 한 단계마다 자기 자신을 _두 번_ 호출하게 됩니다.
 
 [source,lean]
@@ -136,11 +118,7 @@ def fib : Nat → Nat
 -- 55
 ----
 
-Both recursive calls are on structurally smaller arguments, so once again Lean accepts this without ``partial``. But tracing the calls reveals a _tree_ rather than a chain — ``fib 5`` calls ``fib 4`` and ``fib 3``, ``fib 4`` calls ``fib 3`` and ``fib 2``, and the entire subtree for ``fib 3`` gets computed twice, independently, with no memory of the first computation. The number of leaves in this tree — and hence the number of steps — grows exponentially with stem:[n], even though the space needed at any moment (how deep the current branch goes) only grows linearly.
-
 두 재귀 호출 모두 구조적으로 더 작은 인자에 대한 것이므로, 이번에도 Lean은 ``partial`` 없이 받아들입니다. 하지만 호출을 추적해보면 사슬이 아니라 _트리_가 드러납니다 — ``fib 5``는 ``fib 4``와 ``fib 3``을 호출하고, ``fib 4``는 ``fib 3``과 ``fib 2``를 호출하며, ``fib 3``에 대한 서브트리 전체가 이전 계산에 대한 기억 없이 독립적으로 두 번 계산됩니다. 이 트리의 잎(leaf) 개수 — 곧 단계 수 — 는 stem:[n]에 대해 지수적으로 자라나지만, 어느 순간에 필요한 공간(현재 가지가 얼마나 깊이 내려갔는지)은 선형으로만 자랍니다.
-
-The same numbers can also be produced by an iterative process, carrying a running pair forward instead of branching:
 
 같은 수는 가지를 치는 대신 값의 쌍을 앞으로 밀고 나가는 반복적 프로세스로도 만들어낼 수 있습니다.
 
@@ -156,17 +134,11 @@ def fib' (n : Nat) : Nat := fibIter 0 1 n
 -- 55
 ----
 
-``fibIter`` pattern-matches on its last argument, which does decrease structurally at every call, so Lean accepts this one too without ``partial`` — a nice contrast with ``factIter`` in the previous section, where the counting-up direction defeated the automatic checker. The lesson generalizes: whether Lean's termination checker can see through a definition on its own often comes down to which direction a state variable moves, not whether the process is "really" iterative.
-
 ``fibIter``는 마지막 인자에 대해 패턴 매칭하는데, 이 인자는 매 호출마다 구조적으로 실제로 감소하므로 Lean은 이번에도 ``partial`` 없이 받아들입니다 — 카운트업 방향이 자동 검사기를 방해했던 앞 절의 ``factIter``와 좋은 대조를 이룹니다. 여기서 얻는 교훈은 일반화됩니다 — Lean의 종료성 검사기가 정의를 스스로 꿰뚫어 볼 수 있는지는 흔히 프로세스가 "진짜로" 반복적인지가 아니라, 상태 변수가 어느 방향으로 움직이는지에 달려 있습니다.
 
 === 예제: 거스름돈의 경우의 수
 
-Counting the ways to make change is a second, less obvious example of tree recursion: the number of ways to change amount stem:[a] using stem:[n] kinds of coins splits into "ways that don't use the first kind of coin" plus "ways that do," with three degenerate base cases (amount exactly zero, amount negative, no kinds of coins left).
-
 거스름돈의 경우의 수를 세는 것은 트리 재귀의 두 번째, 그리고 덜 명백한 예입니다 — 금액 stem:[a]를 stem:[n]종류의 동전으로 바꾸는 방법의 수는 "첫 번째 종류의 동전을 쓰지 않는 방법들"과 "쓰는 방법들"로 나뉘고, 세 가지 퇴화 기저 사례(금액이 정확히 0, 금액이 음수, 남은 동전 종류가 없음)를 가집니다.
-
-Because the amount can legitimately go negative mid-computation (that's how the base case "less than 0" gets triggered), this is a case where Lean's ``Nat`` — which clamps subtraction at zero instead of going negative — would silently corrupt the algorithm. We reach for ``Int`` for the amount instead:
 
 계산 도중 금액이 정말로 음수가 될 수 있으므로(그렇게 해서 "0보다 작다"는 기저 사례가 트리거됩니다), 이는 Lean의 ``Nat``(뺄셈을 음수로 내려가지 않고 0에서 잘라내는 타입)를 쓰면 알고리즘이 조용히 망가지는 경우입니다. 대신 금액에는 ``Int``를 씁니다.
 
@@ -191,27 +163,19 @@ def countChange (amount : Int) : Nat := cc amount 5
 -- 292
 ----
 
-The two recursive calls shrink different things — one shrinks ``kindsOfCoins``, the other shrinks ``amount`` — so there's no single structurally-decreasing argument for Lean to latch onto, and ``partial`` is the honest choice here. This mirrors ``count-change`` in the original: a tree-recursive process that's easy to state correctly and painfully redundant to actually run.
-
 두 재귀 호출이 서로 다른 것을 줄입니다 — 하나는 ``kindsOfCoins``를, 다른 하나는 ``amount``를 줄입니다 — 그래서 Lean이 붙잡을 수 있는 단일한 구조적 감소 인자가 없고, 여기서는 ``partial``이 정직한 선택입니다. 이는 원본의 ``count-change``를 그대로 반영합니다 — 올바르게 서술하기는 쉽지만 실제로 실행하기에는 뼈아플 만큼 중복이 많은 트리 재귀 프로세스입니다.
 
 '''
 
 == 1.2.3. 증가 차수
 
-To compare processes without drowning in implementation-specific detail, SICP introduces _order of growth_: if a process needs stem:[R(n)] units of some resource (steps, memory) for a problem of size stem:[n], we write stem:[R(n) = \Theta(f(n))] when stem:[R(n)] stays sandwiched between stem:[k_1 f(n)] and stem:[k_2 f(n)] for some constants stem:[k_1, k_2] and all sufficiently large stem:[n]. It's a deliberately coarse tool — it can't distinguish stem:[n^2] steps from stem:[1000n^2] steps — but it's exactly precise enough to predict how a process's resource use will change as the problem grows.
-
 구현의 세부 사항에 빠지지 않고 프로세스를 비교하기 위해, SICP는 _증가 차수(order of growth)_를 도입합니다 — 크기 stem:[n]의 문제에 대해 어떤 자원(단계 수, 메모리)이 stem:[R(n)]만큼 필요한 프로세스가 있을 때, 충분히 큰 모든 stem:[n]에 대해 stem:[R(n)]이 어떤 상수 stem:[k_1, k_2]에 대해 stem:[k_1 f(n)]과 stem:[k_2 f(n)] 사이에 낀다면 stem:[R(n) = \Theta(f(n))]이라고 씁니다. 이는 일부러 거친 도구입니다 — stem:[n^2] 단계와 stem:[1000n^2] 단계를 구분하지 못합니다 — 하지만 문제가 커질 때 프로세스의 자원 사용이 어떻게 변할지 예측하는 데는 정확히 딱 필요한 만큼만 정밀합니다.
-
-The processes we've built so far already span a useful range: ``factorial``'s linear recursion is stem:[\Theta(n)] in both steps and space, ``factIter``'s linear iteration is stem:[\Theta(n)] in steps but only stem:[\Theta(1)] in space, and ``fib``'s tree recursion is stem:[\Theta(\varphi^n)] in steps (where stem:[\varphi] is the golden ratio) but only stem:[\Theta(n)] in space, since only the current branch of the tree needs to be remembered at any moment.
 
 지금까지 만든 프로세스들만 해도 유용한 범위를 아우릅니다 — ``factorial``의 선형 재귀는 단계와 공간 모두 stem:[\Theta(n)]이고, ``factIter``의 선형 반복은 단계는 stem:[\Theta(n)]이지만 공간은 stem:[\Theta(1)]뿐이며, ``fib``의 트리 재귀는 단계 수는 stem:[\Theta(\varphi^n)](stem:[\varphi]는 황금비)이지만 공간은 stem:[\Theta(n)]뿐입니다. 어느 순간이든 트리의 현재 가지만 기억하면 되기 때문입니다.
 
 '''
 
 == 1.2.4. 거듭제곱
-
-Exponentiation gives us a compact case study in how a small change to the recursive rule can move an entire process from linear to logarithmic. The obvious definition, stem:[b^n = b \cdot b^{n-1}], produces linear recursion:
 
 거듭제곱은 재귀 규칙을 조금만 바꿔도 프로세스 전체가 선형에서 로그로 옮겨갈 수 있음을 보여주는 압축된 사례 연구를 제공합니다. 뻔한 정의인 stem:[b^n = b \cdot b^{n-1}]은 선형 재귀를 만들어냅니다.
 
@@ -224,8 +188,6 @@ def expt : Nat → Nat → Nat
 #eval expt 2 10
 -- 1024
 ----
-
-But stem:[b^n] can also be computed by _successive squaring_: if stem:[n] is even, stem:[b^n = (b^{n/2})^2]; if stem:[n] is odd, stem:[b^n = b \cdot b^{n-1}]. Each recursive call at least halves the exponent, so the number of multiplications needed grows only with stem:[\log n] rather than stem:[n] itself — for stem:[n = 1000], that's roughly 14 multiplications instead of 1000.
 
 하지만 stem:[b^n]은 _반복 제곱(successive squaring)_으로도 계산할 수 있습니다 — stem:[n]이 짝수면 stem:[b^n = (b^{n/2})^2]이고, stem:[n]이 홀수면 stem:[b^n = b \cdot b^{n-1}]입니다. 각 재귀 호출이 지수를 최소 절반으로 줄이므로, 필요한 곱셈 횟수는 stem:[n]이 아니라 stem:[\log n]에 비례해서만 자랍니다 — stem:[n = 1000]이라면 1000번이 아니라 대략 14번의 곱셈이면 됩니다.
 
@@ -241,10 +203,6 @@ partial def fastExpt (b n : Nat) : Nat :=
 #eval fastExpt 2 10
 -- 1024
 ----
-
-``n / 2`` is not a pattern Lean's structural recursion recognizes automatically (unlike ``n - 1`` on a successor pattern), so this needs ``partial`` even though the process it describes is dramatically more efficient than the linear version. Efficiency of the _process_ and provability of _termination_ are, once again, two separate axes — the fast version happens to score better on one and worse (by default) on the other.
-
-``n / 2`` and ``n - 1`` both shrink ``n`` whenever ``n > 0``, so a single ``termination_by n`` measure covers both branches at once, letting the checker prove termination directly instead of giving up:
 
 ``n / 2``와 ``n - 1`` 모두 ``n > 0``일 때 ``n``을 줄이므로, ``termination_by n``이라는 하나의 측정값으로 두 분기를 동시에 커버해 검사기가 직접 종료성을 증명하게 할 수 있습니다.
 
@@ -265,8 +223,6 @@ termination_by n
 
 == 1.2.5. 최대공약수
 
-Euclid's algorithm computes the GCD of two integers by repeatedly replacing the pair stem:[(a, b)] with stem:[(b, a \bmod b)] until the second element reaches zero — at which point the first element is the answer. It's often cited as the oldest nontrivial algorithm still in common use.
-
 유클리드 알고리즘은 두 정수의 최대공약수를, 두 번째 원소가 0에 도달할 때까지 stem:[(a, b)] 쌍을 stem:[(b, a \bmod b)]로 계속 바꿔가며 계산합니다 — 그 시점에서 첫 번째 원소가 답입니다. 지금도 쓰이는 알고리즘 중 가장 오래된 축에 속한다고 흔히 인용됩니다.
 
 [source,lean]
@@ -278,15 +234,11 @@ partial def gcd (a b : Nat) : Nat :=
 -- 2
 ----
 
-Lean's own standard library already includes ``Nat.gcd``, defined the same way and proved to terminate using the fact that ``a % b < b`` whenever ``b > 0`` — a genuine well-founded recursion rather than a structural one, and a good real-world example of the kind of ``termination_by``/``decreasing_by`` proof that lets an algorithm like this one drop the ``partial`` keyword entirely.
-
 Lean 표준 라이브러리에는 이미 ``Nat.gcd``가 있는데, 같은 방식으로 정의되어 있고 ``b > 0``일 때 ``a % b < b``라는 사실을 이용해 종료성이 증명되어 있습니다 — 구조적 재귀가 아니라 진짜 정초 재귀(well-founded recursion)이며, 이런 알고리즘이 ``partial`` 키워드를 완전히 떼어낼 수 있게 해주는 ``termination_by``/``decreasing_by`` 증명의 좋은 실제 사례입니다.
 
 '''
 
 == 1.2.6. 예제: 소수 판정
-
-The straightforward way to test primality is to search for the smallest divisor greater than 1, stopping as soon as the candidate divisor's square exceeds stem:[n] (if stem:[n] has no divisor up to stem:[\sqrt{n}], it has none at all):
 
 소수를 판정하는 직접적인 방법은 1보다 큰 가장 작은 약수를 찾는 것인데, 후보 약수의 제곱이 stem:[n]을 넘는 순간 멈춥니다(stem:[n]이 stem:[\sqrt{n}]까지 약수를 갖지 않는다면, 아예 약수가 없는 것입니다).
 
@@ -306,8 +258,6 @@ def isPrime (n : Nat) : Bool := n == smallestDivisor n
 #eval isPrime 97
 -- true
 ----
-
-This runs in stem:[\Theta(\sqrt{n})] steps. A completely different, much faster approach comes from Fermat's Little Theorem: if stem:[n] is prime, then stem:[a^n \bmod n = a] for every stem:[a < n]. Checking this for a handful of random stem:[a] gives a test that's only _probably_ correct (some composite numbers, called Carmichael numbers, fool it for every stem:[a]), but the check itself runs in stem:[\Theta(\log n)] via the same successive-squaring trick as ``fastExpt``:
 
 이는 stem:[\Theta(\sqrt{n})] 단계로 동작합니다. 완전히 다른, 훨씬 빠른 접근은 페르마의 소정리에서 나옵니다 — stem:[n]이 소수라면 모든 stem:[a < n]에 대해 stem:[a^n \bmod n = a]입니다. 무작위로 고른 몇 개의 stem:[a]에 대해 이를 확인하면 _아마도_ 맞는 테스트를 얻는데(카마이클 수라고 불리는 일부 합성수는 모든 stem:[a]에 대해 이 테스트를 속입니다), 검사 자체는 ``fastExpt``와 같은 반복 제곱 기법을 통해 stem:[\Theta(\log n)]으로 동작합니다.
 
@@ -334,8 +284,6 @@ def expmod' (base exp m : Nat) : Nat :=
 termination_by exp
 ----
 
-Scheme's ``fermat-test`` reaches for a primitive ``random`` procedure without a second thought, because Scheme treats randomness (and other side effects) as ambient. Lean's type system won't let an effect like "produce a different value each time you run this" hide inside an otherwise-pure ``Nat → Bool`` signature — the randomness has to show up in the type, via ``IO``, exactly the same move we saw with ``IO`` actions in the link:../functional-programming-in-lean/[Functional Programming in Lean series]:
-
 Scheme의 ``fermat-test``는 원시 절차 ``random``을 별생각 없이 그대로 씁니다. Scheme은 무작위성(과 다른 부수 효과들)을 주변 환경의 일부로 취급하기 때문입니다. Lean의 타입 시스템은 "실행할 때마다 다른 값을 낸다"는 효과가 순수한 ``Nat → Bool`` 시그니처 안에 숨어드는 것을 허용하지 않습니다 — 무작위성은 ``IO``를 통해 타입에 드러나야 하는데, 이는 link:../functional-programming-in-lean/[Functional Programming in Lean 시리즈]에서 봤던 ``IO`` 액션과 정확히 같은 움직임입니다.
 
 [source,lean]
@@ -351,8 +299,6 @@ partial def fastPrime (n times : Nat) : IO Bool := do
 
 #eval fastPrime 97 10
 ----
-
-Notice the type: ``smallestDivisor``-based ``isPrime`` is ``Nat → Bool``, a pure function you can reason about with the substitution model from the previous post without any caveats. ``fastPrime`` is ``Nat → Nat → IO Bool`` — the ``IO`` is Lean's way of being honest that this procedure's answer can vary from run to run, which is exactly the property that makes the Fermat test only _probabilistic_ in the first place. The type system is, in effect, forcing the same distinction SICP draws in prose (a guaranteed answer versus a probably-correct one) to show up as a visible difference in the function signature.
 
 타입을 눈여겨보세요 — ``smallestDivisor`` 기반의 ``isPrime``은 ``Nat → Bool``이며, 어떤 단서도 없이 이전 글의 치환 모델로 추론할 수 있는 순수 함수입니다. ``fastPrime``은 ``Nat → Nat → IO Bool``인데, 이 ``IO``는 이 절차의 답이 실행할 때마다 달라질 수 있다는 것을 Lean이 정직하게 드러내는 방식이며, 이것이 바로 페르마 테스트를 애초에 _확률적_으로만 만드는 성질입니다. 타입 시스템은 사실상 SICP가 글로 그리는 것과 같은 구분(보장된 답 대 아마도 맞는 답)이 함수 시그니처에서 눈에 보이는 차이로 드러나도록 강제하고 있는 셈입니다.
 

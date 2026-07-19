@@ -7,24 +7,18 @@ categories: ["books"]
 description: "SICP 1장 1절의 아이디어(표현식, 이름, 조합의 평가, 절차, 치환 모델, 조건문, 뉴턴법, 블랙박스 추상화)를 Lean 4 코드로 다시 짜 봅니다."
 ---
 
-// tag::body[]
 _link:../[전체 목차] · 다음: link:../1-2-procedures-and-processes/[1.2. 절차와 절차가 만들어내는 프로세스]_
 
 '''
 
-This is the first post in a series that revisits the ideas of _Structure and Interpretation of Computer Programs_ (SICP), but replaces every Scheme snippet with Lean 4 code. SICP's original examples run in a dynamically-typed Lisp; here we'll see what changes — and what doesn't — when the same ideas are expressed in a language with a static type system and a proof assistant underneath.
-
+// tag::body[]
 이 글은 _컴퓨터 프로그램의 구조와 해석_(SICP)의 아이디어를 다시 훑어보되, 모든 Scheme 코드를 Lean 4로 다시 작성해 보는 시리즈의 첫 번째 글입니다. SICP의 원래 예제는 동적 타입의 Lisp 위에서 동작하는데, 같은 아이디어를 정적 타입 시스템과 증명 보조기가 깔려 있는 언어로 표현하면 무엇이 달라지고 무엇이 그대로인지 살펴봅니다.
 
 '''
 
 == 왜 프로그래밍 언어는 세 가지 축으로 이해할 수 있는가
 
-A language is more than a way to give a computer instructions — it's also the medium we use to organize our own thinking about processes. SICP argues that any language worth calling "powerful" gives you three things: *primitive expressions* (the simplest building blocks the language recognizes), *means of combination* (ways to glue simple things into compound things), and *means of abstraction* (ways to name a compound thing and manipulate it as a single unit from then on). Everything else in a language is, in some sense, built out of these three ingredients applied to two kinds of stuff: _procedures_ (rules for manipulating data) and _data_ (the stuff being manipulated).
-
 언어는 단순히 컴퓨터에게 지시를 내리는 수단이 아니라, 우리가 프로세스에 대한 생각을 정리하는 틀이기도 합니다. SICP는 "강력하다"고 부를 만한 언어라면 세 가지를 제공해야 한다고 말합니다 — 언어가 인식하는 가장 단순한 단위인 *원시 표현식(primitive expressions)*, 단순한 것들을 묶어 복합적인 것을 만드는 *조합 수단(means of combination)*, 그리고 복합적인 것에 이름을 붙여 이후로는 하나의 단위로 다룰 수 있게 하는 *추상화 수단(means of abstraction)*입니다. 언어의 나머지 부분은 어떤 의미에서 이 세 가지 재료를 두 종류의 대상 — 데이터를 다루는 규칙인 _절차(procedure)_와, 다뤄지는 대상인 _데이터_ — 에 적용해서 만들어진 것입니다.
-
-Lean gives us the same three axes, just with a stricter primitive layer: numeric literals and built-in types are primitives, function application and ``def``/``let`` are means of combination and naming, and the type system adds a fourth thing SICP doesn't have to worry about up front — a way to state, and later check, what _kind_ of thing an expression is allowed to be.
 
 Lean에서도 같은 세 가지 축을 찾을 수 있는데, 다만 원시 계층이 더 엄격합니다. 숫자 리터럴과 내장 타입이 원시 표현식이고, 함수 적용과 ``def``/``let``이 조합·명명 수단이며, 여기에 SICP가 처음부터 신경 쓸 필요가 없었던 네 번째 요소 — 표현식이 _어떤 종류_의 값이어야 하는지를 미리 선언하고 나중에 검사할 수 있는 타입 시스템 — 가 더해집니다.
 
@@ -32,11 +26,7 @@ Lean에서도 같은 세 가지 축을 찾을 수 있는데, 다만 원시 계�
 
 == 1.1.1. 표현식과 조합
 
-The simplest thing you can hand an interpreter is a number, and it echoes the number back. Numbers combine with primitive procedures like ``+`` and ``*`` to form a _combination_ — an expression made of an operator followed by its operands, all wrapped in parentheses. Scheme always writes the operator first (_prefix notation_), which looks unusual coming from ordinary math notation but has a real payoff: an operator can take any number of operands with zero ambiguity, and combinations can nest arbitrarily deep without needing any extra punctuation to keep them straight.
-
 인터프리터에게 건넬 수 있는 가장 단순한 것은 숫자이고, 인터프리터는 그 숫자를 그대로 돌려줍니다. 숫자는 ``+``, ``*`` 같은 원시 절차와 결합해 _조합(combination)_을 이루는데, 이는 연산자 뒤에 피연산자들이 오고 전체가 괄호로 감싸인 표현식입니다. Scheme은 항상 연산자를 맨 앞에 쓰는데(_전위 표기법_), 일반적인 수학 표기법에 익숙하다면 낯설어 보이지만 실질적인 이득이 있습니다 — 연산자가 몇 개의 피연산자를 받든 모호함이 전혀 없고, 조합이 아무리 깊이 중첩되어도 구조를 구분하기 위한 별도의 구두점이 필요 없습니다.
-
-In Lean, prefix combinations of primitives like ``+`` don't exist in quite the same form — Lean uses ordinary infix operators — but function application itself _is_ prefix, and it nests exactly the same way. Here's the Scheme-style arithmetic translated directly:
 
 Lean에서는 ``+`` 같은 연산자를 전위로 조합하는 형태가 그대로 있지는 않습니다 — Lean은 일반적인 중위 연산자를 씁니다 — 하지만 함수 적용 자체는 전위이고, 중첩되는 방식은 완전히 동일합니다. Scheme 스타일의 산술 예제를 그대로 옮기면 다음과 같습니다.
 
@@ -61,8 +51,6 @@ Lean에서는 ``+`` 같은 연산자를 전위로 조합하는 형태가 그대�
 -- 12.700000
 ----
 
-The nested-combination example that SICP uses to show off prefix notation carries over one-to-one, since Lean's ``+``/``*``/``-`` are just as happy to nest as Scheme's:
-
 SICP가 전위 표기법의 장점을 보여줄 때 쓰는 중첩 조합 예제도 그대로 옮겨집니다. Lean의 ``+``/``*``/``-``도 Scheme과 똑같이 얼마든지 중첩될 수 있기 때문입니다.
 
 [source,lean]
@@ -74,19 +62,13 @@ SICP가 전위 표기법의 장점을 보여줄 때 쓰는 중첩 조합 예제�
 -- 57
 ----
 
-Lean also has its own version of the _read-eval-print loop_ — ``#eval`` in the editor evaluates an expression right where you write it and shows the result inline, without you ever having to say "now print this."
-
 Lean에도 자기만의 *읽고-평가하고-출력하는 루프(read-eval-print loop)*가 있습니다 — 에디터에서 ``#eval``은 그 자리에 쓴 표현식을 바로 평가해 결과를 인라인으로 보여주고, "이제 이걸 출력해라"라고 따로 말할 필요가 없습니다.
 
 '''
 
 == 1.1.2. 이름 짓기와 환경
 
-Giving a computational result a name is the simplest form of abstraction a language can offer: once ``size`` means 2, you can write ``size`` anywhere you'd otherwise have written ``2``, and build further computations — like a circle's circumference — out of previously-named results without ever repeating their details.
-
 계산 결과에 이름을 붙이는 것은 언어가 제공할 수 있는 가장 단순한 형태의 추상화입니다. 일단 ``size``가 2를 의미하게 되면, 2를 써야 할 자리 어디에나 ``size``를 대신 쓸 수 있고, 원의 둘레처럼 더 복잡한 계산도 이전에 이름 붙인 결과들을 바탕으로 그 세부 사항을 반복하지 않고 만들 수 있습니다.
-
-Scheme's ``define`` becomes Lean's ``def`` — with the addition that Lean wants (and will usually infer) a type for the name being introduced:
 
 Scheme의 ``define``은 Lean에서 ``def``가 됩니다 — 다만 Lean은 새로 도입하는 이름에 타입을(대개는 추론해서) 함께 요구한다는 점이 다릅니다.
 
@@ -109,19 +91,13 @@ def circumference : Float := 2 * pi * radius
 -- 62.831800
 ----
 
-The interpreter (or, for Lean, the elaborator) has to keep a running record of which names refer to which values so it can look them up later — SICP calls this record the _environment_. Lean has exactly the same notion: every ``def`` extends the environment of the current file, and later expressions are elaborated against that accumulated environment.
-
 인터프리터(Lean이라면 elaborator)는 나중에 이름을 찾아볼 수 있도록 어떤 이름이 어떤 값을 가리키는지 계속 기록해 두어야 합니다 — SICP는 이 기록을 _환경(environment)_이라고 부릅니다. Lean에도 정확히 같은 개념이 있습니다. ``def`` 하나하나가 현재 파일의 환경을 확장하고, 이후의 표현식들은 그렇게 누적된 환경을 기준으로 처리됩니다.
 
 '''
 
 == 1.1.3. 조합을 평가하는 규칙
 
-Evaluating a combination is itself described by a small procedure: evaluate every subexpression first, then apply the procedure that the leftmost subexpression names to the values of the rest. Since evaluating a subexpression may itself require evaluating a combination, this rule is _recursive_ — it invokes itself as one of its own steps. For a deeply nested expression, you can picture this as a tree: values are computed at the leaves and percolate upward, combining at each interior node, until a single value reaches the root.
-
 조합을 평가하는 과정 자체가 하나의 작은 절차로 기술됩니다 — 모든 하위 표현식을 먼저 평가한 다음, 가장 왼쪽 하위 표현식이 가리키는 절차를 나머지 값들에 적용합니다. 하위 표현식을 평가하는 과정 자체가 또 다른 조합을 평가하는 일일 수 있으므로, 이 규칙은 _재귀적_입니다 — 자기 자신을 호출하는 단계를 스스로 포함하고 있습니다. 깊이 중첩된 표현식이라면 이를 트리로 그려볼 수 있습니다. 값은 말단(leaf)에서 계산되어 위로 스며 올라가며, 각 내부 노드에서 결합되어 마지막에는 하나의 값이 뿌리(root)에 도달합니다.
-
-Lean's elaborator follows the exact same shape of rule. ``#eval (2 + 4 * 6) * (3 + 5 + 7)`` is evaluated by first reducing each subterm, then combining the results:
 
 Lean의 elaborator도 정확히 같은 형태의 규칙을 따릅니다. ``#eval (2 + 4 * 6) * (3 + 5 + 7)``은 각 하위 항을 먼저 축약한 다음 그 결과를 결합해서 평가됩니다.
 
@@ -131,15 +107,11 @@ Lean의 elaborator도 정확히 같은 형태의 규칙을 따릅니다. ``#eval
 -- 390
 ----
 
-The base cases of the recursion are the _primitive_ expressions: a numeral evaluates to the number it names, and any other name evaluates to whatever the environment currently associates with it. ``define``/``def`` itself is an exception to this rule — it's a _special form_, not an ordinary combination, because its whole point is to create an association in the environment rather than to look one up. Lean has its own zoo of special forms beyond ``def`` — ``let``, ``fun``, ``if``/``then``/``else``, ``match`` — each with an evaluation rule of its own, playing exactly the role SICP assigns to special forms in Scheme's syntax.
-
 이 재귀의 기저 사례는 _원시_ 표현식입니다 — 숫자 리터럴은 그것이 가리키는 수로 평가되고, 그 밖의 이름은 현재 환경이 그 이름에 연결해 둔 값으로 평가됩니다. ``define``/``def`` 자체는 이 규칙의 예외입니다 — 일반적인 조합이 아니라 _특수 형식(special form)_인데, 그 목적 자체가 환경에서 값을 찾아오는 것이 아니라 환경에 새로운 연결을 만드는 것이기 때문입니다. Lean에도 ``def`` 말고 ``let``, ``fun``, ``if``/``then``/``else``, ``match`` 같은 다양한 특수 형식이 있고, 각각 자기만의 평가 규칙을 가지고 있습니다 — SICP가 Scheme 문법의 특수 형식에 부여하는 것과 똑같은 역할입니다.
 
 '''
 
 == 1.1.4. 복합 절차
-
-Naming a value is a weak form of abstraction; naming an _operation_ is far more powerful, because it lets you refer to an entire compound computation as a single unit and reuse it with different inputs. "To square something, multiply it by itself" becomes a procedure with a formal parameter standing in for whatever it will eventually be applied to:
 
 값에 이름을 붙이는 것은 약한 형태의 추상화이고, _연산_에 이름을 붙이는 것이 훨씬 강력합니다. 복합적인 계산 전체를 하나의 단위로 지칭하고, 서로 다른 입력에 재사용할 수 있게 해주기 때문입니다. "무언가를 제곱하려면 그것을 자신과 곱한다"는, 나중에 무엇에 적용될지를 대신 나타내는 형식 매개변수를 가진 절차가 됩니다.
 
@@ -148,16 +120,14 @@ Naming a value is a weak form of abstraction; naming an _operation_ is far more 
 def square (x : Float) : Float := x * x
 
 #eval square 21
--- 441
+-- 441.000000
 
 #eval square (2 + 5)
--- 49
+-- 49.000000
 
 #eval square (square 3)
--- 81
+-- 81.000000
 ----
-
-And just like in Scheme, a compound procedure becomes a building block for further procedures — ``sum-of-squares`` is defined purely in terms of ``square``, and a procedure ``f`` is defined purely in terms of ``sum-of-squares``, with no visible difference between calling a "primitive" and calling something you just wrote:
 
 Scheme에서와 마찬가지로, 복합 절차는 또 다른 절차를 만드는 재료가 됩니다 — ``sum-of-squares``는 순전히 ``square``만으로 정의되고, 절차 ``f``는 순전히 ``sum-of-squares``만으로 정의됩니다. "원시" 절차를 호출하는 것과 방금 만든 절차를 호출하는 것 사이에 겉으로 드러나는 차이는 없습니다.
 
@@ -180,8 +150,6 @@ def f (a : Float) : Float :=
 
 == 1.1.5. 절차 적용을 위한 치환 모델
 
-To apply a compound procedure, evaluate its body with every formal parameter replaced by the corresponding argument. Tracing ``f 5`` by hand shows the whole chain: the body of ``f`` is retrieved, ``a`` is replaced by ``5``, and the resulting combination — ``sum-of-squares`` applied to ``5 + 1`` and ``5 * 2`` — is reduced step by step until a single number falls out. This is the _substitution model_: a way to reason about what procedure application means, not a claim about how a real interpreter is implemented internally (real interpreters use environments rather than literally rewriting program text).
-
 복합 절차를 적용하려면, 절차의 본문을 평가하되 각 형식 매개변수를 대응하는 인자로 치환합니다. ``f 5``를 손으로 추적해 보면 전체 연쇄가 드러납니다 — ``f``의 본문을 가져오고, ``a``를 ``5``로 치환하면, ``5 + 1``과 ``5 * 2``에 적용된 ``sum-of-squares`` 조합이 만들어지며, 이것이 단계적으로 축약되어 결국 하나의 숫자로 떨어집니다. 이것이 _치환 모델(substitution model)_입니다 — 절차 적용이 실제로 무엇을 의미하는지 추론하는 방법이지, 실제 인터프리터가 내부적으로 이렇게 구현되어 있다는 주장은 아닙니다(실제 인터프리터는 프로그램 텍스트를 문자 그대로 다시 쓰는 대신 환경을 사용합니다).
 
 [source,lean]
@@ -194,15 +162,11 @@ To apply a compound procedure, evaluate its body with every formal parameter rep
 -- ⇒ 136
 ----
 
-SICP also contrasts _applicative-order_ evaluation (evaluate the arguments first, then apply — what Scheme actually does) with _normal-order_ evaluation (fully substitute first, then reduce, evaluating an argument only when it's actually needed and possibly re-evaluating it every time it's used). Lean's ``#eval`` is applicative-order in exactly the same sense Scheme is: arguments are evaluated to a normal form before a ``def``'d function is entered. Lean _does_ also support genuinely lazy values through ``Thunk``, which is the closest analogue to normal order's "don't evaluate until needed" — but that's an opt-in data type, not the language's default evaluation strategy.
-
 SICP는 또한 _적용적 순서(applicative-order)_ 평가(인자를 먼저 평가한 다음 적용하는 방식 — 실제로 Scheme이 하는 방식)와 _정상 순서(normal-order)_ 평가(완전히 치환부터 한 다음 축약하며, 인자는 실제로 필요할 때만, 그리고 쓰일 때마다 다시 평가될 수 있는 방식)를 대비합니다. Lean의 ``#eval``도 Scheme과 정확히 같은 의미에서 적용적 순서입니다 — ``def``로 정의된 함수에 진입하기 전에 인자들이 정규형으로 평가됩니다. Lean도 ``Thunk``를 통해 진짜 지연 평가 값을 지원하기는 하지만, 이는 정상 순서의 "필요할 때까지 평가하지 않는다"는 개념에 가장 가까운 선택적 데이터 타입일 뿐, 언어의 기본 평가 전략은 아닙니다.
 
 '''
 
 == 1.1.6. 조건 표현식과 술어
-
-A language built only from combinations and naming can't express "do one thing if a test passes, another thing if it doesn't." SICP introduces ``cond`` for multi-way case analysis and ``if`` as the two-branch special case, both of which stop as soon as a true predicate is found rather than evaluating every clause:
 
 조합과 명명만으로 이루어진 언어로는 "테스트를 통과하면 이것을, 아니면 저것을 한다"를 표현할 수 없습니다. SICP는 다중 분기 사례 분석을 위한 ``cond``와 그 두 갈래 특수 사례인 ``if``를 도입하는데, 둘 다 참인 술어를 찾는 즉시 멈추고 모든 절을 평가하지는 않습니다.
 
@@ -214,8 +178,6 @@ def absCond (x : Float) : Float :=
   else 0
 ----
 
-Lean doesn't have a direct ``cond`` special form with an arbitrary number of clauses, but a chain of ``if``/``else if`` plays exactly the same role, stopping at the first true test. The two-clause ``if`` version SICP also shows translates just as directly:
-
 Lean에는 임의 개수의 절을 받는 ``cond`` 특수 형식이 그대로 있지는 않지만, ``if``/``else if`` 연쇄가 정확히 같은 역할을 하며, 참인 첫 번째 테스트에서 멈춥니다. SICP가 함께 보여주는 두 갈래 ``if`` 버전도 그대로 옮겨집니다.
 
 [source,lean]
@@ -223,8 +185,6 @@ Lean에는 임의 개수의 절을 받는 ``cond`` 특수 형식이 그대로 �
 def absIf (x : Float) : Float :=
   if x < 0 then -x else x
 ----
-
-``and``, ``or``, and ``not`` round out the logical vocabulary. Like Scheme's versions, Lean's ``&&`` and ``||`` are _short-circuiting_ — they're really special forms in disguise, since the second argument isn't evaluated unless it's needed:
 
 ``and``, ``or``, ``not``이 논리 어휘를 완성합니다. Scheme의 버전과 마찬가지로 Lean의 ``&&``, ``||``도 _단락 평가(short-circuiting)_됩니다 — 필요할 때만 두 번째 인자를 평가한다는 점에서 사실상 특수 형식을 가장한 것입니다.
 
@@ -234,7 +194,7 @@ def inRange (x : Float) : Bool :=
   x > 5 && x < 10
 
 def gte (x y : Float) : Bool :=
-  x > y || x = y
+  x > y || x == y
 
 def gte' (x y : Float) : Bool :=
   !(x < y)
@@ -266,15 +226,11 @@ def sumSquaresOfTwoLargest (x y z : Float) : Float :=
 
 == 1.1.7. 예제: 뉴턴법으로 제곱근 구하기
 
-Mathematical functions describe _what_ a value is; procedures describe _how_ to compute it. "The stem:[y \geq 0] such that stem:[y^2 = x]" is a perfectly good definition of square root as a mathematical object, but it gives an interpreter no way to actually find that stem:[y]. Newton's method turns this declarative description into an imperative one: starting from any guess, average the guess with the radicand divided by the guess, and the result is a strictly better guess. Repeat until the guess is good enough.
-
 수학 함수는 값이 _무엇_인지를 기술하고, 절차는 그것을 _어떻게_ 계산하는지를 기술합니다. "stem:[y^2 = x]를 만족하는 stem:[y \geq 0]"은 제곱근을 수학적 대상으로서 완벽하게 정의하지만, 인터프리터에게 그 stem:[y]를 실제로 찾아낼 방법은 전혀 알려주지 않습니다. 뉴턴법은 이 선언적인 기술을 명령적인 기술로 바꿔줍니다 — 임의의 추측값에서 시작해, 추측값과 (피제수를 그 추측값으로 나눈 값)의 평균을 내면 반드시 더 나은 추측값이 됩니다. 이를 충분히 좋아질 때까지 반복합니다.
 
 [NOTE]
 .부동소수점 비교는 구조적으로 감소하는 인자가 아닙니다
 ====
-Since Lean can't automatically see that this recursion terminates (the "good enough" test is a floating-point comparison, not a structurally decreasing argument), the four pieces are marked ``partial``, exactly the escape hatch we used earlier in the link:../functional-programming-in-lean/[Functional Programming in Lean series] for ``insertionSortLoop``:
-
 Lean은 이 재귀가 종료한다는 것을 자동으로 알아낼 수 없으므로("충분히 좋다"는 테스트가 구조적으로 감소하는 인자가 아니라 부동소수점 비교이기 때문입니다), link:../functional-programming-in-lean/[Functional Programming in Lean 시리즈]에서 ``insertionSortLoop``에 썼던 것과 똑같은 탈출구인 ``partial``로 네 조각 모두를 표시합니다.
 ====
 
@@ -297,19 +253,17 @@ def sqrt (x : Float) : Float :=
   sqrtIter 1.0 x
 
 #eval sqrt 9
--- 3.000021
+-- 3.000092
 
 #eval sqrt (100 + 37)
 -- 11.704700
 
 #eval sqrt (sqrt 2 + sqrt 3)
--- 1.774102
+-- 1.773928
 
 #eval square (sqrt 1000)
--- 1000.000937
+-- 1000.000370
 ----
-
-Notice that nothing here uses a special looping construct. ``sqrtIter`` calls itself with an improved guess, and that ordinary self-call _is_ the iteration — the same point SICP makes about Lisp not needing dedicated loop syntax to express repetition.
 
 여기 어디에도 전용 반복 구문이 쓰이지 않았다는 점에 주목하세요. ``sqrtIter``는 개선된 추측값으로 자기 자신을 호출할 뿐이고, 이 평범한 자기 호출 자체가 반복입니다 — Lisp이 반복을 표현하기 위해 전용 루프 문법을 필요로 하지 않는다는, SICP가 짚는 바로 그 지점입니다.
 
@@ -317,11 +271,7 @@ Notice that nothing here uses a special looping construct. ``sqrtIter`` calls it
 
 == 1.1.8. 블랙박스 추상화로서의 절차
 
-``sqrtIter`` is our first recursively-defined procedure — one whose body refers to itself. The reason this doesn't collapse into circular nonsense is that each call is applied to a different (and, by construction, improving) argument; we'll make this precise once we look more carefully at how recursive processes actually unfold. For now, the more important lesson is _decomposition_: computing a square root splits naturally into "is this guess good enough?", "how do I improve a guess?", and "how do I average two numbers?" — each its own named procedure, together forming a small cluster that mirrors the shape of the original problem.
-
 ``sqrtIter``는 우리가 처음 만난, 자기 자신을 재귀적으로 참조하는 절차입니다. 이것이 순환 논리로 무너지지 않는 이유는 매 호출이 (구성상 점점 나아지는) 서로 다른 인자에 적용되기 때문입니다 — 재귀적 프로세스가 실제로 어떻게 펼쳐지는지 더 자세히 들여다볼 때 이를 엄밀하게 다룰 것입니다. 지금 더 중요한 교훈은 _분해(decomposition)_입니다 — 제곱근을 계산하는 문제는 "이 추측값이 충분히 좋은가?", "추측값을 어떻게 개선하는가?", "두 수의 평균을 어떻게 내는가?"로 자연스럽게 쪼개지고, 각각이 하나의 이름 붙은 절차가 되어 원래 문제의 모양을 그대로 반영하는 작은 절차 군집을 이룹니다.
-
-The value of this decomposition isn't just that the program got split into pieces — any program can be chopped into arbitrary pieces. What matters is that each piece accomplishes an identifiable task and can be treated as a _black box_ by the procedures that call it. ``goodEnough`` doesn't care _how_ ``square`` computes its result, only that it computes the square; the following two implementations are, from ``goodEnough``'s point of view, completely interchangeable:
 
 이 분해가 가치 있는 이유는 단순히 프로그램이 조각으로 나뉘었기 때문이 아닙니다 — 어떤 프로그램이든 임의로 잘라낼 수 있습니다. 중요한 것은 각 조각이 식별 가능한 하나의 작업을 수행하고, 그것을 호출하는 절차 입장에서는 _블랙박스_로 다룰 수 있다는 점입니다. ``goodEnough``는 ``square``가 결과를 _어떻게_ 계산하는지 신경 쓰지 않고, 제곱을 계산한다는 사실만 신경 씁니다. 다음 두 구현은 ``goodEnough``의 관점에서 완전히 서로 바꿔 쓸 수 있습니다.
 
@@ -331,11 +281,7 @@ def square1 (x : Float) : Float := x * x
 def square2 (x : Float) : Float := Float.exp (2 * Float.log x)
 ----
 
-One detail of an implementation that a caller should never be able to observe is the implementer's choice of parameter names. ``square (x : Float)`` and ``square (y : Float)`` must behave identically, which means a formal parameter's name is local to — _bound_ within — the body of its own procedure, and can be renamed throughout that body without changing what the procedure means. A name that isn't bound by any enclosing parameter or ``let`` is _free_; in ``goodEnough``, ``guess`` and ``x`` are bound, while ``Float.abs`` and ``square`` are free, and it's precisely because ``square`` is free that swapping in a different ``square`` changes nothing about ``goodEnough``'s own meaning.
-
 호출하는 쪽에서 절대로 관찰할 수 없어야 하는 구현 세부 사항 중 하나가 구현자가 고른 매개변수 이름입니다. ``square (x : Float)``와 ``square (y : Float)``는 동일하게 동작해야 하며, 이는 형식 매개변수의 이름이 그 절차 자신의 본문에 _국한(local)_ — 그 안에 _묶여(bound)_ — 있고, 본문 전체에서 일관되게 이름을 바꿔도 절차의 의미가 달라지지 않는다는 뜻입니다. 어떤 둘러싼 매개변수나 ``let``에도 묶이지 않은 이름은 _자유(free)_입니다. ``goodEnough``에서 ``guess``와 ``x``는 묶여 있고, ``Float.abs``와 ``square``는 자유입니다. 그리고 정확히 ``square``가 자유롭기 때문에, 다른 ``square``로 바꿔 끼워도 ``goodEnough`` 자신의 의미는 달라지지 않습니다.
-
-Lean gives us one more tool SICP's Scheme doesn't have to offer at this point: we can hide ``square1`` and ``square2`` entirely from the top-level environment by nesting them inside a ``let`` within the procedure that actually needs them, so the cluster of helper procedures that only ``sqrt`` cares about doesn't leak into the namespace of anything else:
 
 Lean은 이 시점의 SICP Scheme이 제공할 필요가 없던 도구를 하나 더 줍니다 — ``square1``, ``square2``를 최상위 환경에서 아예 감춰서, 실제로 필요로 하는 절차 안에 ``let``으로 중첩시킬 수 있습니다. 그러면 오직 ``sqrt``만 신경 쓰는 보조 절차 군집이 다른 어떤 것의 이름공간으로도 새어 나가지 않습니다.
 
@@ -351,8 +297,6 @@ partial def sqrt' (x : Float) : Float :=
     if goodEnough guess then guess else iter (improve guess)
   iter 1.0
 ----
-
-This is exactly the _block structure_ SICP reaches for at the end of this section: internal definitions that are local to an enclosing procedure, visible only where they're needed, and automatically shadowing any same-named thing outside — the same idea, just spelled with ``let`` instead of nested ``define``.
 
 이것이 바로 SICP가 이 절 마지막에 도달하는 _블록 구조(block structure)_입니다 — 감싸는 절차 안에 국한되어, 필요한 곳에서만 보이고, 바깥의 동명의 무언가를 자동으로 가리는 내부 정의입니다. 중첩된 ``define`` 대신 ``let``으로 쓴다는 점만 다를 뿐, 아이디어는 똑같습니다.
 

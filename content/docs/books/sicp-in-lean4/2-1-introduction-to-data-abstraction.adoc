@@ -7,16 +7,12 @@ categories: ["books"]
 description: "SICP 2장 1절의 아이디어(데이터 추상화, 유리수 연산, pair, 추상화 장벽, 데이터의 의미, 구간 연산)를 Lean 4의 구조체와 곱 타입으로 다시 짜 봅니다."
 ---
 
-// tag::body[]
 _link:../[전체 목차] · 이전: link:../1-3-higher-order-procedures/[1.3. 고차 절차로 추상화 정식화하기] · 다음: link:../2-2-hierarchical-data-and-closure/[2.2. 계층적 데이터와 닫힘 성질]_
 
 '''
 
-Chapter 1 was entirely about procedures — how to name them, compose them, pass them around. link:../1-3-higher-order-procedures/[Chapter 2] opens by asking the same question of _data_: can we abstract away the details of how a compound value is built, so that the code using it only ever talks about "what it means to be a rational number," never "how a rational number happens to be stored"? SICP calls this discipline _data abstraction_, and this post follows its first section in Lean, where — unlike Scheme's single all-purpose ``cons`` cell — the language hands us more than one way to draw that boundary.
-
-1장은 온전히 절차에 관한 것이었습니다 — 이름 붙이는 법, 조합하는 법, 넘겨주는 법. link:../1-3-higher-order-procedures/[2장]은 같은 질문을 _데이터_에 던지며 시작합니다 — 복합 값이 실제로 어떻게 만들어지는지의 세부 사항을 감춰서, 그것을 쓰는 코드가 "유리수라는 게 무엇을 의미하는지"만 이야기하고 "유리수가 어떻게 저장되어 있는지"는 전혀 신경 쓰지 않게 만들 수 있을까요? SICP는 이 원칙을 _데이터 추상화(data abstraction)_라고 부르는데, 이 글은 그 첫 절을 Lean에서 따라가 봅니다. Scheme의 만능 ``cons`` 셀 하나와 달리, Lean은 이 경계를 긋는 방법을 하나 이상 손에 쥐여줍니다.
-
-The general shape of the idea: pick a _constructor_ and a handful of _selectors_, write every other operation purely in terms of those, and treat the choice of concrete representation as an implementation detail that can change later without disturbing anything above it.
+// tag::body[]
+1장은 온전히 절차에 관한 것이었습니다 — 이름 붙이는 법, 조합하는 법, 넘겨주는 법. 2장은 같은 질문을 _데이터_에 던지며 시작합니다 — 복합 값이 실제로 어떻게 만들어지는지의 세부 사항을 감춰서, 그것을 쓰는 코드가 "유리수라는 게 무엇을 의미하는지"만 이야기하고 "유리수가 어떻게 저장되어 있는지"는 전혀 신경 쓰지 않게 만들 수 있을까요? SICP는 이 원칙을 _데이터 추상화(data abstraction)_라고 부르는데, 이 글은 그 첫 절을 Lean에서 따라가 봅니다. Scheme의 만능 ``cons`` 셀 하나와 달리, Lean은 이 경계를 긋는 방법을 하나 이상 손에 쥐여줍니다.
 
 아이디어의 일반적인 모양은 이렇습니다 — _생성자(constructor)_와 소수의 _선택자(selector)_를 고르고, 그 밖의 모든 연산을 오직 그것들만으로 작성하며, 구체적인 표현 방식의 선택은 나중에 바뀌어도 그 위의 어떤 것도 건드리지 않는 구현 세부 사항으로 취급합니다.
 
@@ -24,35 +20,31 @@ The general shape of the idea: pick a _constructor_ and a handful of _selectors_
 
 == 2.1.1. 예제: 유리수 연산
 
-Suppose three procedures already exist, even though we haven't decided how a rational number is actually stored: ``makeRat n d`` builds a rational number from a numerator and denominator, ``numer x`` extracts the numerator, ``denom x`` extracts the denominator. This is _wishful thinking_ as a design technique — assume the interface first, and every arithmetic rule follows immediately from ordinary fraction algebra:
-
 유리수가 실제로 어떻게 저장되는지 아직 정하지 않았더라도, 세 절차가 이미 존재한다고 가정해 봅시다 — ``makeRat n d``는 분자와 분모로 유리수를 만들고, ``numer x``는 분자를, ``denom x``는 분모를 꺼냅니다. 이것이 설계 기법으로서의 _희망적 사고(wishful thinking)_입니다 — 인터페이스를 먼저 가정하면, 모든 산술 규칙은 평범한 분수 대수학으로부터 곧바로 따라 나옵니다.
 
 [source,lean]
 ----
 def addRat (x y : Int × Int) : Int × Int :=
-  (numer x * denom y + numer y * denom x, denom x * denom y)
+  makeRat (numer x * denom y + numer y * denom x) (denom x * denom y)
 
 def subRat (x y : Int × Int) : Int × Int :=
-  (numer x * denom y - numer y * denom x, denom x * denom y)
+  makeRat (numer x * denom y - numer y * denom x) (denom x * denom y)
 
 def mulRat (x y : Int × Int) : Int × Int :=
-  (numer x * numer y, denom x * denom y)
+  makeRat (numer x * numer y) (denom x * denom y)
 
 def divRat (x y : Int × Int) : Int × Int :=
-  (numer x * denom y, denom x * numer y)
+  makeRat (numer x * denom y) (denom x * numer y)
 
 def equalRat (x y : Int × Int) : Bool :=
   numer x * denom y == numer y * denom x
 ----
 
-Here we've already committed to representing a rational number as ``Int × Int`` — Lean's built-in pair type — because Lean requires every ``def`` to state a concrete type up front; we can't write these five procedures purely against an as-yet-unspecified abstraction the way Scheme's untyped ``cons``/``car``/``cdr`` let SICP do. The commitment is shallow, though: everything below still goes through ``numer`` and ``denom`` rather than ``.fst``/``.snd`` directly, so the abstraction barrier is intact even though its type is pinned down earlier than in Scheme.
+(한 가지 실무적 안내 — Lean은 이름을 정의하기 전에 쓸 수 없으므로, 위 블록은 아래 "유리수 표현하기"의 ``makeRat``/``numer``/``denom`` 정의가 파일에서 _먼저_ 나와야 컴파일됩니다. SICP의 희망적 사고 순서를 글에서는 그대로 따르되, 직접 따라 치실 때는 정의를 앞에 두세요.)
 
 여기서는 이미 유리수를 ``Int × Int`` — Lean의 내장 쌍 타입 — 로 표현하기로 정했습니다. Lean은 모든 ``def``가 구체적인 타입을 미리 밝히도록 요구하므로, SICP가 Scheme의 타입 없는 ``cons``/``car``/``cdr``로 했던 것처럼 아직 정해지지 않은 추상화만을 상대로 이 다섯 절차를 쓸 수는 없습니다. 다만 이 확정은 얕습니다 — 아래의 모든 코드는 여전히 ``.fst``/``.snd``가 아니라 ``numer``, ``denom``을 거치므로, 타입이 Scheme보다 일찍 고정되었을 뿐 추상화 장벽 자체는 그대로 유지됩니다.
 
 === 쌍(Pair)
-
-Scheme reaches for a single primitive, ``cons``, to glue any two values together, whatever their types happen to be — ``(cons 1 "two")`` is perfectly legal. Lean's analogous primitive is ``Prod``, written ``α × β``, constructed with ``(x, y)`` and taken apart with ``.fst``/``.snd``:
 
 Scheme는 값의 타입이 무엇이든 상관없이 둘을 붙이는 원시 연산 하나 — ``cons`` — 를 씁니다. ``(cons 1 "two")``도 완전히 유효합니다. Lean에서 이에 대응하는 원시 연산은 ``Prod``이며, ``α × β``로 쓰고 ``(x, y)``로 만들고 ``.fst``/``.snd``로 분해합니다.
 
@@ -75,13 +67,9 @@ def nested : (Int × Int) × (Int × Int) := ((1, 2), (3, 4))
 -- 3
 ----
 
-The one place this diverges from Scheme: ``1`` and ``"two"`` living in the same ``cons`` cell is exactly the kind of thing Lean's ``Int × String`` type signature makes explicit rather than silently permitting — a pair's component types are part of its type, not something discovered only when you try to use the wrong one.
-
 Scheme와 갈라지는 한 지점은 이렇습니다 — ``1``과 ``"two"``가 같은 ``cons`` 셀에 들어가는 것은, Lean에서는 ``Int × String``이라는 타입 시그니처가 명시적으로 드러내는 것이지, 조용히 허용되다가 잘못 쓸 때야 발견되는 것이 아닙니다. 쌍의 각 구성 요소 타입은 쌍의 타입 자체에 포함됩니다.
 
 === 유리수 표현하기
-
-A rational number, then, is just a pair of integers, and ``makeRat``/``numer``/``denom`` are the thinnest possible wrapper around ``Prod``:
 
 그렇다면 유리수는 그저 정수 쌍이고, ``makeRat``/``numer``/``denom``은 ``Prod`` 위에 씌울 수 있는 가장 얇은 래퍼입니다.
 
@@ -101,8 +89,6 @@ def printRat (x : Int × Int) : IO Unit :=
 -- 6/9
 ----
 
-Just as in SICP, this version doesn't reduce to lowest terms — ``1/3 + 1/3`` prints ``6/9`` instead of ``2/3``. Reusing the ``gcd`` from link:../1-2-procedures-and-processes/[1.2] fixes this purely by changing ``makeRat``, with no changes anywhere else:
-
 SICP에서와 마찬가지로, 이 버전은 기약분수로 약분하지 않습니다 — ``1/3 + 1/3``은 ``2/3``이 아니라 ``6/9``로 출력됩니다. link:../1-2-procedures-and-processes/[1.2절]의 ``gcd``를 재사용하면, 다른 곳은 전혀 건드리지 않고 오직 ``makeRat``만 바꿔서 이를 고칠 수 있습니다.
 
 [source,lean]
@@ -110,17 +96,22 @@ SICP에서와 마찬가지로, 이 버전은 기약분수로 약분하지 않습
 def gcdInt (a b : Int) : Int :=
   Int.ofNat (Nat.gcd a.natAbs b.natAbs)
 
-def makeRat' (n d : Int) : Int × Int :=
+namespace Reduced
+
+def makeRat (n d : Int) : Int × Int :=
   let g := gcdInt n d
   (n / g, d / g)
 
-#eval printRat (addRat (makeRat' 1 3) (makeRat' 1 3))
+def addRat (x y : Int × Int) : Int × Int :=
+  makeRat (numer x * denom y + numer y * denom x) (denom x * denom y)
+
+end Reduced
+
+#eval printRat (Reduced.addRat (Reduced.makeRat 1 3) (Reduced.makeRat 1 3))
 -- 2/3
 ----
 
-``addRat``, ``subRat``, and the rest never mention ``gcdInt`` — they only ever call ``numer``/``denom``/``makeRat``, so swapping in ``makeRat'`` is invisible to them. This is the abstraction barrier already paying for itself.
-
-``addRat``, ``subRat`` 등은 ``gcdInt``를 한 번도 언급하지 않습니다 — 오직 ``numer``/``denom``/``makeRat``만 호출하므로, ``makeRat'``로 바꿔치기해도 그것들 입장에서는 아무 일도 일어나지 않습니다. 추상화 장벽이 벌써 제 몫을 하고 있는 셈입니다.
+Scheme에서라면 ``make-rat`` 하나를 다시 정의하는 것으로 끝났을 것입니다 — ``add-rat``이 내부에서 ``make-rat``을 호출하므로 자동으로 새 정의를 쓰게 됩니다. Lean은 최상위 이름을 제자리에서 다시 정의할 수 없으므로, 같은 일을 이름공간으로 보여줍니다 — ``Reduced.addRat``의 _본문 텍스트_는 위의 ``addRat``과 한 글자도 다르지 않고, 달라진 것은 그 안의 ``makeRat``이라는 이름이 약분하는 새 생성자로 해소된다는 사실뿐입니다. ``addRat``의 코드는 ``gcdInt``를 한 번도 언급하지 않습니다 — 오직 ``numer``/``denom``/``makeRat``만 호출하므로, 생성자를 바꿔 끼워도 그 입장에서는 아무 일도 일어나지 않습니다. 추상화 장벽이 벌써 제 몫을 하고 있는 셈입니다.
 
 *연습문제 2.1 (Lean 버전)*: 부호가 있는 분자·분모를 정규화하는 ``makeRat``을 작성하세요 — 유리수가 양수면 분자·분모 모두 양수, 음수면 분자만 음수가 되어야 합니다.
 
@@ -136,11 +127,7 @@ def makeRatSigned (n d : Int) : Int × Int :=
 
 == 2.1.2. 추상화 장벽
 
-Picture the rational-number system as a stack of layers, each separated by a horizontal _abstraction barrier_. Code that uses rational numbers only ever calls ``addRat``/``subRat``/``mulRat``/``divRat``/``equalRat``; those, in turn, only ever call ``makeRat``/``numer``/``denom``; those, in turn, only ever call ``Prod``'s constructor and projections. Nothing above a barrier needs to know what's below it, so long as the interface at that barrier stays fixed.
-
 유리수 시스템을 여러 층으로 쌓인 스택으로 그려보면, 각 층은 수평의 _추상화 장벽(abstraction barrier)_으로 나뉩니다. 유리수를 쓰는 코드는 오직 ``addRat``/``subRat``/``mulRat``/``divRat``/``equalRat``만 호출하고, 이들은 다시 오직 ``makeRat``/``numer``/``denom``만 호출하며, 이들은 다시 오직 ``Prod``의 생성자와 투영만 호출합니다. 그 장벽에서의 인터페이스가 고정되어 있는 한, 장벽 위의 어떤 것도 그 아래에 뭐가 있는지 알 필요가 없습니다.
-
-The alternative implementation from the previous section — reduce at construction time versus reduce at access time — is the clearest possible demonstration of why this matters. Deferring the ``gcd`` to the selectors instead of the constructor changes nothing about ``addRat`` and friends:
 
 앞 절의 대안 구현 — 생성 시점에 약분할지, 접근 시점에 약분할지 — 이 이것이 왜 중요한지를 가장 명확하게 보여줍니다. ``gcd``를 생성자 대신 선택자로 미루어도 ``addRat``을 비롯한 나머지는 전혀 달라지지 않습니다.
 
@@ -154,8 +141,6 @@ def numerDeferred (x : Int × Int) : Int :=
 def denomDeferred (x : Int × Int) : Int :=
   x.snd / gcdInt x.fst x.snd
 ----
-
-Whether it's better to reduce eagerly (once, at construction) or lazily (every time a component is read) depends on how often a given rational number's parts get accessed relative to how often new ones get built — exactly the kind of decision the abstraction barrier lets us defer or revisit without touching ``addRat`` at all.
 
 즉시 약분하는 것(생성 시 한 번)과 지연 약분하는 것(구성 요소를 읽을 때마다) 중 무엇이 더 나은지는, 주어진 유리수의 구성 요소가 얼마나 자주 접근되는지가 새로 만들어지는 빈도에 비해 얼마나 되는지에 달려 있습니다 — 추상화 장벽이 ``addRat``을 전혀 건드리지 않고도 미루거나 다시 검토할 수 있게 해주는 바로 그런 종류의 결정입니다.
 
@@ -184,11 +169,7 @@ def midpointSegment (s : (Float × Float) × (Float × Float)) : Float × Float 
 
 == 2.1.3. 데이터란 무엇을 의미하는가
 
-"Data" can't just mean "whatever the selectors and constructor happen to compute" — not every triple of procedures qualifies as a valid rational-number implementation. What actually matters is a _behavioral condition_: for any integer ``n`` and nonzero integer ``d``, if ``x = makeRat n d``, then ``numer x / denom x`` must equal ``n / d``. Any triple of procedures satisfying that condition is an adequate representation, regardless of how it's built internally — the condition, not the implementation, is what defines the data.
-
 "데이터"가 그저 "선택자와 생성자가 우연히 계산해내는 것"만을 의미할 수는 없습니다 — 아무 절차 세 개나 유리수 구현으로 자격을 갖추는 건 아닙니다. 실제로 중요한 것은 _행동 조건(behavioral condition)_입니다 — 임의의 정수 ``n``과 0이 아닌 정수 ``d``에 대해, ``x = makeRat n d``라면 ``numer x / denom x``는 반드시 ``n / d``와 같아야 합니다. 이 조건을 만족하는 절차 세 개는 내부적으로 어떻게 만들어졌든 적절한 표현이며 — 구현이 아니라 이 조건이 데이터를 정의합니다.
-
-The same reasoning applies one level down, to pairs themselves: all ``cons``/``car``/``cdr`` need to satisfy is that ``car (cons x y) = x`` and ``cdr (cons x y) = y``. SICP's famous demonstration is that this condition can be met _without any built-in pair structure at all_ — a pair can be a procedure that remembers ``x`` and ``y`` and dispatches on an index:
 
 같은 논리가 한 단계 아래, 쌍 자체에도 적용됩니다 — ``cons``/``car``/``cdr``가 만족해야 할 것은 오직 ``car (cons x y) = x``이고 ``cdr (cons x y) = y``라는 것뿐입니다. SICP의 유명한 시연은 이 조건이 _내장된 쌍 구조가 전혀 없이도_ 충족될 수 있다는 것입니다 — 쌍은 ``x``와 ``y``를 기억하고 인덱스에 따라 분기하는 절차일 수 있습니다.
 
@@ -207,8 +188,6 @@ def cdrProc (z : Nat → α) : α := z 1
 #eval cdrProc (consProc 1 2)
 -- 2
 ----
-
-The subtlety worth flagging: ``consProc`` needs ``x`` and ``y`` to share a type ``α``, since ``Nat → α`` has to name one return type for both branches of the match. Scheme's dynamically-typed ``cons`` never faced this constraint — ``(cons 1 "two")`` dispatches to whichever value was asked for, with no requirement that the two share a type. Exercise 2.4's alternative encoding sidesteps the issue entirely by pushing the choice of what to do with ``x`` and ``y`` into the caller:
 
 짚어둘 만한 미묘한 점 — ``consProc``은 ``x``와 ``y``가 타입 ``α``를 공유해야 합니다. ``Nat → α``가 매치의 두 분기 모두에 대해 하나의 반환 타입을 이름 붙여야 하기 때문입니다. Scheme의 동적 타입 ``cons``는 이런 제약을 전혀 마주치지 않았습니다 — ``(cons 1 "two")``는 요청받은 값이 무엇이든 그쪽으로 분기하며, 둘이 타입을 공유해야 한다는 요구가 없습니다. 연습문제 2.4의 대안 인코딩은 ``x``와 ``y``로 무엇을 할지의 선택을 호출자 쪽으로 밀어냄으로써 이 문제를 완전히 비켜갑니다.
 
@@ -230,19 +209,13 @@ def cdrLambda (z : (α → α → α) → α) : α :=
 -- 2
 ----
 
-This is exactly the point SICP is making, sharpened by Lean's type checker: the ability to manipulate procedures as first-class values already gives you the ability to represent compound data, with no separate "pair" primitive required at all. This encoding of pairs as procedures is a special case of a more general technique called _message passing_, which becomes a central tool once we start modeling objects with internal state.
-
 이것이 정확히 SICP가 짚는 지점이고, Lean의 타입 검사기가 그것을 한층 더 날카롭게 만듭니다 — 절차를 일급 값으로 다룰 수 있는 능력이 이미 복합 데이터를 표현할 수 있는 능력을 준다는 것이고, 별도의 "쌍" 원시 연산이 전혀 필요 없다는 것입니다. 쌍을 절차로 인코딩하는 이 방식은 _메시지 패싱(message passing)_이라 불리는 더 일반적인 기법의 특수한 경우이며, 내부 상태를 가진 객체를 모델링하기 시작하면 핵심 도구가 됩니다.
 
 '''
 
 == 2.1.4. 응용 연습문제: 구간 연산
 
-Alyssa's problem: represent a physical measurement's uncertainty as an _interval_ — a lower and upper bound — and define arithmetic on intervals so that adding, multiplying, or dividing two uncertain quantities produces a correctly-bounded uncertain result.
-
 Alyssa의 문제 — 물리적 측정값의 불확실성을 _구간(interval)_(하한과 상한)으로 표현하고, 구간에 대한 산술을 정의해 두 불확실한 값을 더하거나 곱하거나 나누면 올바르게 경계 지어진 불확실한 결과가 나오게 하는 것입니다.
-
-Where the rational-number example reached for a raw pair, an interval is a natural fit for Lean's ``structure`` — a named record type with its own constructor and field-projection selectors built in, rather than something we have to hand-roll on top of ``Prod``:
 
 유리수 예제가 날것의 쌍을 썼던 것과 달리, 구간은 Lean의 ``structure``에 자연스럽게 들어맞습니다 — ``Prod`` 위에 직접 손으로 쌓아야 하는 것이 아니라, 자기만의 생성자와 필드 투영 선택자가 내장된 이름 붙은 레코드 타입입니다.
 
@@ -267,8 +240,6 @@ def mulInterval (x y : Interval) : Interval :=
 def divInterval (x y : Interval) : Interval :=
   mulInterval x ⟨1.0 / y.upper, 1.0 / y.lower⟩
 ----
-
-``x.lower`` and ``x.upper`` _are_ the selectors here, and the anonymous-constructor notation ``⟨_, _⟩`` _is_ ``makeInterval`` — Lean's ``structure`` gives the constructor/selector abstraction barrier as a built-in language feature rather than something SICP has to assemble by hand from ``cons``. This is a second, genuinely different way to draw the same boundary we drew with ``Int × Int`` and ``numer``/``denom`` for rational numbers, and it's worth noticing that nothing about ``addInterval`` or ``mulInterval`` would need to change if we later swapped this ``structure`` for a plain ``Float × Float`` pair with matching accessor functions — the abstraction barrier holds regardless of which Lean feature implements the concrete layer underneath it.
 
 여기서 ``x.lower``와 ``x.upper``가 곧 선택자이고, 익명 생성자 표기법 ``⟨_, _⟩``가 곧 ``makeInterval``입니다 — Lean의 ``structure``는 SICP가 ``cons``로부터 손수 조립해야 했던 생성자/선택자 추상화 장벽을 언어의 내장 기능으로 제공합니다. 이는 유리수에서 ``Int × Int``와 ``numer``/``denom``으로 그었던 것과 같은 경계를, 진짜로 다른 방식으로 긋는 두 번째 사례입니다. 그리고 나중에 이 ``structure``를 대응하는 접근자 함수를 가진 평범한 ``Float × Float`` 쌍으로 바꿔치기하더라도 ``addInterval``이나 ``mulInterval``은 전혀 달라질 필요가 없다는 점도 눈여겨볼 만합니다 — 그 아래의 구체적인 층을 Lean의 어떤 기능이 구현하든, 추상화 장벽은 그대로 유지됩니다.
 
