@@ -1,0 +1,126 @@
+---
+title: "응용: 공분산 행렬의 고유벡터로 데이터의 주축 찾기"
+date: 2026-07-19T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "AᵀA가 항상 대칭이라는 10장의 정리로부터 공분산 행렬의 고유벡터가 서로 직교한다는 스펙트럼 정리를 확인하고, 그 고유벡터가 데이터가 가장 넓게 퍼진 방향을 가리킨다는 것을 구체적인 예로 보이는 3부이자 이 책의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../15-qr-algorithm-and-similarity/[QR 알고리즘과 닮음: 고유값을 반복으로 찾기]_
+
+'''
+
+이 책의 마지막 장입니다. 1부의 벡터·노름, 2부의 행렬·전치·직교성, 3부의 고유값·대각화를 실제 문제 — 데이터에서 "가장 중요한 방향"을 찾는 주성분분석(PCA, Principal Component Analysis) — 에 적용합니다. 이 장이 왜 필요한지는, 13~15장의 정리들이 전부 일반적인 행렬 `A`에 대한 추상적인 명제였다는 데 있습니다 — "고유벡터는 방향을 보존한다"는 알아도, 그게 "이 데이터셋에서 어느 방향이 가장 중요한가"라는 실제 질문과 어떻게 연결되는지는 별개의 작업입니다. 이 장은 그 다리를 놓습니다. 핵심 재료는 이미 10장에 있습니다 — 임의의 행렬 `A`에 대해 `AᵀA`는 항상 대칭이라는 정리(`transpose_mul_self_symmetric`)입니다. 데이터를 행렬 `A`(각 행이 데이터 점 하나)로 모으면 `AᵀA`(또는 그 스케일된 버전)가 정확히 **공분산 행렬**이 되고, 대칭행렬의 고유벡터들이 서로 직교한다는 사실(스펙트럼 정리)로부터 "데이터가 가장 넓게 퍼진 축"을 찾는 알고리즘이 바로 나옵니다. 그래픽스에서는 이 방법이 객체의 방향에 맞춰 정렬된 바운딩 박스를 계산하거나 점군(point cloud)의 주축을 찾는 데 쓰이고, 딥러닝·통계에서는 고차원 데이터를 소수의 중요한 방향으로 압축하는 차원 축소의 표준 기법입니다.
+
+== 왜 대칭행렬이 특별한가: 스펙트럼 정리
+
+14장에서 모든 행렬이 대각화되지는 않는다고 짚었습니다 — 회전행렬처럼 실수 고유값이 아예 없거나, 고유벡터가 부족한 경우가 있었습니다. 그런데 **대칭행렬(`Aᵀ = A`)은 이 두 문제가 절대 일어나지 않습니다.** 대칭행렬은 항상 실수 고유값만 갖고, 항상 고유벡터를 `n`개 모을 수 있으며, 그 고유벡터들을 항상 **서로 직교하게** 고를 수 있습니다. 이걸 **스펙트럼 정리(spectral theorem)**라 부릅니다.
+
+이 책은 스펙트럼 정리를 증명하지 않습니다 — 일반적인 증명은 복소수 위에서 고유값의 존재를 먼저 확립한 뒤 대칭성을 이용해 그 고유값이 실수임을 보이는 식으로 진행되는데, 이 책은 복소수를 다루지 않기 때문입니다. 대신 이 정리에서 실제로 쓸 조각 — "만약 대칭행렬이 서로 다른 고유값에 대응하는 두 고유벡터를 가진다면, 그 둘은 자동으로 직교한다" — 을 완전히 증명합니다. 이 조각이 왜 유용한지는 명확합니다 — 데이터의 공분산 행렬(대칭행렬)이 서로 다른 고유값을 가진 고유벡터들을 찾기만 하면, 그 고유벡터들이 서로 직교한다는 걸 별도로 확인할 필요 없이 자동으로 보장됩니다.
+
+증명에는 "전치가 내적의 양쪽 인자를 오갈 수 있게 해준다"는 관계(`(Au)⬝w = u⬝(Aᵀw)`)가 재료로 필요합니다 — 9장에서 결합법칙을 증명할 때 썼던 "이중 합의 순서를 바꾼다"는 기법을 그대로 다시 씁니다.
+
+=== 완전히 증명하는 것: 대칭행렬의 서로 다른 고유값의 고유벡터는 직교한다
+
+[source,lean]
+----
+-- Eigen/PCA.lean
+import Eigen.Similarity
+import Matrices.Transpose
+
+namespace LinAlg
+
+theorem mulVec_inner_eq_inner_transpose_mulVec {m n : ℕ}
+    (A : Mat m n) (u : Vec n) (w : Vec m) :
+    (A *ᵥ u) ⬝ w = u ⬝ (Aᵀ *ᵥ w) := by
+  show (∑ i, (∑ j, A i j * u j) * w i) = ∑ j, u j * (∑ i, Aᵀ j i * w i)
+  simp only [Mat.transpose]
+  rw [Finset.sum_comm]
+  congr 1
+  funext i
+  rw [Finset.sum_mul, Finset.mul_sum]
+  congr 1
+  funext j
+  ring
+
+theorem Mat.symmetric_eigenvectors_orthogonal {n : ℕ} (A : Mat n n) (lam mu : ℝ)
+    (u v : Vec n) (hsym : Mat.IsSymmetric A) (hlam : lam ≠ mu)
+    (hu : A.EigenspaceMember lam u) (hv : A.EigenspaceMember mu v) :
+    u ⬝ v = 0 := by
+  have h1 : (A *ᵥ u) ⬝ v = lam * (u ⬝ v) := by
+    rw [hu]
+    show (∑ i, (lam * u i) * v i) = lam * ∑ i, u i * v i
+    rw [Finset.mul_sum]; congr 1; funext i; ring
+  have h2 : u ⬝ (A *ᵥ v) = mu * (u ⬝ v) := by
+    rw [hv]
+    show (∑ i, u i * (mu * v i)) = mu * ∑ i, u i * v i
+    rw [Finset.mul_sum]; congr 1; funext i; ring
+  have h3 : (A *ᵥ u) ⬝ v = u ⬝ (A *ᵥ v) := by
+    rw [mulVec_inner_eq_inner_transpose_mulVec]
+    show u ⬝ (Aᵀ *ᵥ v) = u ⬝ (A *ᵥ v)
+    unfold Mat.IsSymmetric at hsym
+    rw [hsym]
+  have key : lam * (u ⬝ v) = mu * (u ⬝ v) := by rw [← h1, h3, h2]
+  have : (lam - mu) * (u ⬝ v) = 0 := by
+    show lam * (u ⬝ v) - mu * (u ⬝ v) = 0
+    rw [key]; ring
+  rcases mul_eq_zero.mp this with h | h
+  · exact absurd (sub_eq_zero.mp h) hlam
+  · exact h
+
+end LinAlg
+----
+
+`mulVec_inner_eq_inner_transpose_mulVec`는 9장의 `Mat.mul_assoc` 증명과 똑같은 전략(이중 합을 풀어헤친 뒤 `Finset.sum_comm`으로 순서를 바꾸고, 각 항을 `ring`으로 맞춘다)으로 완전히 증명됩니다. 메인 정리의 핵심 아이디어는 `(Au)⬝v`라는 하나의 값을 **두 가지 방법**으로 계산하는 것입니다 — 한편으로는 `u`가 고유벡터라는 사실을 먼저 써서 `(Au)⬝v = λ(u⬝v)`를 얻고(`h1`), 다른 한편으로는 방금 증명한 관계와 `A`가 대칭이라는 사실로 `(Au)⬝v = u⬝(Av)`로 바꾼 뒤 `v`가 고유벡터라는 사실을 써서 `u⬝(Av) = μ(u⬝v)`를 얻습니다(`h2`, `h3`). 같은 값이 `λ(u⬝v)`와 `μ(u⬝v)` 둘 다와 같아야 하므로 `(λ-μ)(u⬝v) = 0`이고, `λ ≠ μ`라는 가정 때문에 `λ-μ ≠ 0`이라 `u⬝v = 0`만 남습니다. "두 값이 같은 걸 두 가지 경로로 계산해서, 그 차이가 0임을 이용한다"는 이 전략은 4장의 코시-슈바르츠에서도 봤던 대수적 트릭의 또 다른 얼굴입니다.
+
+== PCA: 공분산 행렬의 고유벡터가 데이터의 주축이다
+
+`k`개의 데이터 점(각각 `n`차원)을 행렬 `A`(`k×n`, 각 행이 데이터 점 하나, 미리 평균을 뺀 상태)로 모았다고 합시다. `AᵀA`(정확히는 `(1/k)AᵀA`이지만 스케일은 고유벡터의 방향에 영향을 주지 않습니다)는 **공분산 행렬**입니다 — `(AᵀA)`의 `(i,j)` 성분은 정확히 `i`번째 변수와 `j`번째 변수가 함께 변하는 정도(공분산)입니다. 10장에서 증명했듯 `AᵀA`는 항상 대칭이므로, 방금 증명한 정리에 의해 `AᵀA`의 서로 다른 고유값에 대응하는 고유벡터들은 자동으로 직교합니다.
+
+**주성분(principal component)**은 이 `AᵀA`의 고유벡터 중 고유값이 가장 큰 것부터 순서대로 고른 것입니다. 왜 "고유값이 클수록 중요한가"는 다음과 같이 이해할 수 있습니다 — 어떤 방향 `v`(단위벡터)로 데이터를 투영했을 때 그 투영값들의 분산은 `v ⬝ (AᵀA *ᵥ v)`에 비례합니다. `v`가 고유값 `λ`의 고유벡터라면 `AᵀA *ᵥ v = λ • v`이므로 이 값은 정확히 `λ * (v ⬝ v) = λ`(단위벡터이므로)입니다 — 즉 **고유값 자체가 그 방향으로 투영했을 때의 분산**입니다. 고유값이 가장 큰 고유벡터 방향으로 데이터를 보면 데이터가 가장 넓게 퍼져 보이고, 이게 정확히 "가장 중요한 방향"이라는 직관과 일치합니다.
+
+[source,lean]
+----
+namespace LinAlg
+
+def covarianceMatrix {k n : ℕ} (A : Mat k n) : Mat n n := Aᵀ * A
+
+def varianceAlongDirection {k n : ℕ} (A : Mat k n) (v : Vec n) : ℝ :=
+  v ⬝ ((covarianceMatrix A) *ᵥ v)
+
+theorem variance_eq_eigenvalue_at_eigenvector {k n : ℕ} (A : Mat k n) (v : Vec n) (lam : ℝ)
+    (hunit : ‖v‖ = 1) (hv : (covarianceMatrix A).EigenspaceMember lam v) :
+    varianceAlongDirection A v = lam := by
+  show v ⬝ ((covarianceMatrix A) *ᵥ v) = lam
+  rw [hv]
+  show (∑ i, v i * (lam * v i)) = lam
+  have step : (∑ i, v i * (lam * v i)) = lam * (v ⬝ v) := by
+    show _ = lam * ∑ i, v i * v i
+    rw [Finset.mul_sum]; congr 1; funext i; ring
+  rw [step]
+  have : v ⬝ v = 1 := by
+    have h2 : v ⬝ v = ‖v‖ ^ 2 := by
+      show _ = (Real.sqrt (v ⬝ v)) ^ 2
+      rw [Real.sq_sqrt (inner_self_nonneg _)]
+    rw [h2, hunit]; norm_num
+  rw [this]; ring
+
+end LinAlg
+----
+
+이 증명은 새로운 개념을 도입하지 않습니다 — 고유벡터의 정의를 대입하고, 3장에서 다진 노름-내적 관계(`‖v‖² = v⬝v`)와 단위벡터 조건(`‖v‖=1`)을 조합하는 것으로 끝납니다. 그런데도 이 짧은 계산이 PCA 전체의 수학적 근거입니다 — "분산이 가장 큰 방향을 찾아라"는 최적화 문제가, 사실은 "공분산 행렬의 고유값이 가장 큰 고유벡터를 찾아라"는 문제와 정확히 같다는 것을 이 등식이 보증합니다.
+
+== 그래픽스 응용: 정렬된 바운딩 박스와 데이터 압축
+
+컴퓨터 그래픽스에서 3D 점군(예: 스캔한 물체의 표면 점들)을 감싸는 상자를 그릴 때, 좌표축에 그대로 맞춘 상자(axis-aligned bounding box)는 물체가 비스듬히 놓여 있으면 필요 이상으로 커집니다. 점들의 공분산 행렬을 고유분해해서 얻은 세 개의 직교하는 고유벡터를 새 좌표축으로 삼으면(**방향 맞춤 바운딩 박스, oriented bounding box**), 물체를 가장 타이트하게 감싸는 상자를 얻습니다 — 이게 바로 "데이터가 가장 넓게 퍼진 방향"을 축으로 쓴다는 이 장의 핵심 아이디어를 기하 도형에 그대로 적용한 것입니다.
+
+데이터 압축·차원 축소도 같은 원리입니다. 고유값이 작은 방향은 데이터가 거의 퍼져 있지 않은(정보가 거의 없는) 방향이므로, 고유값이 큰 몇 개의 주성분만 남기고 나머지를 버려도 데이터의 대부분의 "퍼짐"(분산)을 보존할 수 있습니다 — 이게 이미지 압축, 얼굴 인식(eigenfaces), 고차원 임베딩의 시각화에 PCA가 쓰이는 이유입니다.
+
+== 이 책 전체를 돌아보며
+
+1장에서 벡터의 덧셈이 교환법칙을 만족한다는, 거의 자명해 보이는 사실을 증명하는 것부터 시작했습니다. 그 짧은 증명에서 세운 패턴(`funext`로 성분에 대한 명제로 좁히고, 실수의 성질로 환원한다)이 2부의 행렬로, 3부의 고유값·대각화로 계속 재사용됐습니다. 10장에서 증명한 `AᵀA`의 대칭성은 그 자체로는 사소해 보였지만, 이 장에서 공분산 행렬의 고유벡터가 직교한다는 것을 보장하는 결정적인 다리가 됐습니다. 8장의 선형성(`mulVec_add`, `mulVec_smul`)은 13장의 고유공간, 14장의 대각화, 15장의 닮음변환까지, 이름을 바꿔가며 이 책 후반부 전체를 떠받쳤습니다.
+
+이 책이 보여주고 싶었던 건 결국 하나입니다 — 선형대수의 정리들은 서로 동떨어진 사실의 나열이 아니라, 소수의 근본적인 아이디어(성분별 연산은 실수의 성질로 환원된다, 전치는 곱셈의 순서를 뒤집는다, 직교성은 독립적인 방향을 뜻한다)가 문맥을 바꿔가며 계속 재등장하는 하나의 그물입니다. 그 그물의 매듭 하나하나를 Lean4로 직접 묶어보는 것이, "선형대수를 안다"는 것의 의미를 다시 세우는 이 책의 방법이었습니다.
+// end::body[]

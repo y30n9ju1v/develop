@@ -35,13 +35,13 @@ title: "Lean4로 증명하는 응용 선형대수"
 . *link:11-inverse-matrices/[역행렬: 존재한다면 유일하다]*
 . *link:12-qr-factorization-gram-schmidt/[그람-슈미트 직교화와 QR 분해]*
 
-*3부: 최소자승법*
+*3부: 응용 선형대수*
 
 [start=13]
-. *link:13-least-squares-problem/[최소자승 문제: 근사해가 필요한 이유]*
-. *link:14-normal-equations/[정규방정식: 잔차를 최소화하는 해의 조건]*
-. *link:15-solving-with-qr/[QR 분해 완성과 최소자승 풀기]*
-. *link:16-application-linear-regression/[응용: 선형 회귀로 데이터에 직선 적합하기]*
+. *link:13-eigenvalues-and-eigenvectors/[고유값과 고유벡터: 방향이 바뀌지 않는 벡터]*
+. *link:14-diagonalization/[대각화: 행렬의 거듭제곱을 공짜로 만들기]*
+. *link:15-qr-algorithm-and-similarity/[QR 알고리즘과 닮음: 고유값을 반복으로 찾기]*
+. *link:16-application-pca/[응용: 공분산 행렬의 고유벡터로 데이터의 주축 찾기]*
 
 '''
 
@@ -147,32 +147,32 @@ include::12-qr-factorization-gram-schmidt.adoc[tag=body,leveloffset=+1]
 '''
 
 [#part-3]
-== 제3부: 최소자승법
+== 제3부: 응용 선형대수
 
 '''
 
 [#chapter-13]
-== 13. 최소자승 문제: 근사해가 필요한 이유
+== 13. 고유값과 고유벡터: 방향이 바뀌지 않는 벡터
 
-include::13-least-squares-problem.adoc[tag=body,leveloffset=+1]
+include::13-eigenvalues-and-eigenvectors.adoc[tag=body,leveloffset=+1]
 
 '''
 
 [#chapter-14]
-== 14. 정규방정식: 잔차를 최소화하는 해의 조건
+== 14. 대각화: 행렬의 거듭제곱을 공짜로 만들기
 
-include::14-normal-equations.adoc[tag=body,leveloffset=+1]
+include::14-diagonalization.adoc[tag=body,leveloffset=+1]
 
 '''
 
 [#chapter-15]
-== 15. QR 분해 완성과 최소자승 풀기
+== 15. QR 알고리즘과 닮음: 고유값을 반복으로 찾기
 
-include::15-solving-with-qr.adoc[tag=body,leveloffset=+1]
+include::15-qr-algorithm-and-similarity.adoc[tag=body,leveloffset=+1]
 
 '''
 
 [#chapter-16]
-== 16. 응용: 선형 회귀로 데이터에 직선 적합하기
+== 16. 응용: 공분산 행렬의 고유벡터로 데이터의 주축 찾기
 
-include::16-application-linear-regression.adoc[tag=body,leveloffset=+1]
+include::16-application-pca.adoc[tag=body,leveloffset=+1]

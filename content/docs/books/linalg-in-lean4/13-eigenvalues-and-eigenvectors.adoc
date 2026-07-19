@@ -1,0 +1,168 @@
+---
+title: "고유값과 고유벡터: 방향이 바뀌지 않는 벡터"
+date: 2026-07-19T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "linear-algebra", "mathlib", "book"]
+categories: ["books"]
+description: "행렬을 곱해도 방향이 바뀌지 않는 특별한 벡터(고유벡터)와 그 배율(고유값)을 정의하고, 고유공간이 부분공간이라는 것과 A^k v = λ^k v를 완전히 증명하는 3부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-qr-factorization-gram-schmidt/[그람-슈미트 직교화와 QR 분해] · 다음: link:../14-diagonalization/[대각화: 행렬의 거듭제곱을 공짜로 만들기]_
+
+'''
+
+8장에서 행렬 `A`를 "벡터를 다른 벡터로 옮기는 함수"로 봤습니다. 대부분의 벡터 `v`는 `Av`로 옮겨지면서 방향도 바뀌고 크기도 바뀝니다. 그런데 아주 특별한 몇몇 방향은 `A`를 곱해도 방향이 그대로 유지되고, 크기만 배율만큼 늘거나 줄어듭니다. 이 장은 그 특별한 방향(고유벡터)과 배율(고유값)을 정의합니다. 이게 왜 중요한지는 딥러닝과 컴퓨터 그래픽스 양쪽에서 바로 드러납니다 — 그래픽스에서 회전·스케일 변환을 반복 적용할 때 "변하지 않는 축"이 무엇인지가 고유벡터로 결정되고, 딥러닝에서 데이터의 공분산 행렬의 고유벡터는 데이터가 가장 넓게 퍼진 방향(주성분, 16장의 PCA)을 정확히 가리킵니다. 이 장에서 고유공간이 부분공간이라는 것과 `Aᵏv = λᵏv`(고유벡터에 행렬을 여러 번 곱하는 것은 숫자를 여러 번 곱하는 것과 같다는 것)를 완전히 증명해두는 이유는, 14장의 대각화가 정확히 이 사실 — "고유벡터 방향으로는 행렬 곱셈이 숫자 곱셈으로 퇴화한다" — 위에 세워지기 때문입니다.
+
+== 고유벡터: 방향이 바뀌지 않는 벡터
+
+`n×n` 정사각행렬 `A`에 대해, 영벡터가 아닌 벡터 `v`가 어떤 실수 `λ`(람다)에 대해
+
+[source,text]
+----
+A v = λ v
+----
+
+를 만족하면, `v`를 `A`의 **고유벡터(eigenvector)**, `λ`를 그 고유벡터에 대응하는 **고유값(eigenvalue)**이라 부릅니다. `v`를 굳이 영벡터가 아니라고 못박는 이유는, 영벡터는 `A 0 = λ 0`을 아무 `λ`에 대해서나 자명하게 만족해서 "방향이 보존된다"는 정의의 취지 자체가 사라지기 때문입니다.
+
+기하학적으로 보면, `Av`는 보통 `v`와 다른 방향을 가리키는데, `v`가 고유벡터라면 `Av`는 `v`와 정확히 같은 직선 위에 있습니다(`λ > 0`이면 같은 방향으로 늘어나거나 줄어들고, `λ < 0`이면 반대 방향을 가리키고, `λ = 0`이면 `Av = 0`이 됩니다).
+
+[source,lean]
+----
+-- Eigen/Basic.lean
+import Matrices.Multiplication
+
+namespace LinAlg
+
+def Mat.IsEigenvector {n : ℕ} (A : Mat n n) (v : Vec n) (lam : ℝ) : Prop :=
+  v ≠ 0 ∧ A *ᵥ v = lam • v
+
+end LinAlg
+----
+
+== 구체적인 예: 대각행렬의 고유벡터는 표준 기저다
+
+가장 쉬운 예는 대각행렬입니다. `A`가 대각성분이 `d₁, ..., dₙ`인 대각행렬이면, `i`번째 표준 기저 벡터 `eᵢ`(7장에서 항등행렬의 열로 봤던 그 벡터)에 대해 `A *ᵥ eᵢ = dᵢ • eᵢ`가 성립합니다 — 즉 표준 기저 벡터 하나하나가 대각행렬의 고유벡터이고, 대응하는 고유값은 그 자리의 대각성분입니다. 이 사실이 14장 대각화의 핵심 그림입니다 — "대각행렬은 고유벡터를 이미 좌표축으로 갖고 있는 특별한 경우"입니다.
+
+일반적인(대각이 아닌) 정사각행렬의 고유값을 구하는 표준적인 방법은 **특성방정식(characteristic equation)** `det(A - λI) = 0`을 푸는 것입니다. 이 책은 행렬식(determinant)을 별도로 다루지 않으므로 특성방정식을 이용한 일반적인 고유값 계산은 범위 밖입니다 — 대신 `2×2` 행렬 하나를 손으로 직접 검산하는 것으로 고유값·고유벡터가 실제로 무엇을 뜻하는지 확인합니다.
+
+[source,lean]
+----
+namespace LinAlg
+
+def shearA : Mat 2 2 := fun i j =>
+  match i, j with
+  | 0, 0 => 2 | 0, 1 => 0
+  | 1, 0 => 0 | 1, 1 => 5
+
+def eigVec1 : Vec 2 | 0 => 1 | 1 => 0
+def eigVec2 : Vec 2 | 0 => 0 | 1 => 1
+
+example : shearA.IsEigenvector eigVec1 2 := by
+  constructor
+  · intro h; have := congrFun h 0; simp [eigVec1] at this
+  · funext i
+    show ∑ j, shearA i j * eigVec1 j = (2:ℝ) * eigVec1 i
+    fin_cases i <;> simp [shearA, eigVec1, Fin.sum_univ_two]
+
+example : shearA.IsEigenvector eigVec2 5 := by
+  constructor
+  · intro h; have := congrFun h 1; simp [eigVec2] at this
+  · funext i
+    show ∑ j, shearA i j * eigVec2 j = (5:ℝ) * eigVec2 i
+    fin_cases i <;> simp [shearA, eigVec2, Fin.sum_univ_two]
+
+end LinAlg
+----
+
+`shearA`는 대각행렬이라 사실 특별할 게 없는 예입니다만, 목적은 정확히 그것입니다 — "정의를 그대로 대입하면 확인된다"는 가장 단순한 경우를 손으로 짚어보는 것입니다. 대각이 아닌 행렬(예: `[[2,1],[0,2]]`처럼 대각선 위에 0이 아닌 성분이 있는 경우)은 고유벡터가 하나의 방향밖에 없거나(중복 고유값), 심지어 회전행렬처럼 **실수 고유값이 아예 존재하지 않는 경우**도 있습니다 — 이 마지막 사실은 16장에서 다시 다룹니다.
+
+== 완전히 증명하는 것: 고유공간은 부분공간이다
+
+같은 고유값 `λ`에 대응하는 모든 고유벡터(와 영벡터)의 집합을 `λ`에 대응하는 **고유공간(eigenspace)**이라 부릅니다. 이 장의 핵심 정리는, 고유공간이 벡터 덧셈과 스칼라곱에 대해 닫혀 있다는 것입니다 — 즉 고유공간 자체가 (1부에서 다룬 뜻에서) 벡터공간의 구조를 갖습니다.
+
+[source,lean]
+----
+namespace LinAlg
+
+def Mat.EigenspaceMember {n : ℕ} (A : Mat n n) (lam : ℝ) (v : Vec n) : Prop :=
+  A *ᵥ v = lam • v
+
+theorem Mat.eigenspace_add {n : ℕ} (A : Mat n n) (lam : ℝ) (u v : Vec n)
+    (hu : A.EigenspaceMember lam u) (hv : A.EigenspaceMember lam v) :
+    A.EigenspaceMember lam (u + v) := by
+  show A *ᵥ (u + v) = lam • (u + v)
+  rw [Mat.mulVec_add, hu, hv]
+  funext i
+  show lam * u i + lam * v i = lam * (u i + v i)
+  ring
+
+end LinAlg
+----
+
+이 증명은 새로운 계산이 아닙니다 — 8장에서 완전히 증명한 `Mat.mulVec_add`(행렬-벡터 곱은 덧셈을 보존한다)를 적용해 `A *ᵥ (u+v)`를 `A *ᵥ u + A *ᵥ v`로 바꾼 뒤, 두 가정(`hu`, `hv`)을 대입하고 스칼라곱의 분배법칙(`ring`)으로 마무리하는 것뿐입니다. 이 짧음 자체가 의미가 있습니다 — "고유공간이 부분공간이다"라는, 겉보기엔 새로운 사실처럼 보이는 정리가 실제로는 8장의 선형성 하나로 완전히 환원된다는 것을 보여줍니다.
+
+=== 연습 문제로 남기는 것: 스칼라곱 보존
+
+[source,lean]
+----
+namespace LinAlg
+
+theorem Mat.eigenspace_smul {n : ℕ} (A : Mat n n) (lam c : ℝ) (v : Vec n)
+    (hv : A.EigenspaceMember lam v) :
+    A.EigenspaceMember lam (c • v) := by
+  sorry
+  -- 힌트: eigenspace_add와 같은 전략입니다. Mat.mulVec_smul(8장 연습 문제)로
+  -- A *ᵥ (c • v)를 c • (A *ᵥ v)로 바꾼 뒤 hv를 대입하고,
+  -- c • (lam • v) = lam • (c • v)라는 스칼라곱의 교환성(정의를 펼치면 실수 곱셈의 교환법칙)으로 마무리합니다.
+
+end LinAlg
+----
+
+== 완전히 증명하는 것: Aᵏv = λᵏv
+
+고유벡터의 진짜 위력은 행렬을 여러 번 곱할 때 드러납니다. `v`가 고유값 `λ`의 고유벡터라면, `A`를 `v`에 `k`번 곱한 것은 `λ`를 `k`번 곱한 것과 같습니다 — 즉 `n×n` 행렬의 반복 곱셈이라는 무거운 계산이, 고유벡터 방향에서는 실수의 거듭제곱이라는 가벼운 계산으로 퇴화합니다.
+
+[source,lean]
+----
+namespace LinAlg
+
+def Mat.pow {n : ℕ} (A : Mat n n) : ℕ → Mat n n
+  | 0 => Mat.identity n
+  | k + 1 => A * Mat.pow A k
+
+theorem Mat.pow_mulVec_eigenvector {n : ℕ} (A : Mat n n) (lam : ℝ) (v : Vec n)
+    (hv : A.EigenspaceMember lam v) :
+    ∀ k, (Mat.pow A k) *ᵥ v = (lam ^ k) • v := by
+  intro k
+  induction k with
+  | zero =>
+    show (Mat.identity n) *ᵥ v = (1:ℝ) • v
+    rw [Mat.identity_mulVec]
+    funext i; show v i = (1:ℝ) * v i; ring
+  | succ k ih =>
+    show A *ᵥ ((Mat.pow A k) *ᵥ v) = (lam ^ (k+1)) • v
+    rw [ih]
+    have : A *ᵥ ((lam ^ k) • v) = (lam ^ k) • (A *ᵥ v) := by
+      sorry -- 힌트: Mat.mulVec_smul(8장)을 그대로 적용
+    rw [this, hv]
+    funext i
+    show (lam ^ k) * (lam * v i) = (lam ^ (k+1)) * v i
+    ring
+
+end LinAlg
+----
+
+증명 구조는 자연수에 대한 귀납법입니다 — 밑변(`k = 0`)은 `A⁰ = I`(항등행렬)이므로 8장의 `identity_mulVec`으로 즉시 끝나고, 귀납 단계(`k+1`)는 "`k`번 곱한 결과가 `λᵏ • v`라는 귀납 가정"에 `A`를 한 번 더 곱했을 때, 그게 `λᵏ⁺¹ • v`와 같다는 것을 보입니다. 핵심은 `A *ᵥ ((λᵏ) • v)`를 `(λᵏ) • (A *ᵥ v)`로 바꿔치기하는 자리(`sorry`로 남긴 부분)인데, 이건 방금 연습 문제로 남긴 `eigenspace_smul`이 아니라 8장의 `mulVec_smul`을 직접 쓰는 것으로 끝납니다 — 스칼라를 행렬-벡터 곱 안팎으로 자유롭게 옮길 수 있다는, 이 책에서 몇 번이고 재사용해온 그 성질입니다.
+
+이 정리가 왜 중요한지는 그래픽스와 딥러닝 양쪽에서 바로 보입니다. 그래픽스에서 같은 변환(예: 특정 축을 중심으로 한 스케일)을 프레임마다 반복 적용하는 경우, 고유벡터 방향의 성분은 매 프레임 `λ`배씩 커지거나 작아진다는 것을 미리 압니다 — 화면 밖으로 발산하는지, 원점으로 수렴하는지가 `|λ|`가 1보다 큰지 작은지로 즉시 결정됩니다. 딥러닝에서 신경망의 반복 연산(예: 순환 신경망의 은닉 상태 갱신)이 발산·소실하는지를 분석할 때도 정확히 이 정리 — 지배적인 고유값의 절댓값이 1보다 큰가 작은가 — 가 척도로 쓰입니다.
+
+== 이 장에서 확정한 것
+
+* 고유벡터(`Av = λv`을 만족하는 0이 아닌 벡터)와 고유값을 정의하고, 대각행렬의 경우 표준 기저 벡터가 곧 고유벡터라는 것을 확인했습니다.
+* 구체적인 `2×2` 대각행렬에서 두 고유벡터·고유값 쌍을 직접 검산했고, 일반적인 행렬의 고유값 계산(특성방정식)은 행렬식이 필요해 이 책의 범위 밖이라는 것을 짚었습니다.
+* 고유공간이 벡터 덧셈에 대해 닫혀 있다는 것을 8장의 선형성만으로 완전히 증명했습니다.
+* `Aᵏv = λᵏv`를 자연수 귀납법으로 완전히 증명하고, 이게 그래픽스의 반복 변환 안정성과 딥러닝의 발산·소실 분석에 직접 쓰이는 사실이라는 것을 확인했습니다.
+
+다음 장에서는 `n`개의 선형독립인 고유벡터를 가진 행렬을 "고유벡터 좌표계"로 완전히 재구성하는 대각화(`A = PDP⁻¹`)를 다루고, 이번 장의 `Aᵏv = λᵏv`를 재사용해 `Aᵏ`을 계산하는 지름길을 얻습니다.
+// end::body[]
