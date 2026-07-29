@@ -1,0 +1,121 @@
+---
+title: "컴파일러 확장: Mini 언어에 커널 함수 얹기"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "compiler", "book"]
+categories: ["books"]
+description: "Mini 언어에 '커널 함수'와 내장 변수 laneId를 추가해, 레인마다 다른 데이터에 적용되는 프로그램을 SIMT 명령어 시퀀스(발산하는 if는 2장의 predicated execution으로)로 컴파일하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-multicore/[6장: 멀티코어] · 다음: link:../08-edge-detection-capstone/[8장: 캡스톤 — 이미지 에지 검출]_
+
+'''
+
+== 1. 지금까지 손으로 스케치한 것을 컴파일러가 하게 만들기
+
+1~6장의 예제 코드(테스트벤치)는 전부 "레인마다 어떤 값을 넣을지"를 C++ 쪽에서 손으로 정했습니다. 실전에서는 프로그래머가 "레인 하나가 할 일"을 하나의 함수로 적으면, 컴파일러가 그 함수를 모든 레인에 동시에 적용하는 명령어 시퀀스로 낮춰야 합니다. 이 장에서는 1권 9~10장에서 만든 Mini 언어 컴파일러에 그 기능을 얹습니다.
+
+== 2. 커널 함수와 laneId
+
+[source,lean]
+----
+-- Compiler/Ast.lean에 추가
+namespace Nand2Npu.Compiler
+
+inductive Expr where
+  | intLit (n : Nat)
+  | varRef (name : String)
+  | binOp (op : BinOp) (l r : Expr)
+  | call (name : String) (args : List Expr)
+  | laneId                                  -- 새로 추가: 이 레인의 인덱스(내장 변수)
+
+inductive Stmt where
+  | assign (name : String) (e : Expr)
+  | ifStmt (cond : Expr) (then_ else_ : List Stmt)
+  | kernelDef (name : String) (body : List Stmt)  -- 새로 추가: 커널 함수 정의
+
+end Nand2Npu.Compiler
+----
+
+`laneId`는 각 레인이 실행 시점에 "나는 몇 번 레인인가"를 알 수 있게 해주는 내장 변수입니다 — 이게 없으면 모든 레인이 완전히 똑같은 계산만 반복하게 되어(입력이 다르지 않으면 SIMT의 존재 의미가 없습니다), `A[laneId] + B[laneId]`처럼 레인마다 다른 데이터에 접근하는 표현이 불가능해집니다.
+
+== 3. 커널 본문을 컴파일하기: 평범한 문장은 그대로, if는 마스크로
+
+[source,lean]
+----
+-- Compiler/CodeGen.lean에 추가
+namespace Nand2Npu.Compiler
+
+open Nand2Npu.Gpu (LaneOp)
+
+partial def compileKernelStmt : Stmt → List LaneOp
+  | .assign name e => [/* e를 LaneOp.add 등으로 낮추는 부분, 9~10장 compileExpr과 동일한 패턴 */]
+  | .ifStmt cond thenStmts elseStmts =>
+      -- 2장의 stepMasked 두 번 호출 패턴 그대로: then은 cond를 마스크로, else는 ¬cond를 마스크로.
+      -- 실제 IR에는 "이 명령어 시퀀스를 어떤 마스크로 실행할지"를 태그로 붙여야 하는데,
+      -- 지금까지의 VmCommand에는 그 태그가 없으므로 확장이 필요합니다 — 아래 4절 참고.
+      (thenStmts.flatMap compileKernelStmt) ++ (elseStmts.flatMap compileKernelStmt)
+  | .kernelDef _ body => body.flatMap compileKernelStmt
+
+end Nand2Npu.Compiler
+----
+
+[NOTE]
+====
+`compileKernelStmt`의 `ifStmt` 갈래는 뼈대만 보였습니다 — 진짜 작업은 1권 7~8장의 `VmCommand`(스칼라 CPU용 명령어)에 "이 명령어는 마스크 `cond`로 걸러 실행한다"는 정보를 실을 자리가 없다는 것을 알아채고, `LaneOp`을 위한 새 중간 표현(마스크 필드가 달린 명령어)을 설계하는 것입니다. 이건 이 시리즈에서 처음으로 "기존 IR을 재사용할 수 없어서 새로 설계해야 하는" 지점이고, 지면에서는 다루지 않고 이 장의 가장 큰 연습 문제로 남깁니다.
+====
+
+== 4. 예제: 4장·5장을 있는 그대로 커널로 다시 쓰기
+
+지금까지 여러 장에 걸쳐 손으로 짠 예제들이, 이 확장 이후에는 전부 다음과 같은 모양의 Mini 커널 하나로 표현됩니다.
+
+[source,text]
+----
+// examples/vector_add.mini
+kernel vectorAdd(A, B, C) {
+    C[laneId] = A[laneId] + B[laneId];
+}
+
+// examples/tiled_matmul.mini (5장의 타일 루프)
+kernel tiledMatmul(A, B, C, tileSize, numTiles) {
+    acc = 0;
+    for (tile = 0; tile < numTiles; tile = tile + 1) {
+        loadTile(A, B, tile, tileSize);   // 4장의 scatterWrite로 공유 메모리에 적재
+        acc = acc + partialMac(tileSize); // 3권 1장의 MAC 누산 재사용
+    }
+    C[laneId] = acc;
+}
+----
+
+`vectorAdd`는 1장의 4레인 병렬 덧셈 테스트벤치가 손으로 하던 일을 정확히 표현하고, `tiledMatmul`은 5장의 `processTile_loop_correct`가 수학적으로 보장한 절차를 그대로 프로그램으로 옮긴 것입니다 — 이 장에서 새로 증명할 것은 없습니다. 컴파일러가 이 소스를 1~6장에서 이미 증명해둔 연산들(`LaneArray.stepMasked`, `scatterWrite`, MAC 누산)의 시퀀스로 정확히 낮추기만 한다면, 5~6장에서 증명한 정리들이 이 커널의 정확성까지 자동으로 물려받습니다.
+
+[TIP]
+====
+이게 이 시리즈 전체에서 반복해온 "부품을 증명하고 조립한다" 원칙의 컴파일러 버전입니다 — 컴파일러 자체가 "이 커널이 옳다"를 증명하는 게 아니라, 컴파일러는 그저 이미 증명된 부품들을 순서대로 이어붙일 뿐이고, 그 이어붙임이 원래 소스와 같은 뜻이라는 것(코드 생성기의 정확성)만 별도로 확인하면 됩니다. 코드 생성기 자체의 정확성 증명(9~10장 스타일의 컴파일러 정확성 정리를 이 커널 컴파일러에 맞게 다시 쓰는 것)은 이 시리즈의 방법론을 반복 적용하는 것이라 연습 문제로 남깁니다.
+====
+
+== 5. 전체 파이프라인 재통합
+
+[source,bash]
+----
+# 1권(CPU) + 2권(GPU 코어) 전체를 반영한 커널 컴파일·빌드
+lake exe compilermain --with-gpu --target vector_add > examples/vector_add.asm
+lake exe assemble examples/vector_add.asm > examples/vector_add.hack
+
+./sim/obj_dir_cpu_gpu/Vcpu_gpu examples/vector_add.hack 1000
+----
+
+[TIP]
+====
+*확인*: `vectorAdd` 커널이 1장의 4레인 병렬 덧셈과 정확히 같은 결과를 내는지가 최종 확인입니다 — `A = [1,10,100,1000]`, `B = [2,20,200,2000]`을 로드해 실행하면 `C = [3,30,300,3000]`이 나와야 합니다. 이게 성공하면 1권의 CPU에서 이 커널을 호출하고, 그 CPU가 GPU 코어에 작업을 넘기고, 결과를 다시 받아오는 전체 경로가 끊기지 않고 이어진 것입니다.
+====
+
+== 이 장에서 확정한 것
+
+* Mini 언어에 커널 함수와 `laneId` 내장 변수를 추가해, "레인 하나가 할 일"을 프로그램으로 표현할 수 있게 했습니다.
+* 발산하는 `if`를 2장의 마스크 방식으로 컴파일하려면 새 중간 표현이 필요하다는 것을 짚었고(설계는 연습 문제로 남김), 컴파일러가 새 정리를 만드는 게 아니라 이미 증명된 부품(`stepMasked`, `scatterWrite`, MAC)을 조립할 뿐이라는 원칙을 재확인했습니다.
+* 1장의 벡터 덧셈과 5장의 타일 행렬 곱셈을 커널 하나로 다시 표현해, 지금까지의 손짜기 예제 전부가 결국 컴파일러가 자동으로 만들어낼 수 있는 코드였다는 걸 보였습니다.
+
+다음 장에서는 이 커널 컴파일러로 지금까지와는 성격이 다른 워크로드 — 레인마다 실제로 다른 결과가 나오는 이미지 에지 검출 — 을 끝까지 조립해보는 캡스톤을 다룹니다.
+// end::body[]

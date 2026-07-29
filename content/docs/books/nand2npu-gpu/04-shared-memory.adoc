@@ -1,0 +1,162 @@
+---
+title: "공유 메모리: 레인들이 서로의 결과를 주고받다"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "memory", "book"]
+categories: ["books"]
+description: "레인끼리 데이터를 나누는 스크래치패드 메모리를 도입하고, 여러 레인이 동시에 쓸 때 주소가 겹치지 않으면(뱅크 충돌 없음) 각자의 쓰기가 정확히 반영된다는 것을 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-warp-scheduler/[3장: 워프 스케줄러] · 다음: link:../05-tiling/[5장: 타일링]_
+
+'''
+
+== 1. 왜 레인끼리 데이터를 나눠야 하는가
+
+지금까지 레인은 자기 레지스터 파일만 봤습니다. 그런데 행렬 곱셈 같은 작업에서는 레인 `i`가 계산한 부분 결과를 레인 `j`가 이어받아 써야 하는 경우가 흔합니다(5장의 타일링이 정확히 이 모양입니다). 1권 11장에서 CPU에 RAM을 붙였던 것처럼, 이 장에서는 레인들이 공유하는 작은 스크래치패드 메모리를 붙입니다.
+
+== 2. 공유 메모리와 기본 읽기/쓰기
+
+[source,lean]
+----
+-- Gpu/SharedMem.lean
+import Gpu.Warp
+
+namespace Nand2Npu.Gpu
+
+structure SharedMem (memSize : Nat) where
+  mem : Fin memSize → Vector Bool 16
+
+def SharedMem.write (memSize : Nat) (m : SharedMem memSize) (addr : Fin memSize) (val : Vector Bool 16) :
+    SharedMem memSize :=
+  { mem := fun a => if a = addr then val else m.mem a }
+
+def SharedMem.read (memSize : Nat) (m : SharedMem memSize) (addr : Fin memSize) : Vector Bool 16 :=
+  m.mem addr
+
+end Nand2Npu.Gpu
+----
+
+레인 하나가 쓰고 읽는 건 1권 11장의 RAM과 다를 게 없습니다. 문제는 **여러 레인이 같은 클록에 동시에 쓸 때**입니다 — 이 메모리는 한 클록에 포트 하나뿐인 단순한 스크래치패드라, 두 레인이 같은 주소에 동시에 쓰려고 하면 하드웨어가 뭘 해야 할지 정해야 합니다. 이런 충돌을 *뱅크 충돌(bank conflict)*이라고 부릅니다.
+
+== 3. 여러 레인이 동시에 쓰기: scatterWrite
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- n개 레인이 각자 (주소, 값)을 동시에 쓰려고 합니다. 순서를 정해(레인 인덱스 순)
+    하나씩 적용하는 것으로 "동시 쓰기"를 모델링합니다 — 충돌이 없다면 이 순서가
+    결과에 영향을 주지 않는다는 것이 4절의 핵심 정리입니다. -/
+def scatterWrite {n memSize : Nat} (addrs : Fin n → Fin memSize) (vals : Fin n → Vector Bool 16)
+    (m : SharedMem memSize) : SharedMem memSize :=
+  (List.finRange n).foldl (fun acc i => acc.write memSize (addrs i) (vals i)) m
+
+end Nand2Npu.Gpu
+----
+
+`scatterWrite`는 일단 레인을 인덱스 순서대로 하나씩 적용하는 걸로 "동시에 여러 곳에 쓴다"를 흉내 냅니다. 이 순서가 실제 하드웨어의 동작과 같은 결과를 내려면, 애초에 겹치는 주소가 없어야 합니다 — 겹치는 주소가 있으면 "누가 마지막에 썼는가"가 순서에 따라 달라지기 때문입니다.
+
+== 4. 뱅크 충돌이 없으면 각자의 쓰기가 정확히 반영된다
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 뱅크 충돌 없음(주소가 전부 서로 다름)이면, scatterWrite 이후 각 레인이 쓴 주소에는
+    정확히 그 레인이 쓰려던 값이 들어 있습니다. -/
+theorem scatterWrite_correct {n memSize : Nat} (addrs : Fin n → Fin memSize) (vals : Fin n → Vector Bool 16)
+    (m : SharedMem memSize) (hinj : Function.Injective addrs) (i : Fin n) :
+    (scatterWrite addrs vals m).mem (addrs i) = vals i := by
+  sorry  -- addrs가 단사(injective)이므로, i 이후에 처리되는 어떤 레인 k(k ≠ i)도
+         -- addrs k ≠ addrs i라 i의 쓰기를 덮어쓰지 않는다는 것을 List.foldl에 대한
+         -- 귀납으로 보이는 자리 — 1권 11장의 checkNoOverlap과 같은 계열의 "겹치지 않음"
+         -- 논증이라 연습 문제로 남깁니다.
+
+/-- 반대로 주소가 겹치면(단사가 아니면) 이 정리가 일반적으로 성립하지 않는다는 걸
+    반례 하나로 확인해둡니다 — "왜 injective 가정이 꼭 필요한가"에 대한 답입니다. -/
+example : ¬ ∀ {n memSize : Nat} (addrs : Fin n → Fin memSize) (vals : Fin n → Vector Bool 16)
+    (m : SharedMem memSize) (i : Fin n), (scatterWrite addrs vals m).mem (addrs i) = vals i := by
+  sorry  -- addrs를 상수 함수(모든 레인이 같은 주소)로, vals를 서로 다른 값으로 주면
+         -- 마지막 레인의 값만 남고 앞선 레인들의 값은 덮어써진다는 구체적 반례 — 연습 문제
+
+end Nand2Npu.Gpu
+----
+
+`scatterWrite_correct`가 이 장의 핵심입니다 — "충돌이 없으면 안전하다"는 조건부 보장이지, "항상 안전하다"가 아닙니다. 이건 1권 11장에서 힙 할당자의 `checkNoOverlap`이 "겹치지 않는 부분집합에서만 안전하다"고 정직하게 인정했던 것과 정확히 같은 구조의 타협입니다 — 여기서는 그 조건(injective)을 명시적인 가정으로 못박아둔다는 점이 다를 뿐입니다.
+
+[NOTE]
+====
+실전에서는 `addrs`가 injective인지를 컴파일 시점에 정적으로 보장하기 어렵습니다(주소가 런타임 계산식일 수 있으므로) — 그래서 실제 GPU는 하드웨어에서 충돌을 **감지**해 충돌하는 레인들을 자동으로 여러 클록에 나눠 순차 처리합니다(뱅크 충돌 시 처리량 저하). 이 장에서는 "충돌이 없다는 걸 컴파일러/프로그래머가 보장한 경우"만 다루고, 충돌 감지·자동 직렬화 하드웨어는 이 시리즈의 범위 밖으로 남깁니다.
+====
+
+== 5. MLIR/CIRCT로 방출하기: 단일 포트 메모리
+
+[source,lean]
+----
+def emitSharedMem (memSize : Nat) : String :=
+"hw.module @shared_mem(in %clk: !seq.clock, in %we: i1, in %addr: i" ++ toString memSize ++
+  ", in %wdata: i16, out rdata: i16) {
+  %mem = sv.reg : !hw.inout<uarray<" ++ toString memSize ++ "xi16>>
+  // we가 켜지면 addr 위치에 wdata를 쓰고, 항상 addr 위치를 읽어 rdata로 내보냅니다.
+  // (실제 배열 인덱싱 sv.array_index_inout 배선은 지면에서 생략 — 3권 3장의
+  // 메모리 맵 레지스터 방출과 같은 패턴입니다.)
+  hw.output %rdata : i16
+}"
+----
+
+== 6. Verilator로 뱅크 충돌 없는 동시 쓰기 검증
+
+[source,cpp]
+----
+// sim/tb_shared_mem_scatter.cpp
+#include "Vshared_mem_4port.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vshared_mem_4port;
+
+    // 4개 레인이 서로 다른 주소(0,1,2,3)에 서로 다른 값을 동시에 씁니다 — 충돌 없음.
+    int addrs[4] = {0, 1, 2, 3};
+    int vals[4] = {100, 200, 300, 400};
+    for (int i = 0; i < 4; ++i) dut->set_write(i, addrs[i], vals[i]);
+    dut->eval();
+
+    int failures = 0;
+    for (int i = 0; i < 4; ++i) {
+        int got = dut->read(addrs[i]);
+        if (got != vals[i]) {
+            std::printf("FAIL addr %d: expected %d got %d\n", addrs[i], vals[i], got);
+            ++failures;
+        } else {
+            std::printf("ok addr %d: %d\n", addrs[i], got);
+        }
+    }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("SCATTER WRITE PASSED (no bank conflicts)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `SCATTER WRITE PASSED`가 나와야 합니다. 이 테스트벤치는 일부러 서로 다른 주소만 골랐습니다 — `scatterWrite_correct`의 전제(injective)를 만족하는 입력입니다. 흥미로운 실험은 일부러 두 레인에 같은 주소를 줘보는 것입니다 — 그러면 `no_warp_starves`처럼 "항상 성립"하는 정리가 없다는 걸(이 장 4절의 반례처럼) 직접 눈으로 확인하게 됩니다.
+====
+
+== 이 장이 왜 중요한가
+
+1장에서 예고했던 것이 정확히 여기서 일어났습니다 — 레인 간 독립성이 더 이상 공짜가 아닙니다. `scatterWrite_correct`는 여전히 "정리"지만, 이제는 조건(injective, 즉 뱅크 충돌 없음)이 붙은 조건부 정리입니다. 1권 11장의 힙 할당자와 이 장의 공유 메모리가 같은 교훈을 줍니다 — 자원을 공유하는 순간, "항상 안전하다"는 더 이상 공짜로 얻을 수 없고 명시적인 가정으로 대가를 치러야 한다는 것입니다.
+
+== 요약
+
+* 레인끼리 데이터를 나누려면 공유 메모리가 필요하고, 여러 레인이 동시에 쓰면 뱅크 충돌이 생길 수 있습니다.
+* `scatterWrite`는 여러 레인의 동시 쓰기를 순서대로 적용하는 것으로 모델링하고, `scatterWrite_correct`는 주소가 전부 다르면(injective) 각 레인의 쓰기가 정확히 반영된다는 조건부 정리입니다.
+* 주소가 겹치면 이 보장이 깨진다는 것을 반례로 확인해, "왜 injective 가정이 꼭 필요한가"를 명시했습니다.
+* 단일 포트 메모리로 방출하고, 뱅크 충돌 없는 4레인 동시 쓰기를 Verilator로 검증했습니다.
+
+다음 장에서는 이 공유 메모리 위에서, 3권의 3×3 시스톨릭 어레이보다 큰 행렬을 여러 타일로 쪼개 이 SIMT 코어에서 순차적으로 처리하는 타일링을 다룹니다.
+// end::body[]

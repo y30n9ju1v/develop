@@ -58,7 +58,7 @@ end Nand2Npu.Npu
 
 [source,bash]
 ----
-# 1권~2권 전체를 반영한 최종 빌드 + 마리오 스테이지 1-1 플레이스루 시뮬레이션
+# 1권~3권 전체를 반영한 최종 빌드 + 마리오 스테이지 1-1 플레이스루 시뮬레이션
 lake exe compilermain --with-npu --target mario_playthrough > examples/mario.asm
 lake exe assemble examples/mario.asm > examples/mario.hack
 
@@ -79,5 +79,5 @@ lake exe assemble examples/mario.asm > examples/mario.hack
 * 게임 에뮬레이터를 이 시리즈의 신뢰 기반(TCB)에 명시적으로 편입시켰습니다.
 * 실제 플레이스루 시뮬레이션 절차를 제시하고, 성공이든 실패든 8장의 최악의 경우 오차 한계와 대조해 해석하는 방법을 정리했습니다.
 
-다음 장에서는 1권부터 이 2권까지 신뢰 기반(TCB)이 어떻게 자라왔는지 정리하며 이 시리즈를 마칩니다.
+다음 장에서는 1권부터 이 3권까지 신뢰 기반(TCB)이 어떻게 자라왔는지 정리하며 이 시리즈를 마칩니다.
 // end::body[]

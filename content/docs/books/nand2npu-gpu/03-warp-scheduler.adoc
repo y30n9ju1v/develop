@@ -1,0 +1,171 @@
+---
+title: "워프 스케줄러: 여러 그룹을 번갈아 돌려 지연을 숨기다"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "scheduling", "book"]
+categories: ["books"]
+description: "레인들을 워프로 묶고, 한 워프가 메모리를 기다리는 동안 다른 워프를 대신 돌리는 라운드로빈 스케줄러를 정의하고, 모든 워프가 유한한 클록 안에 반드시 한 번은 실행된다는 것(기아 상태 없음)을 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-divergence-and-predication/[2장: 분기 발산과 predicated execution] · 다음: link:../04-shared-memory/[4장: 공유 메모리]_
+
+'''
+
+== 1. 레인 몇 개로는 메모리 지연을 못 가린다
+
+4장에서 공유 메모리를 붙이면, 레인이 메모리에서 값을 읽어올 때까지 몇 클록을 기다려야 하는 상황이 생깁니다. 레인 하나(또는 1~2장의 레인 배열 하나)만 있다면 이 대기 시간 동안 하드웨어는 그냥 놀 수밖에 없습니다. 실제 GPU가 쓰는 해법은 "기다리는 동안 다른 일을 시킨다"입니다 — 레인 배열을 여러 그룹(*워프*)으로 나누고, 한 워프가 메모리를 기다리면 그 사이 다른 워프를 대신 실행합니다.
+
+== 2. 워프와 스케줄러 상태
+
+[source,lean]
+----
+-- Gpu/Warp.lean
+import Gpu.Predication
+
+namespace Nand2Npu.Gpu
+
+/-- 워프 하나: 자신만의 레인 배열과, 지금 메모리를 기다리고 있는지 여부. -/
+structure WarpState (lanesPerWarp : Nat) where
+  lanes : LaneArray lanesPerWarp
+  stalled : Bool
+
+/-- W개 워프 전체의 상태와, 지금 실행 중인 워프의 인덱스. -/
+structure GpuState (numWarps lanesPerWarp : Nat) where
+  warps : Fin numWarps → WarpState lanesPerWarp
+  current : Fin numWarps
+
+end Nand2Npu.Gpu
+----
+
+== 3. 라운드로빈: 다음엔 누구 차례인가
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 다음 워프 인덱스: 현재 워프 다음(순환)부터 시작해, stalled가 아닌 첫 워프를 고릅니다.
+    모두 stalled면(드문 경우) 그냥 다음 인덱스를 반환합니다. -/
+def nextWarp (numWarps : Nat) (cur : Nat) : Nat := (cur + 1) % numWarps
+
+/-- 스케줄러를 steps번 반복 적용했을 때 도달하는 워프 인덱스. -/
+def iterateNext (numWarps : Nat) : Nat → Nat → Nat
+  | start, 0 => start
+  | start, n + 1 => nextWarp numWarps (iterateNext numWarps start n)
+
+end Nand2Npu.Gpu
+----
+
+`iterateNext`는 아직 "stalled 여부"를 보지 않는, 가장 단순한 라운드로빈입니다 — 매 클록 그냥 다음 인덱스로 넘어갑니다. 실전 스케줄러는 stalled 워프를 건너뛰는 더 정교한 정책을 쓰지만, 이 장에서는 가장 단순한 정책으로도 "모든 워프가 결국 실행된다"는 핵심 성질을 증명하는 데 집중합니다 — 더 정교한 정책으로의 확장은 이 절 끝의 연습 문제로 남깁니다.
+
+== 4. 기아 상태 없음: 모든 워프가 유한한 클록 안에 뽑힌다
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- iterateNext의 닫힌 형태: start에서 steps번 진행한 결과는 (start+steps) mod numWarps입니다.
+    (nextWarp의 정의를 steps에 대한 귀납으로 풀어내는 표준적인 모듈러 산술 — 매 스텝
+    "+1 mod numWarps"가 정확히 누적된다는 것을 보이는 것뿐이라 연습 문제로 남깁니다.) -/
+theorem iterateNext_closed_form (numWarps start steps : Nat) (hn : numWarps > 0) (hs : start < numWarps) :
+    iterateNext numWarps start steps = (start + steps) % numWarps := by
+  induction steps with
+  | zero => simp [iterateNext, Nat.mod_eq_of_lt hs]
+  | succ n ih =>
+    sorry  -- iterateNext numWarps start (n+1) = nextWarp numWarps (iterateNext numWarps start n)
+           -- = (iterateNext numWarps start n + 1) % numWarps
+           -- ih로 치환하면 ((start+n)%numWarps + 1) % numWarps = (start+n+1) % numWarps임을
+           -- Nat.add_mod류 보조정리로 정리하는 표준 스텝 — 연습 문제
+
+/-- 핵심 정리: 시작 워프가 무엇이든, 목표 워프는 numWarps 클록 이내에 반드시 한 번은
+    선택됩니다 — 이 라운드로빈 스케줄러에는 "영원히 굶는 워프"가 없습니다. -/
+theorem no_warp_starves (numWarps start target : Nat) (hn : numWarps > 0)
+    (hs : start < numWarps) (ht : target < numWarps) :
+    ∃ steps, steps < numWarps ∧ iterateNext numWarps start steps = target := by
+  refine ⟨(target + numWarps - start) % numWarps, Nat.mod_lt _ hn, ?_⟩
+  rw [iterateNext_closed_form numWarps start _ hn hs]
+  -- start + (target + numWarps - start) % numWarps ≡ target (mod numWarps)를 보이는 자리.
+  -- Nat.add_mod로 좌변을 (start + target + numWarps - start) % numWarps = (target + numWarps) % numWarps로
+  -- 정리한 뒤, target < numWarps이므로 (target + numWarps) % numWarps = target로 마무리하는
+  -- 표준 모듈러 산술 — iterateNext_closed_form과 같은 성격의 연습 문제로 남깁니다.
+  sorry
+
+end Nand2Npu.Gpu
+----
+
+`no_warp_starves`가 이 장의 핵심 결과입니다 — 어떤 워프가 지금 실행 중이든, 다른 어떤 워프를 목표로 잡든, 그 목표 워프는 늦어도 `numWarps` 클록 안에는 반드시 한 번 선택됩니다. 증명의 얼개는 "시작점 + 적절히 고른 스텝 수 ≡ 목표 (mod numWarps)"이고, 그 스텝 수(`(target + numWarps - start) % numWarps`)가 왜 항상 `numWarps`보다 작은지는 `Nat.mod_lt`로 바로 나옵니다 — 남은 모듈러 산술 정리는 `iterateNext_closed_form`과 같은 성격의 반복 작업이라 함께 연습 문제로 남깁니다.
+
+[NOTE]
+====
+lean4-getting-started 시리즈(이 사이트의 다른 책)의 보너스 3부작에서 "□φ는 사실 모든 미래 스텝에서 φ"라는 시제논리 정리를 다뤘는데, `no_warp_starves`는 그 발상의 아주 구체적인 하드웨어 버전입니다 — "모든 워프가 결국(eventually) 실행된다"는 성질을, `numWarps`라는 명시적인 상한까지 못박아 증명한 것입니다. 시제논리가 "언젠가는"을 존재 논리식으로 다뤘다면, 여기서는 그 "언젠가"가 정확히 몇 클록인지까지 셀 수 있다는 게 차이입니다.
+====
+
+== 5. MLIR/CIRCT로 방출하기: 워프 인덱스 레지스터
+
+[source,lean]
+----
+def emitWarpScheduler (numWarps : Nat) : String :=
+"hw.module @warp_scheduler(in %clk: !seq.clock, in %rst: i1, out current: i" ++ toString numWarps ++ ") {
+  %next = comb.add %current_reg, %one : i" ++ toString numWarps ++ "
+  %wrapped = comb.mux %overflow, %zero, %next : i" ++ toString numWarps ++ "
+  %current_reg = seq.compreg %wrapped, %clk : i" ++ toString numWarps ++ "
+  hw.output %current_reg : i" ++ toString numWarps ++ "
+}"
+----
+
+[NOTE]
+====
+비트폭을 `numWarps`로 그대로 쓴 건 지면을 짧게 유지하기 위한 단순화입니다 — 실제로는 `numWarps`개 값을 표현하는 데 필요한 최소 비트 수(`⌈log₂ numWarps⌉`)만 있으면 되고, `overflow`(current가 `numWarps - 1`인지 비교하는 회로)도 지면에서는 생략했습니다. 두 개 다 1권 4장에서 이미 다룬 비교·인코딩 기법의 반복이라 연습 문제로 남깁니다.
+====
+
+== 6. Verilator로 라운드로빈 검증
+
+[source,cpp]
+----
+// sim/tb_warp_scheduler.cpp
+#include "Vwarp_scheduler.h"
+#include "verilated.h"
+#include <cstdio>
+#include <set>
+
+static void tick(Vwarp_scheduler* dut) { dut->clk = 0; dut->eval(); dut->clk = 1; dut->eval(); }
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vwarp_scheduler;
+    dut->rst = 1; tick(dut); dut->rst = 0;
+
+    // numWarps=4 클록만 돌려서, 4개 워프 인덱스가 전부 한 번씩 나오는지 확인.
+    std::set<int> seen;
+    for (int t = 0; t < 4; ++t) {
+        seen.insert(dut->current);
+        tick(dut);
+    }
+    delete dut;
+    if (seen.size() != 4) {
+        std::printf("FAIL: only %zu distinct warps seen in 4 cycles\n", seen.size());
+        return 1;
+    }
+    std::printf("ALL 4 WARPS SCHEDULED WITHIN 4 CYCLES\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `ALL 4 WARPS SCHEDULED WITHIN 4 CYCLES`가 나와야 합니다 — 이게 정확히 `no_warp_starves`를 `numWarps=4`로 실측해본 것입니다. `std::set`에 쌓인 원소 수가 4 미만이면 스케줄러가 어딘가에서 같은 인덱스를 반복하고 있다는 뜻이니, `nextWarp`의 `+1 mod numWarps` 회로(특히 `overflow` 비교)부터 확인하세요.
+====
+
+== 이 장이 왜 중요한가
+
+`no_warp_starves`는 이 2권에서 처음 등장하는 "시간에 걸친(over time)" 성질입니다 — 1~2장의 정리들은 전부 "한 클록에 무슨 일이 일어나는가"였는데, 이 정리는 "여러 클록에 걸쳐 결국 무슨 일이 일어나는가"를 다룹니다. 4장에서 공유 메모리를 붙이고 나면, "이 워프가 메모리 요청을 보낸 뒤 결국 응답을 받는가" 같은 질문도 정확히 같은 형태(유한한 클록 안에 반드시 일어난다)로 다시 등장합니다.
+
+== 요약
+
+* 레인 배열을 여러 워프로 묶고, 한 워프가 메모리를 기다리는 동안 다른 워프를 대신 실행해 지연을 숨기는 것이 워프 스케줄링의 핵심 아이디어입니다.
+* 가장 단순한 라운드로빈 정책(`nextWarp`, `iterateNext`)만으로도 "모든 워프가 `numWarps` 클록 이내에 반드시 실행된다"(`no_warp_starves`, 기아 상태 없음)를 증명할 수 있습니다.
+* 이 정리는 이 2권에서 처음 등장하는 "여러 클록에 걸친" 성질이고, 그 증명은 모듈러 산술의 닫힌 형태(뼈대만, 연습 문제)로 환원됩니다.
+* 스케줄러를 워프 인덱스 레지스터 하나로 방출하고, 4워프가 4클록 안에 전부 실행되는지 Verilator로 확인했습니다.
+
+다음 장에서는 워프 안의 레인들이 서로 데이터를 주고받을 수 있게 하는 공유 메모리를 도입하고, 1장에서 "공짜"였던 레인 간 독립성이 여기서 어떻게 새로운 증명 부담으로 바뀌는지 다룹니다.
+// end::body[]

@@ -1,0 +1,179 @@
+---
+title: "SIMT 레인 하나: CPU를 복제 가능한 단위로 좁히기"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "hardware", "circt", "book"]
+categories: ["books"]
+description: "1권의 ALU와 레지스터를 그대로 재사용해, 여러 개를 나란히 놓아도 서로 간섭하지 않는 최소 단위 '레인'을 정의하고, 레인 하나의 독립성을 증명·방출·검증하는 2권의 첫 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-divergence-and-predication/[2장: 분기 발산과 predicated execution]_
+
+'''
+
+== 1. 레인이란 무엇인가
+
+1권 5장의 CPU는 ALU 하나, 레지스터 파일 하나, 프로그램 카운터 하나로 이뤄진 단일 실행 단위였습니다. 이 2권의 목표는 "같은 명령어를 여러 데이터에 동시에 적용"하는 것이므로, 이 실행 단위 중 **명령어를 해석하는 부분**(디코더, PC)은 하나만 두고 **데이터를 들고 계산하는 부분**(ALU, 레지스터 파일)만 여러 벌 복제합니다. 복제되는 이 최소 단위를 *레인(lane)*이라고 부릅니다.
+
+[source,bash]
+----
+mkdir -p Gpu
+----
+
+== 2. 레인의 상태: ALU와 레지스터 파일만 남기기
+
+레인에는 프로그램 카운터가 없습니다 — "다음에 무슨 명령어를 실행할지"는 모든 레인이 공유하는 디코더가 결정하고(3장에서 다룸), 레인은 그 명령어를 "내 데이터에 대해" 실행하기만 합니다.
+
+[source,lean]
+----
+-- Gpu/Lane.lean
+import Gates.Arith
+
+namespace Nand2Npu.Gpu
+
+open Nand2Npu (rippleAdd16 bitsToNat)
+
+/-- 레인 하나가 갖는 상태: 자신만의 레지스터 파일(4개, R0~R3)뿐. -/
+structure LaneState where
+  regs : Fin 4 → Vector Bool 16
+  deriving Repr
+
+/-- 레인이 이해하는 연산: 1권 2장 ALU의 부분집합(덧셈만 우선 지원, 3장에서 확장). -/
+inductive LaneOp where
+  | add (dst src1 src2 : Fin 4)
+  | nop
+  deriving Repr, DecidableEq
+
+def LaneState.step (op : LaneOp) (s : LaneState) : LaneState :=
+  match op with
+  | .add dst src1 src2 =>
+      { s with regs := fun r => if r = dst then (rippleAdd16 (s.regs src1) (s.regs src2) false).1 else s.regs r }
+  | .nop => s
+
+end Nand2Npu.Gpu
+----
+
+`LaneState.step`은 1권 2장의 `rippleAdd16`을 그대로 갖다 쓰는 것 말고는 새로운 산술이 없습니다 — 이 장의 새로움은 연산 자체가 아니라, "이 상태 전이가 다른 레인의 상태와 무관하게 일어난다"는 것을 다음 절에서 명시적으로 증명한다는 데 있습니다.
+
+== 3. N개의 레인을 나란히 놓기
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- N개의 독립된 레인. 아직은 배열일 뿐, 서로 통신할 방법이 없습니다(4장에서 추가). -/
+structure LaneArray (n : Nat) where
+  lanes : Fin n → LaneState
+
+/-- 같은 명령어를 모든 레인에 동시에 적용 — 이게 SIMT의 "SI"(Single Instruction) 부분입니다. -/
+def LaneArray.stepAll (n : Nat) (op : LaneOp) (arr : LaneArray n) : LaneArray n :=
+  { lanes := fun i => LaneState.step op (arr.lanes i) }
+
+end Nand2Npu.Gpu
+----
+
+`stepAll`이 하는 일은 "각 레인에 `LaneState.step`을 개별적으로 적용한다"는 것뿐입니다 — 새 산술도, 새 증명 부담도 없습니다. 이 단순함 자체가 요점입니다 — 지금까지는 병렬성이 "공짜"입니다. 2장에서 조건 분기가 레인마다 다른 결과를 요구하는 순간, 그리고 3장에서 워프 스케줄링이 개입하는 순간부터 이 단순함이 깨지기 시작합니다.
+
+== 4. 레인의 독립성: 왜 이게 증명할 가치가 있는가
+
+SIMT 코어의 핵심 전제는 "레인 `i`의 계산이 레인 `j`의 데이터에 영향을 주지 않는다"입니다. 지금 정의로는 당연해 보이지만, 4장에서 공유 메모리를 도입하는 순간 이 전제가 깨질 수 있는 지점이 생깁니다 — 그러니 "아직 공유 자원이 없는 지금" 이 독립성을 정리로 못박아두면, 4장에서 무엇이 새로 위험해지는지 명확한 대조군이 생깁니다.
+
+이 절의 정리는 레인 배열(3절에서 정의) 수준에서 서술해야 뜻이 분명해집니다 — "레인 `j`의 초기 상태를 무엇으로 바꾸든, 레인 `i`(`i ≠ j`)의 계산 결과는 달라지지 않는다"는 형태입니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 레인 배열에서, 레인 j(j ≠ i)의 초기 상태를 아무리 바꿔도 레인 i의 결과는 그대로입니다 —
+    LaneArray.stepAll이 각 레인을 독립적으로 매핑할 뿐이라는 정의로부터 바로 따라옵니다. -/
+theorem lane_result_independent_of_others {n : Nat} (op : LaneOp) (arr : LaneArray n)
+    (i j : Fin n) (hij : i ≠ j) (newState : LaneState) :
+    (LaneArray.stepAll n op { arr with lanes := fun k => if k = j then newState else arr.lanes k }).lanes i
+      = (LaneArray.stepAll n op arr).lanes i := by
+  unfold LaneArray.stepAll
+  simp [hij]
+
+end Nand2Npu.Gpu
+----
+
+증명이 `simp [hij]` 한 줄로 끝나는 게 이 절의 핵심 관찰입니다 — `stepAll`이 "각 인덱스 `k`에 대해 `arr.lanes k`만 보고 계산한다"는 정의 그대로라, 레인 `j`를 건드리는 변경은 `if k = j`가 `i`에서는 거짓이 되어 아예 등장하지 않습니다. 지금은 이 증명이 이렇게 싱겁지만, 4장에서 레인들이 공유 메모리를 통해 서로의 결과를 실제로 읽을 수 있게 되는 순간 `simp` 한 줄로는 더 이상 안 끝납니다 — 그때 이 정리가 "그때부터 무엇이 새로 필요해졌는가"를 가늠하는 기준선이 됩니다.
+
+== 5. MLIR/CIRCT로 방출하기: ALU를 N번 인스턴스화
+
+[source,lean]
+----
+def emitLaneArray (n : Nat) : String :=
+  let laneInstances := (List.range n).map (fun i =>
+    s!"  %lane{i}_result = hw.instance \"lane{i}\" @lane_add(x: %x{i}: i16, y: %y{i}: i16) -> (out: i16)")
+  "hw.module @lane_array_" ++ toString n ++ "(" ++
+    (List.range n).map (fun i => s!"in %x{i}: i16, in %y{i}: i16") |>.foldr (· ++ ", " ++ ·) "" ++
+    (List.range n).map (fun i => s!"out out{i}: i16") |>.foldr (· ++ ", " ++ ·) "" ++ ") {\n" ++
+    laneInstances.foldr (· ++ "\n" ++ ·) "" ++
+    "\n  hw.output " ++ ((List.range n).map (fun i => s!"%lane{i}_result") |>.foldr (· ++ ", " ++ ·) "") ++
+    " : " ++ ((List.range n).map (fun _ => "i16") |>.foldr (· ++ ", " ++ ·) "") ++ "\n}"
+----
+
+[NOTE]
+====
+`emitLaneArray`는 3권 1장의 `mac16`처럼 개별 회로 하나를 손으로 문자열로 적는 대신, `n`을 받아 그만큼 `hw.instance`를 **생성**하는 함수입니다 — 3권 2장 NOTE에서 이미 예고했던 "`n×n`이 커지면 배선을 코드로 생성하라"는 조언을 이번엔 처음부터 실천한 것입니다. `@lane_add`는 1권 1장 스타일로 `comb.add`(1권 2장의 `rippleAdd16`에 대응하는 CIRCT 표준 연산자) 하나를 감싼 별도 모듈로, 지면에서는 생략합니다.
+====
+
+== 6. Verilator로 4레인 병렬 덧셈 검증
+
+[source,cpp]
+----
+// sim/tb_lane_array4.cpp
+#include "Vlane_array_4.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vlane_array_4;
+
+    // 4개 레인에 서로 다른 (x,y) 쌍을 동시에 넣습니다.
+    int xs[4] = {1, 10, 100, 1000};
+    int ys[4] = {2, 20, 200, 2000};
+    dut->x0 = xs[0]; dut->y0 = ys[0];
+    dut->x1 = xs[1]; dut->y1 = ys[1];
+    dut->x2 = xs[2]; dut->y2 = ys[2];
+    dut->x3 = xs[3]; dut->y3 = ys[3];
+    dut->eval();
+
+    int got[4] = {dut->out0, dut->out1, dut->out2, dut->out3};
+    int failures = 0;
+    for (int i = 0; i < 4; ++i) {
+        int expected = xs[i] + ys[i];
+        if (got[i] != expected) {
+            std::printf("FAIL lane %d: expected %d got %d\n", i, expected, got[i]);
+            ++failures;
+        } else {
+            std::printf("ok lane %d: %d + %d = %d\n", i, xs[i], ys[i], got[i]);
+        }
+    }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("ALL 4 LANES PASSED IN PARALLEL\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: 4개 레인이 전부 `ok`로 나오고 `ALL 4 LANES PASSED IN PARALLEL`이 출력되어야 합니다. 눈여겨볼 것은 이 테스트벤치가 `dut->eval()`을 **한 번만** 호출한다는 점입니다 — 4개의 서로 다른 덧셈이 순차적으로가 아니라 같은 한 번의 평가(eval) 안에서 동시에 계산된다는 게, 지금까지 1권·3권에서 봐온 "한 클록에 하나"와 이 2권의 근본적인 차이입니다.
+====
+
+== 이 장이 왜 중요한가
+
+이 장에서 만든 것 자체는 소박합니다 — 1권 2장의 덧셈기를 N번 복제했을 뿐입니다. 하지만 `lane_result_independent_of_others`가 지금 이토록 당연해 보이는 게, 뒤에 올 장들의 난이도를 가늠하는 기준선이 됩니다. 2장에서 조건 분기가 레인마다 다른 실행 경로를 요구하고, 4장에서 레인들이 메모리를 공유하기 시작하면, 지금 "함수 정의로부터 바로 따라온다"고 적었던 이 독립성이 더 이상 공짜가 아니게 됩니다.
+
+== 요약
+
+* 레인(lane)은 1권 CPU에서 PC·디코더를 뺀, ALU와 레지스터 파일만 남은 최소 실행 단위입니다.
+* `LaneArray.stepAll`은 모든 레인에 같은 명령어를 동시에 적용합니다 — 이게 SIMT("Single Instruction, Multiple Threads")의 핵심 아이디어입니다.
+* 레인들이 아직 서로 통신할 수단이 없는 지금 단계에서는, 레인 간 독립성이 증명 없이도 함수 정의로부터 바로 따라옵니다 — 이 사실이 4장 이후 새로 필요해지는 증명 부담의 대조군이 됩니다.
+* `hw.instance`를 반복 생성하는 방식으로 N-레인 회로를 방출하고, 4레인 병렬 덧셈을 한 번의 평가로 검증했습니다.
+
+다음 장에서는 레인마다 다른 조건 분기 결과가 나올 때 — "발산(divergence)" — 이 단순한 그림이 어떻게 깨지는지, 그리고 predicated execution으로 그걸 어떻게 다시 다루기 쉽게 만드는지 다룹니다.
+// end::body[]

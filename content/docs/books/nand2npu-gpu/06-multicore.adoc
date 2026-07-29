@@ -1,0 +1,157 @@
+---
+title: "멀티코어: 여러 SIMT 코어와 배리어 동기화"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "synchronization", "book"]
+categories: ["books"]
+description: "1~5장의 SIMT 코어를 여러 개 나란히 놓고, 코어들이 서로를 기다리는 배리어(barrier)를 정의하며, 발산하는 분기 안에 배리어를 두면 왜 교착 상태가 되는지 구체적으로 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-tiling/[5장: 타일링] · 다음: link:../07-compiler-kernels/[7장: 컴파일러 확장 — 커널 함수]_
+
+'''
+
+== 1. 코어 하나로는 안 되는 것
+
+5장까지는 코어 하나(레인 몇 개 + 워프 몇 개) 안에서의 병렬성이었습니다. 더 큰 문제(예: 5장의 타일링을 여러 코어에 나눠 동시에 돌리는 것)는 코어 여러 개를 나란히 놓아야 합니다. 코어끼리는 직접 통신하지 않고, 대신 "여기까지 다 온 코어만 다음 단계로 넘어간다"는 **배리어(barrier)**로 동기화합니다.
+
+== 2. 배리어: 모두 도착해야 다 같이 넘어간다
+
+[source,lean]
+----
+-- Gpu/Barrier.lean
+import Gpu.Tiling
+
+namespace Nand2Npu.Gpu
+
+/-- numCores개 코어 각각이 배리어 지점에 도착했는지. -/
+def BarrierState (numCores : Nat) := Fin numCores → Bool
+
+/-- 모든 코어가 도착했어야 배리어가 풀립니다. -/
+def barrierReleased {numCores : Nat} (state : BarrierState numCores) : Bool :=
+  (List.finRange numCores).all state
+
+theorem barrier_released_iff_all_arrived {numCores : Nat} (state : BarrierState numCores) :
+    barrierReleased state = true ↔ ∀ i, state i = true := by
+  unfold barrierReleased
+  simp [List.all_eq_true]
+
+end Nand2Npu.Gpu
+----
+
+`barrier_released_iff_all_arrived`는 이름 그대로 정의를 그대로 펼친 결과입니다 — 새로운 통찰은 없지만, 다음 절의 "왜 위험한가"를 정확히 서술하려면 이 동치가 먼저 못박혀 있어야 합니다.
+
+== 3. 배리어가 영원히 안 풀리는 경우: 발산한 분기 안의 배리어
+
+2장에서 다뤘던 발산이 여기서 새로운 방식으로 위험해집니다. 배리어가 `if` 문 **안**에 있으면 어떻게 될까요.
+
+[source,text]
+----
+// 위험한 패턴 — 절대 이렇게 쓰면 안 됩니다
+if (coreId % 2 == 0) {
+    doWork();
+    barrier();   // 짝수 코어만 여기 도달
+}
+// 홀수 코어는 barrier()를 아예 실행하지 않음
+----
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- coreId가 짝수인 코어만 배리어에 도착하는 상황을 그대로 옮긴 상태 —
+    홀수 코어는 barrier 지점을 아예 지나가지 않으므로 상태가 영원히 false로 남습니다. -/
+def divergentBarrierState (numCores : Nat) : BarrierState numCores :=
+  fun i => i.val % 2 == 0
+
+/-- numCores ≥ 2(홀수 코어가 실제로 존재)이면, 이 상태에서 배리어는 결코 풀리지 않습니다 —
+    "언젠가는 풀린다"를 증명하는 게 아니라, 정확히 그 반대(영원히 false)를 증명합니다.
+    2절의 barrier_released_iff_all_arrived를 뒤집어(대우) 씁니다 — "모두 도착"의 반례가
+    하나(코어 1)만 있어도 배리어는 안 풀린다는 것. -/
+theorem divergent_barrier_deadlocks (numCores : Nat) (h : numCores ≥ 2) :
+    barrierReleased (divergentBarrierState numCores) = false := by
+  by_contra hne
+  rw [Bool.not_eq_false] at hne
+  have hall := (barrier_released_iff_all_arrived _).mp hne
+  have h1 := hall ⟨1, by omega⟩
+  simp [divergentBarrierState] at h1
+
+end Nand2Npu.Gpu
+----
+
+`divergent_barrier_deadlocks`는 3장의 `no_warp_starves`(모든 워프가 결국 실행된다)와 정반대의 결론입니다 — 여기서는 "코어 1(홀수)이 영원히 도착하지 않으므로, 배리어가 영원히 안 풀린다"는 걸 증명합니다. 이게 실제 GPU 프로그래밍에서 가장 악명 높은 버그 중 하나입니다 — CUDA 같은 실전 언어들이 "배리어는 반드시 모든 스레드가 같은 코드 경로에서 도달해야 한다"고 문서에 못박아두는 이유가 정확히 이겁니다.
+
+[NOTE]
+====
+이 정리가 보여주는 건 "이 시리즈의 증명 방법론이 버그를 막아준다"가 아니라 **정반대**입니다 — Lean4로 이 배리어 설계를 아무리 정교하게 증명해도, `divergentBarrierState`처럼 애초에 잘못 쓰인 프로그램이 있으면 교착 상태가 "증명 가능한 사실"이 됩니다. 즉 이 증명은 하드웨어가 명세대로 동작한다는 것만 보장하지, 그 하드웨어 위에서 돌아가는 **프로그램이 올바르게 짜였다**는 것은 전혀 보장하지 않습니다. 7장에서 컴파일러가 커널 함수를 SIMT 명령어로 낮출 때, 배리어가 발산 가능한 분기 안에 있는지 정적으로 검사하는 규칙을 두는 것이 이런 이유에서 실무적으로 중요합니다(이 시리즈에서는 연습 문제로 남깁니다).
+====
+
+== 4. MLIR/CIRCT로 방출하기: 배리어 카운터
+
+[source,lean]
+----
+def emitBarrier (numCores : Nat) : String :=
+"hw.module @barrier(in %clk: !seq.clock, in %arrive: i" ++ toString numCores ++
+  ", out released: i1) {
+  %all_ones = hw.constant " ++ toString ((1 <<< numCores) - 1) ++ " : i" ++ toString numCores ++
+  "\n  %eq = comb.icmp eq %arrive, %all_ones : i" ++ toString numCores ++
+  "\n  hw.output %eq : i1\n}"
+----
+
+배리어 회로는 새 산술이 필요 없습니다 — `arrive`(코어마다 비트 하나)가 전부 1인지 비교하는 것뿐이라, 3권 4장의 포화 비교 회로와 같은 패턴입니다.
+
+== 5. Verilator로 배리어 검증
+
+[source,cpp]
+----
+// sim/tb_barrier.cpp
+#include "Vbarrier.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vbarrier;
+
+    // 4코어 중 3개만 도착 (0b0111) -> 안 풀림
+    dut->arrive = 0b0111;
+    dut->eval();
+    bool releasedEarly = dut->released;
+
+    // 나머지 1개도 도착 (0b1111) -> 풀림
+    dut->arrive = 0b1111;
+    dut->eval();
+    bool releasedFull = dut->released;
+
+    if (releasedEarly) {
+        std::printf("FAIL: barrier released with only 3/4 cores arrived\n");
+        return 1;
+    }
+    if (!releasedFull) {
+        std::printf("FAIL: barrier did not release with 4/4 cores arrived\n");
+        return 1;
+    }
+    std::printf("BARRIER PASSED (blocks at 3/4, releases at 4/4)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `BARRIER PASSED`가 나와야 합니다 — 3/4에서 막히고 4/4에서 풀리는 두 상태를 모두 확인하는 게 중요합니다(4/4만 확인하면 "그냥 항상 풀리는 고장난 회로"도 통과해버립니다). `divergentBarrierState`(3절)를 실제로 이 테스트벤치에서 재현하고 싶다면, `arrive`를 `0b0101`(짝수 코어만)로 고정해두고 영원히 `released`가 안 뜨는 걸 시뮬레이션 타임아웃으로 확인해보는 것도 좋은 연습 문제입니다.
+====
+
+== 이 장이 왜 중요한가
+
+`divergent_barrier_deadlocks`는 이 시리즈 전체에서 처음으로 "증명이 막아주지 못하는 버그"를 정면으로 보여주는 정리입니다 — 지금까지는 증명이 "이 회로가 안전하다"를 보여주는 쪽이었는데, 여기서는 증명이 "이 프로그램은 안전하지 않다(교착된다)"를 보여주는 쪽으로 뒤집혔습니다. 두 방향 다 같은 도구(Lean4 정리)로 다룰 수 있다는 게, 결국 "증명"이 하는 일은 명세와 실제 동작 사이의 간극을 없애는 것이지 프로그래머의 실수까지 자동으로 막아주는 마법이 아니라는 걸 다시 한번 확인해줍니다.
+
+== 요약
+
+* 여러 코어를 동기화하려면 배리어(barrier)가 필요하고, `barrierReleased`는 모든 코어가 도착했을 때만 참입니다.
+* 배리어가 발산 가능한 분기 안에 있으면, 일부 코어가 그 분기를 타지 않아 영원히 도착하지 않을 수 있습니다 — `divergent_barrier_deadlocks`로 이 교착 상태를 직접 증명했습니다.
+* 이 정리는 "증명이 항상 안전을 보장한다"는 착각을 깨는 사례입니다 — 하드웨어가 명세대로 동작해도, 그 위의 프로그램이 잘못 짜이면 교착은 여전히 일어납니다.
+* 배리어를 비교 회로로 방출하고, 3/4에서 막히고 4/4에서 풀리는 것을 Verilator로 확인했습니다.
+
+다음 장에서는 지금까지 손으로 스케치했던 커널 코드를 실제로 컴파일러가 SIMT 명령어로 낮추도록, Mini 언어에 "커널 함수" 문법을 추가합니다.
+// end::body[]

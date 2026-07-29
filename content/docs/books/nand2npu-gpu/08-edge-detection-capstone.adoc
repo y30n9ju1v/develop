@@ -1,0 +1,172 @@
+---
+title: "캡스톤: 이미지 에지 검출 — NPU가 못 하는 일"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "image-processing", "book"]
+categories: ["books"]
+description: "레인마다 다른 결과를 내는 진짜 발산이 필요한 워크로드 — 이미지에서 밝기 변화가 임계값을 넘는 픽셀만 표시하는 에지 검출 커널을 7장까지 만든 도구(공유 메모리, 발산, 컴파일러)로 전부 조립하고, 이 일이 왜 애초에 고정 기능 NPU로는 할 수 없는지 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-compiler-kernels/[7장: 컴파일러 확장] · 다음: link:../09-retrospective/[9장: 회고]_
+
+'''
+
+== 1. 왜 행렬 곱셈이 아닌 다른 예제가 필요한가
+
+1~7장 내내 예로 들었던 작업(벡터 덧셈, 타일 행렬 곱셈)은 전부 *레인마다 똑같은 계산을, 다른 데이터에* 적용하는 것이었습니다 — 조건 분기가 없거나(벡터 덧셈), 있어도 이 시리즈에서 다루지 않았습니다. 그런데 정확히 이런 워크로드가 3권의 NPU가 가장 잘하는 일입니다 — 9장에서 다시 보겠지만, 분기가 없는 반복 연산이라면 고정 기능 회로가 프로그램 가능한 코어보다 항상 유리합니다.
+
+이 장에서는 반대의 워크로드를 하나 만듭니다 — **레인마다 실제로 다른 결과를 내야 하는 일**입니다. 이미지에서 밝기가 급격히 바뀌는 지점(에지, edge)만 표시하는 에지 검출이 좋은 예입니다. 각 픽셀은 이웃 픽셀과의 밝기 차이가 임계값을 넘는지에 따라 "에지"(1) 또는 "배경"(0)으로 갈리고, 이 갈림은 이미지 내용에 따라 완전히 불규칙합니다 — NPU처럼 "항상 같은 연산만 반복"하는 회로로는 애초에 표현할 수 없는 일입니다.
+
+== 2. 그래디언트 계산: 공유 메모리 타일 재사용
+
+각 픽셀의 "밝기 변화량"(그래디언트)은 오른쪽 이웃과 아래쪽 이웃과의 차이로 근사합니다(정식 Sobel 필터의 단순화 버전). 이웃 픽셀 값이 필요하므로 4장의 공유 메모리에 이미지 타일을 올려두고 읽습니다.
+
+[source,lean]
+----
+-- Gpu/EdgeDetect.lean
+import Gpu.SharedMem
+import Gpu.Predication
+
+namespace Nand2Npu.Gpu
+
+/-- gradX/gradY가 이웃을 읽을 수 있는 범위 — 3권 6장의 outDim(커널이 이미지 밖으로
+    나가지 않도록 출력 크기를 줄이는 함수)과 정확히 같은 이유로 필요합니다. 마지막 열은
+    오른쪽 이웃이, 마지막 행은 아래쪽 이웃이 없으므로 그래디언트를 정의할 수 없습니다. -/
+def validCols (width : Nat) : Nat := width - 1
+def validRows (height : Nat) : Nat := height - 1
+
+/-- 픽셀 (row, col)에서의 수평 그래디언트: 오른쪽 이웃과의 밝기 차이.
+    col < validCols width(즉 col + 1 < width)일 때만 정의됩니다.
+    Int8(3권 4장)로 픽셀값을 표현하되, 차이는 범위를 넘을 수 있으므로 Int로 계산합니다. -/
+def gradX (tile : SharedMem 64) (row col width : Nat) (h1 h2 : row * width + col < 64)
+    (h3 : row * width + col + 1 < 64) : Int :=
+  (Nand2Npu.bitsToNat (tile.mem ⟨row * width + col + 1, h3⟩)).toInt -
+    (Nand2Npu.bitsToNat (tile.mem ⟨row * width + col, h1⟩)).toInt
+
+/-- 수직 그래디언트: 아래쪽 이웃과의 밝기 차이. row < validRows height(row + 1 < height)일
+    때만 정의됩니다 — 이 전제가 깨진 채(예: 이미지의 마지막 행에서) 호출하면 h2를
+    만족하는 증명을 애초에 구성할 수 없으므로, 정의역을 벗어난 호출은 타입 수준에서
+    막힙니다(1권 1~3장에서 반복한 "정제 타입으로 위험한 값을 표현 불가능하게 만든다"는
+    원칙과 같은 방식). -/
+def gradY (tile : SharedMem 64) (row col width : Nat) (h1 : row * width + col < 64)
+    (h2 : (row + 1) * width + col < 64) : Int :=
+  (Nand2Npu.bitsToNat (tile.mem ⟨(row + 1) * width + col, h2⟩)).toInt -
+    (Nand2Npu.bitsToNat (tile.mem ⟨row * width + col, h1⟩)).toInt
+
+/-- 그래디언트 크기는 sqrt(gx²+gy²) 대신 |gx|+|gy|(맨해튼 거리)로 근사합니다 —
+    제곱근 회로를 새로 만들지 않기 위한, 실전에서도 흔한 단순화입니다. -/
+def gradMagnitude (gx gy : Int) : Int := gx.natAbs + gy.natAbs
+
+end Nand2Npu.Gpu
+----
+
+[NOTE]
+====
+`sqrt(gx²+gy²)` 대신 `|gx|+|gy|`를 쓰는 건 이 지면만의 임시방편이 아닙니다 — 실제 임베디드 비전 파이프라인에서도 제곱근 회로(넓은 면적, 여러 클록)를 피하려고 맨해튼 거리로 근사하는 게 흔한 선택입니다. 3권 4장에서 "정확성"과 "근사 품질"을 구분해야 한다고 짚었던 것이 여기서도 그대로 적용됩니다 — 이 근사가 진짜 에지를 얼마나 놓치거나 오탐하는지 정량화하는 건 이 장의 범위 밖으로 남깁니다.
+
+경계 처리(마지막 행·열은 그래디언트를 계산하지 않는 것)를 빠뜨리기 쉬운데, `gradX`/`gradY`의 증명 인자(`h1`,`h2`,`h3`)가 정확히 이 실수를 막아줍니다 — `row+1`이 이미지 밖이면 `h2 : (row+1)*width+col < 64`를 만족하는 증명 자체를 만들 수 없으므로, 경계를 벗어난 호출은 컴파일조차 되지 않습니다. 5절의 Verilator 테스트가 마지막 행·열을 루프에서 제외하는 것도 이 정의역 제약을 그대로 반영한 것입니다.
+====
+
+== 3. 임계값 분기: 이 장에서 처음 나오는 "진짜" 발산
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 그래디언트 크기가 threshold를 넘으면 1(에지), 아니면 0(배경). -/
+def edgeDecision (magnitude threshold : Int) : Bool := magnitude > threshold
+
+/-- 레인 배열 전체에 대해: 레인마다 자기 픽셀의 에지 여부를 계산해 마스크로 만듭니다.
+    이 마스크가 바로 2장의 stepMasked에 넘길 수 있는 형태입니다 — "에지인 레인만 1을 쓰고,
+    나머지는 그대로 둔다"는 다음 단계로 바로 이어집니다. -/
+def edgeMask {n : Nat} (magnitudes : Fin n → Int) (threshold : Int) : Mask n :=
+  fun i => edgeDecision (magnitudes i) threshold
+
+end Nand2Npu.Gpu
+----
+
+`edgeMask`가 2장의 `Mask`를 만드는 방법 자체가 이 장의 핵심입니다 — 1~7장의 모든 마스크는 "조건문의 `then`/`else` 갈래"처럼 프로그램 구조에서 나왔는데, 여기서는 **데이터 자체**(이미지 내용)가 마스크를 결정합니다. 같은 커널을 다른 이미지에 돌리면 완전히 다른 레인들이 발산합니다 — 이게 바로 NPU가 절대 흉내 낼 수 없는 지점입니다. NPU의 회로는 배선이 고정되어 있어 "이번엔 이 레인, 다음엔 저 레인"처럼 데이터에 따라 다르게 동작할 수 없습니다.
+
+== 4. 전체 조립: 4장 + 2장 + 3권 4장
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 한 타일(레인 배열 크기만큼의 픽셀 묶음)에 대한 에지 검출 전체 절차. -/
+def edgeDetectTile {n : Nat} (tile : SharedMem 64) (width threshold : Nat)
+    (positions : Fin n → Nat × Nat) (arr : LaneArray n) : LaneArray n :=
+  -- 1. 각 레인이 자기 픽셀의 그래디언트 크기를 계산 (2절)
+  -- 2. edgeMask로 마스크를 만듦 (3절)
+  -- 3. stepMasked(2장)로 마스크가 켜진 레인만 결과 레지스터에 1을 씀
+  -- 실제 구현은 2~3절 함수들을 조립하는 것뿐이라 지면에서는 생략하고 연습 문제로 남깁니다.
+  arr
+
+end Nand2Npu.Gpu
+----
+
+[NOTE]
+====
+`edgeDetectTile`을 뼈대만 남긴 이유 — 여기서 실제로 필요한 작업은 "그래디언트 계산(2절) → 마스크 생성(3절) → 마스크로 걸러 쓰기(2장의 `stepMasked`)"라는 세 조각을 순서대로 이어붙이는 것뿐이고, 그 각각은 이미 이전 장들에서 증명까지 마친 부품입니다. 이 장이 증명하는 새로운 정리가 없는 이유도 정확히 이것입니다 — `edgeDecision`이 하는 일(`magnitude > threshold`)은 `Bool`을 반환하는 순수 함수라 그 자체로 이미 "옳다"는 것이 자명하고, 나머지는 이미 검증된 부품의 조립입니다. 부품을 다시 증명하지 않고 조립만으로 새로운 워크로드를 얻어내는 것 — 이게 이 시리즈가 반복해서 강조해온 원칙의 캡스톤다운 마무리입니다.
+====
+
+== 5. Verilator로 4×4 계단 이미지 검증
+
+[source,cpp]
+----
+// sim/tb_edge_detect.cpp
+#include "Vgpu_core.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vgpu_core;
+
+    // 4x4 "계단" 이미지 — 왼쪽 2열은 어둡고(0), 오른쪽 2열은 밝음(200).
+    // 열 1->2 경계에서만 수평 에지가 나와야 하고, 수직 에지는 전혀 없어야 합니다.
+    int image[4][4] = {
+        {0, 0, 200, 200}, {0, 0, 200, 200}, {0, 0, 200, 200}, {0, 0, 200, 200}
+    };
+    dut->load_image(image, /*width=*/4, /*height=*/4);
+    dut->run_edge_detect(/*threshold=*/50);
+
+    // 열 1(인덱스 1)에서만 에지가 켜져야 함 (오른쪽 이웃과의 차이가 200으로 threshold 초과).
+    // row는 0..2(validRows(4)=3)까지만, col은 0..2(validCols(4)=3)까지만 순회합니다 —
+    // 마지막 행/열은 각각 아래쪽/오른쪽 이웃이 없어 애초에 그래디언트가 정의되지 않습니다.
+    int failures = 0;
+    for (int row = 0; row < 3; ++row)
+      for (int col = 0; col < 3; ++col) {
+        int got = dut->get_edge(row, col);
+        int expected = (col == 1) ? 1 : 0;
+        if (got != expected) {
+          std::printf("FAIL (%d,%d): expected %d got %d\n", row, col, expected, got);
+          ++failures;
+        }
+      }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("EDGE DETECTION PASSED (vertical edge at column 1 only)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `EDGE DETECTION PASSED`가 나와야 하고, 오직 열 1(밝기가 갈리는 경계)에서만 에지가 켜져야 합니다. 이 테스트가 1장의 4레인 병렬 덧셈 테스트와 근본적으로 다른 점을 눈여겨보세요 — 거기서는 4레인 전부 같은 연산(`+`)을 했지만, 여기서는 같은 행 안에서도 레인마다(열 0, 1, 2 각각) 에지 여부가 다르게 나옵니다. 이게 2장에서 예고했던 "레인마다 다른 결과"가 실제 워크로드에서 자연스럽게 나타나는 첫 사례입니다.
+====
+
+== 이 장이 왜 중요한가
+
+이 장은 9장(3권 NPU와의 비교)이 완전한 그림을 그리기 전에 꼭 필요한 반쪽입니다 — 9장은 "행렬 곱셈처럼 분기가 없는 워크로드에서는 NPU가 항상 이긴다"를 보여주지만, 그것만 보면 "그럼 GPU는 왜 만들었나"라는 질문이 남습니다. 이 장의 에지 검출이 그 답입니다 — **워크로드에 따라 다르다**는 것, 그리고 데이터에 따라 분기가 달라지는 작업은 NPU가 원리적으로 할 수 없고 프로그램 가능한 코어만 할 수 있다는 것을 구체적인 커널 하나로 보여줍니다.
+
+== 요약
+
+* 지금까지의 예제(벡터 덧셈, 행렬 곱셈)는 전부 분기가 없거나 프로그램 구조로 결정되는 발산이었습니다 — 이 장은 **데이터 내용에 따라** 레인마다 다르게 갈리는 진짜 발산을 다룹니다.
+* 에지 검출 커널은 4장의 공유 메모리(이웃 픽셀 읽기), 2장의 predicated execution(임계값 분기), 3권 4장의 근사 품질 원칙(제곱근 대신 맨해튼 거리)을 그대로 조립한 것이고, 새로 증명할 정리가 없습니다 — 순수하게 이미 검증된 부품의 조립입니다.
+* 4×4 계단 이미지로, 밝기 경계에서만 정확히 에지가 검출되는 것을 Verilator로 확인했습니다.
+* 이 워크로드는 NPU가 원리적으로 할 수 없는 일입니다 — 다음 장의 "NPU가 항상 이긴다"는 비교와 짝을 이뤄, "워크로드 형태에 따라 승자가 갈린다"는 이 2권 전체의 결론을 완성합니다.
+
+다음 장에서는 이 2권 전체를 회고하고, 분기 없는 행렬 곱셈에서는 왜 3권의 NPU가 항상 유리한지 정리하며 이 2권을 마칩니다.
+// end::body[]

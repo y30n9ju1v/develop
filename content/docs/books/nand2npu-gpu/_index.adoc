@@ -1,0 +1,111 @@
+---
+title: "nand2npu 2권: NPU에서 미니 GPU로"
+---
+
+link:../nand2npu/[1권]에서 완성한 16비트 CPU 위에, 프로그램 가능한 병렬 코어(SIMT, Single Instruction Multiple Threads) — 이른바 미니 GPU — 를 얹는 시리즈의 2권입니다. 1권과 같은 방법론 — Lean4로 명세와 안전 조건을 증명하고, 그 증명이 통과한 설계만 CIRCT를 거쳐 SystemVerilog로 방출하고, Verilator로 실행 검증하는 것 — 을 그대로 이어갑니다. 레인 하나(1장)에서 시작해 분기 발산(2장), 워프 스케줄링(3장), 공유 메모리(4장), 타일링(5장), 멀티코어 동기화(6장), 컴파일러 확장(7장)까지 쌓은 뒤, 8장에서 그 부품만으로 진짜 발산이 필요한 이미지 에지 검출을 조립하고, 9장에서 이 유연한 코어의 비용을 link:../nand2npu-vision/[3권]의 고정 기능 NPU와 정면으로 비교합니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 하나의 명령어에서 여러 개의 레인으로]*
+
+*1부: 레인과 발산*
+
+[start=1]
+. *link:01-simt-lane/[SIMT 레인 하나: CPU를 복제 가능한 단위로 좁히기]*
+. *link:02-divergence-and-predication/[분기 발산과 predicated execution]*
+. *link:03-warp-scheduler/[워프 스케줄러: 여러 그룹을 번갈아 돌려 지연을 숨기다]*
+
+*2부: 협력과 확장*
+
+[start=4]
+. *link:04-shared-memory/[공유 메모리: 레인들이 서로의 결과를 주고받다]*
+. *link:05-tiling/[타일링: 코어보다 큰 행렬을 조각내 처리하다]*
+. *link:06-multicore/[멀티코어: 여러 SIMT 코어와 배리어 동기화]*
+. *link:07-compiler-kernels/[컴파일러 확장: Mini 언어에 커널 함수 얹기]*
+
+*3부: 캡스톤과 회고*
+
+[start=8]
+. *link:08-edge-detection-capstone/[캡스톤: 이미지 에지 검출 — NPU가 못 하는 일]*
+. *link:09-retrospective/[회고: 왜 이 워크로드에서는 NPU가 항상 이기는가]*
+
+'''
+
+[#part-1]
+== 제1부: 레인과 발산
+
+'''
+
+[#chapter-01]
+== 1. SIMT 레인 하나: CPU를 복제 가능한 단위로 좁히기
+
+include::01-simt-lane.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-02]
+== 2. 분기 발산과 predicated execution
+
+include::02-divergence-and-predication.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-03]
+== 3. 워프 스케줄러: 여러 그룹을 번갈아 돌려 지연을 숨기다
+
+include::03-warp-scheduler.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-2]
+== 제2부: 협력과 확장
+
+'''
+
+[#chapter-04]
+== 4. 공유 메모리: 레인들이 서로의 결과를 주고받다
+
+include::04-shared-memory.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-05]
+== 5. 타일링: 코어보다 큰 행렬을 조각내 처리하다
+
+include::05-tiling.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-06]
+== 6. 멀티코어: 여러 SIMT 코어와 배리어 동기화
+
+include::06-multicore.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-07]
+== 7. 컴파일러 확장: Mini 언어에 커널 함수 얹기
+
+include::07-compiler-kernels.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-3]
+== 제3부: 캡스톤과 회고
+
+'''
+
+[#chapter-08]
+== 8. 캡스톤: 이미지 에지 검출 — NPU가 못 하는 일
+
+include::08-edge-detection-capstone.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-09]
+== 9. 회고: 왜 이 워크로드에서는 NPU가 항상 이기는가
+
+include::09-retrospective.adoc[tag=body,leveloffset=+1]

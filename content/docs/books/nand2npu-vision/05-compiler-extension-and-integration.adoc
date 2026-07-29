@@ -99,7 +99,7 @@ end Nand2Npu.Compiler
 
 [source,bash]
 ----
-# 1권(게이트~OS) + 2권 1~5장(NPU) 전체를 반영한 최종 어셈블리 빌드
+# 1권(게이트~OS) + 3권 1~5장(NPU) 전체를 반영한 최종 어셈블리 빌드
 lake exe compilermain --with-npu > examples/npu_matmul_test.asm
 lake exe assemble examples/npu_matmul_test.asm > examples/npu_matmul_test.hack
 
@@ -146,5 +146,5 @@ lake exe assemble examples/npu_matmul_test.asm > examples/npu_matmul_test.hack
 * 게이트부터 양자화된 행렬 곱셈까지 전체 파이프라인을 재통합하는 절차를 확정했습니다.
 * 1~4장에서 새로 등장한 증명 형태(외부 도구 신뢰 확대, 공간+시간 불변식, 근사 품질 비교)를 1권 13장의 TCB 표와 나란히 정리했습니다.
 
-여기까지가 이 책(2권)의 하드웨어 파트입니다 — 3×3 시스톨릭 어레이와 단일 `matmul` 호출을 게이트부터 끝까지 증명·방출·검증했습니다. 다음 장부터는 이 NPU 파이프라인을 실제 이미지에 적용합니다 — 먼저 작은 흑백 이미지를 컨볼루션·풀링으로 분류하는 워밍업을 거친 뒤, 마리오를 플레이하는 정책망의 추론까지 이어갑니다.
+여기까지가 이 책(3권)의 하드웨어 파트입니다 — 3×3 시스톨릭 어레이와 단일 `matmul` 호출을 게이트부터 끝까지 증명·방출·검증했습니다. 다음 장부터는 이 NPU 파이프라인을 실제 이미지에 적용합니다 — 먼저 작은 흑백 이미지를 컨볼루션·풀링으로 분류하는 워밍업을 거친 뒤, 마리오를 플레이하는 정책망의 추론까지 이어갑니다.
 // end::body[]

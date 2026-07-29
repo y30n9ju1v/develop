@@ -1,0 +1,162 @@
+---
+title: "타일링: 코어보다 큰 행렬을 조각내 처리하다"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "tiling", "book"]
+categories: ["books"]
+description: "SIMT 코어가 한 번에 감당할 수 있는 것보다 큰 행렬을, 여러 타일로 쪼개 공유 메모리에 순차적으로 로드하며 처리하고, 타일별 부분합을 더한 결과가 전체 행렬 곱셈과 같다는 것을 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-shared-memory/[4장: 공유 메모리] · 다음: link:../06-multicore/[6장: 멀티코어]_
+
+'''
+
+== 1. 코어 하나로는 못 담는 행렬
+
+이 2권의 레인 배열은 몇 개뿐입니다(1장에서 4개로 예시를 들었습니다). 그런데 실전 행렬은 수백×수백 크기가 흔합니다 — 한 번에 전부 레지스터나 공유 메모리에 올릴 수 없습니다. 표준적인 해법은 큰 행렬을 작은 정사각형 조각(*타일*)으로 쪼개, 타일 하나씩 순서대로 공유 메모리에 올려 계산하고 그 결과를 누적하는 것입니다.
+
+== 2. 타일 단위로 행렬 곱셈 나누기
+
+`N×N` 행렬을 `tileSize×tileSize`짜리 타일 `k`개(`N = k · tileSize`)로 나누면, `C[i][j] = Σ_{p=0}^{N-1} A[i][p]·B[p][j]`라는 원래 합을, `p`의 범위를 타일별로 쪼갠 `k`개의 부분합으로 다시 쓸 수 있습니다.
+
+[source,lean]
+----
+-- Gpu/Tiling.lean
+import Gpu.SharedMem
+
+namespace Nand2Npu.Gpu
+
+/-- 전체 곱셈-누산 합(3권 2장의 matmulSpec과 같은 정의). -/
+def matmulFull (n : Nat) (A B : Fin n → Fin n → Int) (i j : Fin n) : Int :=
+  ((List.finRange n).map (fun p => A i p * B p j)).sum
+
+/-- p의 범위를 [tile*tileSize, tile*tileSize+tileSize)로 제한한 타일 하나의 부분합. -/
+def matmulTile (n tileSize tile : Nat) (A B : Fin n → Fin n → Int) (i j : Fin n) : Int :=
+  ((List.range tileSize).filterMap (fun d =>
+    let p := tile * tileSize + d
+    if h : p < n then some (A i ⟨p, h⟩ * B ⟨p, h⟩ j) else none)).sum
+
+end Nand2Npu.Gpu
+----
+
+== 3. 타일 부분합을 전부 더하면 전체 합과 같다
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 타일 개수(k = n / tileSize, tileSize가 n을 나눈다고 가정)만큼의 matmulTile을
+    전부 더하면 matmulFull과 같습니다 — Σ_p를 tileSize개씩 묶어 다시 배열한 것뿐인
+    합의 재결합(regrouping)입니다. -/
+theorem tiled_matmul_correct (n tileSize k : Nat) (hk : n = k * tileSize) (htile : tileSize > 0)
+    (A B : Fin n → Fin n → Int) (i j : Fin n) :
+    ((List.range k).map (fun tile => matmulTile n tileSize tile A B i j)).sum
+      = matmulFull n A B i j := by
+  sorry  -- List.range n을 List.range k개의 tileSize짜리 구간으로 쪼개 다시 이어붙이면
+         -- 원래 리스트와 같아진다는 것(List.range의 분할·재결합)을 보이고, 그 위에서
+         -- List.sum이 결합·분배 법칙을 통해 그대로 보존된다는 표준적인 리스트 재정렬
+         -- 논증 — 3권 6장의 im2col_matches_conv와 같은 계열이라 연습 문제로 남깁니다.
+
+end Nand2Npu.Gpu
+----
+
+`tiled_matmul_correct`가 이 장의 핵심 정리입니다 — 타일로 쪼개 계산해도 수학적으로 정확히 같은 답이 나온다는 것을 못박습니다. 증명 자체에 새로운 산술은 없습니다 — `List.range n`을 `tileSize`개씩 묶어 다시 늘어놓아도 원래 리스트와 (원소가 나열되는 순서만 빼면) 같다는, 순수하게 조합적인 사실을 `List.sum`이 순서에 무관하다는 것과 결합하는 것뿐입니다. 이건 3권 6장에서 `im2col_matches_conv`를 `sorry`로 남겼던 것과 정확히 같은 계열의 "재정렬" 논증입니다.
+
+== 4. 타일 하나를 처리하는 절차: 로드 → 계산 → 누적
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 타일 하나를 처리하는 절차: A, B의 해당 타일을 공유 메모리에 로드하고,
+    각 레인이 자기 (i,j)의 부분곱을 계산해 누산 레지스터에 더합니다. -/
+def processTile {n : Nat} (tileSize tile : Nat) (A B : Fin n → Fin n → Int)
+    (i j : Fin n) (acc : Int) : Int :=
+  acc + matmulTile n tileSize tile A B i j
+
+/-- k개 타일을 순서대로 처리한 최종 누산값은 matmulFull과 같습니다 —
+    tiled_matmul_correct를 List.foldl 형태로 다시 쓴 것뿐입니다. -/
+theorem processTile_loop_correct (n tileSize k : Nat) (hk : n = k * tileSize) (htile : tileSize > 0)
+    (A B : Fin n → Fin n → Int) (i j : Fin n) :
+    (List.range k).foldl (fun acc tile => processTile tileSize tile A B i j acc) 0
+      = matmulFull n A B i j := by
+  sorry  -- foldl (+ matmulTile ...) 0의 결과가 List.map matmulTile의 합(List.sum)과
+         -- 같다는 표준적인 foldl-as-sum 재작성 다음, tiled_matmul_correct를 적용 —
+         -- 두 단계 다 반복 패턴이라 연습 문제로 남깁니다.
+
+end Nand2Npu.Gpu
+----
+
+== 5. MLIR/CIRCT로 방출하기: 타일 루프 카운터
+
+타일링의 하드웨어 쪽은 새 연산기가 필요 없습니다 — 4장의 공유 메모리에 타일을 순서대로 로드하는 카운터 하나, 그리고 3권 1장의 MAC 누산 레지스터를 타일 경계에서 초기화하지 않고 계속 누적하도록 두는 것뿐입니다.
+
+[source,lean]
+----
+def emitTileCounter (numTiles : Nat) : String :=
+"hw.module @tile_counter(in %clk: !seq.clock, in %advance: i1, out tile: i" ++
+  toString numTiles ++ ", out done: i1) {
+  %next = comb.add %tile_reg, %one : i" ++ toString numTiles ++ "
+  %tile_reg = seq.compreg %next, %clk : i" ++ toString numTiles ++ "
+  %done_cmp = comb.icmp eq %tile_reg, %num_tiles_const : i" ++ toString numTiles ++ "
+  hw.output %tile_reg, %done_cmp : i" ++ toString numTiles ++ ", i1
+}"
+----
+
+== 6. Verilator로 4×4 행렬을 2×2 타일 두 개로 검증
+
+[source,cpp]
+----
+// sim/tb_tiled_matmul.cpp
+#include "Vgpu_core.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vgpu_core;
+
+    // A = 4x4 단위행렬, B = 4x4 임의 행렬 -> C = B가 나와야 함 (A x I 검증과 같은 패턴)
+    int A[4][4] = {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}};
+    int B[4][4] = {{1,2,3,4},{5,6,7,8},{9,10,11,12},{13,14,15,16}};
+
+    // tileSize=2로 타일 0(p=0,1), 타일 1(p=2,3) 순서로 로드·누적하는 절차는
+    // 4장의 scatterWrite 절차 + 3권 1장의 MAC 누산 재사용 — 생략.
+    dut->load_matrices(A, B);
+    dut->run_tiled(/*tileSize=*/2, /*numTiles=*/2);
+
+    int failures = 0;
+    for (int i = 0; i < 4; ++i)
+      for (int j = 0; j < 4; ++j) {
+        int got = dut->get_c(i, j);
+        if (got != B[i][j]) {
+          std::printf("FAIL C[%d][%d]: expected %d got %d\n", i, j, B[i][j], got);
+          ++failures;
+        }
+      }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("TILED 4x4 MATMUL PASSED (2 tiles of 2x2)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `TILED 4x4 MATMUL PASSED`가 나와야 하고, `C`가 `B`와 정확히 같아야 합니다(`A`가 단위행렬이므로). 이 4×4 예제는 코어 자체보다 크게(레인 4개인데 4×4 행렬 전체를 담을 순 없으므로) 일부러 골랐습니다 — 성공한다면 `processTile_loop_correct`가 예견한 대로, 타일 두 개를 순서대로 처리한 결과가 "행렬 전체를 한 번에 처리했다면 나왔을 결과"와 정확히 같다는 걸 실측으로 확인한 것입니다.
+====
+
+== 이 장이 왜 중요한가
+
+이 장은 이 2권에서 처음으로 "코어의 물리적 크기(레인 수)보다 큰 문제"를 다룹니다 — 1~4장은 전부 "문제가 코어에 딱 맞는다"고 암묵적으로 가정했습니다. `tiled_matmul_correct`가 보여주는 건, 코어가 작아도 소프트웨어(루프)로 큰 문제를 감쌀 수 있고 그 감싸기가 수학적으로 정확하다는 것입니다 — 이건 정확히 3권 5장이 컴파일러 확장에서 다뤘던 문제의식과 같은 결이지만, 거기서는 고정 기능 회로가 `matmul` 하나만 처리했다면 여기서는 **프로그램**이 타일 루프를 직접 제어한다는 게 다릅니다.
+
+== 요약
+
+* 코어보다 큰 행렬은 여러 타일로 쪼개 공유 메모리에 순서대로 로드하며 처리합니다.
+* `tiled_matmul_correct`는 타일별 부분합을 전부 더한 결과가 전체 행렬 곱셈과 정확히 같다는 걸 증명합니다(리스트 재정렬 논증, 뼈대는 연습 문제).
+* 하드웨어 쪽에는 새 연산기가 필요 없습니다 — 타일 카운터 하나와, 누산 레지스터를 타일 경계에서 초기화하지 않는 것뿐입니다.
+* 4×4 행렬을 2×2 타일 두 개로 처리해, 코어보다 큰 문제도 정확히 풀린다는 것을 Verilator로 확인했습니다.
+
+다음 장에서는 코어 하나가 아니라 여러 개의 SIMT 코어를 나란히 놓고, 코어 간 동기화(배리어)가 교착 없이 끝난다는 것을 증명합니다.
+// end::body[]

@@ -1,0 +1,144 @@
+---
+title: "분기 발산과 predicated execution: 레인마다 다른 길을 갈 때"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "gpu", "simt", "divergence", "book"]
+categories: ["books"]
+description: "조건 분기가 레인마다 다른 결과를 낼 때(발산) 하드웨어가 실제로 무엇을 하는지, 마스크 레지스터로 '이 레인은 결과를 버린다'를 표현하는 predicated execution을 정의하고 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-simt-lane/[1장: SIMT 레인 하나] · 다음: link:../03-warp-scheduler/[3장: 워프 스케줄러]_
+
+'''
+
+== 1. 모든 레인이 같은 명령어를 실행한다는 전제가 깨지는 순간
+
+1장의 `LaneArray.stepAll`은 "모든 레인이 같은 명령어를 실행한다"는 SIMT의 전제 위에서만 성립합니다. 그런데 프로그램에 `if (x > 0) { a = a + 1 } else { a = a - 1 }` 같은 조건 분기가 있으면, 레인마다 `x`가 다르니 어떤 레인은 `+1`을, 어떤 레인은 `-1`을 실행해야 합니다 — "레인마다 다른 명령어"가 필요해지는 순간이고, 이걸 *발산(divergence)*이라고 부릅니다.
+
+실제 GPU는 이 문제를 명령어를 진짜로 갈라 보내는 대신 — 그러면 SIMT의 "Single Instruction" 전제 자체가 깨집니다 — **양쪽 분기를 모두 실행하되, 자기 조건에 안 맞는 레인은 결과를 버리게** 만들어서 풉니다. 이걸 predicated execution이라고 부릅니다.
+
+== 2. 마스크: "이 레인은 지금 살아있다"를 타입으로
+
+[source,lean]
+----
+-- Gpu/Predication.lean
+import Gpu.Lane
+
+namespace Nand2Npu.Gpu
+
+/-- 레인 배열에 딸린 마스크: 각 레인이 지금 이 명령어를 실제로 반영해야 하는지. -/
+def Mask (n : Nat) := Fin n → Bool
+
+/-- 마스크가 켜진 레인만 op를 반영하고, 꺼진 레인은 원래 상태를 유지합니다. -/
+def LaneArray.stepMasked {n : Nat} (op : LaneOp) (mask : Mask n) (arr : LaneArray n) : LaneArray n :=
+  { lanes := fun i => if mask i then LaneState.step op (arr.lanes i) else arr.lanes i }
+
+end Nand2Npu.Gpu
+----
+
+`stepMasked`는 1장의 `stepAll`을 "마스크가 켜진 레인에만" 적용하도록 조건 하나를 얹은 것뿐입니다 — 새 산술은 없습니다. 이 단순한 정의 위에서, 발산하는 `if`문 하나는 "먼저 `then` 쪽을 조건이 참인 레인만 마스크로 켜서 실행하고, 그다음 `else` 쪽을 조건이 거짓인 레인만 켜서 실행"하는 두 번의 `stepMasked` 호출로 컴파일됩니다.
+
+== 3. 발산 처리의 정당성: 두 갈래를 순서대로 실행해도 결과는 같다
+
+핵심 정리는 "마스크로 나눠 두 번 실행한 결과가, (가상의) '레인마다 다른 명령어를 동시에 실행'한 것과 같다"는 것입니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Gpu
+
+/-- 조건에 따라 두 연산 중 하나를 레인마다 골라 실행한 것(이상적인 정의)과,
+    마스크로 나눠 순서대로(then 먼저, else 나중) stepMasked를 두 번 적용한 것이
+    같은 결과를 냅니다. -/
+theorem divergent_if_correct {n : Nat} (cond : Fin n → Bool) (opThen opElse : LaneOp) (arr : LaneArray n) :
+    (LaneArray.stepMasked opElse (fun i => !cond i)
+      (LaneArray.stepMasked opThen cond arr)).lanes
+    = fun i => if cond i then (LaneState.step opThen (arr.lanes i))
+               else (LaneState.step opElse (arr.lanes i)) := by
+  funext i
+  unfold LaneArray.stepMasked
+  by_cases h : cond i <;> simp [h]
+
+end Nand2Npu.Gpu
+----
+
+증명은 레인 `i` 하나를 고정하고 `cond i`가 참인지 거짓인지로 나누기만 하면 끝납니다 — 참이면 `then` 단계에서 `step`이 적용되고 `else` 단계에서는 마스크가 꺼져 있어 그 결과가 그대로 유지되며, 거짓이면 정확히 반대입니다. 두 단계가 "순서대로" 일어난다는 게 걱정될 수 있는데, 이 정리가 바로 그 순서가 최종 결과에 영향을 주지 않는다는 것 — `then`과 `else` 마스크가 서로 배타적이므로 어느 쪽을 먼저 해도 상관없다는 것 — 을 확인해줍니다.
+
+[NOTE]
+====
+실전 GPU에서 "발산 비용"이라고 부르는 게 바로 이겁니다 — 레인 절반이 `then`에, 절반이 `else`에 걸리면, 하드웨어는 **두 배**의 시간을 씁니다(양쪽 다 순서대로 실행하므로). 발산이 없었다면(모든 레인이 같은 분기를 탔다면) 한 번만 실행하면 됩니다. `divergent_if_correct`는 이 방식이 "옳다"는 것만 보장하지, "빠르다"는 것은 전혀 보장하지 않습니다 — 정확성과 성능이 별개의 질문이라는 걸 이 장에서 처음 명시적으로 마주칩니다.
+====
+
+== 4. MLIR/CIRCT로 방출하기: 마스크를 멀티플렉서로
+
+[source,lean]
+----
+def emitMaskedLane : String :=
+"hw.module @masked_lane(in %clk: !seq.clock, in %mask: i1,
+    in %op_result: i16, in %prev: i16, out out: i16) {
+  %next = comb.mux %mask, %op_result, %prev : i16
+  %reg = seq.compreg %next, %clk : i16
+  hw.output %reg : i16
+}"
+----
+
+`mask`가 꺼지면 `comb.mux`가 `op_result`(이번에 계산된 새 값) 대신 `prev`(이전 레지스터 값)를 그대로 되먹여, 사실상 "이번 클록엔 아무 일도 없었다"는 효과를 냅니다 — 3권 4장의 `saturateToInt8`에서 봤던 비교-멀티플렉서 조합과 같은 패턴입니다.
+
+== 5. Verilator로 발산 검증
+
+[source,cpp]
+----
+// sim/tb_divergent_if.cpp
+#include "Vlane_array_masked4.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vlane_array_masked4;
+
+    // 4개 레인의 x: {5, -3, 2, -7} -> 조건(x > 0)이 레인마다 다르게 갈림
+    int xs[4] = {5, -3, 2, -7};
+    for (int i = 0; i < 4; ++i) dut->set_x(i, xs[i]);
+
+    // 1단계: then(x+1)을 cond=true인 레인(0,2)에만 적용
+    dut->apply_then();
+    // 2단계: else(x-1)을 cond=false인 레인(1,3)에만 적용
+    dut->apply_else();
+
+    int expected[4] = {6, -4, 3, -8};  // {x+1, x-1, x+1, x-1}
+    int failures = 0;
+    for (int i = 0; i < 4; ++i) {
+        int got = dut->get_result(i);
+        if (got != expected[i]) {
+            std::printf("FAIL lane %d: expected %d got %d\n", i, expected[i], got);
+            ++failures;
+        } else {
+            std::printf("ok lane %d: %d\n", i, got);
+        }
+    }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("DIVERGENT IF PASSED (4 lanes, 2 took each branch)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: 4개 레인 중 2개는 `+1`, 2개는 `-1`을 받아야 합니다 — `apply_then()`과 `apply_else()`를 각각 한 번씩만 호출했는데도(1장의 `dut->eval()` 한 번짜리 병렬 덧셈과 달리, 이번엔 두 단계) 모든 레인이 정확히 자기 조건에 맞는 결과를 받는지가 확인 포인트입니다. `apply_then()`을 두 번 호출하는 실수를 하면 조건이 거짓인 레인도 `+1`을 받아버리니, 실패한다면 이 호출 순서·횟수부터 확인하세요.
+====
+
+== 이 장이 왜 중요한가
+
+1장 마지막에서 예고했던 대로, 지금까지 "함수 정의로부터 공짜로 따라오던" 병렬성이 여기서 처음으로 비용을 요구하기 시작합니다 — `divergent_if_correct`가 정확성은 지켜주지만, NOTE에서 짚었듯 발산한 레인 수만큼 실행 시간이 늘어나는 건 막지 못합니다. 이 비용이 실제로 얼마나 되는지는 9장에서 3권(NPU)의 고정 기능 회로와 비교할 때 다시 등장합니다 — NPU는 애초에 분기가 없는 연산(행렬 곱셈)만 다루므로 이 비용 자체가 존재하지 않는다는 게, "왜 특정 워크로드에는 고정 기능이 이기는가"의 첫 번째 구체적 증거입니다.
+
+== 요약
+
+* 레인마다 다른 조건 분기 결과가 나오는 것을 발산(divergence)이라 부르고, SIMT 하드웨어는 이걸 "양쪽 분기를 순서대로 다 실행하되 마스크로 걸러낸다"(predicated execution)는 방식으로 다룹니다.
+* `Mask`와 `LaneArray.stepMasked`는 1장의 `stepAll`에 조건 하나만 얹은 정의이고, `divergent_if_correct`로 이 방식이 "레인마다 다른 명령어를 동시에 실행한 것"과 같은 결과를 낸다는 걸 증명했습니다.
+* 이 정당성 증명은 **정확성**만 보장하지 **성능**은 보장하지 않습니다 — 발산한 레인 수만큼 실행 시간이 늘어나는 비용은 그대로 남습니다.
+* 마스크는 CIRCT에서 멀티플렉서(레지스터를 갱신할지 유지할지 고르는) 하나로 방출되고, 4레인 발산 시나리오로 검증했습니다.
+
+다음 장에서는 이 발산 비용을 부분적으로 숨기는 방법 — 여러 레인 그룹(워프)을 번갈아 실행해, 한 그룹이 메모리를 기다리는 동안 다른 그룹이 일하게 만드는 워프 스케줄러를 다룹니다.
+// end::body[]
