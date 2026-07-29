@@ -1,0 +1,113 @@
+---
+title: "깊은 레이어의 오차 전파: 3권이 미뤄둔 반복을 끝까지"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "transformer", "quantization", "neural-network-verification", "book"]
+categories: ["books"]
+description: "3권 8장이 한 레이어에 대해서만 계산했던 오차 한계를, 여러 트랜스포머 블록을 쌓은 깊은 모델 전체에 대해 실제로 유도하고, 그 위에서 다음 문자 예측이 여전히 안전한 조건을 정리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-kv-cache/[5장: KV 캐시] · 다음: link:../07-compiler-extension-attention/[7장: 컴파일러 확장]_
+
+'''
+
+== 1. 3권이 남긴 반복 작업
+
+3권 8장은 오차 전파를 증명하며 이렇게 적었습니다 — "전체 정책망(첫 컨볼루션 + depthwise + pointwise + 완전연결)에 대해 이 계산을 반복하면(각 레이어의 `k`, `Cin`을 대입하는 정도의 반복 작업이라 연습 문제로 남깁니다)". 3권의 정책망은 레이어가 4~5개뿐이라 그 반복이 크게 부담스럽지 않았지만, 트랜스포머는 블록을 훨씬 깊게 쌓습니다 — 이 4권의 미니 모델조차 어텐션 블록을 여러 개 겹칠 수 있고, 실전 모델은 수십~수백 개를 쌓습니다. 이 장은 그 "반복 작업"을 실제로 끝까지 밀어붙여, 레이어 수에 따라 오차가 어떻게 쌓이는지 명시적인 함수로 만듭니다.
+
+== 2. 블록 하나를 통과할 때 오차가 얼마나 불어나는가
+
+3권 8장의 `mac_mul_error_bound`와 `sum_error_bound`가 MAC 하나·레이어 하나의 오차를 다뤘습니다. 트랜스포머 블록 하나(3장)는 MAC(Q/K/V 프로젝션, 가중합)뿐 아니라 2장의 `approxExp`(LUT 근사)와 3장의 `approxRsqrt`(LUT 근사)도 포함합니다 — 이 두 근사도 각자의 오차 한계를 갖습니다.
+
+[source,lean]
+----
+-- Transformer/ErrorProp.lean
+import Transformer.KvCache
+
+namespace Nand2Npu.Transformer
+
+/-- LUT 근사(approxExp든 approxRsqrt든) 하나가 만드는 최대 오차 — 구간 폭의 절반
+    (계단 함수이므로, 참값과 그 구간 대표값의 최대 차이는 구간 폭의 절반을 넘지 않습니다). -/
+def lutMaxError (maxIntervalWidth : Nat) : Nat := maxIntervalWidth / 2
+
+/-- 트랜스포머 블록 하나를 통과할 때의 총 오차 한계 —
+    (Q/K/V 프로젝션의 MAC 오차, 3권 8장의 convLayerErrorBound 재사용)
+    + (softmax의 LUT 오차, 2장) + (레이어 정규화의 LUT 오차, 3장)를 전부 더한 것.
+    각 항이 서로 다른 근원(반올림 vs 구간 근사)이지만, 최악의 경우를 가정하면
+    그냥 합해도 안전한 상한이 됩니다(삼각부등식 — 3권 8장의 sum_error_bound와
+    같은 원리). -/
+def blockErrorBound (dModel dHead expIntervalWidth rsqrtIntervalWidth : Nat) : Nat :=
+  Nand2Npu.Npu.convLayerErrorBound 1 dModel  -- Q/K/V 프로젝션(사실상 1x1 "컨볼루션") 오차, 3권 8장
+    + lutMaxError expIntervalWidth
+    + lutMaxError rsqrtIntervalWidth
+
+end Nand2Npu.Transformer
+----
+
+== 3. L개 블록을 쌓았을 때: 3권 8장의 반복을 실제로 완성
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+/-- L개 블록을 통과한 뒤의 총 오차 한계 — 3권 8장 quantErrorBound(numLayers * perLayerError)를
+    이제 실제 숫자(blockErrorBound)로 채워 넣은 것입니다. 각 블록의 입력 오차가 다음 블록의
+    출력 오차에 그대로 얹힌다는(최악의 경우) 가정 위에서, 최종 오차는 블록 수에 선형으로
+    비례합니다. -/
+def deepModelErrorBound (numBlocks dModel dHead expIntervalWidth rsqrtIntervalWidth : Nat) : Nat :=
+  numBlocks * blockErrorBound dModel dHead expIntervalWidth rsqrtIntervalWidth
+
+/-- 이 정의가 정확히 3권 8장의 quantErrorBound와 같은 형태(레이어 수 × 레이어당 오차)라는 것 —
+    3권이 "가정으로 받았던" 구조를 이 4권이 실제 값으로 완성했다는 걸 명시적으로 보입니다. -/
+theorem deepModelErrorBound_eq_quantErrorBound (numBlocks dModel dHead expW rsqrtW : Nat) :
+    deepModelErrorBound numBlocks dModel dHead expW rsqrtW =
+      (Nand2Npu.Npu.quantErrorBound numBlocks (blockErrorBound dModel dHead expW rsqrtW : Int)).toNat := by
+  unfold deepModelErrorBound Nand2Npu.Npu.quantErrorBound
+  simp
+
+end Nand2Npu.Transformer
+----
+
+`deepModelErrorBound_eq_quantErrorBound`가 이 장의 상징적인 정리입니다 — 3권 7장이 `quantErrorBound (numLayers) (perLayerError)`라는 **형태**만 정의해두고 `perLayerError`를 가정으로 받았던 것을, 이 4권이 `blockErrorBound`라는 **실제 계산된 값**으로 채워 넣어 그 정의를 완성합니다. 두 정의가 다른 게 아니라 정확히 같은 형태라는 것 자체가, 3권과 4권이 얼마나 긴밀하게 이어지는지 보여줍니다.
+
+[NOTE]
+====
+`numBlocks`에 선형으로 비례한다는 것(오차가 곱셈이 아니라 덧셈으로 쌓인다는 것)은 이 장이 "최악의 경우 오차가 각 블록을 통과할 때 그대로 더해지기만 하고 증폭되지 않는다"고 가정했기 때문입니다 — 실제로는 어텐션의 softmax가 비선형이라 오차가 블록마다 다르게(때로는 줄어들게, 때로는 늘어나게) 상호작용할 수 있습니다. 이 비선형 상호작용까지 정확히 모델링하는 건 신경망 검증 분야에서도 활발한 연구 주제(예: 립시츠 상수 기반 경계)이고, 이 시리즈의 범위를 완전히 넘어섭니다 — 여기서는 "선형 누적"이라는, 검증하기는 쉽지만 보수적인(실제보다 과대평가할 가능성이 있는) 가정을 명시적으로 택했습니다.
+====
+
+== 4. 다음 문자 예측이 여전히 안전한 조건
+
+3권 7장의 `action_order_preserved`를 이 새 오차 한계로 그대로 재사용하면, "생성할 다음 문자"를 고르는 마지막 단계(어휘 27개에 대한 점수 중 최댓값 선택)가 여전히 안전한 조건이 나옵니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+/-- L개 블록을 통과한 모델의 최종 문자 점수에 대해, 1등 문자와 2등 문자의 참값 점수
+    차이가 deepModelErrorBound의 두 배보다 크면, 양자화된 점수에서도 같은 문자가
+    1등입니다 — 3권 7장의 action_order_preserved를 이 4권의 오차 한계로 그대로
+    재적용한 것뿐입니다. -/
+theorem next_char_prediction_safe (numBlocks dModel dHead expW rsqrtW : Nat)
+    (trueTop trueSecond quantTop quantSecond : Int)
+    (hA : (trueTop - quantTop).natAbs ≤ deepModelErrorBound numBlocks dModel dHead expW rsqrtW)
+    (hB : (trueSecond - quantSecond).natAbs ≤ deepModelErrorBound numBlocks dModel dHead expW rsqrtW)
+    (hgap : trueTop > trueSecond + 2 * (deepModelErrorBound numBlocks dModel dHead expW rsqrtW : Int)) :
+    quantTop > quantSecond :=
+  Nand2Npu.Npu.action_order_preserved trueTop trueSecond quantTop quantSecond
+    (deepModelErrorBound numBlocks dModel dHead expW rsqrtW) hA hB hgap
+
+end Nand2Npu.Transformer
+----
+
+`next_char_prediction_safe`가 `sorry` 없이 완전히 끝나는 것이 이 절의 요점입니다 — 새 정리가 아니라 3권 7장의 정리를 **그대로 호출**한 것입니다. 4권 전체가 지금까지 해온 일이 결국 이겁니다 — 3권의 정리를 부정하거나 다시 증명하지 않고, 그 정리가 필요로 하는 숫자(`bound`)를 트랜스포머라는 새 아키텍처에 맞춰 실제로 계산해 채워 넣는 것.
+
+== 이 장에서 확정한 것
+
+* 3권 8장이 "반복 작업이라 연습 문제로 남긴다"고 미뤄뒀던, 여러 레이어에 걸친 오차 누적 계산을 `deepModelErrorBound`로 실제로 완성했습니다.
+* `deepModelErrorBound_eq_quantErrorBound`로 이 4권의 계산이 3권 7장이 정의해둔 형태(`quantErrorBound`)를 정확히 채운다는 것을 확인했습니다.
+* 오차가 블록 수에 선형으로 누적된다는 가정을 명시하고, 그 가정이 보수적(실제보다 과대평가할 수 있음)이라는 걸 밝혔습니다 — 비선형 상호작용의 정확한 모델링은 이 시리즈 범위 밖입니다.
+* `next_char_prediction_safe`로 3권 7장의 `action_order_preserved`를 새 오차 한계에 그대로 재적용해, 다음 문자 예측이 안전한 조건을 완전히 증명했습니다.
+
+다음 장에서는 지금까지 손으로 스케치한 트랜스포머 블록을 컴파일러가 실제로 NPU/GPU 명령어 시퀀스로 낮추도록 Mini 언어를 확장합니다.
+// end::body[]

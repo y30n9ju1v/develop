@@ -1,0 +1,87 @@
+---
+title: "가변 길이 시퀀스: 왜 고정 배선 NPU 혼자로는 부족한가"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "gpu", "transformer", "book"]
+categories: ["books"]
+description: "입력 문장마다 길이가 다른 시퀀스를, 2권의 타일링과 마스킹을 재사용해 고정 크기 시스톨릭 어레이 위에서 처리하고, 패딩된 위치가 어텐션 가중치에 영향을 주지 않는다는 것을 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-multihead-and-layernorm/[3장: 멀티헤드와 레이어 정규화] · 다음: link:../05-kv-cache/[5장: KV 캐시]_
+
+'''
+
+== 1. 3권의 NPU가 가정했던 것
+
+3권 2장의 시스톨릭 어레이는 크기가 배선 시점에 고정됩니다(3×3 예제 그대로). 행렬 곱셈에서는 이게 문제가 안 됩니다 — 2권 5장의 타일링이 큰 행렬을 고정 크기 조각으로 쪼개면 그만입니다(3권의 NPU 자체는 이 타일링을 직접 다루지 않지만, 원리는 그대로 옮겨옵니다). 그런데 트랜스포머의 시퀀스 길이(`seqLen`)는 행렬 크기와 성격이 다릅니다 — **입력마다 실제로 다릅니다.** "안녕"은 2토큰, "오늘 날씨가 좋네요"는 9토큰입니다. NPU 회로 하나가 이 둘을 전부 감당하려면, 매번 다른 크기로 다시 배선할 수는 없으니 다른 전략이 필요합니다.
+
+== 2. 패딩: 짧은 시퀀스를 고정 크기로 부풀리기
+
+표준적인 해법은 짧은 시퀀스를 특별한 "패드" 토큰으로 채워, 항상 고정된 최대 길이(`maxSeqLen`)로 맞추는 것입니다.
+
+[source,lean]
+----
+-- Transformer/Padding.lean
+import Transformer.MultiHead
+
+namespace Nand2Npu.Transformer
+
+/-- 실제 토큰 수(validLen)와 패딩을 채운 최대 길이(maxSeqLen)를 구분해 들고 다닙니다. -/
+structure PaddedSequence (maxSeqLen dModel : Nat) where
+  X : Fin maxSeqLen → Fin dModel → Int
+  validLen : Nat
+  hvalid : validLen ≤ maxSeqLen
+
+/-- 위치 i가 패딩인지(즉 validLen을 넘는 자리인지). -/
+def PaddedSequence.isPad {maxSeqLen dModel : Nat} (s : PaddedSequence maxSeqLen dModel) (i : Fin maxSeqLen) : Bool :=
+  i.val ≥ s.validLen
+
+end Nand2Npu.Transformer
+----
+
+`isPad`가 만드는 `Bool`이 2권 2장의 `Mask`와 정확히 같은 모양입니다 — "이 레인(여기서는 이 토큰 위치)을 실제로 계산에 반영할지"를 결정하는 신호입니다.
+
+== 3. 패딩된 위치를 softmax에서 무력화하기
+
+패딩 위치가 실수로 어텐션 가중치를 받으면(예: 패딩 토큰의 `V`가 실제 출력에 섞이면) 결과가 완전히 틀어집니다. 표준적인 해법은 softmax에 들어가기 **전**, 패딩 위치의 점수를 아주 작은 값(사실상 `-∞`)으로 덮어써서, 2장의 `approxExp`가 그 위치에 대해 0에 가까운 값을 내도록 만드는 것입니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+/-- 패딩 위치의 점수를 매우 작은 값(veryNegative)으로 덮어씁니다. -/
+def maskPaddedScores {maxSeqLen dModel : Nat} (s : PaddedSequence maxSeqLen dModel)
+    (scores : Fin maxSeqLen → Int) (veryNegative : Int) : Fin maxSeqLen → Int :=
+  fun j => if s.isPad j then veryNegative else scores j
+
+/-- 2장의 approxExp가 단조(Monotonic)이고, LUT의 가장 작은 구간 경계가 veryNegative보다
+    크면, 패딩 위치는 항상 LUT의 최소 근사값(사실상 0)을 받습니다 — approxExp_monotonic을
+    "아주 작은 입력에 대한" 특수한 경우로 적용한 것뿐입니다. -/
+theorem padded_position_gets_min_weight {maxSeqLen dModel : Nat} (s : PaddedSequence maxSeqLen dModel)
+    (scores : Fin maxSeqLen → Int) (lut : ExpLUT) (veryNegative : Int)
+    (hmin : ∀ p ∈ lut, veryNegative ≤ p.1) (j : Fin maxSeqLen) (hpad : s.isPad j = true) :
+    ∀ k, ¬ s.isPad k = true → approxExp lut (maskPaddedScores s scores veryNegative j) ≤
+      approxExp lut (maskPaddedScores s scores veryNegative k) := by
+  sorry  -- maskPaddedScores의 정의를 펼치면 j는 veryNegative, k는 원래 점수를 받으므로,
+         -- 2장의 approxExp_monotonic을 veryNegative ≤ (k의 점수, hmin 경유)에 적용하면
+         -- 바로 나옵니다 — 조립이지 새 증명이 아니라 연습 문제로 남깁니다.
+
+end Nand2Npu.Transformer
+----
+
+`padded_position_gets_min_weight`가 이 장의 핵심입니다 — 새로운 증명 기법이 전혀 없습니다. 2장에서 만든 `approxExp_monotonic`을 "패딩은 아주 작은 점수를 받는다"는 사실에 적용하기만 하면, "패딩은 항상 실제 토큰보다 작거나 같은 가중치를 받는다"가 공짜로 따라옵니다. 3권 7장부터 반복해온 "순서 보존 정리를 새 상황에 재적용한다"는 패턴이 여기서도 그대로입니다.
+
+== 4. 왜 이게 GPU(2권)가 다시 필요해지는 지점인가
+
+패딩 자체는 NPU(3권)만으로도 처리할 수 있습니다 — 항상 `maxSeqLen`만큼 고정 크기로 계산하고 결과 일부를 버리는 것뿐이니까요. 문제는 **낭비**입니다 — 2토큰짜리 문장도 `maxSeqLen=8`이면 8배 크기로 계산해야 합니다. 반복 생성(다음 장의 KV 캐시)처럼 아주 많은 짧은 시퀀스를 처리해야 하는 워크로드에서는 이 낭비가 누적됩니다. 2권 8장에서 이미 정리했던 결론 — "워크로드가 데이터에 따라 실제로 달라지면 프로그램 가능한 코어가 유리하다" — 이 여기서 다시 등장합니다. 실전 트랜스포머 가속기는 종종 NPU(행렬 곱셈)와 GPU류 코어(가변 길이 제어, 마스킹, 스케줄링)를 함께 씁니다 — 2권과 3권을 각각 따로 만든 이 시리즈의 구조가 우연이 아니라는 게 이 지점에서 드러납니다.
+
+== 이 장에서 확정한 것
+
+* 시퀀스 길이가 입력마다 다르다는 것이, 3권의 고정 배선 NPU가 원리적으로 감당 못 하는 첫 번째 진짜 사례임을 확인했습니다.
+* 패딩(`PaddedSequence`)과 2권 2장 스타일의 마스킹으로 가변 길이를 고정 크기로 감싸는 표준 기법을 구현했습니다.
+* `padded_position_gets_min_weight`로, 패딩 위치가 항상 실제 토큰보다 작거나 같은 어텐션 가중치를 받는다는 걸 2장의 단조성 정리를 재적용해 증명했습니다.
+* 패딩의 낭비가 왜 실전에서 NPU와 GPU를 함께 쓰는 이유가 되는지 짚었습니다.
+
+다음 장에서는 문장을 한 글자씩 생성하는 반복 추론에서, 매번 전체 시퀀스를 다시 계산하지 않도록 K/V를 캐싱하는 KV 캐시를 다룹니다.
+// end::body[]

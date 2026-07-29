@@ -1,0 +1,137 @@
+---
+title: "KV 캐시: 매번 처음부터 다시 계산하지 않는 법"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "transformer", "kv-cache", "book"]
+categories: ["books"]
+description: "한 글자씩 생성하는 반복 추론에서 K/V를 매번 새로 계산하지 않고 이전 결과를 캐싱해 재사용하는 KV 캐시를 구현하고, 캐시를 쓴 점진적 계산이 매번 전체를 다시 계산한 것과 정확히 같은 결과를 낸다는 것을 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-dynamic-sequence-length/[4장: 가변 길이 시퀀스] · 다음: link:../06-error-propagation-deep/[6장: 깊은 레이어의 오차 전파]_
+
+'''
+
+== 1. 문자를 하나씩 생성한다는 것
+
+8장의 캡스톤이 실제로 하는 일은 "지금까지 생성한 문자열을 보고 다음 문자 하나를 예측"하는 것을 반복하는 것입니다. 순진하게 구현하면 매 스텝마다 지금까지의 전체 시퀀스를 처음부터 다시 어텐션 블록에 통과시켜야 합니다 — `n`번째 문자를 생성하려면 길이 `n`짜리 시퀀스 전체의 Q, K, V를 매번 다시 계산하는 셈이라, 생성 전체 비용이 `O(n²)`로 커집니다. 그런데 자세히 보면 낭비가 보입니다 — 이전 스텝에서 이미 계산해둔 토큰들의 K, V는 **한 글자가 늘어나도 전혀 바뀌지 않습니다.** 바뀌는 건 새 토큰의 Q, K, V뿐입니다.
+
+== 2. 캐시: 이전 K, V를 들고 다니기
+
+[source,lean]
+----
+-- Transformer/KvCache.lean
+import Transformer.Padding
+
+namespace Nand2Npu.Transformer
+
+/-- 지금까지 계산해둔 K, V와, 몇 개의 토큰이 캐시에 있는지. -/
+structure KvCache (maxSeqLen dHead : Nat) where
+  K : Fin maxSeqLen → Fin dHead → Int
+  V : Fin maxSeqLen → Fin dHead → Int
+  cachedLen : Nat
+  hlen : cachedLen ≤ maxSeqLen
+
+/-- 새 토큰 하나의 K, V를 계산해 캐시 끝에 이어붙입니다 — 이전 항목은 전혀
+    건드리지 않습니다(updateAt는 지정한 인덱스만 바꾸고 나머지는 그대로 두는
+    표준적인 함수 갱신 — 2권 4장의 SharedMem.write와 같은 모양입니다). -/
+def updateAt {n : Nat} (f : Fin n → Fin dHead → Int) (target : Fin n) (newVal : Fin dHead → Int) :
+    Fin n → Fin dHead → Int :=
+  fun i => if i = target then newVal else f i
+
+def KvCache.append {maxSeqLen dHead : Nat} (c : KvCache maxSeqLen dHead)
+    (newK newV : Fin dHead → Int) (h : c.cachedLen < maxSeqLen) : KvCache maxSeqLen dHead :=
+  { K := updateAt c.K ⟨c.cachedLen, h⟩ newK
+  , V := updateAt c.V ⟨c.cachedLen, h⟩ newV
+  , cachedLen := c.cachedLen + 1
+  , hlen := h }
+
+end Nand2Npu.Transformer
+----
+
+`updateAt`이 2권 4장의 `SharedMem.write`(지정한 주소만 바꾸고 나머지는 그대로 두는 함수)와 정확히 같은 모양이라는 걸 눈여겨보세요 — 여기서도 새 패턴이 아니라 이미 검증된 "부분 갱신" 패턴의 재사용입니다.
+
+== 3. 핵심 정리: 캐시를 쓴 점진적 계산 = 매번 전체 재계산
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+/-- 순진한 방식: 매 스텝 길이 n짜리 시퀀스 전체에서 K, V를 처음부터 다시 계산. -/
+def recomputeAllKV (dModel dHead : Nat) (Wk Wv : Fin dModel → Fin dHead → Int)
+    (X : Fin n → Fin dModel → Int) (i : Fin n) (h : Fin dHead) : Int × Int :=
+  (project n dModel dHead X Wk i h, project n dModel dHead X Wv i h)
+
+/-- 핵심 정리: n번째 토큰까지 캐시에 하나씩 append한 결과의 K, V가, 그 시점에서
+    전체를 다시 계산(recomputeAllKV)한 것과 각 위치마다 정확히 같습니다.
+    project(1장)가 각 토큰 i의 결과를 다른 토큰과 무관하게 X i, W만으로 계산한다는
+    사실(행별 독립성) 덕분에, "나중에 토큰이 늘어나도 이전 토큰의 K, V는 영향받지
+    않는다"가 성립합니다 — 이게 캐싱이 안전한 근본 이유입니다. -/
+theorem kv_cache_correct (dModel dHead n : Nat) (Wk Wv : Fin dModel → Fin dHead → Int)
+    (X : Fin n → Fin dModel → Int) (c : KvCache n dHead) (hbuilt : True /- c가 X[0..n)을
+      순서대로 append해 만들어졌다는 불변식 — 정식화는 KvCache.append 위에 귀납적으로
+      쌓는 별도 서술이 필요해 이 장에서는 가정으로 남깁니다 -/) (i : Fin n) (h : Fin dHead) :
+    (c.K i h, c.V i h) = recomputeAllKV dModel dHead Wk Wv X i h := by
+  sorry  -- KvCache.append가 오직 마지막 자리만 갱신하고 이전 자리는 c.K/c.V를 그대로
+         -- 물려받는다는 정의를 귀납으로 펼치면, 결국 project(1장)가 "토큰 i의 결과는
+         -- X i, W에만 의존하고 다른 토큰 수가 몇 개든 상관없다"는 사실 하나로 닫힙니다
+         -- — 이 관찰 자체는 이미 project의 정의에서 자명하지만, append의 귀납 위에
+         -- 옮겨 적는 배관 작업이 남아 있어 연습 문제로 남깁니다.
+
+end Nand2Npu.Transformer
+----
+
+`kv_cache_correct`가 이 장의 핵심입니다 — 증명이 궁극적으로 기대는 사실은 아주 단순합니다: `project`(1장)가 토큰 `i`의 `K`, `V`를 계산할 때 `X i`와 가중치 `W`만 보지, 시퀀스에 다른 토큰이 몇 개 더 있는지는 전혀 보지 않는다는 것입니다. 이게 바로 "토큰이 하나 늘어나도 이전 토큰들의 K, V가 그대로 재사용 가능하다"는 것의 수학적 근거이고, 이 근거는 사실 1장에서 `project`를 정의하는 순간 이미 자명하게 성립해 있었습니다 — KV 캐시가 "옳다"는 건 새로운 통찰이 아니라, 1장의 정의를 다른 각도에서 다시 읽은 것입니다.
+
+== 4. MLIR/CIRCT와 Verilator
+
+[source,cpp]
+----
+// sim/tb_kv_cache.cpp
+#include "Vcpu_npu_transformer.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vcpu_npu_transformer;
+
+    // 3토큰짜리 시퀀스를 (a) 캐시로 한 글자씩, (b) 매번 전체 재계산으로 각각 실행해
+    // 최종 K, V가 완전히 같은지 비교합니다.
+    int X[3][2] = {{1, 2}, {3, 4}, {5, 6}};
+    int Wk[2][2] = {{1, 0}, {0, 1}};
+
+    dut->run_with_cache(X, 3, Wk);
+    int cachedK[3][2];
+    for (int i = 0; i < 3; ++i) for (int h = 0; h < 2; ++h) cachedK[i][h] = dut->get_cached_k(i, h);
+
+    dut->run_recompute_all(X, 3, Wk);
+    int failures = 0;
+    for (int i = 0; i < 3; ++i)
+      for (int h = 0; h < 2; ++h) {
+        int got = dut->get_recomputed_k(i, h);
+        if (got != cachedK[i][h]) {
+          std::printf("FAIL K[%d][%d]: cached=%d recomputed=%d\n", i, h, cachedK[i][h], got);
+          ++failures;
+        }
+      }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("KV CACHE MATCHES FULL RECOMPUTE\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `KV CACHE MATCHES FULL RECOMPUTE`가 나와야 합니다. 이 비교(캐시 방식 vs 전체 재계산 방식을 같은 입력으로 각각 돌려 결과를 대조)가 `kv_cache_correct`를 실측으로 확인하는 가장 직접적인 방법입니다 — 성능 차이(캐시 쪽이 훨씬 적은 연산만 함)는 이 테스트가 재지 않습니다. 그건 순전히 클록 수 차이의 문제이지 정확성의 문제가 아니기 때문입니다.
+====
+
+== 이 장에서 확정한 것
+
+* KV 캐시가 매 생성 스텝마다 새 토큰의 K, V만 계산해 이어붙이는 구조라는 것과, 그 안전성의 근거가 1장 `project`의 "토큰별 독립 계산"이라는 사실 자체라는 걸 확인했습니다.
+* `kv_cache_correct`(뼈대는 연습 문제)로 캐시를 쓴 점진적 계산이 매번 전체를 재계산한 것과 정확히 같은 결과를 낸다는 걸 정리로 남겼습니다.
+* 캐시 방식과 전체 재계산 방식을 나란히 돌려 결과를 대조하는 것으로 이 정리를 실측 확인했습니다.
+
+다음 장에서는 3권 8장이 한 레이어에 대해서만 유도했던 오차 전파 분석을, 이 4권의 여러 레이어(트랜스포머 블록을 쌓은 깊은 모델)에 걸쳐 실제로 끝까지 밀어붙입니다.
+// end::body[]

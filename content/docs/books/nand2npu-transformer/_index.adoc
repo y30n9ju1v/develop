@@ -1,0 +1,111 @@
+---
+title: "nand2npu 4권: NPU에서 트랜스포머로"
+---
+
+link:../nand2npu/[1권]의 CPU, link:../nand2npu-gpu/[2권]의 프로그램 가능한 병렬 코어, link:../nand2npu-vision/[3권]의 고정 기능 NPU를 전부 재사용해, 지금 가장 널리 쓰이는 신경망 아키텍처 — 트랜스포머 — 의 추론을 다루는 시리즈의 4권입니다. 어텐션의 핵심 연산은 놀랍게도 새 회로가 거의 필요 없습니다 — Q/K/V 프로젝션과 스코어는 3권의 `matmul`(1장), 가변 길이 시퀀스와 마스킹은 2권의 GPU 코어(4장)를 그대로 재사용합니다. 이 4권이 새로 다루는 건 softmax의 지수함수 근사(2장), 레이어 정규화의 제곱근 근사(3장), 반복 생성을 빠르게 하는 KV 캐시(5장), 그리고 3권이 한 레이어에 대해서만 유도했던 오차 전파를 깊은 모델 전체로 완성하는 것(6장)뿐입니다. 훈련은 이번에도 범위 밖입니다 — 8장에서 미리 훈련된 1레이어 문자 단위 트랜스포머로 실제로 텍스트를 생성해봅니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 행렬 곱셈에서 어텐션으로]*
+
+*1부: 어텐션 블록 짓기*
+
+[start=1]
+. *link:01-attention-as-matmul/[어텐션도 결국 matmul이다: Q, K, V 프로젝션과 스코어]*
+. *link:02-softmax-approximation/[softmax 근사: 지수함수를 정수 하드웨어에서 어떻게 계산하는가]*
+. *link:03-multihead-and-layernorm/[멀티헤드와 레이어 정규화: 어텐션 블록 하나를 완성하다]*
+
+*2부: 실전에 쓸 수 있게 만들기*
+
+[start=4]
+. *link:04-dynamic-sequence-length/[가변 길이 시퀀스: 왜 고정 배선 NPU 혼자로는 부족한가]*
+. *link:05-kv-cache/[KV 캐시: 매번 처음부터 다시 계산하지 않는 법]*
+. *link:06-error-propagation-deep/[깊은 레이어의 오차 전파: 3권이 미뤄둔 반복을 끝까지]*
+. *link:07-compiler-extension-attention/[컴파일러 확장: 트랜스포머 블록을 명령어로]*
+
+*3부: 캡스톤과 회고*
+
+[start=8]
+. *link:08-capstone-tiny-transformer/[캡스톤: 미니 트랜스포머로 텍스트 생성하기]*
+. *link:09-retrospective/[회고: 세 권의 재료로 트랜스포머까지]*
+
+'''
+
+[#part-1]
+== 제1부: 어텐션 블록 짓기
+
+'''
+
+[#chapter-01]
+== 1. 어텐션도 결국 matmul이다: Q, K, V 프로젝션과 스코어
+
+include::01-attention-as-matmul.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-02]
+== 2. softmax 근사: 지수함수를 정수 하드웨어에서 어떻게 계산하는가
+
+include::02-softmax-approximation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-03]
+== 3. 멀티헤드와 레이어 정규화: 어텐션 블록 하나를 완성하다
+
+include::03-multihead-and-layernorm.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-2]
+== 제2부: 실전에 쓸 수 있게 만들기
+
+'''
+
+[#chapter-04]
+== 4. 가변 길이 시퀀스: 왜 고정 배선 NPU 혼자로는 부족한가
+
+include::04-dynamic-sequence-length.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-05]
+== 5. KV 캐시: 매번 처음부터 다시 계산하지 않는 법
+
+include::05-kv-cache.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-06]
+== 6. 깊은 레이어의 오차 전파: 3권이 미뤄둔 반복을 끝까지
+
+include::06-error-propagation-deep.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-07]
+== 7. 컴파일러 확장: 트랜스포머 블록을 명령어로
+
+include::07-compiler-extension-attention.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-3]
+== 제3부: 캡스톤과 회고
+
+'''
+
+[#chapter-08]
+== 8. 캡스톤: 미니 트랜스포머로 텍스트 생성하기
+
+include::08-capstone-tiny-transformer.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-09]
+== 9. 회고: 세 권의 재료로 트랜스포머까지
+
+include::09-retrospective.adoc[tag=body,leveloffset=+1]

@@ -1,0 +1,119 @@
+---
+title: "캡스톤: 미니 트랜스포머로 텍스트 생성하기"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "gpu", "transformer", "book"]
+categories: ["books"]
+description: "책 밖에서 미리 훈련한 1레이어 문자 단위 트랜스포머의 가중치를 가져와, 1~7장에서 쌓은 파이프라인 전체(NPU matmul, GPU 마스킹, KV 캐시, softmax 근사) 위에서 실제로 문자를 하나씩 생성해보는 4권의 캡스톤"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-compiler-extension-attention/[7장: 컴파일러 확장] · 다음: link:../09-retrospective/[9장: 회고]_
+
+'''
+
+== 1. 이 캡스톤이 다루는 것과 다루지 않는 것
+
+서문에서 그은 경계를 여기서도 지킵니다 — *다루지 않는 것*은 이 모델을 어떻게 훈련했는가입니다. *다루는 것*은 책 밖에서 미리 훈련해둔 가중치를 가져와, 1~7장이 쌓은 파이프라인으로 정확히 재현하는 것입니다. 모델은 알파벳 27개(a~z, 공백)를 다루는 1레이어·1헤드 트랜스포머이고, 짧은 텍스트 코퍼스(예: 동요 가사 몇 줄)로 "다음 문자 맞히기"를 훈련한 것입니다.
+
+[source,python]
+----
+# tools/export_transformer_weights.py — 이 저장소 밖, 훈련에 쓰인 파이썬 스택에서 한 번 실행
+import torch, struct
+
+model = torch.load("tiny_transformer.pt")  # 책 밖에서 미리 훈련된 1레이어 모델
+
+def quantize_to_int8(tensor, scale):
+    # 3권 4장의 saturateToInt8과 정확히 같은 클램프 규칙.
+    q = torch.clamp(torch.round(tensor / scale), -128, 127).to(torch.int8)
+    return q
+
+with open("tiny_model.bin", "wb") as f:
+    for name in ["Wq", "Wk", "Wv", "Wo", "ln_gamma", "ln_beta"]:
+        param = model.state_dict()[name]
+        scale = param.abs().max().item() / 127.0
+        q = quantize_to_int8(param, scale)
+        f.write(struct.pack("<f", scale))
+        f.write(q.numpy().tobytes())
+    # exp/rsqrt LUT도 같은 파일에 이어 씁니다 — 2장·3장에서 정의한 ExpLUT/RsqrtLUT
+    # 형식 그대로, 파이썬에서 torch.exp/torch.rsqrt를 구간별로 미리 계산해 채웁니다.
+----
+
+== 2. 생성 루프: KV 캐시를 실제로 써먹기
+
+[source,text]
+----
+// examples/generate.mini (의사코드 — CPU 메인 루프)
+fn generate(prompt, maxNewChars) {
+    let cache = initKvCache();
+    for (c in prompt) {
+        cache = appendToken(cache, c);  // 5장의 KvCache.append
+    }
+    let result = prompt;
+    for (i = 0; i < maxNewChars; i = i + 1) {
+        let logits = attention(cache, result[-1]);  // 7장의 attention 표현식
+        let nextChar = argmax(logits);
+        cache = appendToken(cache, nextChar);        // 5장: 새 토큰의 K,V만 계산
+        result = result + nextChar;
+    }
+    return result;
+}
+----
+
+이 루프가 3권 9장의 마리오 플레이스루 루프와 구조적으로 똑같다는 걸 눈여겨보세요 — "현재 상태를 보고 → 다음 행동(여기서는 다음 문자)을 고르고 → 상태를 갱신하고 → 반복"입니다. 다른 건 딱 하나, 여기서는 5장의 KV 캐시 덕분에 매 스텝 **새 토큰 하나만** 계산하면 된다는 것입니다 — 마리오는 매 프레임 전체 이미지를 다시 처리해야 했지만, 텍스트 생성은 이미 본 글자들을 다시 안 봐도 됩니다.
+
+== 3. Verilator로 실제 생성 확인
+
+[source,cpp]
+----
+// sim/tb_generate.cpp
+#include "Vcpu_npu_gpu.h"
+#include "verilated.h"
+#include <cstdio>
+#include <cstring>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vcpu_npu_gpu;
+
+    // tiny_model.bin 로드 절차는 3권 7장의 mario_weights.bin 로드와 동일 — 생략.
+    const char* prompt = "the cat ";
+    dut->set_prompt(prompt);
+    dut->generate(/*maxNewChars=*/12);
+
+    char result[64];
+    dut->get_result(result, sizeof(result));
+    std::printf("prompt:    \"%s\"\n", prompt);
+    std::printf("generated: \"%s\"\n", result);
+
+    // 성공 기준은 "정확히 이 문자열"이 아니라(모델이 확률적으로 훈련됐으므로),
+    // 알파벳/공백만 나오고 훈련 코퍼스와 통계적으로 비슷한 패턴(예: 실제 단어와
+    // 비슷한 글자 조합)을 보이는지입니다.
+    bool onlyValidChars = true;
+    for (char c : std::string(result)) {
+        if (!(c == ' ' || (c >= 'a' && c <= 'z'))) { onlyValidChars = false; break; }
+    }
+    delete dut;
+    if (!onlyValidChars) { std::printf("FAIL: generated invalid characters\n"); return 1; }
+    std::printf("GENERATION COMPLETED (27-symbol alphabet respected)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `GENERATION COMPLETED`가 나와야 하고, 생성된 문자열이 훈련에 쓰인 코퍼스와 "그럴듯하게" 비슷해야 합니다(정확히 같을 필요는 없습니다 — 모델은 확률적으로 다음 문자를 고르도록 훈련됐습니다). 이게 3권의 "A × I = A" 같은 결정론적 확인과 근본적으로 다른 지점입니다 — 신경망 생성 결과의 "옳음"은 이분법이 아니라 "그럴듯함"의 문제이고, 이 시리즈가 4장부터 반복해온 "정확성에서 근사 품질로" 이동이 캡스톤에서 최종 형태로 나타난 것입니다. 실제로 이상한 문자(알파벳도 공백도 아닌 것)가 나온다면, 그건 6장의 `next_char_prediction_safe`의 전제(점수 차이가 오차 한계의 두 배보다 큼)가 이 특정 스텝에서 깨졌다는 뜻일 수 있습니다 — 3권 9장에서 마리오의 "아슬아슬한 프레임"을 셌던 것과 같은 방식으로, 이런 스텝이 몇 번이나 나오는지 세어보는 것이 좋은 후속 실험입니다.
+====
+
+== 4. 이 캡스톤이 실제로 증명하는 것과 증명하지 않는 것
+
+*증명하는 것*: 1~7장에서 쌓은 하드웨어(NPU의 matmul, GPU의 마스킹과 커널 컴파일, softmax/rsqrt LUT 근사, KV 캐시)가 게이트(1권 1장)에서 시작해 훈련된 트랜스포머의 실시간 문자 생성까지 끊기지 않고 이어진다는 것. *증명하지 않는 것*: 이 모델이 "좋은" 텍스트를 생성한다는 것 — 그건 훈련(이 시리즈의 범위 밖)의 결과이지 하드웨어 정확성의 문제가 아닙니다.
+
+== 이 장에서 확정한 것
+
+* 훈련된 미니 트랜스포머 가중치를 이 시리즈의 `Int8` 양자화 규칙에 맞춰 내보내는 절차를 정리했습니다.
+* KV 캐시(5장)를 실제로 활용하는 생성 루프가 3권 9장의 마리오 플레이스루 루프와 구조적으로 동일하다는 것을 확인했습니다 — 다른 건 매 스텝 새 토큰 하나만 계산한다는 효율성뿐입니다.
+* 실제 문자 생성을 Verilator로 실행하고, "정확히 같은 출력"이 아니라 "그럴듯한 출력"이 성공 기준이라는 것 — 이 시리즈가 처음부터 끝까지 이동해온 "정확성에서 근사 품질로"라는 질문의 최종 형태 — 을 명시했습니다.
+
+다음 장에서는 이 4권 전체를 회고하고, 1~3권과 이 4권 사이에 무엇이 재사용됐고 무엇이 새로 필요했는지 정리하며 이 시리즈의 현재 지점을 마칩니다.
+// end::body[]

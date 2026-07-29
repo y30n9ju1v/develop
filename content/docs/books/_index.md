@@ -9,6 +9,7 @@ title: "Books"
 - **[nand2npu 1권: Lean4로 증명하며 게이트에서 컴퓨터까지](nand2npu/)** — nand2tetris의 상향식 여정(게이트→ALU→CPU→어셈블러→VM→컴파일러→OS)을 Lean4 증명과 MLIR/CIRCT 방출로 쌓는 책
 - **[nand2npu 2권: NPU에서 미니 GPU로](nand2npu-gpu/)** — 1권의 CPU 위에 프로그램 가능한 병렬 코어(SIMT)를 얹어 레인·발산·워프 스케줄링·공유 메모리·타일링·멀티코어 동기화를 증명하고, 그 유연성의 비용을 직접 측정하는 책
 - **[nand2npu 3권: NPU로 이미지 처리하고 마리오 플레이하기](nand2npu-vision/)** — 2권의 경험을 바탕으로 행렬 곱셈 하나에 특화된 고정 기능 NPU(MAC 유닛·시스톨릭 어레이·양자화)를 만든 뒤, 이미지 분류 워밍업을 거쳐 마리오를 플레이하는 강화학습 정책망의 추론까지 NPU 위에서 증명·검증하는 책
+- **[nand2npu 4권: NPU에서 트랜스포머로](nand2npu-transformer/)** — 2권의 GPU 코어와 3권의 NPU를 재사용해 어텐션(Q/K/V, softmax 근사, 멀티헤드, KV 캐시)을 짓고, 깊은 레이어에 걸친 오차 전파를 완성한 뒤 미니 문자 단위 트랜스포머로 실제로 텍스트를 생성하는 책
 - **[함수형 프로그래밍으로 보는 비동기의 근간](fp-backbone-of-async/)** — Python의 async/await, Monad, Functor, Applicative, Observable이 사실은 함수형 프로그래밍의 오래된 개념 위에 서 있다는 것을 따라가는 책
 - **[SICP in Lean 4](sicp-in-lean4/)** — SICP의 아이디어를 챕터·절 순서대로 따라가며, 모든 Scheme 코드를 Lean 4로 다시 작성해보는 책
 - **[Category Theory for Programmers](category-theory-for-programmers/)** — Bartosz Milewski가 프로그래머를 위해 쓴 범주론 입문서를 장별로 옮긴 한국어 번역

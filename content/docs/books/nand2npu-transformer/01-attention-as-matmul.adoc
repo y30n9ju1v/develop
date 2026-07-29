@@ -1,0 +1,141 @@
+---
+title: "어텐션도 결국 matmul이다: Q, K, V 프로젝션과 스코어"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "transformer", "attention", "book"]
+categories: ["books"]
+description: "어텐션의 Q/K/V 프로젝션과 스케일드 닷프로덕트 스코어가 전부 3권의 matmul로 환원된다는 것을 확인하고, 새로 필요한 것은 정말로 나눗셈(스케일링)과 다음 장의 softmax뿐이라는 것을 정리하는 4권의 첫 실습 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-softmax-approximation/[2장: softmax 근사]_
+
+'''
+
+== 1. 어텐션이 실제로 하는 계산
+
+트랜스포머의 어텐션은 겁먹을 이름과 달리 계산 자체는 소박합니다 — 토큰마다 3개의 벡터(쿼리 Q, 키 K, 밸류 V)를 만들고, "이 토큰이 다른 토큰들을 얼마나 봐야 하는가"라는 점수를 `Q·Kᵀ`로 계산한 뒤, 그 점수를 확률로 바꿔(softmax) 밸류 V의 가중합을 냅니다. 수식으로는 `Attention(Q,K,V) = softmax(QKᵀ/√d)V`입니다. 이 장은 `softmax`를 뺀 나머지 전부(`Q`, `K`, `V` 만들기, `QKᵀ`, `/√d`)가 새 회로 없이 3권의 `matmul`로 끝난다는 걸 확인합니다.
+
+== 2. Q, K, V 프로젝션: 익숙한 matmul
+
+토큰 임베딩 행렬 `X`(`seqLen × dModel`)에 학습된 가중치 `Wq`, `Wk`, `Wv`(`dModel × dHead`)를 곱하면 `Q`, `K`, `V`가 나옵니다.
+
+[source,lean]
+----
+-- Transformer/Attention.lean
+import Npu.Systolic  -- 3권 2장의 matmulSpec 재사용
+
+namespace Nand2Npu.Transformer
+
+open Nand2Npu.Npu (matmulSpec)
+
+/-- X(seqLen×dModel)에 W(dModel×dHead)를 곱해 Q/K/V(seqLen×dHead)를 얻습니다 —
+    3권 2장의 matmulSpec을 이름만 바꿔 재사용합니다. -/
+def project (seqLen dModel dHead : Nat) (X : Fin seqLen → Fin dModel → Int) (W : Fin dModel → Fin dHead → Int)
+    (i : Fin seqLen) (h : Fin dHead) : Int :=
+  ((List.finRange dModel).map (fun k => X i k * W k h)).sum
+
+/-- project가 matmulSpec과 정확히 같은 함수라는 것 — 이름만 바꿔 부른 것이지
+    새 정의가 아니라는 걸 확인하는 정리입니다. -/
+theorem project_eq_matmulSpec (seqLen dModel dHead : Nat) (X : Fin seqLen → Fin dModel → Int)
+    (W : Fin dModel → Fin dHead → Int) (i : Fin seqLen) (h : Fin dHead) :
+    project seqLen dModel dHead X W i h = matmulSpec dModel X W i h := rfl
+
+end Nand2Npu.Transformer
+----
+
+`project_eq_matmulSpec`이 `rfl`(정의 그대로 같음)로 끝나는 게 이 절의 핵심입니다 — Q, K, V를 만드는 데 하드웨어 관점에서 새로운 게 하나도 없습니다. CPU 프로그램에서 `matmul(X, Wq)`, `matmul(X, Wk)`, `matmul(X, Wv)`를 3번 호출하는 것으로 끝입니다.
+
+== 3. 스코어: Q·Kᵀ와 스케일링
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+/-- 토큰 i가 토큰 j를 보는 원점수(raw score): Q[i]·K[j] (내적). -/
+def rawScore (seqLen dHead : Nat) (Q K : Fin seqLen → Fin dHead → Int) (i j : Fin seqLen) : Int :=
+  ((List.finRange dHead).map (fun h => Q i h * K j h)).sum
+
+/-- √dHead로 나눠 스케일링 — dHead가 커질수록 내적이 커져 softmax가 지나치게
+    뾰족해지는 걸 막습니다. 정수 하드웨어이므로 실제로는 나눗셈 대신 dHead에 맞춰
+    미리 계산해둔 고정소수점 상수를 곱하는 형태로 구현합니다(3권 4장의 고정소수점
+    스케일 방식 재사용). -/
+def scaledScore (seqLen dHead : Nat) (Q K : Fin seqLen → Fin dHead → Int) (scaleNum scaleDen : Nat)
+    (i j : Fin seqLen) : Int :=
+  (rawScore seqLen dHead Q K i j * scaleNum) / scaleDen
+
+end Nand2Npu.Transformer
+----
+
+[NOTE]
+====
+`rawScore`는 `project`와 마찬가지로 `matmulSpec`의 특수한 경우입니다(`K`를 전치해서 곱하는 것뿐입니다) — 시스톨릭 어레이 회로 자체는 전치를 모릅니다. 실제로는 `K`를 미리 전치된 형태로 공유 메모리에 올려두는 것으로 처리하고, 이건 3권 5장의 컴파일러 확장에서 이미 다룬 "행렬을 어떤 순서로 시스톨릭 어레이에 먹이는가"의 반복이라 지면에서는 생략합니다. `scaledScore`의 나눗셈은 이 시리즈에서 실제로 새로 다뤄야 할 것입니다 — 나눗셈 회로는 2장(1권)에서 이미 "ALU에 넣지 않는다"고 결정했던 연산이므로, 정확한 나눗셈 대신 고정소수점 곱셈으로 근사합니다.
+====
+
+== 4. 검증: 단위 가중치로 Q=K=V=X 만들기
+
+3권 5장의 "A×I=A" 패턴을 여기서도 재사용합니다 — `Wq=Wk=Wv=I`(단위행렬)이면 `Q=K=V=X`가 되어야 합니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+def identityMatrix (n : Nat) (i j : Fin n) : Int := if i = j then 1 else 0
+
+theorem project_identity (seqLen dModel : Nat) (X : Fin seqLen → Fin dModel → Int) (i : Fin seqLen) (h : Fin dModel) :
+    project seqLen dModel dModel X (identityMatrix dModel) i h = X i h := by
+  unfold project identityMatrix
+  simp [List.sum_eq_single h]
+  sorry  -- List.sum_eq_single로 h가 아닌 항이 전부 0임을 보이는 표준 필터링 —
+         -- 3권 2장의 "A×I=A" 검증과 정확히 같은 계열이라 연습 문제로 남깁니다.
+
+end Nand2Npu.Transformer
+----
+
+== 5. Verilator로 확인
+
+[source,cpp]
+----
+// sim/tb_qkv_projection.cpp
+#include "Vcpu_npu_transformer.h"
+#include "verilated.h"
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vcpu_npu_transformer;
+
+    // seqLen=2, dModel=2인 아주 작은 X, 단위행렬 Wq -> Q가 X와 같아야 함
+    int X[2][2] = {{3, 5}, {7, 11}};
+    int I[2][2] = {{1, 0}, {0, 1}};
+    dut->load_and_project(X, I);
+
+    int failures = 0;
+    for (int i = 0; i < 2; ++i)
+      for (int h = 0; h < 2; ++h) {
+        int got = dut->get_q(i, h);
+        if (got != X[i][h]) {
+          std::printf("FAIL Q[%d][%d]: expected %d got %d\n", i, h, X[i][h], got);
+          ++failures;
+        }
+      }
+    delete dut;
+    if (failures) { std::printf("%d FAILURES\n", failures); return 1; }
+    std::printf("Q PROJECTION PASSED (identity weights -> Q = X)\n");
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: `Q PROJECTION PASSED`가 나와야 합니다. 이건 3권 5장의 "단위행렬 곱" 확인을 어텐션 맥락에 그대로 옮긴 것입니다 — 어텐션이 아무리 새로운 개념처럼 보여도, 그 정확성을 확인하는 첫 단계는 이미 알고 있던 도구(단위행렬 검증)로 충분하다는 걸 보여줍니다.
+====
+
+== 이 장에서 확정한 것
+
+* Q, K, V 프로젝션과 원점수(`Q·Kᵀ`)가 전부 3권의 `matmulSpec`과 같은 함수라는 것을 `rfl`로 확인했습니다 — 새 회로가 필요 없습니다.
+* 스케일링(`/√dHead`)만 이 장에서 새로 다룬 것이고, 정수 하드웨어에서는 나눗셈을 고정소수점 곱셈으로 근사합니다.
+* 단위행렬 가중치로 `Q=X`가 되는 것을(3권 5장 패턴 재사용) 증명 뼈대와 Verilator로 확인했습니다.
+
+다음 장에서는 이 장이 미뤄둔 진짜 새로운 문제 — 스코어를 확률로 바꾸는 softmax(지수함수와 나눗셈)를 정수 하드웨어에서 어떻게 근사하는가 — 를 다룹니다.
+// end::body[]

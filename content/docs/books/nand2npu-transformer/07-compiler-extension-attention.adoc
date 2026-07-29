@@ -1,0 +1,87 @@
+---
+title: "컴파일러 확장: 트랜스포머 블록을 명령어로"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "gpu", "transformer", "compiler", "book"]
+categories: ["books"]
+description: "Mini 언어에 어텐션 표현식을 추가해, NPU 명령어(matmul)와 GPU 커널 함수(가변 길이 제어, 마스킹, softmax)를 함께 호출하는 컴파일 경로를 완성하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-error-propagation-deep/[6장: 깊은 레이어의 오차 전파] · 다음: link:../08-capstone-tiny-transformer/[8장: 캡스톤 — 미니 트랜스포머]_
+
+'''
+
+== 1. 두 컴파일 경로를 하나로 합치기
+
+이 4권은 지금까지 두 하드웨어를 오갔습니다 — Q/K/V 프로젝션과 스코어(1장)는 3권의 NPU(`matmul`), 가변 길이 제어와 마스킹(4장)은 2권의 GPU 코어(커널 함수, 마스크)입니다. 3권 5장과 2권 7장이 각각 독립적으로 만든 두 컴파일 경로 — `matmul` 표현식(3권 5장)과 `kernel` 함수(2권 7장) — 를 이 장에서 하나의 프로그램 안에서 함께 쓸 수 있게 합니다.
+
+[source,lean]
+----
+-- Compiler/Ast.lean에 추가 (3권 5장의 matmul, 2권 7장의 kernel/laneId와 같은 자리)
+namespace Nand2Npu.Compiler
+
+inductive Expr where
+  | intLit (n : Nat)
+  | varRef (name : String)
+  | binOp (op : BinOp) (l r : Expr)
+  | call (name : String) (args : List Expr)
+  | matmul (a b : Expr)              -- 3권 5장
+  | laneId                            -- 2권 7장
+  | attention (Q K V : Expr) (mask : Expr)  -- 새로 추가: 스케일드 닷프로덕트 어텐션 한 덩어리
+  deriving Repr
+
+end Nand2Npu.Compiler
+----
+
+`attention` 표현식 하나를 새로 추가했지만, 이건 6장까지 만든 걸 하나의 노드로 묶어 부르기 편하게 만든 것뿐입니다 — 컴파일러가 실제로 하는 일은 이 노드를 만나면 1~3장의 절차(Q·Kᵀ → 스케일링 → 마스킹(4장) → softmax(2장) → V 가중합)를 순서대로 낮추는 것입니다.
+
+== 2. 코드 생성: NPU 호출과 GPU 커널 호출을 섞기
+
+[source,lean]
+----
+-- Compiler/CodeGen.lean에 추가
+namespace Nand2Npu.Compiler
+
+partial def compileAttention (Q K V mask : Expr) (symtab : List (String × VarInfo)) : List VmCommand :=
+  -- 1. Q, K, V는 이미 matmul로 컴파일되어 NPU 레지스터에 있다고 가정(1장)
+  -- 2. 원점수 Q·Kᵀ: 3권 5장의 matmul 호출 시퀀스 재사용
+  -- 3. 마스킹(4장): GPU 커널 호출(2권 7장의 kernel 함수 호출 규약)로 패딩 위치를 처리
+  -- 4. softmax(2장): approxExp LUT를 참조하는 NPU 메모리 맵 읽기 + 나눗셈 근사
+  -- 5. 가중합: 다시 matmul(3권 5장)
+  -- 각 단계가 이미 확립된 컴파일 패턴의 호출이라, 지면에서는 순서만 밝히고
+  -- 실제 VmCommand 나열은 생략합니다 — 이 장의 핵심 연습 문제입니다.
+  []
+
+end Nand2Npu.Compiler
+----
+
+[NOTE]
+====
+`compileAttention`이 NPU 명령어(matmul)와 GPU 커널 호출을 한 함수 안에서 섞어 부른다는 게 이 장에서 처음 등장하는 패턴입니다 — 3권과 2권은 각자 독립된 책이라 서로의 컴파일러를 부를 일이 없었지만, 실전 트랜스포머 가속기는 정확히 이렇게 두 종류의 하드웨어를 한 프로그램 안에서 오갑니다. "언제 NPU를 부르고 언제 GPU를 부를지"를 결정하는 규칙(연산이 고정 크기 행렬 곱셈이면 NPU, 가변 길이·마스킹·근사 함수가 필요하면 GPU) 자체가 4장에서 이미 도출한 결론의 실무적 구현입니다.
+====
+
+== 3. 전체 파이프라인 재통합
+
+[source,bash]
+----
+# 1권(CPU) + 2권(GPU) + 3권(NPU) + 4권(트랜스포머 컴파일러 확장) 전체를 반영한 빌드
+lake exe compilermain --with-npu --with-gpu --target tiny_transformer > examples/transformer.asm
+lake exe assemble examples/transformer.asm > examples/transformer.hack
+
+./sim/obj_dir_cpu_npu_gpu/Vcpu_npu_gpu examples/transformer.hack --weights=tiny_model.bin 20000
+----
+
+[TIP]
+====
+*확인*: 이 빌드가 성공적으로 어셈블·시뮬레이션까지 끝나면, 1~4권 전체의 도구(1권의 CPU, 2권의 GPU 코어, 3권의 NPU, 이 4권의 어텐션 컴파일러)가 하나의 실행 파일 안에서 함께 동작한다는 뜻입니다 — 다음 장에서 이 빌드에 실제 훈련된 가중치(`tiny_model.bin`)를 얹어 텍스트를 생성합니다.
+====
+
+== 이 장에서 확정한 것
+
+* Mini 언어에 `attention` 표현식을 추가해, 1~6장에서 손으로 쌓아온 절차를 하나의 프로그램 구조로 표현할 수 있게 했습니다.
+* 이 시리즈에서 처음으로 NPU 호출 경로(3권)와 GPU 커널 호출 경로(2권)를 한 컴파일러 함수 안에서 함께 쓰는 패턴을 만들었습니다 — 세부 코드 생성은 각 경로의 기존 패턴을 조립하는 것이라 연습 문제로 남겼습니다.
+* 1~4권 전체를 반영한 최종 빌드·시뮬레이션 절차를 확정했습니다.
+
+다음 장에서는 이 파이프라인에 실제로 훈련된 미니 트랜스포머 가중치를 얹어, 문자를 하나씩 생성하는 이 4권의 캡스톤을 완성합니다.
+// end::body[]

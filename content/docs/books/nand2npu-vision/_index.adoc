@@ -108,3 +108,7 @@ include::09-mario-playthrough.adoc[tag=body,leveloffset=+1]
 == 10. 회고: NPU 확장에서 검증이 산 것
 
 include::10-what-npu-verification-bought-us.adoc[tag=body,leveloffset=+1]
+
+'''
+
+이 3권은 여기서 마칩니다. 트랜스포머 추론까지 이어가는 4권은 link:../nand2npu-transformer/[nand2npu 4권: NPU에서 트랜스포머로]에서 계속됩니다.

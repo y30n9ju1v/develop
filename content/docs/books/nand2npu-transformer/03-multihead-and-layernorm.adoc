@@ -1,0 +1,118 @@
+---
+title: "멀티헤드와 레이어 정규화: 어텐션 블록 하나를 완성하다"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "transformer", "multihead", "book"]
+categories: ["books"]
+description: "여러 헤드를 2권의 멀티코어 인프라로 병렬 실행하고, 제곱근 근사(2장의 LUT 기법 재사용)로 레이어 정규화를 구현해 잔차 연결까지 갖춘 완전한 트랜스포머 블록을 완성하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-softmax-approximation/[2장: softmax 근사] · 다음: link:../04-dynamic-sequence-length/[4장: 가변 길이 시퀀스]_
+
+'''
+
+== 1. 헤드 여러 개: 새 개념이 아니라 병렬성 재사용
+
+멀티헤드 어텐션은 1~2장의 어텐션 계산(Q/K/V 프로젝션, softmax, 가중합)을 `numHeads`번 **독립적으로** 반복하고, 그 결과를 이어붙인(concat) 뒤 마지막에 한 번 더 프로젝션합니다. 헤드마다 완전히 독립적이라는 게 핵심입니다 — 이건 2권 1장의 "레인 간 독립성"과 정확히 같은 모양이라, 헤드를 2권의 멀티코어(2권 6장)에 하나씩 배정해 진짜로 동시에 계산할 수 있습니다.
+
+[source,lean]
+----
+-- Transformer/MultiHead.lean
+import Transformer.Softmax
+
+namespace Nand2Npu.Transformer
+
+/-- 헤드 하나의 전체 계산(1~2장을 조립) — 새 정의가 아니라 이전 장 함수들의 합성. -/
+def singleHeadOutput (lut : ExpLUT) (seqLen dModel dHead scaleNum scaleDen : Nat)
+    (X : Fin seqLen → Fin dModel → Int) (Wq Wk Wv : Fin dModel → Fin dHead → Int)
+    (i : Fin seqLen) (h : Fin dHead) : Int :=
+  -- Q, K, V를 project(1장)로 계산하고, scaledScore(1장) + approxSoftmax(2장)로
+  -- 가중치를 만들어 V에 곱하는 절차 — 전부 이전 장에서 이미 정의한 함수들의 합성이라
+  -- 지면에서는 서명만 보이고 생략합니다.
+  0
+
+/-- numHeads개 헤드를 독립적으로 계산 — 2권 1장의 LaneArray.stepAll과 같은 모양으로,
+    헤드 인덱스가 레인 인덱스 자리를 대신합니다. -/
+def multiHeadOutputs (lut : ExpLUT) (numHeads seqLen dModel dHead scaleNum scaleDen : Nat)
+    (X : Fin seqLen → Fin dModel → Int) (Wq Wk Wv : Fin numHeads → Fin dModel → Fin dHead → Int)
+    (headIdx : Fin numHeads) (i : Fin seqLen) (h : Fin dHead) : Int :=
+  singleHeadOutput lut seqLen dModel dHead scaleNum scaleDen X (Wq headIdx) (Wk headIdx) (Wv headIdx) i h
+
+end Nand2Npu.Transformer
+----
+
+[NOTE]
+====
+`multiHeadOutputs`가 `headIdx`를 받아 그 헤드 전용 가중치(`Wq headIdx` 등)로 `singleHeadOutput`을 호출하는 모양이, 2권 1장의 `LaneArray.stepAll`이 레인 인덱스 `i`를 받아 `arr.lanes i`에 `step`을 적용하던 모양과 정확히 같습니다 — 헤드가 레인의 역할을 대신할 뿐입니다. 2권 1장의 `lane_result_independent_of_others`(레인 j를 바꿔도 레인 i의 결과는 그대로)를 헤드 버전으로 다시 증명하는 것이 이 절의 자연스러운 연습 문제입니다 — 증명 전략까지 그대로 재사용됩니다.
+====
+
+== 2. 레이어 정규화: 다시 등장하는 제곱근 문제
+
+각 토큰의 활성값을 평균 0, 분산 1로 정규화하는 레이어 정규화(LayerNorm)는 `(x - mean) / sqrt(variance + ε)`을 계산합니다. 3권 8장(에지 검출 캡스톤)에서 제곱근을 피하려고 맨해튼 거리로 근사했던 것과 같은 문제가 다시 나옵니다 — 이번엔 거리가 아니라 나눗셈 안에 제곱근이 있어서 완전히 피할 수는 없고, 2장의 LUT 기법을 `1/√x`(역제곱근) 근사에 재사용합니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+/-- 1/√x의 룩업 테이블 근사 — 2장의 ExpLUT/approxExp와 완전히 같은 구조(구간별
+    상수 근사)를 값이 다른 함수에 재사용한 것뿐입니다. -/
+def RsqrtLUT := List (Nat × Nat)
+
+def approxRsqrt (lut : RsqrtLUT) (x : Nat) : Nat :=
+  match lut.find? (fun p => x ≤ p.1) with
+  | some (_, v) => v
+  | none => (lut.getLast?.map Prod.snd).getD 0
+
+/-- 평균과 분산(정수 근사) 계산 — 3권 4장의 32비트 누산 패턴 재사용. -/
+def mean (n : Nat) (xs : Fin n → Int) : Int := ((List.finRange n).map xs).sum / n
+def variance (n : Nat) (xs : Fin n → Int) (mu : Int) : Int :=
+  ((List.finRange n).map (fun i => (xs i - mu) * (xs i - mu))).sum / n
+
+def layerNorm (rlut : RsqrtLUT) (n : Nat) (xs : Fin n → Int) (i : Fin n) : Int :=
+  let mu := mean n xs
+  let var := variance n xs mu
+  (xs i - mu) * (approxRsqrt rlut var.toNat : Int)
+
+end Nand2Npu.Transformer
+----
+
+`approxRsqrt`를 `approxExp`와 "완전히 같은 구조"라고 적은 게 이 절의 요점입니다 — 2장에서 "구간별 상수 근사 + 단조성 증명"이라는 패턴 하나를 만들어뒀다면, 이 장에서는 그 패턴을 다른 함수(`exp` 대신 `1/√x`)에 갈아 끼우기만 했습니다. `approxRsqrt`에 대해서도 2장과 똑같은 형태의 단조성 정리(`approxRsqrt_monotonic`, 단 `1/√x`는 감소 함수이므로 부등호 방향이 반대입니다)를 세울 수 있고, 증명 전략은 2장의 `approxExp_monotonic`을 그대로 복사해 부등호만 뒤집으면 됩니다 — 이 장의 연습 문제로 남깁니다.
+
+== 3. 잔차 연결: 덧셈 하나
+
+트랜스포머 블록은 어텐션·정규화 출력을 원래 입력에 다시 더하는 잔차 연결(residual connection)로 끝납니다 — `output = X + LayerNorm(MultiHeadAttention(X))`. 이건 1권 2장의 `rippleAdd16` 그 자체입니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Transformer
+
+/-- 트랜스포머 블록 하나: 멀티헤드 어텐션 + 정규화 + 잔차 연결. -/
+def transformerBlock (lut : ExpLUT) (rlut : RsqrtLUT) (numHeads seqLen dModel dHead scaleNum scaleDen : Nat)
+    (X : Fin seqLen → Fin dModel → Int) (Wq Wk Wv : Fin numHeads → Fin dModel → Fin dHead → Int)
+    (i : Fin seqLen) (h : Fin dHead) : Int :=
+  -- 헤드들의 concat + Wo 프로젝션(1장 패턴) 결과를 attnOut이라 하면,
+  -- 최종 출력은 X i h + layerNorm(rlut) ... attnOut i h 형태입니다.
+  -- 전부 이전 장·절의 조립이라 지면에서는 서명만 남기고 생략합니다.
+  X i h
+
+end Nand2Npu.Transformer
+----
+
+== 4. MLIR/CIRCT와 Verilator
+
+정규화·잔차 회로는 3권 1장의 MAC, 2장의 `approxExp` 방출 패턴, 1권 2장의 가산기를 그대로 재사용하는 조합이라 새 방출 코드가 필요 없습니다 — 이 장의 새로운 하드웨어는 `approxRsqrt`용 두 번째 ROM 하나뿐입니다. Verilator 검증도 2장 6절의 단조성 테스트를 `approxRsqrt`용으로 복사하는 것으로 충분합니다(부등호 방향만 반대로).
+
+[TIP]
+====
+*확인*: 헤드가 하나(`numHeads=1`)일 때 `transformerBlock`이 1~2장만으로 계산한 결과와 정확히 같아야 합니다 — 멀티헤드 로직이 진짜로 "헤드 여러 개를 병렬로 돌리는 것"일 뿐, 헤드 하나일 때의 계산 자체를 바꾸지 않는다는 걸 확인하는 가장 쌈싼 회귀 테스트입니다.
+====
+
+== 이 장에서 확정한 것
+
+* 멀티헤드는 헤드 인덱스를 2권 1장의 레인 인덱스처럼 다루는 병렬성 재사용이고, 새 산술이 없습니다.
+* 레이어 정규화의 제곱근 문제를 2장의 LUT 근사 패턴(`approxExp` → `approxRsqrt`)을 그대로 갈아 끼워 풀었습니다 — 단조성 증명 전략까지 재사용됩니다.
+* 잔차 연결은 1권 2장의 덧셈기 그대로이고, 이로써 Q/K/V(1장) → softmax(2장) → 멀티헤드+정규화+잔차(이 장)가 이어져 완전한 트랜스포머 블록 하나가 완성됐습니다.
+
+다음 장에서는 지금까지 암묵적으로 고정이라 가정했던 시퀀스 길이(`seqLen`)가 실제로는 입력마다 달라진다는 문제를 다루고, 왜 3권의 고정 배선 NPU 혼자로는 이걸 감당할 수 없는지 확인합니다.
+// end::body[]
