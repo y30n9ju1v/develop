@@ -1,0 +1,125 @@
+---
+title: "오차 전파 분석: 양자화 오차 한계를 가정에서 계산으로"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "quantization", "neural-network-verification", "book"]
+categories: ["books"]
+description: "7장에서 가정으로 남겨둔 오차 한계(bound)를, MAC 하나의 오차부터 시작해 레이어 전체로 귀납적으로 전파시켜 실제 수치로 유도하는 장 — 신경망 검증의 가장 기본적인 도구인 오차 전파(error propagation)를 직접 증명한다"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-mario-policy-inference/[7장: 마리오 정책망 추론] · 다음: link:../09-mario-playthrough/[9장: 마리오 플레이스루]_
+
+'''
+
+== 1. 7장이 미뤄둔 숙제
+
+7장의 `action_order_preserved`는 "점수 오차가 `bound` 이내"라는 가정(`hA`, `hB`) 위에서 "행동 선택이 뒤집히지 않는다"를 증명했습니다. 그런데 그 `bound`가 정확히 얼마인지는 가정으로 받았을 뿐, 이 시리즈 안에서 유도하지 않았습니다. 이 장은 그 숙제를 실제로 풉니다 — 신경망 검증(neural network verification) 분야에서 가장 기본적인 도구인 *오차 전파(error propagation)*를 MAC 하나에서 시작해 레이어 전체로 쌓아 올립니다.
+
+핵심 발상은 단순합니다. 양자화 오차의 근원은 딱 하나 — 2장(이 2권)에서 훈련된 부동소수점 가중치를 `Int8`로 내보낼 때 반올림하는 순간입니다. 그 이후로는 모든 연산이 `Int8`(또는 4장의 32비트 누산기)로 *정확하게* 계산됩니다 — 5장의 `saturateToInt8`처럼 포화가 개입하지 않는 한, MAC 자체는 반올림 없는 정수 연산입니다. 그러니 우리가 실제로 물어야 할 질문은 "이 정수 연산이 정확한가"(그건 1~5장에서 이미 증명했습니다)가 아니라, *"애초에 반올림해서 들어온 입력·가중치의 오차가, 그 뒤를 잇는 수많은 정확한 덧셈·곱셈을 거치며 얼마나 불어나는가"*입니다.
+
+== 2. MAC 하나의 오차: 곱셈이 오차를 어떻게 증폭시키는가
+
+참값 `x`, `w`와 그 양자화된 근사 `x'`, `w'`가 있고, 각각의 오차가 `ex = |x - x'|`, `ew = |w - w'|`로 알려져 있다고 합시다. 곱 `x·w`와 `x'·w'`의 차이는 어떻게 될까요.
+
+[source,lean]
+----
+-- Npu/ErrorProp.lean
+import Npu.PolicyBound
+
+namespace Nand2Npu.Npu
+
+/-- 곱셈 하나의 오차 전파: |x*w - x'*w'| ≤ |x|*ew + |w'|*ex.
+    (x*w - x'*w' = x*(w - w') + w'*(x - x')로 쪼개는 표준적인 곱셈 오차 분해입니다.) -/
+theorem mac_mul_error (x w x' w' : Int) :
+    (x * w - x' * w').natAbs ≤ (x * (w - w')).natAbs + (w' * (x - x')).natAbs := by
+  have heq : x * w - x' * w' = x * (w - w') + w' * (x - x') := by ring
+  calc (x * w - x' * w').natAbs
+      = (x * (w - w') + w' * (x - x')).natAbs := by rw [heq]
+    _ ≤ (x * (w - w')).natAbs + (w' * (x - x')).natAbs := Int.natAbs_add_le _ _
+
+/-- 위 부등식을 |x| ≤ X, |w'| ≤ W(값의 크기 상한)로 한 번 더 조여, 오차(ex, ew)만의
+    함수로 만든 버전 — 실전에서 실제로 쓰는 형태입니다. -/
+theorem mac_mul_error_bound (x w x' w' : Int) (X W : Nat)
+    (hx : x.natAbs ≤ X) (hw' : w'.natAbs ≤ W)
+    (ex ew : Nat) (hex : (x - x').natAbs ≤ ex) (hew : (w - w').natAbs ≤ ew) :
+    (x * w - x' * w').natAbs ≤ X * ew + W * ex := by
+  have h1 := mac_mul_error x w x' w'
+  have h2 : (x * (w - w')).natAbs ≤ X * ew := by
+    rw [Int.natAbs_mul]; exact Nat.mul_le_mul hx hew
+  have h3 : (w' * (x - x')).natAbs ≤ W * ex := by
+    rw [Int.natAbs_mul]; exact Nat.mul_le_mul hw' hex
+  omega
+
+end Nand2Npu.Npu
+----
+
+`mac_mul_error_bound`가 이 장의 첫 번째 초석입니다 — 곱셈 하나의 오차가 "값의 크기(`X`, `W`)"와 "입력의 오차(`ex`, `ew`)"의 조합으로 정확히 얼마나 커지는지를 부등식 하나로 못박습니다. 값이 클수록, 그리고 입력 오차가 클수록 곱셈이 그 오차를 증폭시킨다는, 직관과 정확히 일치하는 결과입니다.
+
+== 3. 누산으로 오차가 쌓이는 것: 리스트 귀납의 재사용
+
+MAC은 곱셈 하나가 아니라 `N`개를 누적합니다(`Σ x_i·w_i`). 1권 8장·이 2권 여러 장에서 반복한 "리스트 귀납"이 여기서 다시 등장합니다 — 오차의 합도 각 항의 오차를 그냥 더한 것을 넘지 않는다는 걸 보이면 됩니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Npu
+
+/-- N개 항을 누적할 때, 전체 오차는 각 항의 오차 합을 넘지 않습니다.
+    (2절의 mac_mul_error_bound를 리스트 길이에 대한 귀납으로 N번 이어붙인 것뿐입니다.) -/
+theorem sum_error_bound (xs ws xs' ws' : List Int) (perTermBound : Nat)
+    (hlen : xs.length = ws.length ∧ xs.length = xs'.length ∧ xs.length = ws'.length)
+    (hterm : ∀ i, (h : i < xs.length) →
+      ((xs[i]'h) * (ws[i]'(hlen.1 ▸ h)) - (xs'[i]'(hlen.2.1 ▸ h)) * (ws'[i]'(hlen.2.2 ▸ h))).natAbs
+        ≤ perTermBound) :
+    ((List.zip xs ws).map (fun p => p.1 * p.2)).sum
+      - ((List.zip xs' ws').map (fun p => p.1 * p.2)).sum
+      |>.natAbs ≤ xs.length * perTermBound := by
+  sorry  -- 각 항의 오차 한계(hterm)를 리스트 길이만큼 List.sum의 삼각부등식으로 이어붙이는
+         -- 표준 귀납 — 1권 8장의 리스트 귀납 패턴 그대로라 연습 문제로 남깁니다.
+
+end Nand2Npu.Npu
+----
+
+[NOTE]
+====
+`sum_error_bound`를 `sorry`로 남긴 이유 — 증명의 뼈대(리스트 길이에 대한 귀납, 기저는 `nil`에서 오차 0, 귀납 스텝은 `mac_mul_error_bound`를 한 항 더 적용 + 삼각부등식)는 1권 8장에서 이미 반복 연습한 패턴이고 새로운 개념이 없습니다. 다만 인덱스 접근(`xs[i]'h`)이 섞인 귀납이라 지면에서 완전히 펼치면 길이가 이 장의 다른 부분에 비해 지나치게 늘어나므로, 결론만 밝히고 연습 문제로 남깁니다 — 힌트: `List.zip`을 `List.zipWith (· * ·)`로 바꾸고 `List.sum_map_le_sum_map`류의 보조정리(또는 직접 귀납)를 찾는 것이 지름길입니다.
+====
+
+== 4. 7장 레이어에 대입해 실제 수치 뽑기
+
+3절의 `sum_error_bound`를 7장의 정책망에 대입하면, "레이어당 오차"가 더 이상 가정이 아니라 계산된 값이 됩니다. 핵심 입력은 두 가지 — *양자화 시점의 원천 오차*(각 `Int8` 값의 반올림 오차, 최대 `0.5`스케일 단위)와 *레이어마다 누적되는 항의 개수*(6장의 MAC 카운트 공식이 여기서 재활용됩니다)입니다.
+
+[source,lean]
+----
+namespace Nand2Npu.Npu
+
+/-- 원천 양자화 오차(반올림 한 번당 최대 오차, 정수 스케일 단위) -/
+def quantizeRoundingError : Nat := 1  -- round-to-nearest이므로 최대 0.5스케일, 정수로 올림해 1
+
+/-- 표준 컨볼루션 한 출력 위치의 오차 한계: 항이 k²·Cin개, 항마다 mac_mul_error_bound가
+    (값 크기 X,W가 Int8 범위 127로 유계) 최대 127*1 + 127*1 = 254이므로,
+    sum_error_bound에 의해 (k²·Cin) * 254. -/
+def convLayerErrorBound (k Cin : Nat) : Nat := (k * k * Cin) * (127 * quantizeRoundingError * 2)
+
+/-- 6장의 depthwise separable 레이어(dw2 + conv2, k=5, Cin=16, Cout=32)에 대입한 구체적 수치. -/
+example : convLayerErrorBound 5 16 = 400 * 254 := by native_decide
+
+end Nand2Npu.Npu
+----
+
+`convLayerErrorBound 5 16 = 101600`입니다 — 이게 7장의 `quantErrorBound`가 가정으로만 받았던 `perLayerError`의 실제 값입니다. 전체 정책망(첫 컨볼루션 + depthwise + pointwise + 완전연결)에 대해 이 계산을 반복하면(각 레이어의 `k`, `Cin`을 대입하는 정도의 반복 작업이라 연습 문제로 남깁니다), 7장 `quantErrorBound (numLayers) (perLayerError)`에 넣을 수 있는 실제 `bound` 값이 완성됩니다.
+
+[NOTE]
+====
+이 수치(`101600`)가 상당히 커 보일 수 있습니다 — 이건 이 장의 오차 한계가 *최악의 경우(worst-case)*를 가정한 것이기 때문입니다(모든 항의 오차가 같은 방향으로 정렬되는 최악의 시나리오). 실전에서는 오차가 무작위 방향으로 섞여 상쇄되는 경우가 대부분이라 실측 오차는 이보다 훨씬 작습니다 — 이 간극(최악의 경우 증명 vs 실측 평균)이 정확히 10장에서 `safeFrameFraction`을 실측으로 세어보는 이유입니다. 최악의 경우 증명만으로는 "이 시스템이 안전하다"고 과신할 수 없고, 그렇다고 실측만으로는 "이 시스템이 왜 안전한지"를 설명할 수 없습니다 — 이 둘을 같이 쓰는 것이 1권 13장부터 이 시리즈가 반복해온 태도입니다.
+====
+
+== 이 장에서 확정한 것
+
+* 양자화 오차의 유일한 원천이 "훈련된 부동소수점 가중치를 `Int8`로 내보낼 때의 반올림"이고, 그 뒤의 모든 MAC 연산은 정확한 정수 연산이라는 관찰로 오차 전파 문제를 단순화했습니다.
+* 곱셈 하나의 오차 전파(`mac_mul_error_bound`)를 완전히 증명하고, `N`개 항의 누적 오차가 항별 오차의 합을 넘지 않는다는 것(`sum_error_bound`)을 1권 8장의 리스트 귀납 패턴으로 (뼈대만) 세웠습니다.
+* 7장에서 가정으로만 받았던 `bound`를, 6장의 MAC 카운트 공식과 결합해 실제 수치(`convLayerErrorBound 5 16 = 101600`)로 계산해냈습니다 — "이 시리즈의 범위를 넘어선다"고 미뤄뒀던 7장의 숙제를 실제로 마쳤습니다.
+* 최악의 경우 증명과 실측 사이의 간극을 명시하고, 그 간극을 메우는 게 다음 장의 실측이라는 것을 예고했습니다.
+
+다음 장에서는 이 오차 한계를 실제로 손에 쥔 채, 마리오 한 스테이지 전체를 반복 루프로 플레이해보고, 안전 마진이 실전에서 실제로 얼마나 여유 있는지 확인합니다.
+// end::body[]

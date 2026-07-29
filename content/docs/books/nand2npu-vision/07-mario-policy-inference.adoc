@@ -1,0 +1,157 @@
+---
+title: "마리오 정책망 추론: 프레임에서 행동으로"
+date: 2026-07-29T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "npu", "reinforcement-learning", "quantization", "book"]
+categories: ["books"]
+description: "책 밖에서 미리 훈련해둔 마리오 정책망의 가중치를 NPU 위에 얹어, depthwise separable convolution으로 채널이 늘어나는 레이어의 MAC 수를 줄이면서 게임 프레임 하나를 행동 하나로 낮추는 추론 파이프라인을 구현하고 양자화 오차가 행동 선택을 뒤집지 않는다는 것을 증명하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-image-processing-pipeline/[6장: 이미지 처리 파이프라인] · 다음: link:../08-quantization-error-propagation/[8장: 오차 전파 분석]_
+
+'''
+
+== 1. 이 장이 다루는 것과 다루지 않는 것
+
+서문에서 그은 경계선을 이 장에서 실제로 지킵니다 — *다루지 않는 것*은 정책망을 어떻게 훈련하는가(보상 설계, 정책 경사법, `gym-super-mario-bros` + PPO 훈련 루프)입니다. *다루는 것*은 그렇게 훈련된 가중치 하나를 파일에서 읽어, NPU 위에서 정확히 같은 순전파(forward pass)를 재현하는 것입니다. 정책망 자체는 6장의 X/O 분류기와 같은 모양(컨볼루션 → 풀링 → `matmul`)이지만, 입력이 `8×8`이 아니라 게임 화면(단순화한 `84×84` 흑백 프레임)이고, 출력이 "X냐 O냐" 둘이 아니라 "왼쪽/오른쪽/점프/대기" 같은 행동 후보 여러 개에 대한 점수라는 점이 다릅니다.
+
+== 2. 가중치를 훈련 프레임워크에서 NPU로 옮기기
+
+훈련은 책 밖(예: PyTorch)에서 끝났다고 가정합니다. 남은 일은 그 가중치를 NPU가 읽을 수 있는 형태로 변환하는 것뿐입니다.
+
+[source,python]
+----
+# tools/export_weights.py — 이 저장소 밖, 훈련에 쓰인 파이썬 스택에서 한 번 실행
+import torch, struct
+
+model = torch.load("mario_policy.pt")  # 책 밖에서 PPO로 미리 훈련된 정책망
+
+def quantize_to_int8(tensor, scale):
+    # 4장의 saturateToInt8과 정확히 같은 클램프 규칙 — 훈련 프레임워크와
+    # NPU 양쪽에서 같은 반올림·클램프 규칙을 쓰지 않으면 3절의 오차 한계가 깨집니다.
+    q = torch.clamp(torch.round(tensor / scale), -128, 127).to(torch.int8)
+    return q
+
+with open("mario_weights.bin", "wb") as f:
+    for name, param in model.state_dict().items():
+        scale = param.abs().max().item() / 127.0
+        q = quantize_to_int8(param, scale)
+        f.write(struct.pack("<f", scale))
+        f.write(q.numpy().tobytes())
+----
+
+[NOTE]
+====
+이 스크립트는 이 책의 Lean4/CIRCT 파이프라인 밖에 있는, 순전히 훈련 프레임워크 쪽 도구입니다 — 신뢰 기반(TCB)에 "이 변환 스크립트가 가중치를 올바르게 직렬화한다"는 가정이 하나 새로 추가된다는 뜻이고, 10장에서 이 가정을 TCB 표에 정식으로 올립니다. 4장의 `Int8` 인코딩과 정확히 같은 규칙(2의 보수, `[-128,127]` 클램프)을 훈련 쪽에서도 지켜야 한다는 게 이 변환에서 가장 실수하기 쉬운 지점입니다.
+====
+
+== 3. 양자화 오차가 행동 선택을 뒤집지 않는다는 것
+
+4장에서 "포화가 랩어라운드보다 참값에 가깝다"는 것을 증명했습니다. 그런데 여기서 새로운 질문이 생깁니다 — *포화든 뭐든, 양자화 자체가 만드는 오차가 "어느 행동을 고를지"까지 바꿔버리면 어떡하는가?* 두 행동의 점수가 아주 근소한 차이일 때, 양자화 오차가 그 순서를 뒤집을 수 있습니다.
+
+[source,lean]
+----
+-- Npu/PolicyBound.lean
+import Npu.Quant
+
+namespace Nand2Npu.Npu
+
+/-- 참값(부동소수점 근사 없이 계산했다고 가정한 정수 연산 결과)과 양자화된 NPU 결과의
+    차이가 항상 이 한계 이내라는 것 — 실제 값은 4절의 오차 전파 분석에서 유도합니다. -/
+def quantErrorBound (numLayers : Nat) (perLayerError : Int) : Int := numLayers * perLayerError
+
+/-- 두 행동의 참값 점수 차이가 오차 한계의 두 배보다 크면, 양자화된 점수에서도
+    같은 행동이 이깁니다 — 오차가 각 점수를 최대 quantErrorBound만큼만 흔들 수 있으므로,
+    둘 다 최악의 방향으로 흔들려도 순서가 바뀌려면 최소 2*quantErrorBound만큼의 차이가 필요합니다. -/
+theorem action_order_preserved
+    (trueScoreA trueScoreB quantScoreA quantScoreB : Int) (bound : Int)
+    (hA : (trueScoreA - quantScoreA).natAbs ≤ bound.toNat)
+    (hB : (trueScoreB - quantScoreB).natAbs ≤ bound.toNat)
+    (hgap : trueScoreA > trueScoreB + 2 * bound) :
+    quantScoreA > quantScoreB := by
+  omega
+
+end Nand2Npu.Npu
+----
+
+`action_order_preserved`가 이 장에서 가장 중요한 정리입니다 — "양자화가 항상 옳은 답을 낸다"는 훨씬 강한(그리고 거짓인) 주장 대신, "점수 차이가 오차 한계의 두 배보다 크기만 하면 행동 선택이 뒤집히지 않는다"는 정량적이고 검증 가능한 조건을 답으로 제시합니다. 4장에서 "정확성" 대신 "근사 품질"을 물어야 한다고 짚었던 것이, 여기서는 "근사 품질이 의사결정을 얼마나 안전하게 만드는가"라는 형태로 한 번 더 구체화됩니다.
+
+[NOTE]
+====
+`bound`(오차 한계)의 실제 수치는 이 장에서 도출하지 않습니다 — 컨볼루션 레이어 수, 각 레이어의 채널 수, 활성화 함수(이 장에서는 생략한 ReLU/시그모이드)의 종류에 따라 오차가 어떻게 누적되는지를 정확히 계산하는 것은 신경망 검증(neural network verification) 분야의 독립적인 연구 주제입니다. 이 장은 그 계산 결과를 가정(`hA`, `hB`)으로 받아, "그 가정 아래에서 의사결정이 안전한가"라는 다음 질문에 집중합니다 — 오차 누적 자체를 실제로 계산해 이 가정을 가정이 아닌 정리로 바꾸는 것이 다음 장(8장)의 주제입니다.
+====
+
+== 4. 정책망을 NPU 명령어 시퀀스로 컴파일하기
+
+6장의 `conv2d`/`maxPool`/`matmul`을 그대로 이어붙이면 정책망 전체가 나옵니다 — 새 Mini 언어 문법은 필요 없고, 6장에서 이미 확장한 컴파일러를 재사용합니다. 첫 컨볼루션은 입력이 흑백 1채널뿐이라 depthwise separable로 쪼갤 이유가 없지만(6장 4절의 이득은 `Cin`이 클 때 생김), 그 뒤로는 채널 수가 16 → 32로 늘어나므로 6장에서 만든 depthwise separable convolution을 그대로 씁니다.
+
+[source,lean]
+----
+-- examples/mario_policy.mini (Mini 언어로 쓴 정책망 순전파)
+-- 84x84 흑백 프레임을 입력받아, 4개 행동(왼쪽/오른쪽/점프/대기)의 점수를 반환
+
+fn policyForward(frame) {
+    let conv1 = conv2d(frame, kernel1);                  // 84x84x1 -> 80x80x16 (5x5 표준 컨볼루션)
+    let pool1 = maxPool(conv1);                           // 80x80x16 -> 40x40x16
+    let dw2   = depthwiseConv2d(pool1, dwKernel2);         // 40x40x16 -> 36x36x16 (5x5, 채널별 독립)
+    let conv2 = pointwiseConv(dw2, pwWeights2);            // 36x36x16 -> 36x36x32 (1x1로 채널 확장)
+    let pool2 = maxPool(conv2);                            // 36x36x32 -> 18x18x32
+    let flat = flatten(pool2);                             // 18*18*32 = 10368개 값
+    let scores = matmul(flat, fcWeights);                  // 10368 -> 4 (행동 점수)
+    return scores;
+}
+----
+
+6장의 `depthwise_separable_reduces_macs`를 이 두 번째 컨볼루션(`k=5`, `Cin=16`, `Cout=32`)에 그대로 대입하면, 표준 컨볼루션이었다면 `5²·16·32 = 12800`MAC이 필요했을 자리를 depthwise separable은 `5²·16 + 16·32 = 400 + 512 = 912`MAC으로 끝냅니다 — 출력 위치(`36×36=1296`개)마다 이 절감이 반복되므로, 이 레이어 전체로 보면 약 1660만 MAC(`12800×1296`)을 약 118만 MAC(`912×1296`)으로, 14분의 1 가까이 줄이는 셈입니다. 실시간으로(매 프레임마다) 이 추론을 반복해야 하는 9장의 관점에서는, 이 절감이 정확성 문제가 아니라 *한 프레임을 처리하는 데 걸리는 클록 수*로 직접 이어집니다.
+
+[NOTE]
+====
+`flatten`은 6장 6절에서 암묵적으로 가정했던 "풀링 결과를 한 줄로 펼쳐 `matmul`에 넣는다"는 단계를 명시적인 Mini 언어 표현식으로 만든 것입니다 — 구현은 `im2col`이 이미 하고 있던 재배열과 본질적으로 같은 작업(2차원 인덱스를 1차원으로 접는 것)이라 새 증명 부담은 없고, 파서·코드 생성기에 갈래 하나를 추가하는 정도입니다. 이 장에서는 생략하고 6장 6절의 패턴을 그대로 따르는 연습 문제로 남깁니다.
+====
+
+== 5. Verilator로 하나의 프레임 추론 확인
+
+[source,cpp]
+----
+// sim/tb_mario_policy.cpp
+#include "Vcpu_npu.h"
+#include "verilated.h"
+#include <cstdio>
+#include <fstream>
+
+int main(int argc, char** argv) {
+    Verilated::commandArgs(argc, argv);
+    auto* dut = new Vcpu_npu;
+
+    // 2절에서 내보낸 mario_weights.bin을 NPU 메모리 맵(3장)에 로드하는 절차는
+    // 5장 4절의 npu_matmul_test.hack 빌드·로드 절차와 동일 — 생략.
+    // examples/frame_001.pgm(테스트용 게임 프레임 하나)을 로드해 policyForward 실행.
+
+    struct { const char* name; int expected; } actionNames[] = {
+        {"LEFT", 0}, {"RIGHT", 1}, {"JUMP", 2}, {"WAIT", 3},
+    };
+    // int scores[4] = { ... };  // NPU 실행 결과에서 4개 행동 점수 추출 (생략)
+    // int chosen = argmax(scores);
+    // std::printf("chosen action: %s (score=%d)\n", actionNames[chosen].name, scores[chosen]);
+    std::printf("mario policy inference harness ready (실행 절차는 5장 4절 참고해 채우기)\n");
+
+    delete dut;
+    return 0;
+}
+----
+
+[TIP]
+====
+*확인*: 이 시뮬레이션은 딱 한 프레임에 대한 행동 하나를 계산합니다 — 9장에서 이걸 반복해서 실제로 게임을 플레이합니다. 여기서 먼저 확인할 것은, 같은 프레임을 훈련 프레임워크(2절의 파이썬 스크립트가 쓰인 그 환경)에서 부동소수점으로 순전파했을 때 나오는 행동과, NPU가 양자화된 정수로 계산한 행동이 *일치*하는지입니다 — 3절의 `action_order_preserved`가 실전에서 성립하는지를 프레임 하나로 먼저 검증하는 것입니다. 만약 두 행동이 다르게 나온다면, 3절의 전제(점수 차이가 오차 한계의 두 배보다 큼)가 이 프레임에서는 깨졌다는 뜻입니다 — 이런 "아슬아슬한" 프레임이 실제로 얼마나 자주 나오는지가 9장에서 다루는 실측 질문이고, 그 오차 한계 자체의 실제 수치는 다음 장(8장)에서 유도합니다.
+====
+
+== 이 장에서 확정한 것
+
+* 훈련(책 밖)과 추론(이 시리즈의 대상)의 경계를 가중치 내보내기 스크립트 하나로 명확히 그었고, 그 스크립트가 새로 TCB에 추가하는 가정을 짚었습니다.
+* "양자화 오차가 행동 선택 순서를 뒤집지 않는다"는 조건을 `action_order_preserved` 정리로 정량화했습니다 — 오차 한계(`bound`) 자체의 실제 수치는 이 장에서는 가정으로 받고, 8장에서 실제로 유도합니다.
+* 6장에서 만든 `conv2d`/`maxPool`/`matmul`과 depthwise separable convolution(`depthwiseConv2d`/`pointwiseConv`) 컴파일 경로를 재사용해, `84×84` 프레임을 4개 행동 점수로 낮추는 정책망 전체를 컴파일했습니다 — 채널이 16→32로 늘어나는 두 번째 컨볼루션에 depthwise separable을 적용해 MAC 수를 약 14분의 1로 줄였습니다.
+* 한 프레임에 대한 추론을 NPU 위에서 실행하는 시뮬레이션 뼈대를 만들고, 훈련 프레임워크의 부동소수점 결과와 대조하는 확인 절차를 제시했습니다.
+
+다음 장에서는 이 한 프레임짜리 추론을 반복 루프로 엮어 실제로 마리오 한 스테이지를 끝까지 플레이해보고, NPU 확장 전체에 대한 회고로 이 2권을 마칩니다.
+// end::body[]

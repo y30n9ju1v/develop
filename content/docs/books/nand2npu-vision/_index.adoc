@@ -1,0 +1,110 @@
+---
+title: "nand2npu 2권: NPU로 이미지 처리하고 마리오 플레이하기"
+---
+
+link:../nand2npu/[1권]에서 완성한 16비트 CPU에 NPU(Neural Processing Unit)를 얹어, 신경망 추론이 필요로 하는 병렬 곱셈-누산 연산을 하드웨어 레벨에서 지원하도록 확장하는 시리즈의 2권입니다. 1권과 같은 방법론 — Lean4로 명세와 안전 조건을 증명하고, 그 증명이 통과한 설계만 CIRCT를 거쳐 SystemVerilog로 방출하고, Verilator로 실행 검증하는 것 — 을 그대로 이어갑니다. NPU 하드웨어(1~5장)를 완성한 뒤에는 이미지 분류 워밍업(6장)을 거쳐, 미리 훈련된 정책망으로 슈퍼 마리오를 플레이하는 강화학습 추론(7~10장)까지 다룹니다. 훈련 자체는 이 책의 범위 밖입니다 — 다루는 것은 항상 "고정된 가중치로 정확히 추론하는가"입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: CPU에서 NPU로, 그리고 마리오까지]*
+
+*1부: NPU 하드웨어*
+
+[start=1]
+. *link:01-npu-architecture-and-mac/[NPU 아키텍처와 MAC 유닛: 왜 스칼라 CPU로는 부족한가]*
+. *link:02-systolic-array/[시스톨릭 어레이: MAC을 격자로 엮어 행렬을 곱하다]*
+. *link:03-npu-isa-and-coprocessor/[NPU 명령어 집합과 코프로세서 인터페이스]*
+. *link:04-quantization-fixed-point/[양자화와 고정소수점: INT8에서 오버플로를 막는 법]*
+. *link:05-compiler-extension-and-integration/[컴파일러 확장과 전체 재통합: 텐서 연산을 NPU 명령어로]*
+
+*2부: 이미지와 강화학습 추론*
+
+[start=6]
+. *link:06-image-processing-pipeline/[이미지 처리 파이프라인: 컨볼루션과 풀링을 NPU에 얹다]*
+. *link:07-mario-policy-inference/[마리오 정책망 추론: 프레임에서 행동으로]*
+. *link:08-quantization-error-propagation/[오차 전파 분석: 양자화 오차 한계를 가정에서 계산으로]*
+. *link:09-mario-playthrough/[마리오 플레이스루: 반복 루프와 실측]*
+. *link:10-what-npu-verification-bought-us/[회고: NPU 확장에서 검증이 산 것]*
+
+'''
+
+[#part-1]
+== 제1부: NPU 하드웨어
+
+'''
+
+[#chapter-01]
+== 1. NPU 아키텍처와 MAC 유닛: 왜 스칼라 CPU로는 부족한가
+
+include::01-npu-architecture-and-mac.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-02]
+== 2. 시스톨릭 어레이: MAC을 격자로 엮어 행렬을 곱하다
+
+include::02-systolic-array.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-03]
+== 3. NPU 명령어 집합과 코프로세서 인터페이스
+
+include::03-npu-isa-and-coprocessor.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-04]
+== 4. 양자화와 고정소수점: INT8에서 오버플로를 막는 법
+
+include::04-quantization-fixed-point.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-05]
+== 5. 컴파일러 확장과 전체 재통합: 텐서 연산을 NPU 명령어로
+
+include::05-compiler-extension-and-integration.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-2]
+== 제2부: 이미지와 강화학습 추론
+
+'''
+
+[#chapter-06]
+== 6. 이미지 처리 파이프라인: 컨볼루션과 풀링을 NPU에 얹다
+
+include::06-image-processing-pipeline.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-07]
+== 7. 마리오 정책망 추론: 프레임에서 행동으로
+
+include::07-mario-policy-inference.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-08]
+== 8. 오차 전파 분석: 양자화 오차 한계를 가정에서 계산으로
+
+include::08-quantization-error-propagation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-09]
+== 9. 마리오 플레이스루: 반복 루프와 실측
+
+include::09-mario-playthrough.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-10]
+== 10. 회고: NPU 확장에서 검증이 산 것
+
+include::10-what-npu-verification-bought-us.adoc[tag=body,leveloffset=+1]
