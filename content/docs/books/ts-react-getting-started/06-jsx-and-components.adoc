@@ -1,0 +1,124 @@
+---
+title: "6장: 컴포넌트와 JSX — 왜 HTML을 JS 안에 쓰는가"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["react", "jsx", "book"]
+categories: ["books"]
+description: "화면을 구성하는 최소 단위인 컴포넌트가 왜 함수인지, 마크업과 로직을 분리하는 대신 JSX로 한데 묶는 선택이 왜 오히려 관심사를 더 잘 나누는 것인지 확인하는 2부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-union-types/[5장: 유니온과 판별 유니온] · 다음: link:../07-props-and-immutability/[7장: Props와 불변성]_
+
+'''
+
+== 컴포넌트: 화면 조각을 반환하는 함수
+
+React에서 화면을 이루는 최소 단위를 **컴포넌트**라고 부릅니다. 컴포넌트는 특별한 게 아니라, **"화면에 뭘 보여줄지"를 반환하는 평범한 함수**입니다.
+
+[source,tsx]
+----
+function Greeting() {
+  return <h1>안녕하세요</h1>;
+}
+----
+
+`Greeting`이 함수라는 걸 눈여겨보세요 — 인자를 받아 값을 반환하는, 지금까지 계속 써온 함수와 원리적으로 다르지 않습니다. 다른 점은 딱 하나, **반환하는 값이 숫자나 문자열이 아니라 "화면에 그릴 내용"**이라는 것뿐입니다. `<h1>안녕하세요</h1>`처럼 HTML과 똑같이 생긴 이 문법이 **JSX**입니다.
+
+[NOTE]
+====
+컴포넌트 이름은 반드시 대문자로 시작해야 합니다(`Greeting`, `greeting`이 아니라). JSX는 `<greeting />`처럼 소문자로 시작하면 "이건 `div`나 `span`같은 일반 HTML 태그"로, `<Greeting />`처럼 대문자로 시작하면 "이건 내가 만든 컴포넌트"로 구분합니다 — 컴파일러가 이 대소문자 하나로 둘을 구분하기 때문에, 소문자로 컴포넌트를 만들면 원하는 대로 동작하지 않습니다.
+====
+
+== JSX는 사실 함수 호출이다
+
+`<h1>안녕하세요</h1>`가 실제 HTML을 만드는 게 아니라는 걸 확인해봅시다. JSX는 브라우저나 Node.js가 이해하는 문법이 아니라, 빌드 도구(Vite가 내부적으로 쓰는 esbuild 등)가 **평범한 함수 호출로 변환**하는 문법 설탕입니다.
+
+[source,tsx]
+----
+import { renderToStaticMarkup } from "react-dom/server";
+
+function Greeting() {
+  return <h1>안녕하세요</h1>;
+}
+
+console.log(renderToStaticMarkup(<Greeting />));
+// 출력: <h1>안녕하세요</h1>
+----
+
+`<Greeting />`을 쓰는 순간, 빌드 도구는 이걸 `jsx(Greeting, {})`(또는 예전 방식으로는 `React.createElement(Greeting, {})`) 같은 함수 호출로 바꿉니다. 즉 JSX는 "HTML을 JS 안에 쓰는 특별한 규칙"이 아니라, **"화면 구조를 함수 호출로 표현하는 걸 손으로 쓰기 편하게 해주는 문법"**입니다. `renderToStaticMarkup`이 그 함수 호출 결과(React가 내부적으로 쓰는 자료구조)를 실제 HTML 문자열로 바꿔주는 역할을 합니다 — 지금은 서버에서 문자열로 뽑아 확인하지만, 브라우저에서는 이 결과가 실제 DOM에 반영됩니다.
+
+== 왜 마크업과 로직을 분리하지 않는가
+
+예전 웹 개발 방식(템플릿 엔진)은 "로직(JS)"과 "마크업(HTML)"을 다른 파일로 나누는 걸 정석으로 여겼습니다. React가 그 반대로 간 이유는, **"관심사"를 나누는 진짜 기준이 파일 종류(JS vs HTML)가 아니라 "화면의 한 조각이 하는 일"**이라고 판단했기 때문입니다.
+
+[source,tsx]
+----
+function PriceTag({ price, onSale }: { price: number; onSale: boolean }) {
+  return (
+    <span>
+      {onSale ? <s>{price}원</s> : `${price}원`}
+    </span>
+  );
+}
+----
+
+가격표 하나를 그리는 데 필요한 로직(할인 중인지 판단)과 마크업(어떻게 보여줄지)이 실제로는 서로 뗄 수 없이 얽혀 있습니다 — "할인 중이면 취소선을 긋는다"는 규칙 자체가 로직이자 마크업입니다. 파일을 억지로 나누면 이 하나의 규칙이 두 파일에 걸쳐 흩어지고, 그 둘을 항상 같이 고쳐야 합니다. 컴포넌트 하나에 로직과 마크업을 같이 두면, **"가격표가 어떻게 보여야 하는가"라는 하나의 관심사가 파일 하나에 완결됩니다.**
+
+== JSX 문법 규칙 세 가지
+
+[source,tsx]
+----
+function UserCard({ name, age }: { name: string; age: number }) {
+  const isAdult = age >= 18;
+  return (
+    <div className="card">
+      <h2>{name}</h2>
+      <p>{isAdult ? "성인" : "미성년자"}</p>
+    </div>
+  );
+}
+----
+
+* **`{}` 안에는 JS 표현식을 쓸 수 있습니다.** `{name}`, `{isAdult ? "성인" : "미성년자"}`처럼, 변수나 삼항연산자 같은 "값이 되는 코드"는 중괄호로 감싸 JSX 안에 끼워 넣습니다. `if`문처럼 "값이 아닌" 코드는 `{}` 안에 못 씁니다.
+* **`class`가 아니라 `className`을 씁니다.** `class`는 JavaScript에서 이미 클래스 선언에 쓰는 예약어라, HTML의 `class` 속성은 JSX에서 `className`으로 이름을 바꿔 씁니다.
+* **최상위 태그는 반드시 하나여야 합니다.** `<h2>...</h2><p>...</p>`처럼 형제 태그를 나란히 반환할 수 없고, 위 예제처럼 `<div>` 하나로 감싸야 합니다. 감싸는 태그 자체가 화면에 안 나오게 하고 싶으면 `<>...</>` (Fragment)를 씁니다.
+
+== 직접 해보기
+
+* `Badge({ label, color }: { label: string; color: string })` 컴포넌트를 만들어, `style={{ color }}`처럼 인라인 스타일로 글자색을 입혀보세요.
+* 형제 태그 두 개를 감싸는 태그 없이 그냥 나란히 반환하면 어떤 에러 메시지가 나오는지 확인하고, `<>...</>`로 감싸 고쳐보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,tsx]
+----
+import { renderToStaticMarkup } from "react-dom/server";
+
+function Badge({ label, color }: { label: string; color: string }) {
+  return <span style={{ color }}>{label}</span>;
+}
+
+function Pair() {
+  return (
+    <>
+      <Badge label="new" color="red" />
+      <Badge label="sale" color="blue" />
+    </>
+  );
+}
+
+console.log(renderToStaticMarkup(<Pair />));
+----
+====
+
+== 요약
+
+* 컴포넌트는 "화면에 뭘 보여줄지"를 반환하는 평범한 함수이고, 이름은 반드시 대문자로 시작합니다.
+* JSX는 HTML이 아니라 함수 호출로 변환되는 문법입니다 — 빌드 도구가 컴파일 시점에 이 변환을 해줍니다.
+* React가 마크업과 로직을 한 파일(컴포넌트)에 같이 두는 건, "화면의 한 조각이 하는 일"을 관심사 분리의 기준으로 삼기 때문입니다.
+* `{}` 안에 JS 표현식, `className`, 그리고 최상위 태그 하나(또는 Fragment) — JSX의 핵심 규칙 세 가지입니다.
+
+다음 장에서는 컴포넌트가 외부에서 값을 받는 방법인 Props와, 그 값을 컴포넌트 내부에서 절대 바꾸면 안 되는 이유(불변성)를 다룹니다.
+// end::body[]

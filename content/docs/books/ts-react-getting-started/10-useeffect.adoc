@@ -1,0 +1,134 @@
+---
+title: "10장: useEffect — 부수효과와 의존성 배열이 왜 그렇게 생겼나"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["react", "useeffect", "book"]
+categories: ["books"]
+description: "컴포넌트 함수 몸체에서 API를 직접 호출하면 안 되는 이유를 렌더링의 정의에서부터 확인하고, useEffect의 의존성 배열이 '언제 다시 실행할지'를 정하는 규칙이라는 걸 정리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-rendering-and-reconciliation/[9장: 렌더링과 재조정] · 다음: link:../11-lists-and-keys/[11장: 리스트와 key]_
+
+'''
+
+== 왜 컴포넌트 함수 안에서 그냥 API를 부르면 안 되는가
+
+[source,tsx]
+----
+function UserProfile({ userId }: { userId: string }) {
+  const data = fetch(`/api/users/${userId}`); // 이렇게 하면 안 됩니다
+
+  return <p>{userId}의 프로필</p>;
+}
+----
+
+9장에서 "렌더링(컴포넌트 함수 호출)은 화면을 아직 안 바꾸는 계산 단계"라고 정리했습니다. `fetch` 같은 네트워크 요청은 그 정의와 정면으로 부딪힙니다 — API 호출은 "지금 화면이 어떤 모양이어야 하는가"를 계산하는 일이 아니라, **그 계산과 무관하게 바깥 세상(서버)에 영향을 주고받는 일**입니다. React는 언제든(심지어 화면에 아무 변화가 없어도) 컴포넌트 함수를 다시 호출할 수 있는데, 그때마다 API가 다시 불려버리면 같은 요청이 통제 불가능하게 반복됩니다. 이렇게 "렌더링 계산" 바깥에서 일어나는 일 — 네트워크 요청, 타이머, 구독 — 을 **부수효과(side effect)**라고 부릅니다.
+
+== useEffect: "렌더링이 끝난 뒤에" 실행되는 자리
+
+[source,tsx]
+----
+import { useState, useEffect } from "react";
+
+function UserProfile({ userId }: { userId: string }) {
+  const [name, setName] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/users/${userId}`)
+      .then((res) => res.json())
+      .then((data) => setName(data.name));
+  }, [userId]);
+
+  return <p>{name ?? "로딩 중..."}</p>;
+}
+----
+
+`useEffect(fn, [userId])`는 "렌더링(화면 계산)이 끝나고 실제로 화면에 반영된 뒤, `fn`을 실행하라"는 뜻입니다. 부수효과를 렌더링 계산 밖으로 밀어내되, 컴포넌트 안에 자연스럽게 둘 수 있게 해주는 자리가 `useEffect`입니다. API 응답이 오면 `setName`으로 State를 갱신하고, 그 갱신이 다시 렌더링을 일으켜 화면에 이름이 나타납니다.
+
+9장에서 본 렌더링·커밋 두 단계에 `useEffect`를 끼워 넣으면 순서가 이렇습니다.
+
+[source,text]
+----
+[1. 렌더링] UserProfile() 호출 → "로딩 중..." 트리 계산
+      │
+      ▼
+[2. 커밋] 화면에 "로딩 중..." 반영
+      │
+      ▼
+[3. useEffect 실행] fetch(...) 시작 (커밋이 끝난 뒤에만 실행됨)
+      │
+      ▼
+응답 도착 → setName(data.name) → 다시 [1. 렌더링]부터 반복 → 이번엔 이름이 화면에 반영
+----
+
+`useEffect`가 렌더링 단계(1번)가 아니라 커밋 이후(3번)에 자리 잡는 이유가 이 순서에 있습니다 — 렌더링 단계에서 `fetch`를 부르면 "아직 화면에 반영되지도 않은 계산" 도중에 부수효과가 끼어들게 되지만, 커밋 이후로 미루면 "화면에 무언가가 실제로 보인 다음에" 부수효과가 실행된다는 순서가 보장됩니다.
+
+== 의존성 배열: "언제 다시 실행할지"를 정확히 말하기
+
+`useEffect`의 두 번째 인자 `[userId]`가 **의존성 배열**입니다. 이 배열의 뜻은 "이 배열 안의 값이 이전 렌더링과 달라졌을 때만 effect를 다시 실행하라"입니다.
+
+[source,text]
+----
+[]           — 딱 한 번만 실행 (마운트 시점)
+[userId]     — userId가 바뀔 때만 다시 실행
+(생략)       — 매 렌더링마다 실행 (거의 항상 원하는 동작이 아님)
+----
+
+`userId`가 `"1"`에서 `"2"`로 바뀌면, 그건 "이제 다른 사람의 프로필을 보여줘야 한다"는 뜻이니 API를 다시 불러야 맞습니다 — 의존성 배열에 `userId`를 넣는 이유입니다. 반대로 의존성 배열을 아예 안 쓰면, `UserProfile`이 어떤 이유로든(관계없는 State가 바뀌어서라도) 다시 렌더링될 때마다 API가 매번 다시 불립니다 — 대부분 원하는 동작이 아닙니다.
+
+== "왜 굳이 배열로 조건을 적어야 하나": 자동 추적이 아니라 명시가 필요한 이유
+
+의존성 배열이 번거로워 보일 수 있는데, React가 "이 effect 안에서 어떤 값을 썼는지" 자동으로 추적해서 알아서 다시 실행해줄 수는 없을까요? 문제는 `fetch(...)` 같은 호출 안에서 실제로 `userId`를 쓴다는 걸 React가 실행하지 않고 미리 알 방법이 없다는 것입니다 — effect 함수는 그냥 평범한 JS 함수라, React 입장에서는 그 안에서 정확히 어떤 외부 값을 참조하는지 코드를 실행하지 않고는 알 수 없습니다. 그래서 "이 값이 바뀌면 다시 실행해야 한다"는 걸 사람이 직접 배열에 적어 알려주는 방식을 택한 것입니다. 대신 이 명시 방식은 실수하기 쉽습니다 — effect 안에서 쓰는 값을 의존성 배열에 빠뜨리면, "값은 바뀌었는데 effect는 옛날 값을 들고 있는" 버그(흔히 "stale closure"라고 부릅니다)로 이어집니다. Vite의 ESLint 설정에 포함된 `react-hooks/exhaustive-deps` 규칙이 바로 이 실수를 잡아주는 도구입니다.
+
+== 정리 함수: effect가 벌인 일을 되돌리기
+
+[source,tsx]
+----
+useEffect(() => {
+  const timerId = setInterval(() => {
+    console.log("tick");
+  }, 1000);
+
+  return () => {
+    clearInterval(timerId); // 정리(cleanup) 함수
+  };
+}, []);
+----
+
+`useEffect`에 넘긴 함수가 함수를 하나 반환하면, React는 그걸 **정리(cleanup) 함수**로 기억해뒀다가, 컴포넌트가 화면에서 사라지거나(언마운트) effect가 다시 실행되기 직전에 호출합니다. 타이머를 시작했으면 반드시 멈추는 짝을 정리 함수에 적어야 합니다 — 안 그러면 컴포넌트가 화면에서 사라진 뒤에도 타이머가 계속 돌아가는, 눈에 안 보이는 누수가 생깁니다.
+
+== 직접 해보기
+
+* `useEffect(() => { console.log("effect 실행!"); }, [])`를 컴포넌트에 넣고, 컴포넌트가 처음 화면에 나타날 때 딱 한 번만 콘솔에 찍히는지 확인해보세요.
+* `setTimeout`으로 3초 뒤 메시지를 보여주는 컴포넌트를 만들고, 정리 함수로 `clearTimeout`을 넣어보세요 — 컴포넌트가 3초 되기 전에 화면에서 사라지면(부모 State로 조건부 렌더링을 걸어 확인) 메시지가 안 뜨는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,tsx]
+----
+import { useState, useEffect } from "react";
+
+function DelayedMessage() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    const timerId = setTimeout(() => setShow(true), 3000);
+    return () => clearTimeout(timerId);
+  }, []);
+
+  return <p>{show ? "3초 지났습니다!" : "기다리는 중..."}</p>;
+}
+----
+====
+
+== 요약
+
+* 컴포넌트 함수 몸체는 "지금 화면이 어떤 모양이어야 하는가"를 계산하는 자리이지, API 호출 같은 부수효과를 직접 실행하는 자리가 아닙니다.
+* `useEffect`는 렌더링이 화면에 반영된 뒤 부수효과를 실행할 수 있게 해주는 자리입니다.
+* 의존성 배열은 "이 값이 바뀌었을 때만 다시 실행하라"는 조건이고, React가 자동으로 추적할 수 없어 사람이 명시해야 합니다.
+* effect가 반환하는 정리 함수는 타이머·구독처럼 "시작한 일을 되돌리는" 짝을 실행하는 자리입니다.
+
+다음 장에서는 9장에서 미뤄뒀던 `key`가 리스트 재조정에서 정확히 어떤 문제를 해결하는지, 그리고 `key={index}`가 왜 항상 안전하지는 않은지 다룹니다.
+// end::body[]

@@ -1,0 +1,175 @@
+---
+title: "13장: 컴포넌트에 타입 입히기 — Props, 이벤트, children"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["typescript", "react", "book"]
+categories: ["books"]
+description: "지금까지 느슨하게 써온 이벤트 핸들러 타입을 제대로 갖추고, React.FC를 이 책이 쓰지 않는 이유, 기본값 있는 선택적 Props를 다루는 3부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-custom-hooks/[12장: 커스텀 훅] · 다음: link:../14-forms-and-api-calls/[14장: API 호출과 폼]_
+
+'''
+
+== 이벤트 핸들러에 타입이 필요한 순간
+
+8장부터 `onClick={() => setCount(count + 1)}`처럼 이벤트 핸들러를 계속 써왔는데, 인자를 받은 적은 없었습니다. 이벤트 객체 자체가 필요해지면 타입을 명시해야 합니다.
+
+[source,tsx]
+----
+function SearchBox() {
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+    console.log(event.target.value);
+  }
+
+  return <input onChange={handleChange} />;
+}
+----
+
+`React.ChangeEvent<HTMLInputElement>`가 "이 이벤트는 `<input>` 요소에서 발생한 change 이벤트다"라는 뜻입니다. 이 타입 덕분에 `event.target`이 `HTMLInputElement`라는 걸 TypeScript가 알고, `event.target.value`(입력값)에 안전하게 접근할 수 있습니다 — 만약 `event.target.checked`(체크박스 전용 속성)처럼 `input` 요소에 없는 속성에 접근하려 하면 컴파일 에러가 납니다.
+
+[source,tsx]
+----
+function LikeButton() {
+  function handleClick(event: React.MouseEvent<HTMLButtonElement>) {
+    console.log("clicked at", event.clientX, event.clientY);
+  }
+
+  return <button onClick={handleClick}>좋아요</button>;
+}
+----
+
+`React.MouseEvent<HTMLButtonElement>`도 같은 패턴입니다 — "어떤 종류의 이벤트인지"(`ChangeEvent`, `MouseEvent`, `KeyboardEvent`...)와 "어떤 요소에서 발생했는지"(`<HTMLInputElement>`, `<HTMLButtonElement>`...)를 둘 다 적어주는 게 규칙입니다.
+
+== 왜 이렇게까지 구체적으로 적어야 하나
+
+[source,tsx]
+----
+function handleChange(event: Event) { // 너무 막연함
+  console.log(event.target.value); // 컴파일 에러: Event의 target은 value를 보장 안 함
+}
+----
+
+그냥 `Event`라고만 적으면 안전하지 않습니다 — `Event`는 모든 종류의 이벤트(클릭, 스크롤, 리사이즈...)를 아우르는 가장 넓은 타입이라, `.target`이 `input`인지, `value`가 있는지조차 보장하지 않습니다. `React.ChangeEvent<HTMLInputElement>`처럼 구체적으로 적는 건 4장의 제네릭에서 봤던 원칙과 같습니다 — **더 좁고 구체적인 타입일수록, 그 타입에 기대어 안전하게 할 수 있는 일이 많아집니다.**
+
+== children과 선택적 Props를 함께 정리하기
+
+[source,tsx]
+----
+interface ButtonProps {
+  children: React.ReactNode;
+  variant?: "primary" | "secondary"; // 선택적 — 안 주면 undefined
+  onClick?: () => void;
+}
+
+function Button({ children, variant = "primary", onClick }: ButtonProps) {
+  return (
+    <button className={`btn btn-${variant}`} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+----
+
+`variant?: "primary" | "secondary"`는 3장의 선택적 필드와 5장의 유니온을 합친 것뿐입니다 — "안 줘도 되지만, 준다면 이 둘 중 하나만"이라는 뜻입니다. `variant = "primary"`처럼 구조 분해 자리에 기본값을 적어두면, `variant`를 안 넘긴 경우에도 함수 본문에서는 항상 `"primary"` 아니면 `"secondary"`(더 이상 `undefined`가 아닌)로 취급됩니다.
+
+== 왜 이 책은 `React.FC`를 쓰지 않는가
+
+React를 다루는 다른 자료에서 `React.FC<Props>`라는 표기를 봤을 수 있습니다.
+
+[source,tsx]
+----
+const Button: React.FC<ButtonProps> = ({ children, variant = "primary" }) => {
+  return <button className={`btn btn-${variant}`}>{children}</button>;
+};
+----
+
+이 책은 지금까지 계속 써온 `function Button({ children }: ButtonProps) { ... }` 형태를 고수합니다. `React.FC`는 한때 표준처럼 쓰였지만, `children`을 (실제로 안 받는 컴포넌트에도) 암묵적으로 항상 허용해버리는 부작용이 있어 최근 커뮤니티에서는 잘 안 쓰는 쪽으로 기울었습니다 — react.dev의 최신 예제들도 평범한 함수 선언을 씁니다. 평범한 함수로 선언하면 매개변수 타입을 2장에서 배운 원칙(항상 명시) 그대로 적용하면 되고, 특별한 제네릭 타입을 하나 더 배울 필요가 없습니다.
+
+== 제네릭 컴포넌트: Props 자체에 타입 변수가 필요할 때
+
+4장에서 본 제네릭 함수는 컴포넌트에도 그대로 적용됩니다. "어떤 타입의 배열이든 받아서 리스트로 그려주는" 컴포넌트를 만든다고 해봅시다.
+
+[source,tsx]
+----
+interface ListProps<T> {
+  items: T[];
+  renderItem: (item: T) => React.ReactNode;
+  keyOf: (item: T) => string;
+}
+
+function List<T>({ items, renderItem, keyOf }: ListProps<T>) {
+  return (
+    <ul>
+      {items.map((item) => (
+        <li key={keyOf(item)}>{renderItem(item)}</li>
+      ))}
+    </ul>
+  );
+}
+----
+
+`ListProps<T>`가 `items: T[]`와 `renderItem: (item: T) => ...`을 같은 `T`로 묶어둡니다 — 11장에서 배운 `key`를 여기서도 `keyOf`로 강제해, 이 컴포넌트를 쓰는 쪽이 실수로 key를 빠뜨리지 못하게 합니다.
+
+[source,tsx]
+----
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+}
+
+function ProductList({ products }: { products: Product[] }) {
+  return (
+    <List
+      items={products}
+      keyOf={(p) => p.id}
+      renderItem={(p) => (
+        <span>{p.name} - {p.price}원</span>
+      )}
+    />
+  );
+}
+----
+
+`<List items={products} ... />`라고 쓰는 순간 TypeScript는 `products: Product[]`를 보고 `T`를 `Product`로 추론합니다(2장에서 본 문맥적 타입 추론과 같은 원리) — 그 결과 `renderItem`과 `keyOf`의 매개변수 `p`도 자동으로 `Product` 타입이 됩니다. 실제로 `renderItem={(p) => <span>{p.weight}</span>}`처럼 `Product`에 없는 필드를 쓰면 `Property 'weight' does not exist on type 'Product'`라는 컴파일 에러가 납니다 — `items`가 무엇이든(`Product[]`든 다른 배열이든) `List` 컴포넌트 자체는 한 번만 작성하면 되면서도, 이 안전성은 그대로 유지됩니다.
+
+== 직접 해보기
+
+* `Checkbox` 컴포넌트를 만들어, `onChange: (checked: boolean) => void`를 Props로 받고 내부의 `<input type="checkbox">`의 `onChange`(`React.ChangeEvent<HTMLInputElement>`)에서 `event.target.checked`를 꺼내 그 함수를 불러보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,tsx]
+----
+interface CheckboxProps {
+  label: string;
+  onChange: (checked: boolean) => void;
+}
+
+function Checkbox({ label, onChange }: CheckboxProps) {
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+    onChange(event.target.checked);
+  }
+
+  return (
+    <label>
+      <input type="checkbox" onChange={handleChange} />
+      {label}
+    </label>
+  );
+}
+----
+====
+
+== 요약
+
+* 이벤트 핸들러의 매개변수는 `React.ChangeEvent<HTMLInputElement>`처럼 "이벤트 종류 + 발생한 요소"를 함께 명시해야, `event.target`의 구체적인 속성에 안전하게 접근할 수 있습니다.
+* `children: React.ReactNode`와 선택적 Props(`variant?: ...`)를 조합하면, 지금까지 배운 3장(인터페이스)·5장(유니온) 개념만으로 대부분의 컴포넌트 Props를 표현할 수 있습니다.
+* 이 책은 `React.FC`보다 평범한 함수 선언을 씁니다 — `children`을 암묵적으로 항상 허용해버리는 부작용이 없고, 최근 React 커뮤니티의 추세와도 일치합니다.
+* 4장의 제네릭은 컴포넌트에도 그대로 적용됩니다 — `ListProps<T>`처럼 Props 자체에 타입 변수를 두면, `items`의 타입이 무엇이든 `renderItem`·`keyOf`의 매개변수가 자동으로 같은 타입으로 좁혀집니다.
+
+다음 장에서는 실제 API를 호출하고 그 결과를 폼으로 다루는, 지금까지 배운 걸 전부 합치는 실전 패턴을 다룹니다.
+// end::body[]

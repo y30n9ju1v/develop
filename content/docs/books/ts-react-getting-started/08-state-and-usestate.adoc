@@ -1,0 +1,138 @@
+---
+title: "8장: State와 useState — 왜 그냥 변수로는 안 되는가"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["react", "usestate", "book"]
+categories: ["books"]
+description: "컴포넌트 안에 그냥 변수를 두고 바꾸면 왜 화면이 안 바뀌는지 확인하고, useState가 그 값을 렌더링 사이에 실제로 어떻게 기억해주는지 살펴보는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-props-and-immutability/[7장: Props와 불변성] · 다음: link:../09-rendering-and-reconciliation/[9장: 렌더링과 재조정]_
+
+'''
+
+== 그냥 변수로 세면 왜 안 되는가
+
+버튼을 누르면 숫자가 올라가는 카운터를 만든다고 해봅시다. 가장 먼저 떠오르는 방법은 그냥 변수를 하나 두는 것입니다.
+
+[source,tsx]
+----
+function Counter() {
+  let count = 0;
+  return (
+    <div>
+      <p>{count}</p>
+      <button onClick={() => { count = count + 1; }}>+</button>
+    </div>
+  );
+}
+----
+
+실제로 브라우저에서 이 버튼을 눌러보면 **화면 숫자가 안 바뀝니다.** 문법 에러도 없고, `count`가 실제로 1, 2, 3으로 늘어나는데도 그렇습니다. 이유는 6장에서 확인한 사실로 설명됩니다 — **컴포넌트는 함수이고, 화면을 다시 그리려면 그 함수가 다시 호출돼야 합니다.** `count = count + 1`은 그냥 지역 변수를 바꾼 것뿐이라, React 입장에서는 "이 컴포넌트 함수를 다시 불러야 한다"는 신호가 전혀 없습니다. 설령 다시 불렸다 해도, `let count = 0`이 함수 맨 위에 있으니 **호출될 때마다 다시 0으로 초기화**됩니다 — 지역 변수는 함수 호출이 끝나면 사라지는, 원래 그런 것이기 때문입니다.
+
+== useState: 렌더링 사이에도 기억되는 값
+
+[source,tsx]
+----
+import { useState } from "react";
+
+function Counter() {
+  const [count, setCount] = useState(0);
+  return (
+    <div>
+      <p>{count}</p>
+      <button onClick={() => setCount(count + 1)}>+</button>
+    </div>
+  );
+}
+----
+
+`useState(0)`은 두 가지를 돌려줍니다 — **지금 값**(`count`)과 **그 값을 바꾸는 함수**(`setCount`)입니다. `setCount(count + 1)`을 호출하면 두 가지 일이 일어납니다.
+
+1. React가 이 컴포넌트를 위해 따로 보관해둔 값을 갱신합니다(`count`는 함수 안 지역 변수가 아니라, React가 컴포넌트 바깥의 어딘가에 "이 컴포넌트의 상태"로 기억해두는 값입니다).
+2. **이 컴포넌트 함수를 다시 호출하라고 React에 예약합니다.**
+
+이 두 번째가 핵심입니다 — `setCount`를 부르는 게 "값을 바꿔라"보다는 **"이 값이 바뀌었으니 화면을 다시 그려라"**에 더 가깝습니다. 다시 호출된 `Counter` 함수는 `useState(0)`을 다시 실행하는 것처럼 보이지만, React가 "이 컴포넌트는 전에 `count`를 1로 만들어뒀었지"를 기억하고 있다가 그 값을 돌려줍니다 — 그래서 매번 0으로 리셋되지 않습니다.
+
+== 실제로 확인해보기
+
+[source,text]
+----
+mount 직후:  <p>0</p>
+버튼 클릭 1번: <p>1</p>
+버튼 클릭 2번: <p>2</p>
+----
+
+브라우저에서 버튼을 누를 때마다 화면의 숫자가 실제로 하나씩 올라간다는 걸 직접 확인해보세요 — 이게 바로 "값이 렌더링 사이에도 기억된다"는 것의 눈으로 보는 증거입니다.
+
+== 왜 `let count = count + 1`처럼 직접 안 바꾸는가
+
+[source,tsx]
+----
+const [count, setCount] = useState(0);
+count = count + 1; // 컴파일 에러: count는 상수(const)라 재대입할 수 없습니다.
+----
+
+`count`는 `const`로 선언됩니다 — 애초에 재대입이 막혀 있습니다. 7장에서 Props를 `readonly`로 막았던 것과 같은 이유입니다 — **"이 값을 바꾸려면 반드시 정해진 창구(`setCount`)를 거쳐야 한다"**는 규칙을, 사람이 조심하는 대신 언어 차원에서 강제합니다. React가 "언제 다시 그릴지"를 아는 유일한 방법이 `setCount` 호출이므로, 그 창구를 거치지 않은 변경은 React가 알 도리가 없습니다.
+
+== State는 컴포넌트마다 독립적이다
+
+[source,tsx]
+----
+function App() {
+  return (
+    <div>
+      <Counter />
+      <Counter />
+    </div>
+  );
+}
+----
+
+`<Counter />`를 두 번 렌더링하면, 두 카운터는 **완전히 독립된 자기만의 `count`**를 갖습니다 — 하나를 눌러도 다른 하나는 그대로입니다. `useState`가 관리하는 값은 "그 컴포넌트 함수"에 속한 게 아니라 "그 컴포넌트가 화면의 어느 자리에 그려졌는가"에 속합니다 — 같은 함수를 여러 번 썼다고 값을 공유하지 않는다는 것이, State가 "전역 변수"와 근본적으로 다른 지점입니다.
+
+== 직접 해보기
+
+* `TextInput` 컴포넌트를 만들어 `useState("")`로 문자열 State를 두고, `<input value={text} onChange={e => setText(e.target.value)} />`로 입력할 때마다 아래에 그 값을 그대로 보여줘 보세요.
+* 카운터에 "리셋" 버튼을 추가해 `setCount(0)`을 호출하도록 만들어보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,tsx]
+----
+import { useState } from "react";
+
+function TextInput() {
+  const [text, setText] = useState("");
+  return (
+    <div>
+      <input value={text} onChange={(e) => setText(e.target.value)} />
+      <p>입력한 값: {text}</p>
+    </div>
+  );
+}
+
+function Counter() {
+  const [count, setCount] = useState(0);
+  return (
+    <div>
+      <p>{count}</p>
+      <button onClick={() => setCount(count + 1)}>+</button>
+      <button onClick={() => setCount(0)}>리셋</button>
+    </div>
+  );
+}
+----
+====
+
+== 요약
+
+* 컴포넌트 안의 평범한 변수는 렌더링 사이에 기억되지 않고, 값을 바꿔도 React에게 "다시 그려라"라는 신호가 되지 않습니다.
+* `useState`는 값을 렌더링 사이에도 기억해주고, 그 값을 바꾸는 함수(`setCount` 등)를 호출하면 React가 컴포넌트를 다시 렌더링하도록 예약합니다.
+* State 값은 `const`라 직접 재대입할 수 없고, 반드시 세터 함수를 거쳐야 합니다 — React가 변경을 감지하는 유일한 창구이기 때문입니다.
+* 같은 컴포넌트를 여러 번 렌더링해도 각자 독립된 State를 갖습니다.
+
+다음 장에서는 `setCount`를 부른 뒤 정확히 무슨 일이 일어나는지 — React가 "다시 그린다"는 게 실제로 화면 전체를 지우고 새로 그리는 게 아니라는 것 — 를 다룹니다.
+// end::body[]

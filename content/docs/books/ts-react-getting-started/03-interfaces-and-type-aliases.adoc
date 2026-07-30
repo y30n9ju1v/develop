@@ -1,0 +1,159 @@
+---
+title: "3장: 인터페이스와 타입 별칭 — 왜 둘 다 있는가"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["typescript", "book"]
+categories: ["books"]
+description: "객체 모양에 이름을 붙이는 두 가지 방법 interface와 type alias가 왜 둘 다 존재하는지, 실무에서 어느 쪽을 기본으로 쓰면 되는지 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-type-inference/[2장: 타입 추론 vs 명시적 타입] · 다음: link:../04-generics/[4장: 제네릭]_
+
+'''
+
+== 객체 타입에 이름이 필요한 이유
+
+[source,ts]
+----
+function printUser(user: { name: string; age: number }) {
+  console.log(`${user.name} (${user.age})`);
+}
+
+printUser({ name: "Ada", age: 36 });
+----
+
+객체의 모양(shape)도 이렇게 그 자리에서 바로 적을 수 있습니다. 그런데 같은 모양의 객체를 여러 함수가 받는다면, 매번 `{ name: string; age: number }`를 반복해서 적어야 합니다 — 오타 하나로 두 함수의 "같은 모양이어야 할" 타입이 슬쩍 어긋날 수 있습니다. 그래서 이 모양에 이름을 붙여 재사용합니다. TypeScript는 이름을 붙이는 방법을 두 가지 제공합니다.
+
+== interface
+
+[source,ts]
+----
+interface User {
+  name: string;
+  age: number;
+}
+
+function printUser(user: User) {
+  console.log(`${user.name} (${user.age})`);
+}
+
+printUser({ name: "Ada", age: 36 });
+----
+
+`interface User { ... }`가 방금 그 객체 모양에 `User`라는 이름을 붙인 것입니다. 이제 이 모양이 필요한 곳마다 `User`라고만 쓰면 됩니다.
+
+== type alias (타입 별칭)
+
+[source,ts]
+----
+type User = {
+  name: string;
+  age: number;
+};
+
+function printUser(user: User) {
+  console.log(`${user.name} (${user.age})`);
+}
+
+printUser({ name: "Ada", age: 36 });
+----
+
+`type`으로 쓴 이 코드는 겉보기에 `interface` 버전과 거의 똑같은 일을 합니다 — 실제로 이 정도 단순한 객체 모양에서는 둘이 사실상 바꿔 써도 차이가 없습니다. 그런데 이 두 문법은 "그냥 같은 걸 두 가지로 쓸 수 있게 해준다"가 아니라, 원래 하는 일 자체가 다릅니다.
+
+== 진짜 차이: interface는 "확장"되고, type은 "조합"된다
+
+`interface`는 나중에 같은 이름으로 다시 열어서 필드를 추가할 수 있습니다(선언 병합, declaration merging).
+
+[source,ts]
+----
+interface User {
+  name: string;
+}
+
+interface User {
+  age: number; // 같은 이름으로 다시 선언 — 필드가 합쳐짐
+}
+
+const u: User = { name: "Ada", age: 36 }; // name과 age 둘 다 필요
+console.log(u);
+----
+
+`type`은 이게 안 됩니다 — 같은 이름으로 두 번 `type`을 선언하면 에러가 납니다. 대신 `type`은 **객체가 아닌 것도 이름 붙일 수 있습니다** — 유니온(다음 장에서 다룰 "이거 아니면 저거"), 튜플, 함수 타입처럼 interface로는 표현할 수 없는 것들입니다.
+
+[source,ts]
+----
+type ID = string | number;          // 유니온: interface로는 표현 불가능
+type Point = [number, number];      // 튜플
+type Transform = (x: number) => number; // 함수 타입
+
+function printId(id: ID) {
+  console.log(id);
+}
+
+printId("abc");
+printId(42);
+----
+
+== 실무 기준: 객체 모양이면 interface, 그 외엔 type
+
+이 책은 다음 기준을 따릅니다 — **"이게 객체(또는 클래스가 구현할 계약)의 모양을 나타내는가?"** 라면 `interface`, 그렇지 않고 유니온·튜플·함수 타입처럼 조합이 필요하다면 `type`. React의 Props 타입(2부에서 다룹니다)은 거의 항상 객체 모양이라 이 책에서는 `interface`를 기본으로 쓰지만, 실무에서는 팀 컨벤션에 따라 항상 `type`만 쓰는 곳도 흔합니다 — 이 정도 단순한 경우엔 둘 다 정답이라는 뜻입니다. 중요한 건 "선언 병합이 필요한가"와 "유니온처럼 interface가 표현 못 하는 걸 다루는가"라는 두 질문이지, 어느 쪽이 절대적으로 우월한가가 아닙니다.
+
+== 선택적 필드와 읽기 전용
+
+[source,ts]
+----
+interface User {
+  name: string;
+  age: number;
+  nickname?: string;       // ?: 있어도 되고 없어도 되는 필드
+  readonly id: number;     // readonly: 한 번 만들어지면 다시 대입 불가능
+}
+
+const u: User = { name: "Ada", age: 36, id: 1 }; // nickname 없이도 통과
+// u.id = 2; // 컴파일 에러: 읽기 전용 속성이므로 'id'에 할당할 수 없습니다.
+console.log(u);
+----
+
+`nickname?`처럼 물음표를 붙이면 "있을 수도, 없을 수도 있는 필드"가 되고, `readonly`를 붙이면 처음 만들어질 때 말고는 값을 다시 바꿀 수 없습니다. 둘 다 "이 객체가 실제로 어떻게 쓰이는지"를 타입에 더 정확히 새겨 넣는 방법입니다.
+
+== 직접 해보기
+
+* `Product` 인터페이스(`name: string`, `price: number`, 선택적 필드 `discount?: number`)를 만들고, `discount` 없이 객체를 만들어도 통과하는지 확인해보세요.
+* `type Status = "pending" | "done" | "failed"`처럼 문자열 리터럴의 유니온을 만들고, 이 셋 중 하나가 아닌 값을 넣으면 에러가 나는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,ts]
+----
+interface Product {
+  name: string;
+  price: number;
+  discount?: number;
+}
+
+const p: Product = { name: "Keyboard", price: 100 };
+
+type Status = "pending" | "done" | "failed";
+
+function printStatus(status: Status) {
+  console.log(status);
+}
+
+printStatus("done");
+// printStatus("cancelled"); // 컴파일 에러
+
+console.log(p);
+----
+====
+
+== 요약
+
+* 객체 모양을 반복해서 적지 않으려고 `interface`나 `type`으로 이름을 붙입니다.
+* `interface`는 같은 이름으로 다시 열어 필드를 추가(선언 병합)할 수 있고, `type`은 유니온·튜플·함수 타입처럼 객체가 아닌 것도 이름 붙일 수 있습니다.
+* 이 책은 객체 모양엔 `interface`, 그 외의 조합엔 `type`을 기본으로 씁니다 — 다만 이 정도 단순한 경우엔 팀 컨벤션에 따라 어느 쪽을 골라도 됩니다.
+* `?`(선택적 필드)와 `readonly`(읽기 전용)로 객체가 실제로 어떻게 쓰이는지를 타입에 더 정확히 표현할 수 있습니다.
+
+다음 장에서는 "타입 자체를 함수처럼 매개변수로 받는" 제네릭을 다룹니다 — `Array<T>`의 그 `T`가 무엇인지가 이 장의 주제입니다.
+// end::body[]

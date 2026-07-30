@@ -1,0 +1,155 @@
+---
+title: "7장: Props와 불변성 — 컴포넌트에 값을 전달하는 규칙"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["react", "typescript", "book"]
+categories: ["books"]
+description: "Props가 왜 함수 매개변수와 같은 것인지, 그리고 그걸 컴포넌트 안에서 절대 바꾸면 안 되는 이유를 데이터 흐름의 방향이라는 관점에서 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-jsx-and-components/[6장: 컴포넌트와 JSX] · 다음: link:../08-state-and-usestate/[8장: State와 useState]_
+
+'''
+
+== Props는 함수의 매개변수다
+
+6장에서 이미 `{ price, onSale }`, `{ name, age }`처럼 컴포넌트가 중괄호로 값을 받는 걸 봤습니다 — 이게 **Props**입니다. 새로운 개념이 아니라, 컴포넌트가 함수라는 걸 다시 한번 확인시켜주는 것뿐입니다.
+
+[source,tsx]
+----
+interface GreetingProps {
+  name: string;
+}
+
+function Greeting({ name }: GreetingProps) {
+  return <p>안녕하세요, {name}님</p>;
+}
+----
+
+`GreetingProps`는 3장에서 배운 그 인터페이스이고, `{ name }: GreetingProps`는 그 인터페이스 모양의 객체 하나를 구조 분해해서 받는, 평범한 함수 매개변수 문법입니다. `<Greeting name="Ada" />`라고 JSX에 쓰면, 이건 사실 `Greeting({ name: "Ada" })`를 호출하는 것과 같습니다.
+
+== children: 태그 사이에 오는 내용도 결국 Props다
+
+[source,tsx]
+----
+interface CardProps {
+  title: string;
+  children: React.ReactNode;
+}
+
+function Card({ title, children }: CardProps) {
+  return (
+    <div className="card">
+      <h3>{title}</h3>
+      <div>{children}</div>
+    </div>
+  );
+}
+
+// 사용하는 쪽:
+// <Card title="공지"><p>내일은 휴무입니다.</p></Card>
+----
+
+`<Card title="공지">...</Card>`처럼 여는 태그와 닫는 태그 사이에 오는 내용은 `children`이라는 이름의 특별한 Props로 자동 전달됩니다. `React.ReactNode`는 "JSX로 렌더링할 수 있는 모든 것"(문자열, 숫자, 다른 JSX, 배열 등)을 아우르는 타입입니다.
+
+== 불변성: 왜 Props를 컴포넌트 안에서 바꾸면 안 되는가
+
+[source,tsx]
+----
+interface CounterDisplayProps {
+  count: number;
+}
+
+function CounterDisplay({ count }: CounterDisplayProps) {
+  count = count + 1; // 절대 이렇게 하면 안 됩니다
+  return <p>현재: {count}</p>;
+}
+----
+
+이 코드는 사실 컴파일도 되고 실행도 됩니다 — 그런데도 "절대 안 된다"고 하는 이유는 문법 문제가 아니라 **데이터 흐름의 방향** 문제입니다. React는 "데이터는 항상 부모에서 자식으로만 흐른다"(단방향 데이터 흐름)는 규칙 위에 서 있습니다. 부모가 `<CounterDisplay count={5} />`라고 렌더링했는데 자식이 몰래 `count`를 6으로 바꿔버리면, **부모는 여전히 "내가 5를 넘겼다"고 믿고 있는데 화면은 6이 보이는** 상황이 됩니다. 부모와 자식이 서로 다른 진실을 갖게 되는 순간, "이 화면이 왜 이렇게 보이는지"를 추적하는 게 사실상 불가능해집니다.
+
+React가 다시 렌더링할지 말지를 결정하는 방식도 이 규칙에 기대고 있습니다 — "Props가 바뀌었는가"를 부모가 넘겨준 값과 비교해서 판단하는데, 자식이 그 값을 직접 건드려버리면 이 비교 자체가 의미를 잃습니다.
+
+== TypeScript로 이 규칙을 강제하기
+
+3장에서 배운 `readonly`가 정확히 이 상황을 위한 도구입니다 — 다만 **어떻게 값을 받느냐에 따라 실제로 막아주는 범위가 다르다**는 걸 정확히 봐야 합니다.
+
+[source,tsx]
+----
+interface CounterDisplayProps {
+  readonly count: number;
+}
+
+function CounterDisplay(props: CounterDisplayProps) {
+  props.count = props.count + 1; // 컴파일 에러: 읽기 전용 속성이므로 'count'에 할당할 수 없습니다.
+  return <p>현재: {props.count}</p>;
+}
+----
+
+`props` 객체를 구조 분해하지 않고 그대로 받으면, `props.count = ...`처럼 **그 객체의 필드를 직접 바꾸려는 시도**를 `readonly`가 정확히 잡아줍니다.
+
+[NOTE]
+====
+그런데 이 책이 지금까지 계속 써온 `{ count }: CounterDisplayProps`처럼 **구조 분해**해서 받으면 이야기가 달라집니다.
+
+[source,tsx]
+----
+function CounterDisplay({ count }: CounterDisplayProps) {
+  count = count + 1; // 놀랍게도 컴파일 에러가 나지 않습니다!
+  return <p>현재: {count}</p>;
+}
+----
+
+구조 분해하는 순간 `count`는 원본 `props` 객체와의 연결이 끊어진, **완전히 새로운 지역 변수**가 됩니다 — `readonly`는 "저 객체의 저 필드는 못 바꾼다"는 규칙이지 "저 값에서 비롯된 모든 지역 변수는 못 바꾼다"는 규칙이 아니기 때문입니다. 즉 `readonly`가 실제로 지켜주는 건 **"원본 Props 객체"**이지, 그걸 구조 분해해서 만든 지역 변수까지는 아닙니다. 실무에서는 이런 지역 변수 재대입 자체를 막기 위해 ESLint 규칙(`prefer-const` 등)을 같이 쓰는 경우가 많습니다 — TypeScript의 타입 시스템 하나로는 이 틈까지 완전히 막지 못한다는 걸 정직하게 알아두는 게, "타입만 있으면 다 안전하다"는 흔한 오해를 피하는 데 도움이 됩니다.
+====
+
+== 값을 "바꾸고 싶으면" 어떻게 하는가
+
+Props를 못 바꾼다고 해서 화면이 바뀔 수 없다는 뜻은 아닙니다 — "바꾸고 싶다"는 요구 자체가, 사실은 **그 컴포넌트 자신만의 데이터(State)가 필요하다**는 신호입니다. Props는 부모가 자식에게 주는 "지금 이 순간의 값"이고, 시간이 지나며 스스로 바뀌는 값은 다음 장에서 다룰 State로 표현합니다 — "Props는 못 바꾼다"는 제약이 오히려 "그럼 무엇으로 표현해야 하는가"라는 질문을 자연스럽게 다음 장으로 이어줍니다.
+
+== 직접 해보기
+
+* `Avatar({ src, alt }: { readonly src: string; readonly alt: string })` 컴포넌트를 만들고, `alt`를 재대입하려고 하면 에러가 나는지 확인해보세요.
+* `children`을 받는 `Panel` 컴포넌트를 만들어, 문자열 하나와 다른 JSX 엘리먼트를 각각 넣어 렌더링해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,tsx]
+----
+import { renderToStaticMarkup } from "react-dom/server";
+
+interface AvatarProps {
+  readonly src: string;
+  readonly alt: string;
+}
+
+function Avatar({ src, alt }: AvatarProps) {
+  // alt = "변경"; // 여기 주석을 풀면 컴파일 에러
+  return <img src={src} alt={alt} />;
+}
+
+interface PanelProps {
+  children: React.ReactNode;
+}
+
+function Panel({ children }: PanelProps) {
+  return <section>{children}</section>;
+}
+
+console.log(renderToStaticMarkup(<Avatar src="a.png" alt="프로필" />));
+console.log(renderToStaticMarkup(<Panel>그냥 문자열</Panel>));
+console.log(renderToStaticMarkup(<Panel><strong>강조된 내용</strong></Panel>));
+----
+====
+
+== 요약
+
+* Props는 컴포넌트라는 함수가 받는 매개변수일 뿐이고, `children`은 태그 사이 내용이 자동으로 전달되는 특별한 Props입니다.
+* Props를 컴포넌트 안에서 바꾸면 안 되는 이유는 문법이 아니라 **단방향 데이터 흐름**입니다 — 부모와 자식이 서로 다른 값을 진실로 여기게 되면 화면을 추적할 수 없습니다.
+* `readonly`를 Props 인터페이스에 붙이면, 이 규칙을 사람이 아니라 컴파일러가 강제하게 만들 수 있습니다.
+* "값을 바꾸고 싶다"는 요구는 Props가 아니라 State가 필요하다는 신호입니다.
+
+다음 장에서는 컴포넌트가 스스로 기억하고 시간에 따라 바꿀 수 있는 값, State와 `useState`를 다룹니다.
+// end::body[]

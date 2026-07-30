@@ -1,0 +1,159 @@
+---
+title: "5장: 유니온과 판별 유니온 — '이거 아니면 저거'를 안전하게"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["typescript", "book"]
+categories: ["books"]
+description: "값이 여러 타입 중 하나일 수 있음을 유니온으로 표현하고, 좁히기(narrowing)로 그중 정확히 무엇인지 컴파일러가 알게 만들고, 판별 유니온으로 이 패턴을 안전하게 확장하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-generics/[4장: 제네릭] · 다음: link:../06-jsx-and-components/[6장: 컴포넌트와 JSX]_
+
+'''
+
+== 유니온: "이거 아니면 저거"
+
+[source,ts]
+----
+function formatId(id: string | number) {
+  return `ID-${id}`;
+}
+
+console.log(formatId(42), formatId("abc"));
+----
+
+`string | number`는 "문자열이거나 숫자다"라는 뜻입니다. 3장에서 `type ID = string | number`로 이미 살짝 봤던 문법인데, 이 장에서는 이게 실전에서 어떤 문제를 일으키고 어떻게 다루는지 제대로 봅니다.
+
+== 문제: 유니온 값은 함부로 못 쓴다
+
+[source,ts]
+----
+function printUpperCase(value: string | number) {
+  return value.toUpperCase(); // 컴파일 에러: number 형식에 'toUpperCase' 속성이 없습니다.
+}
+----
+
+`value`가 `string`일 수도 `number`일 수도 있으니, TypeScript는 **둘 다에 공통으로 있는 것만** 안전하다고 봅니다. `toUpperCase()`는 문자열에만 있는 메서드라, `value`가 혹시 숫자일 경우까지 대비해 이 호출 자체를 막습니다. `any`였다면 이런 제지가 없었을 것이고, 실행 시점에 `value.toUpperCase is not a function`처럼 터졌을 겁니다 — 유니온은 "둘 중 하나일 수 있다"는 사실을 감추지 않고 코드에 그대로 반영해서, 이런 실수를 실행 전에 잡아냅니다.
+
+== 좁히기(narrowing): "지금 이 안에서는 확실히 뭔지" 알려주기
+
+[source,ts]
+----
+function printUpperCase(value: string | number) {
+  if (typeof value === "string") {
+    return value.toUpperCase(); // 이 블록 안에서는 value가 string으로 좁혀짐
+  }
+  return value.toFixed(2); // 여기서는 number로 좁혀짐(string이 아니므로)
+}
+
+console.log(printUpperCase("abc"), printUpperCase(3.14159));
+----
+
+`typeof value === "string"`이라는 조건문 자체가 타입을 좁히는 신호입니다 — 그 조건이 참인 블록 안에서는 TypeScript도 "지금은 확실히 문자열"이라고 인정하고 `.toUpperCase()`를 허용합니다. 조건문 밖으로 나가면 다시 `string | number`로 돌아갑니다. 이 기법을 **좁히기(narrowing)**라고 부릅니다 — 넓은 타입(유니온)에서 조건을 거쳐 좁은 타입으로 범위를 줄여나가는 것입니다.
+
+== 판별 유니온: 객체가 섞여 있을 때
+
+값이 원시 타입(문자열/숫자)이 아니라 **객체 여러 종류가 섞인 유니온**이라면 어떨까요.
+
+[source,ts]
+----
+interface CircleShape {
+  kind: "circle";
+  radius: number;
+}
+
+interface RectangleShape {
+  kind: "rectangle";
+  width: number;
+  height: number;
+}
+
+type Shape = CircleShape | RectangleShape;
+
+function area(shape: Shape): number {
+  if (shape.kind === "circle") {
+    return Math.PI * shape.radius ** 2; // 여기서는 CircleShape로 좁혀짐
+  }
+  return shape.width * shape.height;    // 여기서는 RectangleShape로 좁혀짐
+}
+
+console.log(area({ kind: "circle", radius: 2 }));
+console.log(area({ kind: "rectangle", width: 3, height: 4 }));
+----
+
+두 인터페이스 모두 `kind`라는 **공통 필드**를 갖고 있고, 그 값이 각각 다른 문자열 리터럴(`"circle"`, `"rectangle"`)입니다. 이 `kind` 필드를 **판별자(discriminant)**라고 부르고, 이런 유니온을 **판별 유니온(discriminated union)**이라고 부릅니다. `shape.kind === "circle"`이라는 조건 하나만으로 TypeScript는 그 블록 안에서 `shape`가 정확히 `CircleShape`라는 걸 알아채고, `radius` 필드에 안전하게 접근하게 해줍니다.
+
+== 왜 이 패턴이 중요한가: 새 종류를 추가했을 때
+
+[source,ts]
+----
+interface TriangleShape {
+  kind: "triangle";
+  base: number;
+  height: number;
+}
+
+type Shape = CircleShape | RectangleShape | TriangleShape;
+
+function area(shape: Shape): number {
+  if (shape.kind === "circle") {
+    return Math.PI * shape.radius ** 2;
+  }
+  if (shape.kind === "rectangle") {
+    return shape.width * shape.height;
+  }
+  // TriangleShape 처리를 깜빡 잊었습니다 — return을 하나도 안 쓴 채 함수가 끝납니다.
+}
+// 컴파일 에러: 함수의 반환 형식에 'undefined' 형식이 포함되지 않습니다.
+----
+
+`TriangleShape`를 새로 추가했는데 `area` 함수에서 처리를 깜빡했다고 해봅시다 — `if` 두 개를 다 통과했는데 `return`이 없으면, 함수가 `number`를 반환하기로 약속했지만 이 경로에서는 아무것도 반환하지 않은 채 함수가 끝나버리므로 **컴파일 에러**가 납니다. 판별 유니온의 진짜 가치는 여기 있습니다 — "종류를 하나 추가했는데 처리를 빠뜨렸다"는, 실무에서 아주 흔한 버그를 컴파일러가 대신 잡아줍니다. (반대로 각 분기 끝에 `throw new Error(...)`처럼 명시적으로 처리를 채워두면 이 에러는 사라집니다 — "빠뜨림"과 "의도적으로 처리함"을 컴파일러가 구분해준다는 뜻입니다.)
+
+== 직접 해보기
+
+* `LoadingState`(`status: "loading"`), `SuccessState`(`status: "success"`, `data: string`), `ErrorState`(`status: "error"`, `message: string`)를 판별 유니온으로 만들고, `status`에 따라 다른 문자열을 반환하는 `describe` 함수를 작성해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,ts]
+----
+interface LoadingState {
+  status: "loading";
+}
+interface SuccessState {
+  status: "success";
+  data: string;
+}
+interface ErrorState {
+  status: "error";
+  message: string;
+}
+type RequestState = LoadingState | SuccessState | ErrorState;
+
+function describe(state: RequestState): string {
+  if (state.status === "loading") {
+    return "로딩 중...";
+  }
+  if (state.status === "success") {
+    return `성공: ${state.data}`;
+  }
+  return `실패: ${state.message}`;
+}
+
+console.log(describe({ status: "loading" }));
+console.log(describe({ status: "success", data: "hello" }));
+console.log(describe({ status: "error", message: "네트워크 오류" }));
+----
+====
+
+== 요약
+
+* 유니온(`A | B`)은 "이거 아니면 저거"를 표현하고, TypeScript는 둘 다에 공통으로 있는 것만 안전하다고 취급합니다.
+* `typeof value === "string"` 같은 조건으로 유니온을 특정 타입으로 좁힐 수 있습니다(narrowing).
+* 객체 유니온에 공통 필드(판별자)를 두면, 그 필드값으로 좁혀가는 판별 유니온을 만들 수 있습니다.
+* 판별 유니온은 새 종류를 추가했을 때 처리를 빠뜨리면 컴파일 에러로 알려준다는 게 핵심 가치입니다 — 이 패턴은 2부에서 React의 로딩/성공/실패 상태를 다룰 때 다시 등장합니다.
+
+1부는 여기서 마칩니다. 다음 장부터는 2부 — React가 왜 지금의 모양으로 설계됐는지를 다룹니다.
+// end::body[]
