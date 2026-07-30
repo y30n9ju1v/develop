@@ -1,0 +1,97 @@
+---
+title: "1장: 대수적 데이터 타입 — 불가능한 상태를 표현조차 못 하게"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["lean4", "type-theory", "book"]
+categories: ["books"]
+description: "sum과 product 두 조합만으로 '동시에 있을 수 없는 것'과 '항상 같이 있어야 하는 것'을 구분해, 설계 공간에서 불가능한 상태를 애초에 지워버리는 법을 확인하는 1부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-function-composition/[2장: 함수 합성]_
+
+'''
+
+== 나쁜 설계: 불가능한 조합이 표현되는 상태
+
+[source,lean]
+----
+structure BadPayment where
+  isPaid : Bool
+  isRefunded : Bool
+
+def bad : BadPayment := { isPaid := false, isRefunded := true }
+----
+
+`BadPayment`는 필드 두 개짜리 평범한 구조체입니다. 그런데 `isPaid := false, isRefunded := true`(결제도 안 됐는데 환불됐다는 조합)처럼 **실제로는 절대 일어날 수 없는 상태도 타입 시스템이 아무 제지 없이 허용**합니다. 컴파일러는 이 조합이 말이 안 된다는 걸 모릅니다 — `isPaid`와 `isRefunded`가 서로 독립된 두 개의 `Bool`이라, 둘을 곱한 4가지 조합(`(T,T)`, `(T,F)`, `(F,T)`, `(F,F)`)이 전부 "합법적인 타입"이기 때문입니다.
+
+== product: "항상 같이 있어야 하는 것"
+
+`BadPayment` 같은 구조체(`structure`)가 바로 **product 타입**입니다. 필드 두 개를 곱집합(cartesian product)처럼 조합해서, 가능한 값의 개수가 각 필드가 가진 값의 개수를 곱한 만큼 나옵니다 — `Bool × Bool`은 정확히 2 × 2 = 4가지 값을 가집니다. product는 "이 필드들은 항상 함께 존재해야 한다"는 뜻을 표현하는 데는 적합하지만, "이 필드들 중 일부 조합은 의미가 없다"는 제약은 표현하지 못합니다.
+
+== sum: "동시에 있을 수 없는 것"
+
+[source,lean]
+----
+inductive PaymentStatus where
+  | pending
+  | paid (amount : Nat)
+  | refunded (amount : Nat) (reason : String)
+
+def p1 : PaymentStatus := .paid 1000
+def p2 : PaymentStatus := .refunded 1000 "고객 요청"
+----
+
+`inductive`로 만든 `PaymentStatus`가 **sum 타입**입니다. `pending`, `paid`, `refunded` 세 생성자 중 **정확히 하나**만 골라 값을 만들 수 있습니다 — `paid`이면서 동시에 `refunded`인 값은 애초에 만들 방법이 없습니다. 가능한 값의 개수도 product와 반대로 각 경우의 수를 **더한** 만큼입니다("결제 대기" 하나 + "결제 완료"의 모든 금액 + "환불"의 모든 (금액, 사유) 조합). "동시에 성립할 수 없는 여러 경우 중 하나"를 표현해야 할 땐 product가 아니라 sum이 정확한 도구입니다 — `BadPayment`가 실패한 지점이 정확히 이것입니다: sum이어야 할 관계를 product로 잘못 표현한 것입니다.
+
+== 다시 조합하기: product 안에 sum을 담기
+
+[source,lean]
+----
+structure Order where
+  id : Nat
+  status : PaymentStatus
+
+example : (Order.mk 1 (.paid 1000)).status = PaymentStatus.paid 1000 := rfl
+----
+
+`Order`는 다시 product입니다 — `id`와 `status`는 항상 함께 있어야 하는 정보이니까요. 다만 이번엔 그 안에 담긴 `status` 필드 자체가 sum 타입(`PaymentStatus`)이라, "주문에는 항상 어떤 결제 상태가 정확히 하나 있다"는 사실과 "그 결제 상태는 세 경우 중 하나이지 절대 두 개가 동시에 성립하지 않는다"는 사실을 둘 다 타입만으로 표현합니다. 대수적 데이터 타입(ADT)이라는 이름 자체가 이 두 연산 — product(곱)와 sum(합) — 의 조합으로 타입을 짓는다는 뜻입니다.
+
+== 설계에 적용하기: 타입으로 불가능한 상태를 지우기
+
+핵심 질문은 항상 이것입니다 — **"이 값들의 조합 중 일부가 실제로는 의미가 없는가?"** 의미가 없다면, 그 무의미한 조합이 애초에 타입으로 표현되지 않도록 sum으로 다시 설계합니다. 이렇게 하면 "이 값이 유효한지 런타임에 검사하는 코드"가 아예 필요 없어집니다 — 컴파일러가 무효한 값을 만드는 것 자체를 막아주기 때문입니다. 이 원칙은 이후 장에서 계속 등장합니다 — 특히 2부에서 상태 기계의 상태를 설계할 때, "이 상태 조합이 실제로 도달 가능한가"를 따지는 것과 정확히 같은 질문입니다.
+
+== 직접 해보기
+
+* "배송 상태"를 나쁘게 설계한 버전(`hasShipped : Bool`, `trackingNumber : Option String`처럼 서로 독립된 필드들)을 만들고, 어떤 조합이 의미가 없는지 찾아보세요.
+* 그 배송 상태를 sum 타입(`notShipped`, `shipped (tracking : String)`)으로 다시 설계해, 의미 없는 조합이 표현조차 안 된다는 걸 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+-- 나쁜 설계: hasShipped=false인데 trackingNumber가 있는 모순 조합이 가능
+structure BadShipping where
+  hasShipped : Bool
+  trackingNumber : Option String
+
+def badShip : BadShipping := { hasShipped := false, trackingNumber := some "T123" }
+
+-- 좋은 설계: 배송 안 됨 / 배송됨(운송장 있음) 둘 중 하나만 표현 가능
+inductive ShippingStatus where
+  | notShipped
+  | shipped (tracking : String)
+
+def s1 : ShippingStatus := .shipped "T123"
+----
+====
+
+== 요약
+
+* `structure`(product)는 "항상 같이 있어야 하는 것"을, `inductive`(sum)는 "동시에 있을 수 없는 것 중 하나"를 표현합니다.
+* 서로 독립된 여러 `Bool`/필드로 상태를 표현하면, 실제로는 불가능한 조합까지 타입이 허용해버립니다.
+* sum과 product를 조합(product 안에 sum을 담는 식)하면, "불가능한 상태를 표현조차 못 하게" 만들 수 있습니다 — 런타임 검사 없이 컴파일 타임에 무효한 값을 차단합니다.
+
+다음 장에서는 이렇게 다듬은 타입들을 다루는 함수를 어떻게 "상태를 직접 조작"하는 대신 "작은 함수들의 합성"으로 짤 것인지 다룹니다.
+// end::body[]

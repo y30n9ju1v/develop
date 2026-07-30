@@ -1,0 +1,110 @@
+---
+title: "3장: 모나드 — 부수효과를 값으로 감싸 합성 가능하게"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["lean4", "monad", "book"]
+categories: ["books"]
+description: "실패할 수 있는 함수를 평범한 함수 합성으로는 이어붙일 수 없다는 문제에서 출발해, Option과 do-표기법으로 그 문제를 값 수준에서 해결하는 모나드의 실용적 정의를 확인하는 1부 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-function-composition/[2장: 함수 합성] · 다음: link:../04-fsm-as-pure-function/[4장: 순수 함수로서의 상태 기계]_
+
+'''
+
+== 문제: 실패할 수 있는 함수는 그냥 합성이 안 된다
+
+[source,lean]
+----
+def parseNat? (s : String) : Option Nat := s.toNat?
+def half? (n : Nat) : Option Nat := if n % 2 = 0 then some (n / 2) else none
+----
+
+`parseNat?`는 문자열이 숫자가 아닐 수도 있으니 `Option Nat`(있을 수도, 없을 수도 있는 값)을 반환합니다. `half?`도 홀수면 실패해야 하니 `Option Nat`을 반환합니다. 그런데 2장에서 쓴 `half? ∘ parseNat?`는 타입이 안 맞습니다 — `parseNat?`의 출력은 `Option Nat`인데 `half?`는 `Nat`을 입력으로 기대하지, `Option Nat`을 기대하지 않기 때문입니다. `half?`를 부르기 전에 "혹시 `none`이면 여기서 멈추고, `some n`이면 그 `n`을 꺼내서 넘긴다"는 처리가 매번 끼어들어야 합니다.
+
+== bind: "값을 꺼내서 다음 함수에 넘기되, 실패는 자동으로 전파"
+
+[source,lean]
+----
+def parseAndHalf? (s : String) : Option Nat :=
+  Option.bind (parseNat? s) half?
+
+#eval parseAndHalf? "8"    -- some 4
+#eval parseAndHalf? "7"    -- none (half?에서 실패)
+#eval parseAndHalf? "abc"  -- none (parseNat?에서 이미 실패)
+----
+
+`Option.bind`가 정확히 그 "매번 끼어드는 처리"를 대신 해주는 함수입니다. `Option.bind : Option α → (α → Option β) → Option β`라는 타입이 뜻하는 바는 이렇습니다 — "`Option α` 값 하나와, `α`를 받아 `Option β`를 반환하는 함수를 받아서, 앞의 값이 `none`이면 그냥 `none`을 돌려주고, `some a`이면 `a`를 꺼내 뒤의 함수에 넘긴 결과를 그대로 돌려준다." `parseNat? s`가 실패하면 `half?`는 아예 호출되지도 않고 `none`이 그대로 전파됩니다 — 이게 `parseAndHalf? "abc"`가 `none`인 이유입니다.
+
+== do-표기법: bind 체인을 순차 코드처럼
+
+[source,lean]
+----
+def parseAndHalfDo? (s : String) : Option Nat := do
+  let n ← parseNat? s
+  let h ← half? n
+  pure h
+
+example : parseAndHalfDo? "8" = some 4 := by native_decide
+example : parseAndHalfDo? "7" = none := by native_decide
+----
+
+`do` 블록 안의 `let n ← parseNat? s`는 "`parseNat? s`를 실행해서, 성공하면 그 값을 `n`에 담고, 실패하면 여기서 전체를 실패로 끝낸다"는 뜻입니다 — 바로 위에서 손으로 쓴 `Option.bind` 체인을 그대로 풀어 쓴 것과 완전히 같은 코드로 컴파일됩니다. `pure h`는 "이 값을 성공(`some h`)으로 감싸서 반환한다"는 뜻입니다. `do`-표기법의 가치는 여기 있습니다 — **매번 `bind`를 명시적으로 호출하지 않고도, 마치 실패가 없는 것처럼 순차적인 코드를 쓸 수 있다**는 것입니다. 실패 처리는 `do`가 뒤에서 자동으로 끼워 넣습니다.
+
+[NOTE]
+====
+`by native_decide`는 이 책 전체에서 반복해서 쓸 증명 전술입니다. `rfl`(정의를 그대로 펼쳐서 양쪽이 같은지 확인)이 통하지 않을 때 — 예를 들어 `String.toNat?`처럼 내부적으로 복잡한 계산을 거치는 함수가 껴 있을 때 — `native_decide`는 그 계산을 실제 컴파일된 코드로 실행시켜 참/거짓을 확인합니다. 이후 장들에서 `native_decide`가 계속 나오는데, 전부 "이 구체적인 값들에 대해서는 실제로 계산해보면 맞다"를 확인하는 용도입니다.
+====
+
+== 모나드: `bind`와 `pure`를 가진 것들의 공통 인터페이스
+
+`Option`만 이런 성질을 갖는 건 아닙니다. "여러 갈래의 가능성"을 감싸는 `List`도 같은 인터페이스(`bind`에 해당하는 것과 `pure`)를 가지고 있습니다.
+
+[source,lean]
+----
+def pairs (xs ys : List Nat) : List (Nat × Nat) :=
+  xs.flatMap (fun x => ys.flatMap (fun y => [(x, y)]))
+
+#eval pairs [1, 2] [10, 20]
+-- 출력: [(1, 10), (1, 20), (2, 10), (2, 20)]
+----
+
+`List`의 `flatMap`이 `Option.bind`와 같은 역할을 합니다 — "리스트의 각 원소에 함수를 적용해서 나온 여러 리스트를, 다시 하나의 리스트로 평평하게 편다"는 뜻입니다. `Option`에서는 `bind`가 "실패를 전파"하는 역할이었다면, `List`에서는 `flatMap`(=`bind`)이 "여러 갈래를 전부 펼쳐서 이어붙이는" 역할을 합니다 — 겉보기엔 전혀 다른 일을 하는 것 같지만, **"부수효과(실패 가능성 / 여러 갈래 가능성)를 값 안에 감춰두고, 그 값을 다음 함수에 넘기는 방법을 통일된 인터페이스로 제공한다"**는 게 공통점입니다. 이 공통 인터페이스를 가진 것들을 **모나드**라고 부릅니다. Lean4의 `do`-표기법은 `Option`이든 `List`든 똑같이 쓸 수 있는데, 그게 가능한 이유가 바로 이 공통 인터페이스입니다.
+
+== 이게 왜 "합성"의 이야기인가
+
+2장에서 "합성이 실패할 때"라는 문제를 남겨뒀습니다 — 평범한 함수는 출력 타입과 다음 함수의 입력 타입이 정확히 맞아야만 이어붙일 수 있습니다. 모나드는 이 문제를 "함수의 출력을 `Option`/`List` 같은 컨테이너로 감싸고, 그 컨테이너를 벗기고 다시 감싸는 규칙(`bind`)을 표준화"하는 방식으로 풉니다. 결국 `bind`도 2장에서 본 합성과 본질적으로 같은 일을 합니다 — 다만 "출력이 그대로 다음 함수의 입력이 되는" 대신 "출력이 부수효과를 감싼 채로, 그 부수효과를 처리하면서 다음 함수에 이어지는" 것입니다.
+
+== 직접 해보기
+
+* `Option Nat`을 반환하는 `safeDiv? (a b : Nat) : Option Nat`(`b`가 0이면 실패)를 만들고, `do`-표기법으로 `parseNat? "20"`과 `parseNat? "4"`를 각각 파싱한 뒤 나눗셈까지 이어지는 함수를 짜보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def parseNat2? (s : String) : Option Nat := s.toNat?
+
+def safeDiv? (a b : Nat) : Option Nat :=
+  if b = 0 then none else some (a / b)
+
+def parseAndDivide? (sa sb : String) : Option Nat := do
+  let a ← parseNat2? sa
+  let b ← parseNat2? sb
+  safeDiv? a b
+
+example : parseAndDivide? "20" "4" = some 5 := by native_decide
+example : parseAndDivide? "20" "0" = none := by native_decide
+----
+====
+
+== 요약
+
+* 실패할 수 있는 함수들(`Option`을 반환하는)은 평범한 `∘` 합성으로는 타입이 맞지 않아 이어붙일 수 없습니다.
+* `bind`(`Option.bind`, `List.flatMap`)는 "부수효과를 감싼 값에서 값을 꺼내 다음 함수에 넘기되, 부수효과 처리(실패 전파, 갈래 펼치기)는 자동으로 한다"는 역할을 합니다.
+* `do`-표기법은 이 `bind` 체인을 마치 부수효과가 없는 것처럼 순차 코드로 쓰게 해주는 문법입니다.
+* `bind`와 `pure`라는 같은 인터페이스를 공유하는 것들을 모나드라고 부릅니다 — `Option`과 `List`는 서로 다른 부수효과(실패, 다중 갈래)를 감싸지만 같은 인터페이스로 다뤄집니다.
+
+1부는 여기서 마칩니다. 2부에서는 이 합성 원칙을 "상태"라는, 지금까지와는 다른 종류의 문제에 적용합니다 — 상태 기계를 mutable 객체가 아니라 순수 함수의 값으로 다루는 법을 봅니다.
+// end::body[]

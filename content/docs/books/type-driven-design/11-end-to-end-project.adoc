@@ -1,0 +1,133 @@
+---
+title: "11장: 엔드투엔드 프로젝트 — 교차로 신호등을 설계부터 증명까지"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["lean4", "fsm", "temporal-logic", "book"]
+categories: ["books"]
+description: "1~10장에서 배운 도구(sum 타입, transition 함수, coalgebra 출력, 합성, Always/Eventually)를 전부 동원해, 남북과 동서 신호등이 동시에 초록이면 안 되는 교차로 FSM을 처음부터 설계하고 안전성과 생동성을 함께 증명하는 3부의 마무리 프로젝트"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-ctl-branching-fsm/[10장: CTL 맛보기] · 다음: link:../12-afterword/[12장: 맺음말]_
+
+'''
+
+== 요구사항: 교차로 신호등
+
+4장에서 만든 `TrafficLight`는 신호등 하나였습니다. 이번엔 남북(NS)과 동서(EW) 두 방향이 만나는 교차로입니다 — 요구사항은 딱 하나, **두 방향이 동시에 초록이면 절대 안 됩니다**(사고로 이어지니까요). 6장에서 배운 product 합성을 그대로 쓰면 어떻게 될지부터 짚어봅니다.
+
+== 함정: 순진한 product는 이 요구사항을 못 지킨다
+
+6장의 `parallelStep`처럼 두 신호등을 각자 독립적으로 순환시키면 어떨까요 — `NSLight × EWLight`이고 둘 다 각자 `red → green → yellow → red`를 돕니다. 문제는 이 둘이 **서로의 상태를 전혀 모른 채** 독립적으로 돈다는 점입니다 — 시작 시점이나 타이밍이 조금만 어긋나도 두 방향이 동시에 초록인 조합이 나올 수 있습니다. **product 합성은 "각자 독립적으로 진행돼야 하는 것"에만 맞는 도구**라고 6장에서 말했는데, 정확히 그 이유로 여기서는 맞지 않습니다 — 두 방향의 신호는 서로 **조율**되어야지 독립적이면 안 됩니다.
+
+== 설계: 하나의 상태로 두 신호를 함께 결정하기
+
+조율이 필요하다면, "NS 상태"와 "EW 상태"를 따로 두는 대신 **교차로 전체의 국면(phase)**을 하나의 sum 타입으로 표현하고, 그 국면에서 두 신호를 유도합니다.
+
+[source,lean]
+----
+inductive Phase where
+  | nsGreen | nsYellow | allRed1 | ewGreen | ewYellow | allRed2
+deriving DecidableEq, Repr
+
+def Phase.next : Phase → Phase
+  | .nsGreen => .nsYellow
+  | .nsYellow => .allRed1
+  | .allRed1 => .ewGreen
+  | .ewGreen => .ewYellow
+  | .ewYellow => .allRed2
+  | .allRed2 => .nsGreen
+----
+
+여섯 국면이 순서대로 순환합니다 — NS가 초록일 땐 EW는 항상 빨강이어야 하니, `nsGreen` 다음 곧장 `ewGreen`으로 가지 않고 `allRed1`(둘 다 빨강인 완충 구간)을 거칩니다. 이게 1장의 원칙이 다시 등장하는 지점입니다 — "NS 상태"와 "EW 상태"를 독립된 두 필드로 두는 대신(product), "지금 어느 국면인가" 하나의 sum으로 표현하면 애초에 "둘 다 초록"이라는 위험한 조합을 만들 방법 자체가 없습니다.
+
+[source,lean]
+----
+inductive Light where
+  | red | green | yellow
+deriving DecidableEq, Repr
+
+def Phase.nsLight : Phase → Light
+  | .nsGreen => .green
+  | .nsYellow => .yellow
+  | _ => .red
+
+def Phase.ewLight : Phase → Light
+  | .ewGreen => .green
+  | .ewYellow => .yellow
+  | _ => .red
+----
+
+`nsLight`와 `ewLight`는 5장에서 본 coalgebra의 "출력"에 해당합니다 — `Phase`라는 하나의 내부 상태에서, "지금 실제로 보이는 신호"라는 관찰 가능한 값을 꺼내는 함수입니다.
+
+== 안전성 증명: 모든 국면에서 동시 초록이 불가능함을 확인
+
+[source,lean]
+----
+theorem mutual_exclusion : ∀ p : Phase, ¬ (p.nsLight = .green ∧ p.ewLight = .green) := by
+  intro p
+  cases p <;> decide
+----
+
+`Phase`는 6가지뿐이니, `cases p`로 여섯 경우 전부를 나열하고 각각 `decide`로 확인하면 **가능한 모든 국면**에 대해 이 성질이 증명됩니다 — 실행하며 테스트해볼 필요 없이, 여섯 가지 경우를 전부 열거해 컴파일러가 검사한 것입니다. 9장에서 배운 `Always`로 확장하면, 어떤 국면에서 시작해 몇 스텝을 진행하든 이 안전성이 항상 유지된다는 것도 바로 따라옵니다.
+
+[source,lean]
+----
+def Phase.trace (start : Phase) : Nat → Phase
+  | 0 => start
+  | n + 1 => (Phase.trace start n).next
+
+def Always {α} (P : α → Prop) (s : Nat → α) : Prop := ∀ n, P (s n)
+def Eventually {α} (P : α → Prop) (s : Nat → α) : Prop := ∃ n, P (s n)
+
+theorem mutual_exclusion_always (start : Phase) :
+    Always (fun p => ¬ (p.nsLight = .green ∧ p.ewLight = .green)) (Phase.trace start) := by
+  intro n
+  exact mutual_exclusion _
+----
+
+이 증명이 짧은 이유가 중요합니다 — `mutual_exclusion`이 **모든 국면**에 대해 이미 증명됐으니, `trace`가 몇 시점에 있든(`trace start n`도 결국 `Phase` 값 하나이므로) 그 성질은 자동으로 적용됩니다. 안전성이 "각 상태 자체의 성질"로 증명되면, "시간에 걸쳐서도 유지된다"는 건 별도 노력 없이 따라옵니다.
+
+== 생동성 증명: 결국 다른 방향에도 기회가 온다
+
+[source,lean]
+----
+example : Eventually (· = Phase.ewGreen) (Phase.trace .nsGreen) := ⟨3, by native_decide⟩
+
+theorem always_returns_to_nsGreen :
+    ∀ start : Phase, Eventually (· = Phase.nsGreen) (Phase.trace start) := by
+  intro start
+  cases start
+  · exact ⟨0, rfl⟩
+  · exact ⟨5, by native_decide⟩
+  · exact ⟨4, by native_decide⟩
+  · exact ⟨3, by native_decide⟩
+  · exact ⟨2, by native_decide⟩
+  · exact ⟨1, by native_decide⟩
+----
+
+`nsGreen`에서 시작해도 3스텝 뒤엔 `ewGreen`에 도달한다는 것(교차로가 한쪽만 계속 초록으로 두지 않는다는 뜻)과, 어느 국면에서 시작하든 결국 다시 `nsGreen`으로 돌아온다는 것(6가지 시작점 전부)을 증명했습니다. 이 시스템은 `Phase.next`가 이벤트 없이 항상 다음으로만 가는 결정적 시스템이라, 9장에서 본 "이벤트 스트림에 대한 가정"이 따로 필요 없습니다 — 순환 구조 자체가 생동성을 보장합니다. 이 점이 이번 설계의 또 다른 이점입니다 — **생동성까지 설계로 쉽게 만들 수 있는 구조**를 고른 것입니다.
+
+== 이 프로젝트가 보여주는 것
+
+이 장의 전체 흐름을 되짚어보면 이 책이 다룬 도구들이 어떻게 맞물리는지 보입니다.
+
+1. *1장(sum/product)*: "동시 초록"이라는 불가능한 조합을 표현조차 못 하게, `NSLight × EWLight`(product) 대신 `Phase`(sum) 하나로 설계했습니다.
+2. *4~5장(순수 함수·coalgebra)*: `Phase.next`가 상태 전이를, `nsLight`/`ewLight`가 관찰 가능한 출력을 각각 순수 함수로 뽑아냈습니다.
+3. *6장(합성)*: 순진한 product 합성이 왜 안 맞는지 먼저 확인하고, 대신 조율된 단일 상태로 설계를 바꿨습니다 — "합성 방법을 고르는 것"도 설계의 일부라는 걸 보여줍니다.
+4. *8~9장(안전성·생동성)*: `Always`로 "절대 동시 초록이 아니다"를, `Eventually`로 "결국 다른 방향에도 기회가 온다"를 각각 증명했습니다.
+
+한 문장으로 정리하면: **좋은 타입 설계(1장)가 안전성 증명(8~9장)을 거의 공짜로 만들어주고, 순환 구조를 고른 설계 선택이 생동성 증명도 쉽게 만들어줍니다.** 설계와 증명이 별개의 작업이 아니라는 게 이 책 전체의 결론입니다.
+
+== 직접 해보기
+
+* 이 교차로에 "보행자 신호" 국면을 하나 추가해보세요(`pedestrian`, 이때는 NS와 EW 둘 다 빨강이어야 합니다) — `mutual_exclusion` 증명이 국면 하나가 늘어나도 여전히 `cases p <;> decide`로 통과하는지 확인해보세요.
+
+== 요약
+
+* 두 하위 시스템이 서로 조율돼야 한다면(독립적으로 진행되면 안 된다면), product 합성 대신 "전체 국면"을 하나의 sum 타입으로 설계하고 그 국면에서 각 부분의 상태를 유도합니다.
+* 좋은 상태 설계는 안전성 증명을 유한한 경우의 수 확인(`cases <;> decide`)으로 끝나게 해주고, `Always`로의 확장은 별도 노력 없이 따라옵니다.
+* 순환하는 결정적 구조를 고르면, 생동성 증명에 9장에서 본 "이벤트 스트림에 대한 가정"이 따로 필요 없어집니다.
+
+3부가 여기서 끝났습니다. 맺음말에서는 이 책 전체가 다룬 도구들을 정리하고, 여기서 더 나아가려면 어디로 가야 하는지(모델체킹 도구, 실전 코드베이스에 옮기는 법)를 안내합니다.
+// end::body[]

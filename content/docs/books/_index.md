@@ -14,3 +14,4 @@ title: "Books"
 - **[SICP in Lean 4](sicp-in-lean4/)** — SICP의 아이디어를 챕터·절 순서대로 따라가며, 모든 Scheme 코드를 Lean 4로 다시 작성해보는 책
 - **[Category Theory for Programmers](category-theory-for-programmers/)** — Bartosz Milewski가 프로그래머를 위해 쓴 범주론 입문서를 장별로 옮긴 한국어 번역
 - **[TypeScript + React 입문: react.dev와 Handbook을 왜라는 질문으로 잇기](ts-react-getting-started/)** — 공식 React 문서와 TypeScript Handbook을 재료로 "왜 이렇게 생겼는가"를 축으로 재구성한 입문서. 값과 타입(1부) → 컴포넌트·State·렌더링(2부) → API 호출과 폼으로 합치기(3부) 순서로 쌓아 올린다
+- **[타입으로 설계하기: 모나드, 상태 기계, 시제논리](type-driven-design/)** — 대수적 데이터 타입·모나드(1부)로 합성을 다지고, 상태 기계를 순수 함수(coalgebra)로 다루는 법(2부)을 거쳐, 그렇게 만든 시스템이 시간에 걸쳐 만족해야 할 성질을 LTL·CTL로 명세·증명하는(3부) Lean4 책
