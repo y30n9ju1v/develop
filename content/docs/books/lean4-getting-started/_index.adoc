@@ -50,6 +50,12 @@ Functional Programming in Lean, Theorem Proving in Lean 4, Metaprogramming in Le
 . *link:15-ltl-operators-and-fixpoints/[LTL 연산자 완성하기: release, weak until, 고정점]*
 . *link:16-branching-time-ctl/[분기 시제논리(CTL) 맛보기: 경로가 갈라질 때]*
 
+*보너스: 실전 도구 상자 2부작*
+
+[start=17]
+. *link:17-fin-vector-and-decide/[유한한 것들: Fin, Vector, decide로 하드웨어 모델링하기]*
+. *link:18-lists-and-more-tactics/[리스트로 합 표현하기, 그리고 손으로 여는 증명]*
+
 '''
 
 [#part-1]
@@ -188,3 +194,22 @@ include::15-ltl-operators-and-fixpoints.adoc[tag=body,leveloffset=+1]
 == 16. 분기 시제논리(CTL) 맛보기: 경로가 갈라질 때
 
 include::16-branching-time-ctl.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-bonus2]
+== 보너스: 실전 도구 상자 2부작
+
+'''
+
+[#chapter-17]
+== 17. 유한한 것들: Fin, Vector, decide로 하드웨어 모델링하기
+
+include::17-fin-vector-and-decide.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-18]
+== 18. 리스트로 합 표현하기, 그리고 손으로 여는 증명
+
+include::18-lists-and-more-tactics.adoc[tag=body,leveloffset=+1]

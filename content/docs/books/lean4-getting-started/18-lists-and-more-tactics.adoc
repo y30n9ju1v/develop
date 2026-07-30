@@ -1,0 +1,155 @@
+---
+title: "18장: 리스트로 합 표현하기, 그리고 손으로 여는 증명"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "list", "funext", "tactics", "book"]
+categories: ["books"]
+description: "List.range·List.sum·foldl로 '여러 값의 합'을 표현하고, funext·by_cases·보조 부등식을 손으로 조립하는 법을 익히는 보너스 장 — 실전 도구 상자 2부작 2부이자 이 책의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../17-fin-vector-and-decide/[17장: 유한한 것들]_
+
+'''
+
+== 여러 값을 하나로 모으기: 리스트 콤비네이터
+
+2장에서 재귀로 리스트를 훑는 함수를 직접 짰습니다. 실전에서는 "리스트의 모든 원소를 더한다", "각 원소를 변환한다"처럼 아주 흔한 패턴을 매번 재귀로 새로 짜는 대신, 표준 라이브러리가 제공하는 콤비네이터를 씁니다.
+
+[source,lean]
+----
+#eval List.range 5              -- [0, 1, 2, 3, 4]
+#eval (List.range 5).map (· * 2) -- [0, 2, 4, 6, 8]
+#eval (List.range 5).sum         -- 10
+#eval (List.finRange 3).map (fun i : Fin 3 => i.val + 10)  -- [10, 11, 12]
+----
+
+`List.range n`은 `[0, 1, ..., n-1]`을, `List.finRange n`은 같은 값들을 `Fin n` 타입으로 만듭니다 — 17장에서 배운 "범위가 타입에 박힌 인덱스"를 반복문 대신 리스트로 순회하고 싶을 때 씁니다. `.map`은 각 원소를 변환하고, `.sum`은 전부 더합니다.
+
+== 내적: 콤비네이터를 조합해 "합의 합" 표현하기
+
+이 세 조각(`map`, `sum`, 그리고 짝을 짓는 `zip`)을 조합하면 벡터의 내적(dot product) — "각 자리의 곱을 전부 더한다" — 을 한 줄로 표현할 수 있습니다.
+
+[source,lean]
+----
+def dot (xs ys : List Nat) : Nat :=
+  (List.zip xs ys).map (fun p => p.1 * p.2) |>.sum
+
+#eval dot [1, 2, 3] [4, 5, 6]  -- 1*4 + 2*5 + 3*6 = 32
+----
+
+`List.zip`이 두 리스트를 짝지어 `(1,4), (2,5), (3,6)`을 만들고, `.map`이 각 짝을 곱하고, `.sum`이 전부 더합니다. "곱해서 더한다"는 연산 하나하나는 전혀 새로울 게 없지만, 이 조합 자체가 행렬 곱셈이나 신경망의 가중합처럼 "여러 값을 곱하고 더하는" 계산 전체의 표준적인 표현 방식입니다.
+
+== foldl: 왼쪽부터 하나씩 누적하기
+
+`sum`이 "전부 더한다"라는 특수한 경우라면, `foldl`은 "어떻게 누적할지"를 직접 정하는 일반적인 도구입니다.
+
+[source,lean]
+----
+#eval [1, 2, 3, 4].foldl (· + ·) 0            -- 10 (sum과 같음)
+#eval (List.range 4).foldl (fun acc i => acc + i * i) 0  -- 0+1+4+9 = 14
+----
+
+`foldl (· + ·) 0`이 정확히 `sum`과 같은 결과를 내는 게 우연이 아닙니다 — `sum`은 사실 `foldl`을 덧셈에 특화한 것뿐입니다. 두 번째 예제처럼 "누적하면서 각 원소를 먼저 변환"하는 패턴(`acc + i * i`)은, 레지스터 하나에 값을 계속 누적하는 회로(누산기, accumulator)를 코드로 옮길 때 그대로 등장하는 모양입니다.
+
+== funext: 두 함수가 "같다"는 것은 무슨 뜻인가
+
+두 함수가 같다는 걸 어떻게 증명할까요? 함수는 무한히 많은 입력을 가질 수 있으니 하나하나 대입해볼 수는 없습니다. `funext`(function extensionality) 전술은 "모든 입력에서 같은 값을 낸다면 두 함수는 같다"는 원리를 그대로 씁니다 — 증명할 게 "함수 전체가 같다"에서 "임의의 입력 하나에 대해 결과가 같다"로 좁혀집니다.
+
+[source,lean]
+----
+example : (fun n : Nat => n + 0) = (fun n : Nat => n) := by
+  funext n
+  omega
+----
+
+`funext n`이 목표를 "임의의 `n`에 대해 `n + 0 = n`"으로 바꿔주고, 나머지는 9장에서 이미 익숙한 `omega`가 끝냅니다.
+
+== by_cases: 조건 하나를 켜고 끄며 갈래를 나누기
+
+7장에서 `if`가 만드는 갈래를 다뤘습니다. 증명 중간에 "이 조건이 참인 경우와 거짓인 경우를 나눠서 각각 보이자"고 말하고 싶을 때는 `by_cases`를 씁니다.
+
+[source,lean]
+----
+def clip (x : Int) : Int := if x > 10 then 10 else if x < 0 then 0 else x
+
+theorem clip_range (x : Int) : 0 ≤ clip x ∧ clip x ≤ 10 := by
+  unfold clip
+  by_cases h1 : x > 10
+  · simp [h1]
+  · by_cases h2 : x < 0
+    · simp [h1, h2]
+    · simp [h1, h2]; omega
+----
+
+`by_cases h1 : x > 10`이 증명을 두 갈래로 쪼갭니다 — 첫 갈래는 `h1 : x > 10`을 가정으로 받고, 둘째 갈래는 `h1 : ¬(x > 10)`을 받습니다. `clip`의 정의 안에 `if`가 두 겹 있으므로 `by_cases`도 두 번(둘째 갈래 안에서 한 번 더) 씁니다 — `if`가 갈라지는 지점마다 `by_cases`로 하나씩 따라 내려가는 게 이 패턴의 요령입니다. 각 갈래에서 `simp [h1]`(또는 `[h1, h2]`)은 그 갈래의 가정을 이용해 `if`를 실제 값으로 정리해주고, 남은 산술은 `omega`가 마무리합니다.
+
+== 목표를 부정해서 모순으로 몰기
+
+9장에서 `exfalso`로 "가정이 모순이면 아무거나 증명된다"를 다뤘습니다. 증명하려는 목표 자체가 "무언가 존재하지 않는다"거나 "이런 일은 없다"는 형태일 때는, 그 반대를 가정한 뒤 모순을 끌어내는 전략이 자연스럽습니다.
+
+[source,lean]
+----
+theorem no_greatest_nat : ¬ ∃ n : Nat, ∀ m : Nat, m ≤ n := by
+  intro h
+  obtain ⟨n, hn⟩ := h
+  have := hn (n + 1)
+  omega
+----
+
+목표가 `¬P` 꼴(`P`가 거짓임을 보이는 것)일 때는 `intro h`로 `P`를 가정으로 받아버리면 목표가 `False`로 바뀝니다 — 9장의 `p → False`가 바로 `¬p`였다는 걸 기억한다면 자연스러운 흐름입니다. 여기서는 "모든 자연수보다 큰 자연수는 없다"는 걸, "그런 최댓값 `n`이 있다고 치면, `n+1`도 `n`보다 작거나 같아야 하는데 그건 거짓"이라는 모순으로 보입니다.
+
+== 곱셈이 섞인 부등식: 보조 부등식을 손으로 조립하기
+
+`omega`는 덧셈·뺄셈·비교에는 강력하지만, `a * b`처럼 변수 두 개를 곱한 항이 나오면 손을 놓습니다(곱셈은 "선형"이 아니기 때문입니다). 이럴 때는 필요한 보조 부등식을 직접 만들어 `omega`가 다룰 수 있는 형태로 낮춥니다.
+
+[source,lean]
+----
+example (a b : Nat) (ha : a ≥ 2) (hb : b ≥ 2) : a + b ≤ a * b := by
+  have h1 : 2 * b ≤ a * b := Nat.mul_le_mul_right b ha
+  have h2 : 2 * a ≤ b * a := Nat.mul_le_mul_right a hb
+  rw [Nat.mul_comm b a] at h2
+  omega
+----
+
+`a * b`, `b * a` 같은 곱셈 항 자체는 `omega`가 안을 들여다보지 못하지만, 일단 `h1 : 2*b ≤ a*b`와 `h2 : 2*a ≤ a*b`(같은 항 `a*b`로 통일한 뒤)를 손에 쥐어주면, `omega`는 `a*b`를 그냥 "이름이 붙은 하나의 값"으로 취급해서 나머지 덧셈·비교만으로 결론(`a + b ≤ a*b`)까지 마무리합니다. "자동화 전술이 막히면, 그 전술이 다룰 수 있는 형태로 바꿔주는 보조 정리를 손으로 하나 끼워 넣는다"는 전략은, 증명이 안 풀릴 때 항상 시도해볼 만한 첫 번째 수단입니다.
+
+== 직접 해보기
+
+* `dot`을 이용해 `[0, 0, 1]`과 `[5, 7, 9]`의 내적을 계산하고, 결과가 `9`인 이유를 손으로 확인해보세요.
+* `funext`를 이용해 `(fun n : Nat => 2 * n)`과 `(fun n : Nat => n + n)`이 같은 함수임을 증명해보세요.
+* `by_cases`를 이용해, `sign (x : Int) := if x > 0 then 1 else if x < 0 then -1 else 0`이 항상 `-1`, `0`, `1` 중 하나만 낸다는 것을 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example : dot [0, 0, 1] [5, 7, 9] = 9 := by decide
+
+example : (fun n : Nat => 2 * n) = (fun n : Nat => n + n) := by
+  funext n
+  omega
+
+def sign (x : Int) : Int := if x > 0 then 1 else if x < 0 then -1 else 0
+
+theorem sign_range (x : Int) : sign x = -1 ∨ sign x = 0 ∨ sign x = 1 := by
+  unfold sign
+  by_cases h1 : x > 0
+  · simp [h1]
+  · by_cases h2 : x < 0
+    · simp [h1, h2]
+    · simp [h1, h2]
+----
+====
+
+== 요약
+
+* `List.range`/`List.finRange`로 인덱스 목록을, `map`/`sum`/`zip`을 조합해 내적 같은 "합의 합"을 표현합니다 — `foldl`은 그 기반이 되는 더 일반적인 누적 도구입니다.
+* `funext`는 "모든 입력에서 같은 값을 낸다"는 것으로 "두 함수가 같다"는 증명 목표를 좁혀줍니다.
+* `by_cases`는 조건 하나를 켜고 끈 두 갈래로 증명을 나누고, `if`가 여러 겹이면 갈래를 따라 반복해서 씁니다.
+* `¬P` 형태의 목표는 `intro`로 `P`를 가정처럼 받아 `False`를 향해 나아가는 것이 표준적인 접근입니다.
+* `omega`가 곱셈 항 앞에서 막히면, 그 곱셈을 포함한 보조 부등식을 직접 증명해 끼워 넣는 것으로 우회할 수 있습니다.
+
+이 장을 끝으로 이 책의 본편과 보너스 자료가 모두 끝났습니다 — link:../13-afterword/[13장 맺음말]이 원본 세 책으로 더 깊이 들어가는 길을, 이 17~18장이 다진 도구들이 link:../../nand2npu/[nand2npu 시리즈]로 들어가는 길을 각각 안내합니다.
+// end::body[]

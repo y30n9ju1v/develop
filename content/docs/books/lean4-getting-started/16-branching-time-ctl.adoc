@@ -8,7 +8,7 @@ description: "14~15장의 LTL은 하나의 실행 흐름만 다뤘다면, 이번
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../15-ltl-operators-and-fixpoints/[15장: LTL 연산자 완성하기]_
+_link:../[전체 목차] · 이전: link:../15-ltl-operators-and-fixpoints/[15장: LTL 연산자 완성하기] · 다음: link:../17-fin-vector-and-decide/[17장: 유한한 것들(보너스 2부작)]_
 
 '''
 

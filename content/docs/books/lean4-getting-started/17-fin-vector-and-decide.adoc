@@ -1,0 +1,131 @@
+---
+title: "17장: 유한한 것들 — Fin, Vector, decide로 하드웨어 모델링하기"
+date: 2026-07-30T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "fin", "vector", "decide", "book"]
+categories: ["books"]
+description: "범위가 타입에 박힌 인덱스(Fin n)와 길이가 타입에 박힌 리스트(Vector n)로 '벗어날 수 없는 값'을 표현하고, 유한한 명제를 전수 조사로 자동 증명하는 decide 전술을 익히는 보너스 장 — 실전 도구 상자 2부작 1부"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../16-branching-time-ctl/[16장: 분기 시제논리(CTL) 맛보기] · 다음: link:../18-lists-and-more-tactics/[18장: 리스트로 합 표현하기]_
+
+'''
+
+NOTE: 14~16장 보너스 3부작과 별개로, 17~18장은 새로운 2부작입니다. 지금까지 배운 `inductive`·`omega`·`induction`만으로는 손이 잘 안 닿는 실전 도구 몇 가지 — 범위가 보장된 인덱스, 고정 길이 벡터, 유한 검사 자동 증명, 합을 표현하는 리스트 콤비네이터 — 를 채웁니다. 이 두 장은 이 사이트의 `nand2npu` 시리즈(게이트에서 트랜스포머까지 하드웨어를 Lean4로 증명하며 짓는 책)를 읽기 전 준비 운동으로 특히 도움이 됩니다 — 그 시리즈는 비트 벡터·레지스터·행렬을 전부 여기서 배울 도구로 표현합니다. 14장과 마찬가지로 이 두 장도 원본 세 책(Functional Programming, Theorem Proving, Metaprogramming in Lean 4) 어디에도 없는 내용이라, 01~12장에 있던 "더 깊이 들어가려면" TIP은 이 두 장에는 없습니다.
+
+== 왜 `Nat`만으로는 부족한가
+
+3장에서 `Shape`나 `Option`처럼 "이 타입에 속하는 값"을 생성자로 제한하는 법을 배웠습니다. 그런데 "0부터 15까지의 정수만" 같은 제약은 생성자 나열로 표현하기 번거롭습니다 — 16개를 다 써야 할까요? `Nat`을 그냥 쓰고 "이 값은 항상 16보다 작다"를 매번 별도로 증명하며 들고 다녀야 할까요? Lean4에는 이 문제를 위한 전용 타입이 있습니다 — `Fin n`입니다.
+
+== Fin n: 범위가 타입에 박힌 인덱스
+
+[source,lean]
+----
+#check (3 : Fin 5)  -- Fin 5
+#eval (3 : Fin 5)   -- 3
+
+-- Fin n의 값은 "값(val)"과 "그 값이 n보다 작다는 증명(isLt)"의 쌍입니다.
+example (f : Fin 5) : f.val < 5 := f.isLt
+----
+
+`Fin 5`는 "0, 1, 2, 3, 4 중 하나"라는 뜻이고, 이 타입의 값을 만드는 순간부터 "5보다 작다"는 사실이 타입에 이미 박혀 있습니다 — 6장에서 배운 명제=타입 대응 그대로, `Fin n`의 값 자체가 "이 숫자는 n보다 작다"는 증명을 몸에 지니고 다니는 셈입니다. 3장의 `Option`이 "값이 없을 수도 있다"를 타입으로 표현했듯, `Fin n`은 "범위를 벗어난 값은 애초에 존재하지 않는다"를 타입으로 표현합니다.
+
+== Vector n: 길이가 타입에 박힌 리스트
+
+`List`는 길이가 얼마인지 타입만 봐서는 알 수 없습니다 — 길이 3짜리 리스트와 길이 5짜리 리스트가 똑같이 `List Nat` 타입입니다. `Vector n`은 그 길이를 타입 인자로 못박습니다.
+
+[source,lean]
+----
+def bits : Vector Bool 4 := #v[true, false, true, true]
+
+#eval bits[2]           -- true (2 < 4가 타입에서 이미 보장됨)
+#eval bits.get 0         -- true
+
+-- Vector.ofFn: 각 인덱스(Fin n)로부터 값을 만들어 벡터를 조립
+def countUp : Vector Nat 4 := Vector.ofFn (fun i : Fin 4 => i.val)
+#eval countUp  -- #[0, 1, 2, 3]
+----
+
+`bits[2]`처럼 인덱스로 값을 꺼낼 때, 그 인덱스가 실제로 벡터 길이 안에 있는지 Lean4가 컴파일 시점에 확인합니다 — `bits[10]`은 애초에 타입 체크를 통과하지 못합니다(또는 `Fin 4` 인덱스만 받는 형태라면 `10 : Fin 4`를 만드는 것 자체가 안 됩니다). 8비트 레지스터, 16비트 워드, `N×N` 행렬처럼 크기가 고정된 값을 다룰 때 `Vector n`이 표준적인 선택인 이유가 이겁니다 — "길이가 안 맞는 벡터를 잘못 섞어 쓰는" 실수 자체가 타입 수준에서 사라집니다.
+
+== decide: 유한한 명제는 전수 조사로 끝난다
+
+`Fin n`, `Bool`처럼 값의 종류가 유한한 타입에 대한 명제는, 원리적으로 그 값들을 전부 하나씩 확인해보면 참인지 거짓인지 기계적으로 판정할 수 있습니다. `decide` 전술이 정확히 이 작업을 자동으로 해줍니다.
+
+[source,lean]
+----
+example : (3 : Fin 5) ≠ 4 := by decide
+example : ∀ i : Fin 4, i.val < 4 := by decide
+----
+
+`omega`(9장에서 이미 익숙한)가 "정수·자연수 부등식을 계산으로 판정"했다면, `decide`는 그보다 훨씬 일반적으로 "유한한 값의 집합에 대한 명제를 전부 나열해 확인"합니다 — `Fin n`뿐 아니라 `Bool`, 그리고 아래처럼 `DecidableEq`를 `deriving`한 `inductive` 타입에도 통합니다.
+
+[source,lean]
+----
+inductive Signal where
+  | low | mid | high
+  deriving DecidableEq, Repr
+
+def Signal.encode : Signal → Fin 3
+  | .low => 0 | .mid => 1 | .high => 2
+
+def Signal.decode : Fin 3 → Signal
+  | 0 => .low | 1 => .mid | _ => .high
+
+-- 왕복 증명: cases로 세 갈래를 나눈 뒤, 각 갈래는 decide로 계산만 하면 끝
+theorem signal_roundtrip (s : Signal) : Signal.decode (Signal.encode s) = s := by
+  cases s <;> decide
+
+-- 반대 방향도 마찬가지: Fin 3의 값 세 개를 전수 조사
+example : ∀ f : Fin 3, Signal.encode (Signal.decode f) = f := by decide
+----
+
+`signal_roundtrip`의 증명이 왜 이렇게 짧은지 살펴볼 가치가 있습니다 — `cases s`로 `Signal`의 세 생성자(`low`, `mid`, `high`)로 갈래를 나누면, 각 갈래에서는 `encode`와 `decode`가 전부 구체적인 값으로 계산되는(예: `Signal.decode (Signal.encode .low) = Signal.decode 0 = .low`) 유한한 계산만 남습니다 — `decide`가 그 계산을 그냥 실행해서 확인해줍니다. 이런 "생성자 개수만큼 갈래를 나누고 각 갈래를 `decide`로 닫는" 패턴은 3장에서 만든 것 같은 열거형 타입의 인코딩·디코딩 왕복을 증명할 때 아주 흔하게 등장합니다.
+
+[NOTE]
+====
+`decide`는 편리하지만 공짜가 아닙니다 — 검사해야 할 경우의 수가 많아지면(`Fin 1000`처럼) 계산 자체가 오래 걸리거나 아예 실용적이지 않을 수 있습니다. 그런 경우에 쓰는 게 `native_decide`입니다 — Lean4의 타입 체커 안에서 느리게 계산하는 대신, 실제로 컴파일된 네이티브 코드로 훨씬 빠르게 계산합니다(다만 그만큼 신뢰 기반이 넓어집니다 — "Lean4 커널이 직접 확인했다"가 아니라 "컴파일된 코드를 믿는다"는 차이가 생깁니다). 작은 예제에서는 `decide`로 충분하고, 이 차이는 실전에서 큰 열거형이나 넓은 비트 폭을 다룰 때가 되어서야 체감됩니다.
+====
+
+== 직접 해보기
+
+* `(2 : Fin 4)`와 `(3 : Fin 4)`가 서로 다르다는 것을 `decide`로 증명해보세요.
+* 4개 값을 갖는 나만의 `inductive` 타입(`North`, `South`, `East`, `West` 같은)을 만들고, `Fin 4`와의 왕복 인코딩·디코딩을 `signal_roundtrip`과 같은 패턴으로 증명해보세요.
+* `Vector Bool 3`으로 3비트 값을 표현하고, `Vector.ofFn`으로 "인덱스가 짝수면 `true`"인 벡터를 만들어보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example : (2 : Fin 4) ≠ 3 := by decide
+
+inductive Direction where
+  | north | south | east | west
+  deriving DecidableEq, Repr
+
+def Direction.encode : Direction → Fin 4
+  | .north => 0 | .south => 1 | .east => 2 | .west => 3
+
+def Direction.decode : Fin 4 → Direction
+  | 0 => .north | 1 => .south | 2 => .east | _ => .west
+
+theorem direction_roundtrip (d : Direction) : Direction.decode (Direction.encode d) = d := by
+  cases d <;> decide
+
+def evenFlags : Vector Bool 3 := Vector.ofFn (fun i : Fin 3 => i.val % 2 == 0)
+#eval evenFlags  -- #[true, false, true]
+----
+====
+
+== 요약
+
+* `Fin n`은 "0부터 n-1까지의 값"이라는 제약을 타입에 직접 박아 넣은 타입입니다 — 범위를 벗어난 값은 애초에 만들 수 없습니다.
+* `Vector n`은 길이가 타입 인자로 고정된 리스트입니다 — 길이가 안 맞는 값을 잘못 섞어 쓰는 실수가 타입 수준에서 막힙니다.
+* `decide`는 `Fin n`, `Bool`, `DecidableEq`를 갖춘 `inductive` 타입처럼 값의 종류가 유한한 명제를, 그 값들을 전부 나열해 계산으로 확인하는 전술입니다.
+* `cases`로 생성자 갈래를 나누고 각 갈래를 `decide`로 닫는 것이, 인코딩·디코딩 왕복 같은 유한한 왕복 증명의 표준적인 패턴입니다.
+* 검사할 경우의 수가 아주 많아지면 `native_decide`로 넘어갈 수 있지만, 그만큼 신뢰 기반이 넓어진다는 대가가 있습니다.
+
+다음 장에서는 `List.range`, `List.sum`, `foldl` 같은 리스트 콤비네이터로 "여러 값의 합"을 표현하는 법과, `funext`·`by_cases`처럼 지금까지 안 쓴 나머지 전술 몇 가지를 다룹니다.
+// end::body[]
