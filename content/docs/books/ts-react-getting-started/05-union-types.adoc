@@ -110,6 +110,32 @@ function area(shape: Shape): number {
 
 `TriangleShape`를 새로 추가했는데 `area` 함수에서 처리를 깜빡했다고 해봅시다 — `if` 두 개를 다 통과했는데 `return`이 없으면, 함수가 `number`를 반환하기로 약속했지만 이 경로에서는 아무것도 반환하지 않은 채 함수가 끝나버리므로 **컴파일 에러**가 납니다. 판별 유니온의 진짜 가치는 여기 있습니다 — "종류를 하나 추가했는데 처리를 빠뜨렸다"는, 실무에서 아주 흔한 버그를 컴파일러가 대신 잡아줍니다. (반대로 각 분기 끝에 `throw new Error(...)`처럼 명시적으로 처리를 채워두면 이 에러는 사라집니다 — "빠뜨림"과 "의도적으로 처리함"을 컴파일러가 구분해준다는 뜻입니다.)
 
+== 실무 관용구: switch와 소진성 검사(exhaustiveness check)
+
+방금 본 `if` 연쇄는 원리를 보여주기엔 좋지만, 분기가 늘어날수록 읽기 번거롭고 "빠뜨림을 컴파일 에러로 잡는다"는 보장도 반환 타입에 `undefined`가 슬쩍 끼어드는 우연에 기대고 있습니다. 실무에서는 보통 `switch`와 **소진성 검사** 함수를 조합해 이 보장을 훨씬 명시적으로 만듭니다.
+
+[source,ts]
+----
+function assertNever(x: never): never {
+  throw new Error("처리하지 않은 case: " + JSON.stringify(x));
+}
+
+function area(shape: Shape): number {
+  switch (shape.kind) {
+    case "circle":
+      return Math.PI * shape.radius ** 2;
+    case "rectangle":
+      return shape.width * shape.height;
+    case "triangle":
+      return (shape.base * shape.height) / 2;
+    default:
+      return assertNever(shape); // 여기 도달한다면 shape는 이미 모든 case를 소진한 뒤라야 함
+  }
+}
+----
+
+`assertNever`의 매개변수 타입이 `never`라는 게 핵심입니다 — "이 자리에 올 수 있는 타입이 하나도 없어야 한다"는 뜻입니다. `switch`가 `circle`·`rectangle`·`triangle`을 전부 처리했다면, `default`에 도달했을 때 `shape`는 논리적으로 아무것도 아니어야 하므로(TypeScript가 이미 다 좁혀 없앴으므로) 정말로 `never` 타입이 되어 `assertNever(shape)`가 통과됩니다. 그런데 만약 `TriangleShape`를 추가하고 `case "triangle"`을 깜빡하면, `default`에 도달했을 때 `shape`는 여전히 `TriangleShape`일 수 있으므로 `never`가 아니게 되고, `assertNever(shape)` 호출 자체가 `Argument of type 'TriangleShape' is not assignable to parameter of type 'never'`라는 컴파일 에러로 정확히 어디서 빠뜨렸는지까지 알려줍니다. `if` 연쇄의 "반환값이 없어서 우연히 잡히는" 방식보다, "빠뜨린 case가 있으면 여기서 반드시 에러가 난다"는 걸 타입 시스템으로 직접 강제한다는 점이 다릅니다. 이 `assertNever` 함수는 프로젝트마다 이름만 다를 뿐(`exhaustiveCheck`, `unreachable` 등) 거의 그대로 재사용되는 관용구입니다.
+
 == 직접 해보기
 
 * `LoadingState`(`status: "loading"`), `SuccessState`(`status: "success"`, `data: string`), `ErrorState`(`status: "error"`, `message: string`)를 판별 유니온으로 만들고, `status`에 따라 다른 문자열을 반환하는 `describe` 함수를 작성해보세요.
@@ -154,6 +180,7 @@ console.log(describe({ status: "error", message: "네트워크 오류" }));
 * `typeof value === "string"` 같은 조건으로 유니온을 특정 타입으로 좁힐 수 있습니다(narrowing).
 * 객체 유니온에 공통 필드(판별자)를 두면, 그 필드값으로 좁혀가는 판별 유니온을 만들 수 있습니다.
 * 판별 유니온은 새 종류를 추가했을 때 처리를 빠뜨리면 컴파일 에러로 알려준다는 게 핵심 가치입니다 — 이 패턴은 2부에서 React의 로딩/성공/실패 상태를 다룰 때 다시 등장합니다.
+* 실무에서는 `if` 연쇄보다 `switch` + `assertNever(x: never)` 패턴을 더 흔히 씁니다 — "빠뜨린 case가 있으면 컴파일 에러"라는 보장을 타입 시스템으로 명시적으로 강제합니다.
 
 1부는 여기서 마칩니다. 다음 장부터는 2부 — React가 왜 지금의 모양으로 설계됐는지를 다룹니다.
 // end::body[]

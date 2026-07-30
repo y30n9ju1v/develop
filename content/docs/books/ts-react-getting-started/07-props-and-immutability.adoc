@@ -53,6 +53,18 @@ function Card({ title, children }: CardProps) {
 
 `<Card title="공지">...</Card>`처럼 여는 태그와 닫는 태그 사이에 오는 내용은 `children`이라는 이름의 특별한 Props로 자동 전달됩니다. `React.ReactNode`는 "JSX로 렌더링할 수 있는 모든 것"(문자열, 숫자, 다른 JSX, 배열 등)을 아우르는 타입입니다.
 
+이게 어떻게 가능한지는 6장에서 본 JSX→함수 호출 변환을 떠올리면 이해가 쉽습니다. `<Card title="공지"><p>내일은 휴무입니다.</p></Card>`는 실제로 컴파일되면 대략 이런 함수 호출이 됩니다.
+
+[source,tsx]
+----
+jsx(Card, {
+  title: "공지",
+  children: jsx("p", { children: "내일은 휴무입니다." })
+})
+----
+
+`title="공지"`처럼 **속성으로 적은 값**은 `title` 필드로 그대로 들어가고, 태그 **사이에 쓴 내용**은 JSX 문법이 알아서 `children`이라는 필드에 담아 넘겨줍니다 — 사람이 `children={...}`라고 직접 쓸 필요가 없는 이유입니다. `<Card title="공지" children={<p>...</p>} />`처럼 명시적으로 속성으로 써도 실제로는 똑같이 동작하지만, 태그를 열고 닫아 그 사이에 내용을 쓰는 쪽이 HTML과 닮아 있어 훨씬 자연스럽게 읽히기 때문에 관례적으로 그렇게 씁니다.
+
 == 불변성: 왜 Props를 컴포넌트 안에서 바꾸면 안 되는가
 
 [source,tsx]

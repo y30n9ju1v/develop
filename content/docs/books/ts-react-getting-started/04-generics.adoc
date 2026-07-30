@@ -47,6 +47,8 @@ console.log(n.toFixed(2));   // number 메서드 — 정상
 console.log(s.toUpperCase()); // string 메서드 — 정상
 ----
 
+(`toFixed`는 숫자에 내장된 메서드로, 소수점을 지정한 자리까지 반올림한 문자열을 반환합니다 — `n`이 정말 `number`로 좁혀졌다는 걸 보여주려고 숫자 전용 메서드를 골라, 바로 아래 문자열 전용 메서드 `toUpperCase`와 대구를 이루게 한 것입니다.)
+
 `<T>`가 "이 함수는 `T`라는 이름의 타입을 하나 매개변수로 받는다"는 뜻입니다. `arr: T[]`는 "`T` 타입의 배열을 받는다", `: T`는 "`T` 타입 하나를 반환한다"는 뜻입니다. `firstElement([1, 2, 3])`을 호출하는 순간, TypeScript는 인자로 넘어온 배열이 `number[]`라는 걸 보고 `T`가 `number`라고 자동으로 채워 넣습니다 — 함수 인자를 넘기면 매개변수가 채워지는 것과 정확히 같은 방식으로, **타입 인자**가 채워지는 것입니다. 그래서 `n`은 진짜 `number`, `s`는 진짜 `string`이 되고, 잘못된 메서드를 부르면 이제 다시 에러가 납니다.
 
 == any와 제네릭의 차이를 한 줄로
@@ -84,6 +86,8 @@ printLength([1, 2, 3]);      // 배열도 length가 있음
 ----
 
 `T extends { length: number }`는 "`T`는 아무 타입이나 되는 게 아니라, 적어도 `length: number`라는 필드는 갖고 있어야 한다"는 제약입니다. 이렇게 하면 `item.length`를 함수 안에서 안전하게 쓸 수 있으면서도, 문자열이든 배열이든 "길이가 있는 것"이라면 뭐든 받을 수 있는 유연함을 동시에 가져갑니다.
+
+이 개념(**제네릭 제약**)은 다른 언어에도 있습니다 — Java는 bounded type parameter(`<T extends Comparable<T>>`, 여기도 `extends`를 씁니다), C++은 concept(C++20, `template <Sortable T>`처럼 타입 매개변수 자체에 조건을 붙입니다), Rust는 trait bound(`fn foo<T: Display>(x: T)`)라고 부릅니다. 공통된 개념은 "`T`가 최소한 이런 속성/메서드를 가진 타입이어야 한다"는 조건을 거는 것인데, TypeScript는 그 조건을 `{ length: number }`처럼 **모양(구조)**으로 표현한다는 점이 특이합니다(3장에서 본 구조적 타이핑과 같은 원리) — Java/C++/Rust는 보통 인터페이스나 concept·트레잇의 **이름**으로 조건을 겁니다.
 
 == 직접 해보기
 

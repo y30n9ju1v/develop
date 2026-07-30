@@ -66,7 +66,7 @@ npm install
 npm run dev
 ----
 
-`npm create vite@latest`가 TypeScript + React가 이미 연결된 최소 프로젝트를 만들어줍니다 — 이 책 전체에서 별도 언급 없이 이 환경을 전제합니다. 1부(TypeScript)의 예제는 `.ts` 파일 하나만 있어도 되고, `npx tsc --noEmit 파일명.ts`로 타입 검사만 해볼 수도 있습니다. 이 책의 모든 코드는 TypeScript 컴파일러로 실제 검사를 거쳤습니다.
+`npm create vite@latest`가 TypeScript + React가 이미 연결된 최소 프로젝트를 만들어줍니다 — 이 책 전체에서 별도 언급 없이 이 환경을 전제합니다. `vite@latest`는 빌드 도구 Vite를 스캐폴딩하는 `create-vite` 패키지의 최신 버전을 뜻하고, `-- --template react-ts`는 그 패키지에게 "React + TypeScript 템플릿을 쓰라"고 전달하는 옵션입니다. Vite는 프론트엔드 프로젝트를 위한 빌드 도구입니다 — `npm run dev`로 실행하는 개발 서버(코드를 저장할 때마다 거의 즉시 브라우저에 반영되는 빠른 HMR), 배포용으로 파일을 최적화해 묶어주는 번들러, 그리고 6장에서 볼 TSX/JSX를 평범한 JS로 변환하는 역할까지 담당합니다. 예전에 널리 쓰이던 Create React App이 유지보수가 멈추면서, 지금은 React 프로젝트를 새로 시작할 때 가장 널리 쓰이는 도구가 Vite입니다. 1부(TypeScript)의 예제는 `.ts` 파일 하나만 있어도 되고, `npx tsc --noEmit 파일명.ts`로 타입 검사만 해볼 수도 있습니다. `tsc`는 TypeScript 컴파일러 CLI이고, `npx`는 전역 설치 없이 그 자리에서 실행해주는 npm의 실행기입니다 — `--noEmit`은 "결과 JS 파일은 만들지 말고 타입 오류만 검사하라"는 옵션입니다. 이 책의 모든 코드는 TypeScript 컴파일러로 실제 검사를 거쳤습니다.
 
 == 읽는 순서
 
