@@ -1,5 +1,5 @@
 ---
-title: "17장: 유한한 것들 — Fin, Vector, decide로 하드웨어 모델링하기"
+title: "14장: 유한한 것들 — Fin, Vector, decide로 하드웨어 모델링하기"
 date: 2026-07-30T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "fin", "vector", "decide", "book"]
@@ -8,11 +8,11 @@ description: "범위가 타입에 박힌 인덱스(Fin n)와 길이가 타입에
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../16-branching-time-ctl/[16장: 분기 시제논리(CTL) 맛보기] · 다음: link:../18-lists-and-more-tactics/[18장: 리스트로 합 표현하기]_
+_link:../[전체 목차] · 이전: link:../13-afterword/[13장: 맺음말] · 다음: link:../15-lists-and-more-tactics/[15장: 리스트로 합 표현하기]_
 
 '''
 
-NOTE: 14~16장 보너스 3부작과 별개로, 17~18장은 새로운 2부작입니다. 지금까지 배운 `inductive`·`omega`·`induction`만으로는 손이 잘 안 닿는 실전 도구 몇 가지 — 범위가 보장된 인덱스, 고정 길이 벡터, 유한 검사 자동 증명, 합을 표현하는 리스트 콤비네이터 — 를 채웁니다. 이 두 장은 이 사이트의 `nand2npu` 시리즈(게이트에서 트랜스포머까지 하드웨어를 Lean4로 증명하며 짓는 책)를 읽기 전 준비 운동으로 특히 도움이 됩니다 — 그 시리즈는 비트 벡터·레지스터·행렬을 전부 여기서 배울 도구로 표현합니다. 14장과 마찬가지로 이 두 장도 원본 세 책(Functional Programming, Theorem Proving, Metaprogramming in Lean 4) 어디에도 없는 내용이라, 01~12장에 있던 "더 깊이 들어가려면" TIP은 이 두 장에는 없습니다.
+NOTE: 13장(맺음말) 뒤에 이어지는 이 14~15장은 "보너스 실전 도구 상자" 2부작입니다. 지금까지 배운 `inductive`·`omega`·`induction`만으로는 손이 잘 안 닿는 실전 도구 몇 가지 — 범위가 보장된 인덱스, 고정 길이 벡터, 유한 검사 자동 증명, 합을 표현하는 리스트 콤비네이터 — 를 채웁니다. 이 두 장은 이 사이트의 `nand2npu` 시리즈(게이트에서 트랜스포머까지 하드웨어를 Lean4로 증명하며 짓는 책)를 읽기 전 준비 운동으로 특히 도움이 됩니다 — 그 시리즈는 비트 벡터·레지스터·행렬을 전부 여기서 배울 도구로 표현합니다. 원본 세 책(Functional Programming, Theorem Proving, Metaprogramming in Lean 4) 어디에도 없는 내용이라, 01~12장에 있던 "더 깊이 들어가려면" TIP은 이 두 장에는 없습니다.
 
 == 왜 `Nat`만으로는 부족한가
 

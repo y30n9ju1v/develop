@@ -26,7 +26,7 @@ nand2tetris를 손으로 해본 사람이라면 익숙할 겁니다 — HDL로 �
 
 이 시리즈는 `inductive` 타입, 타입 클래스, 재귀 함수, 전술(tactic)을 이용한 증명 같은 Lean4의 기본기를 별도 설명 없이 바로 씁니다 — 이 사이트의 다른 책 link:../../lean4-getting-started/[Lean4 입문: 함수형 프로그래밍에서 증명, 메타프로그래밍까지]가 정확히 그 기본기를 처음부터 가르치는 책입니다. Lean4나 함수형 프로그래밍을 처음 접한다면 이 시리즈에 들어오기 전에 그 책부터(적어도 1~2부, 값과 타입부터 귀납 증명까지) 읽는 걸 강하게 권합니다.
 
-`Lean4 입문`의 1~13장(본편)만으로는 이 시리즈가 실제로 매 장 쓰는 도구 — `Fin n`/`Vector n`으로 비트 벡터·레지스터를 표현하는 법, `decide`로 유한한 왕복 증명을 끝내는 법, `List.sum`/`foldl`로 행렬 곱셈 같은 "합의 합"을 표현하는 법 — 가 안 채워집니다. `Lean4 입문`의 link:../../lean4-getting-started/17-fin-vector-and-decide/[17장]과 link:../../lean4-getting-started/18-lists-and-more-tactics/[18장](보너스 "실전 도구 상자" 2부작)이 정확히 이 공백을 메우려고 쓰인 장이니, 이 시리즈에 들어오기 전 마지막으로 그 두 장까지 읽는 걸 권합니다 — 반대로 이미 Lean4나 다른 정리 증명 보조 도구(Coq, Agda 등)에 익숙하다면 이 선행 학습 없이 바로 시작해도 무방합니다. `nand2npu` 시리즈(1권부터 link:../../nand2npu-transformer/[4권]까지)는 이 전제 위에서 하드웨어·검증 방법론 자체에 집중합니다.
+`Lean4 입문`의 1~13장(본편)만으로는 이 시리즈가 실제로 매 장 쓰는 도구 — `Fin n`/`Vector n`으로 비트 벡터·레지스터를 표현하는 법, `decide`로 유한한 왕복 증명을 끝내는 법, `List.sum`/`foldl`로 행렬 곱셈 같은 "합의 합"을 표현하는 법 — 가 안 채워집니다. `Lean4 입문`의 link:../../lean4-getting-started/14-fin-vector-and-decide/[14장]과 link:../../lean4-getting-started/15-lists-and-more-tactics/[15장](보너스 "실전 도구 상자" 2부작)이 정확히 이 공백을 메우려고 쓰인 장이니, 이 시리즈에 들어오기 전 마지막으로 그 두 장까지 읽는 걸 권합니다 — 반대로 이미 Lean4나 다른 정리 증명 보조 도구(Coq, Agda 등)에 익숙하다면 이 선행 학습 없이 바로 시작해도 무방합니다. `nand2npu` 시리즈(1권부터 link:../../nand2npu-transformer/[4권]까지)는 이 전제 위에서 하드웨어·검증 방법론 자체에 집중합니다.
 
 == 무엇을 만드는가
 

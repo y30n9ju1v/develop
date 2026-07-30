@@ -1,5 +1,5 @@
 ---
-title: "18장: 리스트로 합 표현하기, 그리고 손으로 여는 증명"
+title: "15장: 리스트로 합 표현하기, 그리고 손으로 여는 증명"
 date: 2026-07-30T00:00:00+09:00
 draft: false
 tags: ["lean", "lean4", "list", "funext", "tactics", "book"]
@@ -8,7 +8,7 @@ description: "List.range·List.sum·foldl로 '여러 값의 합'을 표현하고
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../17-fin-vector-and-decide/[17장: 유한한 것들]_
+_link:../[전체 목차] · 이전: link:../14-fin-vector-and-decide/[14장: 유한한 것들]_
 
 '''
 
@@ -24,7 +24,7 @@ _link:../[전체 목차] · 이전: link:../17-fin-vector-and-decide/[17장: 유
 #eval (List.finRange 3).map (fun i : Fin 3 => i.val + 10)  -- [10, 11, 12]
 ----
 
-`List.range n`은 `[0, 1, ..., n-1]`을, `List.finRange n`은 같은 값들을 `Fin n` 타입으로 만듭니다 — 17장에서 배운 "범위가 타입에 박힌 인덱스"를 반복문 대신 리스트로 순회하고 싶을 때 씁니다. `.map`은 각 원소를 변환하고, `.sum`은 전부 더합니다.
+`List.range n`은 `[0, 1, ..., n-1]`을, `List.finRange n`은 같은 값들을 `Fin n` 타입으로 만듭니다 — 14장에서 배운 "범위가 타입에 박힌 인덱스"를 반복문 대신 리스트로 순회하고 싶을 때 씁니다. `.map`은 각 원소를 변환하고, `.sum`은 전부 더합니다.
 
 == 내적: 콤비네이터를 조합해 "합의 합" 표현하기
 
@@ -151,5 +151,5 @@ theorem sign_range (x : Int) : sign x = -1 ∨ sign x = 0 ∨ sign x = 1 := by
 * `¬P` 형태의 목표는 `intro`로 `P`를 가정처럼 받아 `False`를 향해 나아가는 것이 표준적인 접근입니다.
 * `omega`가 곱셈 항 앞에서 막히면, 그 곱셈을 포함한 보조 부등식을 직접 증명해 끼워 넣는 것으로 우회할 수 있습니다.
 
-이 장을 끝으로 이 책의 본편과 보너스 자료가 모두 끝났습니다 — link:../13-afterword/[13장 맺음말]이 원본 세 책으로 더 깊이 들어가는 길을, 이 17~18장이 다진 도구들이 link:../../nand2npu-cpu/[nand2npu 시리즈]로 들어가는 길을 각각 안내합니다.
+이 장을 끝으로 이 책의 본편과 보너스 자료가 모두 끝났습니다 — link:../13-afterword/[13장 맺음말]이 원본 세 책으로 더 깊이 들어가는 길을, 이 14~15장이 다진 도구들이 link:../../nand2npu-cpu/[nand2npu 시리즈]로 들어가는 길을 각각 안내합니다.
 // end::body[]

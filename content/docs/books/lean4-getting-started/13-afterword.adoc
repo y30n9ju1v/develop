@@ -8,7 +8,7 @@ description: "이 책이 일부러 생략한 것들을 정리하고, 더 깊이 
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../12-custom-notation/[12장: 나만의 표기법 만들기] · 다음: link:../14-temporal-logic/[14장: LTL 맛보기(보너스 3부작)]_
+_link:../[전체 목차] · 이전: link:../12-custom-notation/[12장: 나만의 표기법 만들기] · 다음: link:../14-fin-vector-and-decide/[14장: 유한한 것들(보너스)]_
 
 '''
 
