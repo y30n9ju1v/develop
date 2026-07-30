@@ -14,6 +14,7 @@ description: "수천 개 자율주행 시나리오를 클라우드에서 병렬 
 3. **[Ray/KubeRay 입문](../ray-kuberay-for-beginners/)** — 태스크 단위 CPU/GPU 스케줄링과 K8s 위에 Ray 클러스터를 올리는 방법
 4. **[Slurm 실전](../slurm-batch-scheduling/)** — 온프레미스 GPU 팜에서 job array, QoS, 클라우드 버스트 구성
 5. **[시뮬레이션 배치 스케줄링 실전](../batch-scheduling-strategies/)** — 오케스트레이터 무관하게 적용되는 범용 전략: 파이프라인 단계 분리, GPU 분할, 실행 시간 편차 흡수, 재현성, 큐 우선순위
+6. **[회귀 테스트를 셀프서비스로: 웹 대시보드](../regression-test-web-dashboard/)** — Argo Workflows, FastAPI, TypeScript+Refine, Voxel51/Rerun으로 인프라를 팀 전체가 쓰는 웹 제품으로 감싸기
 
 ---
 
