@@ -1,10 +1,10 @@
 ---
 title: "3장: 모나드 — 부수효과를 값으로 감싸 합성 가능하게"
-date: 2026-07-30T00:00:00+09:00
+date: 2026-07-31T00:00:00+09:00
 draft: false
-tags: ["lean4", "monad", "book"]
+tags: ["lean4", "monad", "elevator", "book"]
 categories: ["books"]
-description: "실패할 수 있는 함수를 평범한 함수 합성으로는 이어붙일 수 없다는 문제에서 출발해, Option과 do-표기법으로 그 문제를 값 수준에서 해결하는 모나드의 실용적 정의를 확인하는 1부 마지막 장"
+description: "버튼 입력 파싱이 실패할 수 있다는 문제에서 출발해, Option과 do-표기법으로 그 문제를 값 수준에서 해결하고, List 모나드로 시뮬레이션용 호출 시나리오를 생성하는 1부 마지막 장"
 ---
 
 // tag::body[]
@@ -12,44 +12,46 @@ _link:../[전체 목차] · 이전: link:../02-function-composition/[2장: 함�
 
 '''
 
-== 문제: 실패할 수 있는 함수는 그냥 합성이 안 된다
+== 문제: 버튼 입력 파싱은 그냥 합성이 안 된다
 
 [source,lean]
 ----
-def parseNat? (s : String) : Option Nat := s.toNat?
-def half? (n : Nat) : Option Nat := if n % 2 = 0 then some (n / 2) else none
+def maxFloor : Nat := 10
+
+def parseFloor? (s : String) : Option Nat := s.toNat?
+def validRange? (maxFloor : Nat) (f : Nat) : Option Nat := if f ≤ maxFloor then some f else none
 ----
 
-`parseNat?`는 문자열이 숫자가 아닐 수도 있으니 `Option Nat`(있을 수도, 없을 수도 있는 값)을 반환합니다. `half?`도 홀수면 실패해야 하니 `Option Nat`을 반환합니다. 그런데 2장에서 쓴 `half? ∘ parseNat?`는 타입이 안 맞습니다 — `parseNat?`의 출력은 `Option Nat`인데 `half?`는 `Nat`을 입력으로 기대하지, `Option Nat`을 기대하지 않기 때문입니다. `half?`를 부르기 전에 "혹시 `none`이면 여기서 멈추고, `some n`이면 그 `n`을 꺼내서 넘긴다"는 처리가 매번 끼어들어야 합니다.
+`parseFloor?`는 버튼에서 온 문자열이 숫자가 아닐 수도 있으니 `Option Nat`(있을 수도, 없을 수도 있는 값)을 반환합니다. `validRange?`도 건물 층수를 넘으면 실패해야 하니 `Option Nat`을 반환합니다. 그런데 2장에서 쓴 `validRange? maxFloor ∘ parseFloor?`는 타입이 안 맞습니다 — `parseFloor?`의 출력은 `Option Nat`인데 `validRange?`는 `Nat`을 입력으로 기대하지, `Option Nat`을 기대하지 않기 때문입니다. `validRange?`를 부르기 전에 "혹시 `none`이면 여기서 멈추고, `some f`이면 그 `f`를 꺼내서 넘긴다"는 처리가 매번 끼어들어야 합니다.
 
 == bind: "값을 꺼내서 다음 함수에 넘기되, 실패는 자동으로 전파"
 
 [source,lean]
 ----
-def parseAndHalf? (s : String) : Option Nat :=
-  Option.bind (parseNat? s) half?
+def parseButton? (s : String) : Option Nat :=
+  Option.bind (parseFloor? s) (validRange? maxFloor)
 
-#eval parseAndHalf? "8"    -- some 4
-#eval parseAndHalf? "7"    -- none (half?에서 실패)
-#eval parseAndHalf? "abc"  -- none (parseNat?에서 이미 실패)
+#eval parseButton? "7"     -- some 7
+#eval parseButton? "99"    -- none (범위 밖)
+#eval parseButton? "abc"   -- none (숫자가 아님)
 ----
 
-`Option.bind`가 정확히 그 "매번 끼어드는 처리"를 대신 해주는 함수입니다. `Option.bind : Option α → (α → Option β) → Option β`라는 타입이 뜻하는 바는 이렇습니다 — "`Option α` 값 하나와, `α`를 받아 `Option β`를 반환하는 함수를 받아서, 앞의 값이 `none`이면 그냥 `none`을 돌려주고, `some a`이면 `a`를 꺼내 뒤의 함수에 넘긴 결과를 그대로 돌려준다." `parseNat? s`가 실패하면 `half?`는 아예 호출되지도 않고 `none`이 그대로 전파됩니다 — 이게 `parseAndHalf? "abc"`가 `none`인 이유입니다.
+`Option.bind`가 정확히 그 "매번 끼어드는 처리"를 대신 해주는 함수입니다. `Option.bind : Option α → (α → Option β) → Option β`라는 타입이 뜻하는 바는 이렇습니다 — "`Option α` 값 하나와, `α`를 받아 `Option β`를 반환하는 함수를 받아서, 앞의 값이 `none`이면 그냥 `none`을 돌려주고, `some a`이면 `a`를 꺼내 뒤의 함수에 넘긴 결과를 그대로 돌려준다." `parseFloor? s`가 실패하면 `validRange?`는 아예 호출되지도 않고 `none`이 그대로 전파됩니다 — 이게 `parseButton? "abc"`가 `none`인 이유입니다.
 
 == do-표기법: bind 체인을 순차 코드처럼
 
 [source,lean]
 ----
-def parseAndHalfDo? (s : String) : Option Nat := do
-  let n ← parseNat? s
-  let h ← half? n
-  pure h
+def parseButtonDo? (s : String) : Option Nat := do
+  let f ← parseFloor? s
+  let v ← validRange? maxFloor f
+  pure v
 
-example : parseAndHalfDo? "8" = some 4 := by native_decide
-example : parseAndHalfDo? "7" = none := by native_decide
+example : parseButtonDo? "7" = some 7 := by native_decide
+example : parseButtonDo? "99" = none := by native_decide
 ----
 
-`do` 블록 안의 `let n ← parseNat? s`는 "`parseNat? s`를 실행해서, 성공하면 그 값을 `n`에 담고, 실패하면 여기서 전체를 실패로 끝낸다"는 뜻입니다 — 바로 위에서 손으로 쓴 `Option.bind` 체인을 그대로 풀어 쓴 것과 완전히 같은 코드로 컴파일됩니다. `pure h`는 "이 값을 성공(`some h`)으로 감싸서 반환한다"는 뜻입니다. `do`-표기법의 가치는 여기 있습니다 — **매번 `bind`를 명시적으로 호출하지 않고도, 마치 실패가 없는 것처럼 순차적인 코드를 쓸 수 있다**는 것입니다. 실패 처리는 `do`가 뒤에서 자동으로 끼워 넣습니다.
+`do` 블록 안의 `let f ← parseFloor? s`는 "`parseFloor? s`를 실행해서, 성공하면 그 값을 `f`에 담고, 실패하면 여기서 전체를 실패로 끝낸다"는 뜻입니다 — 바로 위에서 손으로 쓴 `Option.bind` 체인을 그대로 풀어 쓴 것과 완전히 같은 코드로 컴파일됩니다. `pure v`는 "이 값을 성공(`some v`)으로 감싸서 반환한다"는 뜻입니다. `do`-표기법의 가치는 여기 있습니다 — **매번 `bind`를 명시적으로 호출하지 않고도, 마치 실패가 없는 것처럼 순차적인 코드를 쓸 수 있다**는 것입니다. 실패 처리는 `do`가 뒤에서 자동으로 끼워 넣습니다.
 
 [NOTE]
 ====
@@ -58,18 +60,25 @@ example : parseAndHalfDo? "7" = none := by native_decide
 
 == 모나드: `bind`와 `pure`를 가진 것들의 공통 인터페이스
 
-`Option`만 이런 성질을 갖는 건 아닙니다. "여러 갈래의 가능성"을 감싸는 `List`도 같은 인터페이스(`bind`에 해당하는 것과 `pure`)를 가지고 있습니다.
+`Option`만 이런 성질을 갖는 건 아닙니다. "여러 갈래의 가능성"을 감싸는 `List`도 같은 인터페이스(`bind`에 해당하는 것과 `pure`)를 가지고 있습니다 — 예를 들어 나중 장에서 쓸 시뮬레이션용 "호출 시나리오"(어느 층에서 어느 방향으로 버튼을 눌렀는가)를 전부 만들어낼 때 씁니다.
 
 [source,lean]
 ----
-def pairs (xs ys : List Nat) : List (Nat × Nat) :=
-  xs.flatMap (fun x => ys.flatMap (fun y => [(x, y)]))
+inductive Direction where
+  | up | down
+deriving DecidableEq, Repr
 
-#eval pairs [1, 2] [10, 20]
--- 출력: [(1, 10), (1, 20), (2, 10), (2, 20)]
+def testFloors : List Nat := [1, 2, 3]
+def testDirections : List Direction := [.up, .down]
+
+def allCallScenarios (floors : List Nat) (dirs : List Direction) : List (Nat × Direction) :=
+  floors.flatMap (fun f => dirs.flatMap (fun d => [(f, d)]))
+
+#eval allCallScenarios testFloors testDirections
+-- [(1,up), (1,down), (2,up), (2,down), (3,up), (3,down)]
 ----
 
-`List`의 `flatMap`이 `Option.bind`와 같은 역할을 합니다 — "리스트의 각 원소에 함수를 적용해서 나온 여러 리스트를, 다시 하나의 리스트로 평평하게 편다"는 뜻입니다. `Option`에서는 `bind`가 "실패를 전파"하는 역할이었다면, `List`에서는 `flatMap`(=`bind`)이 "여러 갈래를 전부 펼쳐서 이어붙이는" 역할을 합니다 — 겉보기엔 전혀 다른 일을 하는 것 같지만, **"부수효과(실패 가능성 / 여러 갈래 가능성)를 값 안에 감춰두고, 그 값을 다음 함수에 넘기는 방법을 통일된 인터페이스로 제공한다"**는 게 공통점입니다. 이 공통 인터페이스를 가진 것들을 **모나드**라고 부릅니다. Lean4의 `do`-표기법은 `Option`이든 `List`든 똑같이 쓸 수 있는데, 그게 가능한 이유가 바로 이 공통 인터페이스입니다.
+`List`의 `flatMap`이 `Option.bind`와 같은 역할을 합니다 — "리스트의 각 원소에 함수를 적용해서 나온 여러 리스트를, 다시 하나의 리스트로 평평하게 편다"는 뜻입니다. `Option`에서는 `bind`가 "실패를 전파"하는 역할이었다면, `List`에서는 `flatMap`(=`bind`)이 "여러 갈래를 전부 펼쳐서 이어붙이는" 역할을 합니다 — 겉보기엔 전혀 다른 일을 하는 것 같지만, **"부수효과(실패 가능성 / 여러 갈래 가능성)를 값 안에 감춰두고, 그 값을 다음 함수에 넘기는 방법을 통일된 인터페이스로 제공한다"**는 게 공통점입니다. 이 공통 인터페이스를 가진 것들을 **모나드**라고 부릅니다.
 
 == 이게 왜 "합성"의 이야기인가
 
@@ -77,25 +86,23 @@ def pairs (xs ys : List Nat) : List (Nat × Nat) :=
 
 == 직접 해보기
 
-* `Option Nat`을 반환하는 `safeDiv? (a b : Nat) : Option Nat`(`b`가 0이면 실패)를 만들고, `do`-표기법으로 `parseNat? "20"`과 `parseNat? "4"`를 각각 파싱한 뒤 나눗셈까지 이어지는 함수를 짜보세요.
+* `Option Nat`을 반환하는 `applyDoorSensor? (raw : Int) : Option Nat`(음수면 실패, 아니면 `Nat`으로 변환)을 만들고, `do`-표기법으로 `parseFloor? "7"`을 파싱한 뒤 그 값이 `maxFloor`보다 큰 층으로 가는 요청이면 실패시키는 함수를 짜보세요.
 
 .해답 보기
 [%collapsible]
 ====
 [source,lean]
 ----
-def parseNat2? (s : String) : Option Nat := s.toNat?
+def applyDoorSensor? (raw : Int) : Option Nat :=
+  if raw < 0 then none else some raw.toNat
 
-def safeDiv? (a b : Nat) : Option Nat :=
-  if b = 0 then none else some (a / b)
+def parseAndCheck? (s : String) : Option Nat := do
+  let f ← parseFloor? s
+  let checked ← applyDoorSensor? (f : Int)
+  validRange? maxFloor checked
 
-def parseAndDivide? (sa sb : String) : Option Nat := do
-  let a ← parseNat2? sa
-  let b ← parseNat2? sb
-  safeDiv? a b
-
-example : parseAndDivide? "20" "4" = some 5 := by native_decide
-example : parseAndDivide? "20" "0" = none := by native_decide
+example : parseAndCheck? "7" = some 7 := by native_decide
+example : parseAndCheck? "99" = none := by native_decide
 ----
 ====
 
@@ -106,5 +113,5 @@ example : parseAndDivide? "20" "0" = none := by native_decide
 * `do`-표기법은 이 `bind` 체인을 마치 부수효과가 없는 것처럼 순차 코드로 쓰게 해주는 문법입니다.
 * `bind`와 `pure`라는 같은 인터페이스를 공유하는 것들을 모나드라고 부릅니다 — `Option`과 `List`는 서로 다른 부수효과(실패, 다중 갈래)를 감싸지만 같은 인터페이스로 다뤄집니다.
 
-1부는 여기서 마칩니다. 2부에서는 이 합성 원칙을 "상태"라는, 지금까지와는 다른 종류의 문제에 적용합니다 — 상태 기계를 mutable 객체가 아니라 순수 함수의 값으로 다루는 법을 봅니다.
+1부는 여기서 마칩니다. 2부에서는 이 합성 원칙을 "상태"라는, 지금까지와는 다른 종류의 문제에 적용합니다 — 1장에서 설계한 `ElevatorState`가 드디어 실제로 움직이기 시작합니다.
 // end::body[]

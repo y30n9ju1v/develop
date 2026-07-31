@@ -1,135 +1,107 @@
 ---
 title: "6장: FSM의 합성 — product는 병렬로, coproduct는 모드 전환으로"
-date: 2026-07-30T00:00:00+09:00
+date: 2026-07-31T00:00:00+09:00
 draft: false
-tags: ["lean4", "fsm", "composition", "book"]
+tags: ["lean4", "fsm", "composition", "elevator", "book"]
 categories: ["books"]
-description: "1장에서 배운 product와 sum이 상태 기계를 합성할 때도 그대로 재등장한다는 것을, 두 FSM을 동시에 독립적으로 돌리는 product 합성과 어느 한쪽만 활성화하는 coproduct 합성으로 확인하는 2부 마지막 장"
+description: "1장에서 배운 product와 sum이 상태 기계를 합성할 때도 그대로 재등장한다는 것을, 두 엘리베이터를 나란히 독립적으로 돌리는 product 합성과 평상시/점검 모드를 전환하는 coproduct 합성으로 확인하는 2부의 중간 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../05-coalgebra-intuition/[5장: coalgebra 직관] · 다음: link:../07-case-study-lock-project/[7장: 실전 예제로 굳히기]_
+_link:../[전체 목차] · 이전: link:../05-coalgebra-intuition/[5장: coalgebra 직관] · 다음: link:../07-case-study-overload-safety/[7장: 실전 예제로 굳히기]_
 
 '''
 
-== 두 FSM을 합치는 두 가지 방법
+== 두 상태 기계를 합치는 두 가지 방법
 
-4장의 `TrafficLight`(신호등)와 `DoorState`(문 잠금장치), 두 FSM이 있습니다. 이 둘을 하나로 합쳐야 한다면 사실 상황은 둘 중 하나입니다 — "신호등과 문이 **동시에, 서로 독립적으로** 존재한다"거나, "지금 이 시스템은 **신호등 모드 아니면 문 모드**, 둘 중 하나로만 동작한다"거나. 낯익은 질문입니다 — 1장에서 본 "항상 같이 있어야 하는 것"(product)과 "동시에 있을 수 없는 것 중 하나"(sum)가 상태 기계에도 그대로 적용됩니다.
+지금까지 엘리베이터 하나만 다뤘습니다. 이제 이걸 두 가지 방향으로 넓혀야 합니다 — "서로 다른 건물에 있는 독립된 두 엘리베이터를 **동시에, 서로 신경 쓰지 않고** 시뮬레이션하고 싶다"거나, "한 엘리베이터가 **평상시 모드 아니면 점검 모드**, 둘 중 하나로만 동작한다"거나. 낯익은 질문입니다 — 1장에서 본 "항상 같이 있어야 하는 것"(product)과 "동시에 있을 수 없는 것 중 하나"(sum)가 상태 기계에도 그대로 적용됩니다.
 
-== product 합성: 두 FSM을 동시에, 독립적으로
+== product 합성: 두 엘리베이터를 동시에, 독립적으로
 
 [source,lean]
 ----
-def parallelStep (light : TrafficLight) (door : DoorState) (e : DoorEvent) :
-    TrafficLight × DoorState :=
-  (light.next, door.transition e)
+def parallelStep (a b : ElevatorState) (e : ElevatorEvent) : ElevatorState × ElevatorState :=
+  (a.transition e, b.transition e)
 
-#eval parallelStep .red .locked (.unlock 1234)
--- (TrafficLight.green, DoorState.unlocked)
-
-example : parallelStep .red .locked (.unlock 1234) = (.green, .unlocked) := by native_decide
+#eval parallelStep ⟨0, .idle⟩ ⟨5, .idle⟩ (.callFloor 2)
+example : parallelStep ⟨0, .movingTo 3⟩ ⟨5, .movingTo 1⟩ .tick
+    = (⟨1, .movingTo 3⟩, ⟨4, .movingTo 1⟩) := by native_decide
 ----
 
-`TrafficLight × DoorState`가 "두 상태가 항상 함께 존재한다"는 product입니다. `parallelStep`은 이벤트 하나가 들어올 때마다 **두 기계를 각각 한 스텝씩** 진행시킵니다 — 신호등은 이벤트 내용과 무관하게 그냥 다음 색으로, 문은 이벤트에 따라 반응합니다. 이게 product 합성의 핵심입니다 — **두 기계가 서로의 상태를 전혀 참조하지 않고, 나란히 독립적으로 진행**합니다. 실전에서는 "UI의 로딩 스피너 상태"와 "폼 검증 상태"처럼, 서로 관련은 있어도 각자의 규칙대로 따로 굴러가는 것들이 이 패턴에 해당합니다.
+`ElevatorState × ElevatorState`가 "두 엘리베이터가 항상 함께 존재한다"는 product입니다. `parallelStep`은 이벤트 하나가 들어올 때마다 **두 엘리베이터를 각각 한 스텝씩** 진행시킵니다 — 같은 `tick`을 받아도 `a`는 3층을 향해, `b`는 1층을 향해 각자의 목적지대로 움직입니다. 이게 product 합성의 핵심입니다 — **두 기계가 서로의 상태를 전혀 참조하지 않고, 나란히 독립적으로 진행**합니다. 실전에서는 서로 다른 건물의 엘리베이터, 혹은 완전히 분리된 두 시스템을 한 시뮬레이션 안에서 같이 돌리고 싶을 때 이 패턴을 씁니다.
 
-== coproduct 합성: 지금 어느 쪽이 활성인가
+== coproduct 합성: 지금 어느 모드인가
 
-신호등과 문이 **한 시스템에서 동시에 켜져 있는 게 아니라, 관리자가 "지금은 신호등 모드" 또는 "지금은 문 모드"로 전환해가며 쓰는 것**이라면 이야기가 다릅니다.
+한 엘리베이터가 **평상시엔 정상적으로 호출에 반응하지만, 점검 모드에 들어가면 어떤 호출도 무시**해야 한다면 이야기가 다릅니다.
 
 [source,lean]
 ----
 inductive Mode where
-  | trafficMode (t : TrafficLight)
-  | doorMode (d : DoorState)
+  | normal (s : ElevatorState)
+  | maintenance (s : ElevatorState)
 deriving DecidableEq, Repr
 
 inductive ModeEvent where
-  | tick
-  | doorEvent (e : DoorEvent)
-  | switchToDoor
-  | switchToTraffic
+  | elevEvent (e : ElevatorEvent)
+  | enterMaintenance
+  | exitMaintenance
 
 def Mode.step : Mode → ModeEvent → Mode
-  | .trafficMode t, .tick => .trafficMode t.next
-  | .trafficMode _, .switchToDoor => .doorMode .locked
-  | .trafficMode t, _ => .trafficMode t
-  | .doorMode d, .doorEvent e => .doorMode (d.transition e)
-  | .doorMode _, .switchToTraffic => .trafficMode .red
-  | .doorMode d, _ => .doorMode d
+  | .normal s, .elevEvent e => .normal (s.transition e)
+  | .normal s, .enterMaintenance => .maintenance s
+  | .normal s, .exitMaintenance => .normal s
+  | .maintenance s, .exitMaintenance => .normal s
+  | .maintenance s, _ => .maintenance s  -- 점검 모드에선 어떤 elevEvent도 무시
 ----
 
-`Mode`가 `TrafficLight`도 `DoorState`도 아니라 **"둘 중 하나"**를 표현하는 sum(coproduct) 타입입니다. `trafficMode t`이면 그 순간 `DoorState`는 존재하지도 않고, `doorMode d`이면 `TrafficLight`가 존재하지도 않습니다 — product처럼 둘을 동시에 들고 있는 게 아니라, **정확히 하나만 활성 상태**입니다. `switchToDoor`/`switchToTraffic` 이벤트가 그 둘 사이를 오가는 다리 역할을 합니다.
+`Mode`가 `ElevatorState`를 두 벌 들고 있는 product가 아니라 **"지금 정상인지 점검 중인지"**를 표현하는 sum(coproduct) 타입입니다 — `normal s`이면 `s`가 실제로 동작 중인 엘리베이터 상태이고, `maintenance s`이면 그 `s`가 **그대로 얼어붙어** 있습니다. `Mode.step`의 마지막 줄(`.maintenance s, _ => .maintenance s`)이 핵심입니다 — 점검 모드에서는 `exitMaintenance` 말고 어떤 이벤트가 와도(심지어 `elevEvent (.callFloor 3)`처럼 호출이 와도) 상태가 그대로입니다.
 
 [source,lean]
 ----
-#eval Mode.trafficMode .red |>.step .tick
--- Mode.trafficMode TrafficLight.green
-#eval Mode.trafficMode .red |>.step .switchToDoor
--- Mode.doorMode DoorState.locked
-#eval (Mode.trafficMode .red |>.step .switchToDoor).step (.doorEvent (.unlock 1234))
--- Mode.doorMode DoorState.unlocked
+#eval Mode.normal ⟨0, .idle⟩ |>.step (.elevEvent (.callFloor 3))
+-- Mode.normal { floor := 0, phase := movingTo 3 }
 
-example : (Mode.trafficMode .red).step .switchToDoor = .doorMode .locked := by native_decide
+#eval Mode.normal ⟨0, .idle⟩ |>.step .enterMaintenance
+    |>.step (.elevEvent (.callFloor 3))
+-- Mode.maintenance { floor := 0, phase := idle } -- 호출이 무시됨
+
+example : ((Mode.normal ⟨0, .idle⟩).step .enterMaintenance).step (.elevEvent (.callFloor 3))
+    = .maintenance ⟨0, .idle⟩ := by native_decide
 ----
 
-`trafficMode .red`에서 `switchToDoor`를 받으면 `doorMode .locked`로 넘어가고, 그다음 `doorEvent (.unlock 1234)`를 받으면 잠금이 풀립니다 — `Mode`라는 하나의 상태 타입이 "지금 이 시스템이 어느 하위 기계로 동작하고 있는지"까지 전부 표현합니다.
+평상시 모드에서 3층 호출을 받으면 정상적으로 움직이기 시작하지만, 점검 모드로 들어간 뒤에 같은 호출을 보내면 **완전히 무시되고 상태가 그대로**입니다 — `Mode`라는 하나의 타입이 "지금 이 엘리베이터가 어느 모드로 동작하고 있는지"까지 전부 표현합니다.
 
 == 어느 쪽을 골라야 하는가
 
-1장의 질문이 여기서도 그대로 적용됩니다 — **"두 기계가 동시에 존재해야 하는가, 아니면 항상 둘 중 하나로만 존재하는가?"** 동시에 존재해야 한다면 product(`A × B`)로, 정확히 하나로만 존재한다면 sum(`A ⊕ B`, Lean에서는 이 장의 `Mode`처럼 `inductive`로)으로 합칩니다. 이 질문을 건너뛰고 아무렇게나 합치면, 1장에서 본 "표현 가능하지만 실제로는 무의미한 조합"이 상태 기계 수준에서 다시 나타납니다 — 예를 들어 `Mode`를 product(`TrafficLight × DoorState`)로 잘못 만들었다면, "신호등 모드인데 동시에 문 모드이기도 한" 조합이 표현 가능해져 버립니다(실제로는 절대 그런 상황이 없는데도).
+1장의 질문이 여기서도 그대로 적용됩니다 — **"두 기계가 동시에 존재해야 하는가, 아니면 항상 둘 중 하나로만 존재하는가?"** 동시에 존재해야 한다면 product(`A × B`)로, 정확히 하나로만 존재한다면 sum(`A ⊕ B`, Lean에서는 이 장의 `Mode`처럼 `inductive`로)으로 합칩니다. 이 질문을 건너뛰고 아무렇게나 합치면, 1장에서 본 "표현 가능하지만 실제로는 무의미한 조합"이 상태 기계 수준에서 다시 나타납니다 — 예를 들어 "점검 모드 여부"를 `Bool`로 따로 두고 `ElevatorState`와 독립된 product로 관리했다면, 그 `Bool`을 깜빡하고 안 확인하는 실수 하나로 점검 중에도 엘리베이터가 움직여버릴 수 있습니다. `Mode`처럼 sum으로 묶으면 "점검 중인데 움직이는 로직"을 아예 별도로 짤 방법이 없습니다.
 
 == 직접 해보기
 
-* 3장에서 만든 `VendingState`(자판기)와 이 장의 `DoorState`를 product로 합쳐, 자판기와 문이 동시에 독립적으로 상태를 바꾸는 `parallelStep2`를 만들어보세요.
-* 같은 두 기계를 coproduct(`Mode2`)로도 합쳐, `switchToVending`/`switchToDoor2` 이벤트로 전환되는 걸 확인해보세요.
+* 3장에서 만든 것과 비슷하게, `Mode`에 "화재 시 관제 모드"(`fireOverride`, 무조건 1층으로 이동한 뒤 문을 열고 얼어붙는)를 세 번째 생성자로 추가해보세요.
+* 평상시 모드에서 화재 이벤트를 받으면 `fireOverride`로 전환되고, 그 안에서는 어떤 일반 호출도 무시된다는 걸 확인해보세요.
 
 .해답 보기
 [%collapsible]
 ====
 [source,lean]
 ----
-inductive VendingState where
-  | idle | hasCoin
-deriving DecidableEq, Repr
-
-inductive VendingEvent where
-  | insertCoin | selectItem
-
-def VendingState.transition : VendingState → VendingEvent → VendingState
-  | .idle, .insertCoin => .hasCoin
-  | .idle, .selectItem => .idle
-  | .hasCoin, .selectItem => .idle
-  | .hasCoin, .insertCoin => .hasCoin
-
--- product: 자판기와 문이 동시에, 독립적으로
-def parallelStep2 (v : VendingState) (d : DoorState)
-    (ve : VendingEvent) (de : DoorEvent) : VendingState × DoorState :=
-  (v.transition ve, d.transition de)
-
-example : parallelStep2 .idle .locked .insertCoin (.unlock 1234)
-    = (.hasCoin, .unlocked) := by native_decide
-
--- coproduct: 지금 자판기 모드인지 문 모드인지
 inductive Mode2 where
-  | vendingMode (v : VendingState)
-  | doorMode2 (d : DoorState)
+  | normal2 (s : ElevatorState)
+  | fireOverride (s : ElevatorState)
 deriving DecidableEq, Repr
 
 inductive Mode2Event where
-  | vendingEvent (e : VendingEvent)
-  | doorEvent2 (e : DoorEvent)
-  | switchToDoor2
-  | switchToVending
+  | elevEvent2 (e : ElevatorEvent)
+  | fireAlarm
 
 def Mode2.step : Mode2 → Mode2Event → Mode2
-  | .vendingMode v, .vendingEvent e => .vendingMode (v.transition e)
-  | .vendingMode _, .switchToDoor2 => .doorMode2 .locked
-  | .vendingMode v, _ => .vendingMode v
-  | .doorMode2 d, .doorEvent2 e => .doorMode2 (d.transition e)
-  | .doorMode2 _, .switchToVending => .vendingMode .idle
-  | .doorMode2 d, _ => .doorMode2 d
+  | .normal2 s, .elevEvent2 e => .normal2 (s.transition e)
+  | .normal2 s, .fireAlarm => .fireOverride s
+  | .fireOverride s, _ => .fireOverride s  -- 화재 모드에서는 무엇을 받아도 얼어붙음
 
-example : (Mode2.vendingMode .idle).step .switchToDoor2 = .doorMode2 .locked := by native_decide
+example : (Mode2.normal2 ⟨3, .idle⟩).step .fireAlarm = .fireOverride ⟨3, .idle⟩ := by native_decide
+example : ((Mode2.normal2 ⟨3, .idle⟩).step .fireAlarm).step (.elevEvent2 (.callFloor 7))
+    = .fireOverride ⟨3, .idle⟩ := by native_decide
 ----
 ====
 
@@ -137,7 +109,7 @@ example : (Mode2.vendingMode .idle).step .switchToDoor2 = .doorMode2 .locked := 
 
 * 두 상태 기계가 항상 함께, 서로 독립적으로 진행돼야 한다면 product(`A × B`)로 합성합니다 — 각 기계는 상대방을 신경 쓰지 않고 자기 규칙대로 전이합니다.
 * 정확히 하나만 활성 상태여야 한다면 coproduct(sum, `inductive`)로 합성합니다 — "지금 어느 모드인가"까지 상태 타입 하나가 표현합니다.
-* 이 선택은 1장의 "product인가 sum인가" 질문과 완전히 같은 질문입니다 — 잘못 고르면 실제로는 불가능한 조합(두 모드가 동시에 활성인 상태 등)이 다시 표현 가능해집니다.
+* 이 선택은 1장의 "product인가 sum인가" 질문과 완전히 같은 질문입니다 — 잘못 고르면 실제로는 불가능한 조합(점검 중인데 움직이는 등)이 다시 표현 가능해집니다.
 
-2부는 여기서 마칩니다. 다음 장에서는 지금까지 배운 걸 전부 동원해, 작은 FSM 하나를 설계부터 증명까지 처음부터 끝까지 완성하는 사례 연구를 합니다.
+다음 장에서는 지금까지 배운 걸 전부 동원해, 엘리베이터에 "과부하 안전장치"를 추가하는 사례 연구를 합니다.
 // end::body[]

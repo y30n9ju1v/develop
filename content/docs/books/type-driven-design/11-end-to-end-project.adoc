@@ -1,10 +1,10 @@
 ---
-title: "11장: 엔드투엔드 프로젝트 — 교차로 신호등을 설계부터 증명까지"
-date: 2026-07-30T00:00:00+09:00
+title: "11장: 엔드투엔드 프로젝트 — 엘리베이터를 하나의 완결된 시스템으로"
+date: 2026-07-31T00:00:00+09:00
 draft: false
-tags: ["lean4", "fsm", "temporal-logic", "book"]
+tags: ["lean4", "fsm", "temporal-logic", "elevator", "book"]
 categories: ["books"]
-description: "1~10장에서 배운 도구(sum 타입, transition 함수, coalgebra 출력, 합성, Always/Eventually)를 전부 동원해, 남북과 동서 신호등이 동시에 초록이면 안 되는 교차로 FSM을 처음부터 설계하고 안전성과 생동성을 함께 증명하는 3부의 마무리 프로젝트"
+description: "1~10장에서 배운 도구(sum/product, transition, coalgebra, 합성, Always/Eventually)를 전부 동원해, 점검 모드까지 포함한 엘리베이터 시스템 하나를 완결된 형태로 조립하고 안전성과 생동성을 함께 증명하는 3부의 마무리 프로젝트"
 ---
 
 // tag::body[]
@@ -12,122 +12,149 @@ _link:../[전체 목차] · 이전: link:../10-ctl-branching-fsm/[10장: CTL 맛
 
 '''
 
-== 요구사항: 교차로 신호등
+== 지금까지 만든 조각들
 
-4장에서 만든 `TrafficLight`는 신호등 하나였습니다. 이번엔 남북(NS)과 동서(EW) 두 방향이 만나는 교차로입니다 — 요구사항은 딱 하나, **두 방향이 동시에 초록이면 절대 안 됩니다**(사고로 이어지니까요). 6장에서 배운 product 합성을 그대로 쓰면 어떻게 될지부터 짚어봅니다.
+1장부터 10장까지, 이 프로젝트는 조금씩 쌓여왔습니다.
 
-== 함정: 순진한 product는 이 요구사항을 못 지킨다
+* *1장*: `ElevatorState`(층수 + 국면)를 sum/product로 설계해 "문 열고 움직인다"는 사고를 표현조차 못 하게 만들었습니다.
+* *4장*: `transition : ElevatorState → ElevatorEvent → ElevatorState`로 실제 움직임을 순수 함수로 구현했습니다.
+* *5장*: 층수 표시와 방향 화살표를 출력으로 꺼내는 coalgebra 관점을 봤습니다.
+* *6장*: 점검 모드(`Mode`)를 coproduct로 얹어, "정상 동작 중"과 "점검 중"을 하나의 타입으로 표현했습니다.
+* *7장*: 과부하 안전장치 사례로 "성질을 증명한다"는 게 실제로 어떤 건지 굳혔습니다.
+* *8~9장*: "문 열린 채로는 층이 안 바뀐다"(안전성)와 "tick이 오면 언젠가 도착한다"(생동성)를 구분해서 증명했습니다.
+* *10장*: 여러 호출이 동시에 올 때의 비결정성을 CTL로 다뤘습니다.
 
-6장의 `parallelStep`처럼 두 신호등을 각자 독립적으로 순환시키면 어떨까요 — `NSLight × EWLight`이고 둘 다 각자 `red → green → yellow → red`를 돕니다. 문제는 이 둘이 **서로의 상태를 전혀 모른 채** 독립적으로 돈다는 점입니다 — 시작 시점이나 타이밍이 조금만 어긋나도 두 방향이 동시에 초록인 조합이 나올 수 있습니다. **product 합성은 "각자 독립적으로 진행돼야 하는 것"에만 맞는 도구**라고 6장에서 말했는데, 정확히 그 이유로 여기서는 맞지 않습니다 — 두 방향의 신호는 서로 **조율**되어야지 독립적이면 안 됩니다.
+이 장에서는 6장의 `Mode`(점검 모드 포함)를 최종 시스템으로 삼아, 거기에 안전성과 생동성을 **함께** 증명합니다.
 
-== 설계: 하나의 상태로 두 신호를 함께 결정하기
-
-조율이 필요하다면, "NS 상태"와 "EW 상태"를 따로 두는 대신 **교차로 전체의 국면(phase)**을 하나의 sum 타입으로 표현하고, 그 국면에서 두 신호를 유도합니다.
+== 최종 시스템: 점검 모드까지 포함한 Mode
 
 [source,lean]
 ----
-inductive Phase where
-  | nsGreen | nsYellow | allRed1 | ewGreen | ewYellow | allRed2
+inductive Mode where
+  | normal (s : ElevatorState)
+  | maintenance (s : ElevatorState)
 deriving DecidableEq, Repr
 
-def Phase.next : Phase → Phase
-  | .nsGreen => .nsYellow
-  | .nsYellow => .allRed1
-  | .allRed1 => .ewGreen
-  | .ewGreen => .ewYellow
-  | .ewYellow => .allRed2
-  | .allRed2 => .nsGreen
-----
-
-여섯 국면이 순서대로 순환합니다 — NS가 초록일 땐 EW는 항상 빨강이어야 하니, `nsGreen` 다음 곧장 `ewGreen`으로 가지 않고 `allRed1`(둘 다 빨강인 완충 구간)을 거칩니다. 이게 1장의 원칙이 다시 등장하는 지점입니다 — "NS 상태"와 "EW 상태"를 독립된 두 필드로 두는 대신(product), "지금 어느 국면인가" 하나의 sum으로 표현하면 애초에 "둘 다 초록"이라는 위험한 조합을 만들 방법 자체가 없습니다.
-
-[source,lean]
-----
-inductive Light where
-  | red | green | yellow
+inductive ModeEvent where
+  | elevEvent (e : ElevatorEvent)
+  | enterMaintenance
+  | exitMaintenance
 deriving DecidableEq, Repr
 
-def Phase.nsLight : Phase → Light
-  | .nsGreen => .green
-  | .nsYellow => .yellow
-  | _ => .red
+def Mode.step : Mode → ModeEvent → Mode
+  | .normal s, .elevEvent e => .normal (s.transition e)
+  | .normal s, .enterMaintenance => .maintenance s
+  | .normal s, .exitMaintenance => .normal s
+  | .maintenance s, .exitMaintenance => .normal s
+  | .maintenance s, _ => .maintenance s
 
-def Phase.ewLight : Phase → Light
-  | .ewGreen => .green
-  | .ewYellow => .yellow
-  | _ => .red
-----
-
-`nsLight`와 `ewLight`는 5장에서 본 coalgebra의 "출력"에 해당합니다 — `Phase`라는 하나의 내부 상태에서, "지금 실제로 보이는 신호"라는 관찰 가능한 값을 꺼내는 함수입니다.
-
-== 안전성 증명: 모든 국면에서 동시 초록이 불가능함을 확인
-
-[source,lean]
-----
-theorem mutual_exclusion : ∀ p : Phase, ¬ (p.nsLight = .green ∧ p.ewLight = .green) := by
-  intro p
-  cases p <;> decide
-----
-
-`Phase`는 6가지뿐이니, `cases p`로 여섯 경우 전부를 나열하고 각각 `decide`로 확인하면 **가능한 모든 국면**에 대해 이 성질이 증명됩니다 — 실행하며 테스트해볼 필요 없이, 여섯 가지 경우를 전부 열거해 컴파일러가 검사한 것입니다. 9장에서 배운 `Always`로 확장하면, 어떤 국면에서 시작해 몇 스텝을 진행하든 이 안전성이 항상 유지된다는 것도 바로 따라옵니다.
-
-[source,lean]
-----
-def Phase.trace (start : Phase) : Nat → Phase
-  | 0 => start
-  | n + 1 => (Phase.trace start n).next
+def traceFrom (init : Mode) (events : Nat → ModeEvent) : Nat → Mode
+  | 0 => init
+  | n + 1 => (traceFrom init events n).step (events n)
 
 def Always {α} (P : α → Prop) (s : Nat → α) : Prop := ∀ n, P (s n)
 def Eventually {α} (P : α → Prop) (s : Nat → α) : Prop := ∃ n, P (s n)
-
-theorem mutual_exclusion_always (start : Phase) :
-    Always (fun p => ¬ (p.nsLight = .green ∧ p.ewLight = .green)) (Phase.trace start) := by
-  intro n
-  exact mutual_exclusion _
 ----
 
-이 증명이 짧은 이유가 중요합니다 — `mutual_exclusion`이 **모든 국면**에 대해 이미 증명됐으니, `trace`가 몇 시점에 있든(`trace start n`도 결국 `Phase` 값 하나이므로) 그 성질은 자동으로 적용됩니다. 안전성이 "각 상태 자체의 성질"로 증명되면, "시간에 걸쳐서도 유지된다"는 건 별도 노력 없이 따라옵니다.
+6장에서 만든 `Mode`와 `Mode.step`을 그대로 가져오고, 9장에서 쓴 `traceFrom`/`Always`/`Eventually`를 이번엔 `ElevatorState`가 아니라 `Mode`(점검 모드까지 포함한 더 큰 타입) 위에 다시 세웁니다.
 
-== 생동성 증명: 결국 다른 방향에도 기회가 온다
+== 안전성: 점검 모드는 exitMaintenance 없이는 절대 안 풀린다
 
 [source,lean]
 ----
-example : Eventually (· = Phase.ewGreen) (Phase.trace .nsGreen) := ⟨3, by native_decide⟩
-
-theorem always_returns_to_nsGreen :
-    ∀ start : Phase, Eventually (· = Phase.nsGreen) (Phase.trace start) := by
-  intro start
-  cases start
-  · exact ⟨0, rfl⟩
-  · exact ⟨5, by native_decide⟩
-  · exact ⟨4, by native_decide⟩
-  · exact ⟨3, by native_decide⟩
-  · exact ⟨2, by native_decide⟩
-  · exact ⟨1, by native_decide⟩
+theorem maintenance_is_frozen (s : ElevatorState) (e : ModeEvent) (h : e ≠ .exitMaintenance) :
+    (Mode.maintenance s).step e = .maintenance s := by
+  cases e with
+  | exitMaintenance => exact absurd rfl h
+  | elevEvent _ => rfl
+  | enterMaintenance => rfl
 ----
 
-`nsGreen`에서 시작해도 3스텝 뒤엔 `ewGreen`에 도달한다는 것(교차로가 한쪽만 계속 초록으로 두지 않는다는 뜻)과, 어느 국면에서 시작하든 결국 다시 `nsGreen`으로 돌아온다는 것(6가지 시작점 전부)을 증명했습니다. 이 시스템은 `Phase.next`가 이벤트 없이 항상 다음으로만 가는 결정적 시스템이라, 9장에서 본 "이벤트 스트림에 대한 가정"이 따로 필요 없습니다 — 순환 구조 자체가 생동성을 보장합니다. 이 점이 이번 설계의 또 다른 이점입니다 — **생동성까지 설계로 쉽게 만들 수 있는 구조**를 고른 것입니다.
+이건 6장의 `Mode.step` 정의(`.maintenance s, _ => .maintenance s`)를 다시 확인하는 정도지만, `e ≠ .exitMaintenance`라는 조건을 명시적으로 받아서 "점검 모드를 벗어나는 유일한 길은 정확히 `exitMaintenance`뿐"이라는 걸 못박아둡니다. 이 한 스텝 사실을 이제 **여러 스텝에 걸쳐** 확장합니다.
+
+[source,lean]
+----
+theorem maintenance_persists (init : ElevatorState) (events : Nat → ModeEvent) (start : Nat)
+    (hstart : traceFrom (.normal init) events start = .maintenance init)
+    (hno : ∀ n, n ≥ start → events n ≠ .exitMaintenance) :
+    Always (fun k => traceFrom (.normal init) events (start + k) = .maintenance init)
+      (fun k => k) := by
+  intro k
+  induction k with
+  | zero => simpa using hstart
+  | succ k ih =>
+    show traceFrom (.normal init) events (start + k + 1) = .maintenance init
+    show (traceFrom (.normal init) events (start + k)).step (events (start + k)) = .maintenance init
+    rw [ih]
+    exact maintenance_is_frozen init (events (start + k)) (hno (start + k) (by omega))
+----
+
+"`start` 시점에 점검 모드로 들어갔고(`hstart`), 그 뒤로 `exitMaintenance`가 한 번도 안 온다면(`hno`), `start` 이후 **모든** 시점에서 계속 점검 모드다"라는 주장입니다. 증명은 `k`(시작 시점으로부터 몇 스텝 지났는지)에 대한 귀납법입니다 — `k=0`일 땐 가정(`hstart`) 그 자체이고, `k+1`일 땐 `k`에서 이미 점검 모드였다는 걸(`ih`) 딛고 서서 `maintenance_is_frozen`으로 한 스텝을 더 밀어붙입니다. 8~9장에서 본 "한 스텝 보존 + 귀납법"이라는 패턴이 여기서도 그대로 재사용됩니다.
+
+== 생동성: 정상 모드에서는 여전히 도착이 보장된다
+
+[source,lean]
+----
+example : Eventually (· = Mode.normal (ElevatorState.mk 3 .doorsOpen))
+    (traceFrom (.normal ⟨0, .idle⟩) (fun n =>
+      if n = 0 then .elevEvent (.callFloor 3) else .elevEvent .tick)) := by
+  refine ⟨5, ?_⟩
+  native_decide
+----
+
+`Mode`로 감싼 뒤에도 9장에서 증명한 생동성이 그대로 성립합니다 — `elevEvent`로 감싼 `callFloor`와 `tick`을 정상 모드가 그대로 안쪽 엘리베이터에 전달해주기 때문입니다(`Mode.step`의 `.normal s, .elevEvent e => .normal (s.transition e)` 규칙). 점검 모드라는 새 기능을 얹었다고 해서 기존에 증명해둔 생동성이 깨지지 않는다는 걸 이 예제가 보여줍니다.
 
 == 이 프로젝트가 보여주는 것
 
 이 장의 전체 흐름을 되짚어보면 이 책이 다룬 도구들이 어떻게 맞물리는지 보입니다.
 
-1. *1장(sum/product)*: "동시 초록"이라는 불가능한 조합을 표현조차 못 하게, `NSLight × EWLight`(product) 대신 `Phase`(sum) 하나로 설계했습니다.
-2. *4~5장(순수 함수·coalgebra)*: `Phase.next`가 상태 전이를, `nsLight`/`ewLight`가 관찰 가능한 출력을 각각 순수 함수로 뽑아냈습니다.
-3. *6장(합성)*: 순진한 product 합성이 왜 안 맞는지 먼저 확인하고, 대신 조율된 단일 상태로 설계를 바꿨습니다 — "합성 방법을 고르는 것"도 설계의 일부라는 걸 보여줍니다.
-4. *8~9장(안전성·생동성)*: `Always`로 "절대 동시 초록이 아니다"를, `Eventually`로 "결국 다른 방향에도 기회가 온다"를 각각 증명했습니다.
+1. *1장(sum/product)*: "문 열고 움직인다"는 불가능한 조합을 표현조차 못 하게, `ElevatorPhase`를 sum으로 설계했습니다.
+2. *4~5장(순수 함수·coalgebra)*: `transition`이 상태 전이를, `directionArrow` 등이 관찰 가능한 출력을 각각 순수 함수로 뽑아냈습니다.
+3. *6장(합성)*: 점검 모드를 coproduct(`Mode`)로 얹어, "지금 정상인지 점검 중인지"까지 타입으로 표현했습니다.
+4. *8~9장(안전성·생동성)*: "한 스텝 보존 + 귀납법"이라는 같은 패턴으로, `ElevatorState` 수준의 성질(8~9장)과 `Mode` 수준의 성질(11장)을 둘 다 증명했습니다.
 
-한 문장으로 정리하면: **좋은 타입 설계(1장)가 안전성 증명(8~9장)을 거의 공짜로 만들어주고, 순환 구조를 고른 설계 선택이 생동성 증명도 쉽게 만들어줍니다.** 설계와 증명이 별개의 작업이 아니라는 게 이 책 전체의 결론입니다.
+한 문장으로 정리하면: **좋은 타입 설계(1장)가 안전성 증명(8장, 11장)을 쉽게 만들어주고, 기존 성질(9장의 생동성)이 새 기능(6장의 점검 모드)을 얹은 뒤에도 그대로 유지된다는 것까지 증명으로 확인할 수 있습니다.** 설계와 증명이 별개의 작업이 아니라는 게 이 책 전체의 결론입니다.
 
 == 직접 해보기
 
-* 이 교차로에 "보행자 신호" 국면을 하나 추가해보세요(`pedestrian`, 이때는 NS와 EW 둘 다 빨강이어야 합니다) — `mutual_exclusion` 증명이 국면 하나가 늘어나도 여전히 `cases p <;> decide`로 통과하는지 확인해보세요.
+* `maintenance_persists`와 비슷하게, "한 번 `exitMaintenance`를 받아 정상 모드로 돌아오면, 그 뒤로 `enterMaintenance`가 안 오는 한 계속 정상 모드로 남아있다(단, 그 안의 엘리베이터 상태 자체는 `elevEvent`에 따라 계속 바뀔 수 있습니다)"를 증명해보세요.
+
+[NOTE]
+====
+처음에는 "정상 모드로 돌아오면 그 이후로도 정확히 같은 엘리베이터 상태(`.normal init`)로 고정된다"고 증명하려 했는데, 실제로는 틀린 주장이었습니다 — `maintenance`와 달리 `normal` 모드는 `elevEvent`를 받으면 안쪽 엘리베이터가 실제로 움직입니다. 증명해야 할 건 "**정상 모드라는 사실**(`.normal` 생성자인지)"이 유지된다는 것이지, "**그 안의 상태**가 그대로"라는 게 아닙니다 — 이렇게 증명을 시도하다가 주장 자체가 틀렸다는 걸 알아차리는 것도 흔한 일입니다.
+====
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+theorem normal_persists (init : ElevatorState) (events : Nat → ModeEvent) (start : Nat)
+    (hstart : traceFrom (.maintenance init) events start = .normal init)
+    (hno : ∀ n, n ≥ start → events n ≠ .enterMaintenance) :
+    ∀ k, ∃ s, traceFrom (.maintenance init) events (start + k) = .normal s := by
+  intro k
+  induction k with
+  | zero => exact ⟨init, by simpa using hstart⟩
+  | succ k ih =>
+    obtain ⟨s, hs⟩ := ih
+    show ∃ s', traceFrom (.maintenance init) events (start + k + 1) = .normal s'
+    show ∃ s', (traceFrom (.maintenance init) events (start + k)).step (events (start + k))
+        = .normal s'
+    rw [hs]
+    have hne := hno (start + k) (by omega)
+    cases h : events (start + k) with
+    | enterMaintenance => exact absurd h hne
+    | elevEvent e => exact ⟨s.transition e, rfl⟩
+    | exitMaintenance => exact ⟨s, rfl⟩
+----
+====
 
 == 요약
 
-* 두 하위 시스템이 서로 조율돼야 한다면(독립적으로 진행되면 안 된다면), product 합성 대신 "전체 국면"을 하나의 sum 타입으로 설계하고 그 국면에서 각 부분의 상태를 유도합니다.
-* 좋은 상태 설계는 안전성 증명을 유한한 경우의 수 확인(`cases <;> decide`)으로 끝나게 해주고, `Always`로의 확장은 별도 노력 없이 따라옵니다.
-* 순환하는 결정적 구조를 고르면, 생동성 증명에 9장에서 본 "이벤트 스트림에 대한 가정"이 따로 필요 없어집니다.
+* 6장에서 만든 `Mode`(점검 모드 포함)에도 8~9장과 똑같은 "한 스텝 보존 + 귀납법" 패턴으로 안전성을 증명할 수 있습니다.
+* 새 기능(점검 모드)을 얹어도 기존에 증명해둔 성질(생동성)이 깨지지 않는다는 걸 직접 확인했습니다.
+* 결국 이 책이 다룬 모든 도구는 "타입으로 불가능한 걸 지우고, 함수로 전이를 표현하고, 그 위에 시간에 걸친 성질을 증명한다"는 하나의 흐름으로 이어집니다.
 
-3부가 여기서 끝났습니다. 맺음말에서는 이 책 전체가 다룬 도구들을 정리하고, 여기서 더 나아가려면 어디로 가야 하는지(모델체킹 도구, 실전 코드베이스에 옮기는 법)를 안내합니다.
+3부가 여기서 끝났습니다. 맺음말에서는 이 엘리베이터 프로젝트를 되짚으며 이 책 전체가 다룬 도구들을 정리하고, 여기서 더 나아가려면 어디로 가야 하는지 안내합니다.
 // end::body[]

@@ -1,79 +1,122 @@
 ---
 title: "8장: 안전성 vs 생동성 — '지금 옳다'만으로는 부족한 이유"
-date: 2026-07-30T00:00:00+09:00
+date: 2026-07-31T00:00:00+09:00
 draft: false
-tags: ["lean4", "temporal-logic", "book"]
+tags: ["lean4", "temporal-logic", "elevator", "book"]
 categories: ["books"]
-description: "7장에서 본 특정 시나리오 증명과 임의의 이벤트에 대한 전체 증명을 넘어, 시간에 걸쳐 이어지는 실행 전체에 대한 성질을 안전성과 생동성 두 갈래로 나누고, 왜 후자가 유한한 검사만으로는 증명될 수 없는지 확인하는 3부의 첫 장"
+description: "1장에서 막아둔 '문 열고 움직이는' 사고가 실제 동작에서도 안 일어난다는 것과, 요청이 항상 건물 범위 안이라면 층수도 항상 범위 안에 머문다는 것을 증명한 뒤, 왜 '언젠가 도착한다'는 주장은 같은 방식으로 증명되지 않는지 확인하는 3부의 첫 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../07-case-study-lock-project/[7장: 실전 예제로 굳히기] · 다음: link:../09-ltl-on-fsm-traces/[9장: LTL로 FSM에 성질 달기]_
+_link:../[전체 목차] · 이전: link:../07-case-study-overload-safety/[7장: 실전 예제로 굳히기] · 다음: link:../09-ltl-on-fsm-traces/[9장: LTL로 FSM에 성질 달기]_
 
 '''
 
 == 두 종류의 "옳음"
 
-7장에서 도어록에 대해 두 종류의 성질을 증명했습니다 — "3연속 틀리면 jammed가 된다"(성질 1)와 "jammed는 절대 못 벗어난다"(성질 2)입니다. 이 둘은 겉보기엔 비슷하지만 근본적으로 다른 종류의 주장입니다.
+7장에서 과부하 안전장치에 대해 두 종류의 성질을 증명했습니다 — "3연속 과부하는 emergency로 이어진다"(성질 1)와 "emergency는 절대 못 벗어난다"(성질 2)입니다. 이 둘은 겉보기엔 비슷하지만 근본적으로 다른 종류의 주장입니다.
 
-* **"jammed는 절대 못 벗어난다"**는 "**나쁜 일이 절대 일어나지 않는다**"는 주장입니다 — 이런 성질을 **안전성(safety)**이라고 부릅니다.
-* 만약 이 시스템에 "언젠가는 정상 사용자가 반드시 문을 연다"는 요구사항이 있다면, 그건 "**좋은 일이 결국은 일어난다**"는 주장입니다 — 이런 성질을 **생동성(liveness)**이라고 부릅니다.
+* **"emergency는 절대 못 벗어난다"**는 "**나쁜 일이 절대 일어나지 않는다**"는 주장입니다 — 이런 성질을 **안전성(safety)**이라고 부릅니다.
+* 만약 이 엘리베이터에 "호출을 받으면 언젠가는 반드시 그 층에 도착한다"는 요구사항이 있다면, 그건 "**좋은 일이 결국은 일어난다**"는 주장입니다 — 이런 성질을 **생동성(liveness)**이라고 부릅니다.
 
 이 구분이 왜 중요한지는, 두 성질을 증명하는 방식이 근본적으로 다르다는 데서 드러납니다.
 
-== 안전성: 상태를 통한 귀납으로 증명 가능
+== 안전성 1: 1장에서 막아둔 사고가 실제로도 안 일어난다
 
-7장에서 다루지 않은 더 일반적인 안전성 성질 하나를 봅시다 — **"실패 횟수(`attempts`)는 절대 3을 넘지 않는다"**는 불변식입니다.
-
-[source,lean]
-----
-def LockState.attemptsInvariant : LockState → Prop
-  | .locked a => a < 3
-  | .unlocked => True
-  | .jammed => True
-
-theorem invariant_preserved (s : LockState) (e : LockEvent) (h : s.attemptsInvariant) :
-    (s.transition e).attemptsInvariant := by
-  match s, e with
-  | .locked a, .tryCode code =>
-    simp only [LockState.transition]
-    split
-    · trivial
-    · split
-      · trivial
-      · simp only [LockState.attemptsInvariant] at *; omega
-  | .locked a, .lock => exact h
-  | .unlocked, .lock => simp [LockState.transition, LockState.attemptsInvariant]
-  | .unlocked, .tryCode _ => trivial
-  | .jammed, _ => trivial
-----
-
-`invariant_preserved`가 증명하는 건 "**한 스텝**"에 대한 주장입니다 — "지금 이 불변식이 성립하면, 어떤 이벤트를 받아도 다음 상태에서도 여전히 성립한다." 이것만 증명되면, **몇 스텝을 실행하든** 이 불변식이 유지된다는 걸 귀납법으로 확장할 수 있습니다.
+1장에서 "문이 열린 채로 움직인다"는 조합을 `ElevatorPhase`라는 sum 타입으로 아예 표현 불가능하게 만들었습니다. 그런데 그건 "동시에 두 국면일 수 없다"는 정적인 사실일 뿐이고, "문이 열려있는 **동안** 층수 자체가 슬쩍 바뀌지는 않는가"는 `transition` 함수의 **동작**에 대한 별개의 질문입니다.
 
 [source,lean]
 ----
-def runEvents (init : LockState) (events : List LockEvent) : LockState :=
-  events.foldl LockState.transition init
+theorem doors_open_floor_unchanged (s : ElevatorState) (e : ElevatorEvent)
+    (h : s.phase = .doorsOpen) : (s.transition e).floor = s.floor := by
+  obtain ⟨floor, phase⟩ := s
+  simp only at h
+  subst h
+  cases e <;> rfl
+----
 
-theorem invariant_holds_after_run (events : List LockEvent) :
-    (runEvents (.locked 0) events).attemptsInvariant := by
-  suffices h : ∀ s, s.attemptsInvariant → (events.foldl LockState.transition s).attemptsInvariant by
-    exact h (.locked 0) (by simp [LockState.attemptsInvariant])
+이 정리는 "지금 문이 열려있다면(`h`), 어떤 이벤트를 받든 층수는 그대로다"라는 걸 **가능한 모든 이벤트**에 대해 증명합니다. `cases e <;> rfl`이 `callFloor`든 `tick`이든 둘 다 `doorsOpen` 상태에서는 층수를 안 건드리는 정의라는 걸 확인해줍니다. 1장이 "이 조합은 표현조차 안 된다"는 정적 보장이었다면, 이건 "실제로 문이 열려 있는 동안엔 층이 안 바뀐다"는 동적 보장입니다.
+
+== 안전성 2: 요청이 범위 안이면 층수도 항상 범위 안
+
+더 흥미로운 안전성 성질을 봅시다 — **건물이 10층까지밖에 없는데, 요청이 항상 유효한 범위 안이라면 엘리베이터도 항상 그 범위 안에 머무는가?**
+
+[source,lean]
+----
+def maxFloor : Nat := 10
+
+def ElevatorEvent.inBounds : ElevatorEvent → Prop
+  | .callFloor dest => dest ≤ maxFloor
+  | .tick => True
+
+def FloorBound (s : ElevatorState) : Prop :=
+  s.floor ≤ maxFloor ∧ (match s.phase with
+    | .movingTo dest => dest ≤ maxFloor
+    | _ => True)
+----
+
+`FloorBound`는 "지금 층수가 범위 안"이라는 것뿐 아니라 "만약 이동 중이라면, 그 목적지도 범위 안"이라는 것까지 함께 요구합니다 — 층수만 보면 놓치는 게 있습니다. 지금 `floor = 10`이라도 `movingTo 999`라면, 다음 몇 틱 뒤엔 범위를 벗어나기 시작합니다. 목적지까지 불변식에 넣어야 "한 스텝 앞의 위험"까지 미리 차단됩니다.
+
+[source,lean]
+----
+theorem floor_bound_preserved (s : ElevatorState) (e : ElevatorEvent)
+    (he : e.inBounds) (hs : FloorBound s) : FloorBound (s.transition e) := by
+  obtain ⟨floor, phase⟩ := s
+  obtain ⟨hfloor, hphase⟩ := hs
+  cases phase with
+  | idle =>
+    cases e with
+    | callFloor dest =>
+      simp only [ElevatorEvent.inBounds] at he
+      simp only [ElevatorState.transition]
+      split <;> constructor <;> simp_all
+    | tick => exact ⟨hfloor, hphase⟩
+  | movingTo dest =>
+    cases e with
+    | callFloor _ => exact ⟨hfloor, hphase⟩
+    | tick =>
+      simp only [ElevatorState.transition]
+      dsimp only at hfloor
+      split
+      · exact ⟨hfloor, trivial⟩
+      · split
+        · refine ⟨?_, hphase⟩; dsimp only; omega
+        · refine ⟨?_, hphase⟩; dsimp only; omega
+  | doorsOpen =>
+    cases e with
+    | callFloor _ => exact ⟨hfloor, hphase⟩
+    | tick => exact ⟨hfloor, trivial⟩
+----
+
+`floor_bound_preserved`가 증명하는 건 "**한 스텝**"에 대한 주장입니다 — "지금 이 불변식이 성립하고, 이번 이벤트도 범위 안이라면, 다음 상태에서도 여전히 성립한다." `movingTo` 국면에서 `tick`을 받는 갈래가 가장 흥미롭습니다 — 목적지 쪽으로 한 층 움직인 뒤에도 여전히 범위 안이라는 걸 `omega`(선형 정수 연산 자동 증명)로 확인합니다. 목적지가 이미 범위 안이라고 가정했으니(`hphase`), 그쪽으로 한 걸음 다가가는 것도 범위를 벗어날 수 없다는 게 산수로 보장됩니다.
+
+[source,lean]
+----
+def runEvents (init : ElevatorState) (events : List ElevatorEvent) : ElevatorState :=
+  events.foldl ElevatorState.transition init
+
+theorem floor_bound_holds_after_run (events : List ElevatorEvent)
+    (hall : ∀ e ∈ events, e.inBounds) :
+    FloorBound (runEvents ⟨0, .idle⟩ events) := by
+  suffices h : ∀ s, FloorBound s → FloorBound (events.foldl ElevatorState.transition s) by
+    exact h ⟨0, .idle⟩ (by simp [FloorBound])
   intro s hs
   induction events generalizing s with
   | nil => exact hs
   | cons e es ih =>
+    have he : e.inBounds := hall e (List.mem_cons_self)
+    have hrest : ∀ e' ∈ es, e'.inBounds := fun e' hin => hall e' (List.mem_cons_of_mem _ hin)
     simp only [List.foldl_cons]
-    exact ih (s.transition e) (invariant_preserved s e hs)
+    exact ih hrest (s.transition e) (floor_bound_preserved s e he hs)
 ----
 
-`suffices h : P by ...`는 "`P`라는 더 일반적인 명제를 증명하는 것으로 충분하다(그걸로 원래 목표를 이끌어낼 수 있다)"고 먼저 선언하고, `by` 블록에서 그 유도를 보여준 다음, 그 아래에서 `P` 자체를 증명하는 전술입니다. 여기서는 "이벤트 10개 이후에 성립한다"는 원래 목표 대신 "**어떤 시작 상태에서 출발하든** 이벤트를 접었을 때 성립한다"는 더 일반적인 명제(`∀ s, ...`)를 증명하는 쪽을 택했습니다 — 원래 목표는 시작 상태가 `.locked 0`으로 고정돼 있어 귀납법을 돌리기에 너무 좁고, 일반화된 형태라야 `induction events`가 각 단계에서 "그 시점의 상태가 무엇이든" 다룰 수 있기 때문입니다. `invariant_holds_after_run`은 이렇게 **임의 길이의 이벤트 목록**(`events`)에 대해 증명됩니다 — 이벤트가 10개든 10만 개든, 목록의 길이에 대한 수학적 귀납법(`induction events`)만으로 증명이 끝납니다. 안전성 성질이 이렇게 증명 가능한 이유는, "나쁜 일이 안 일어난다"는 주장이 사실 **"각 스텝에서 지켜야 할 조건을 매 순간 확인하면 되는 주장"**이기 때문입니다 — 유한한 각 단계를 하나씩 확인하는 걸로 충분합니다.
+이것만 증명되면, **몇 틱을 실행하든** 이 불변식이 유지된다는 걸 귀납법으로 확장할 수 있습니다. `suffices`는 "더 일반적인 명제를 증명하는 것으로 충분하다고 먼저 선언하는" 전술입니다 — 원래 목표는 시작 상태가 `⟨0, .idle⟩`로 고정돼 있어 귀납법을 돌리기에 너무 좁고, "어떤 시작 상태에서 출발하든"이라는 일반화된 형태라야 `induction events`가 각 단계에서 다룰 수 있습니다. `floor_bound_holds_after_run`은 이렇게 **임의 길이의 이벤트 목록**(요청이 전부 범위 안이라는 전제만 있으면)에 대해 증명됩니다.
 
 == 생동성: 왜 같은 방식으로는 증명이 안 되는가
 
-이제 "정상 사용자는 언젠가 반드시 문을 연다"는 생동성 성질을 생각해봅시다. 얼핏 "안전성처럼 귀납법으로 증명하면 되지 않을까"라고 생각할 수 있지만, 여기엔 근본적인 장벽이 있습니다.
+이제 "호출을 받으면 언젠가는 반드시 그 층에 도착한다"는 생동성 성질을 생각해봅시다. 얼핏 "안전성처럼 귀납법으로 증명하면 되지 않을까"라고 생각할 수 있지만, 여기엔 근본적인 장벽이 있습니다.
 
-안전성은 "지금까지의 **유한한** 실행 전부에 대해, 각 단계가 조건을 만족하는가"를 묻습니다 — 반례가 있다면 **유한한** 시점에 나타납니다("여기, 이 스텝에서 나쁜 일이 일어났다"). 하지만 생동성("언젠가는 문이 열린다")은 **"지금까지 안 열렸다"는 사실만으로는 절대 반증할 수 없습니다** — 사용자가 지금까지 9999번 틀렸어도, "다음 시도에 맞을 수도 있다"는 가능성이 항상 남아있는 한 "언젠가"는 여전히 참일 수 있습니다. 반대로 이 성질이 참이라는 것도 유한한 실행 하나를 관찰하는 걸로는 증명할 수 없습니다 — **무한히 이어지는 실행 전체**를 봐야만 "정말로 언젠가 일어나는지"를 판단할 수 있습니다.
+안전성은 "지금까지의 **유한한** 실행 전부에 대해, 각 단계가 조건을 만족하는가"를 묻습니다 — 반례가 있다면 **유한한** 시점에 나타납니다("여기, 이 스텝에서 범위를 벗어났다"). 하지만 생동성("언젠가는 도착한다")은 **"지금까지 안 도착했다"는 사실만으로는 절대 반증할 수 없습니다** — 지금까지 9999번 `tick`을 받았어도, "다음 틱에 도착할 수도 있다"는 가능성이 항상 남아있는 한 "언젠가"는 여전히 참일 수 있습니다. 반대로 이 성질이 참이라는 것도 유한한 실행 하나를 관찰하는 걸로는 증명할 수 없습니다 — **무한히 이어지는 실행 전체**를 봐야만 "정말로 언젠가 일어나는지"를 판단할 수 있습니다.
 
 정리하면 이렇습니다.
 
@@ -86,26 +129,41 @@ theorem invariant_holds_after_run (events : List LockEvent) :
 |"좋은 일이 언젠가 일어난다"
 
 |반례의 형태
-|유한한 시점에 나타남("여기서 나쁜 일이 일어났다")
-|무한히 이어지는 실행 전체를 봐야 판단 가능("영원히 안 일어난다")
+|유한한 시점에 나타남("여기서 범위를 벗어났다")
+|무한히 이어지는 실행 전체를 봐야 판단 가능("영원히 도착 안 한다")
 
 |증명 방법
-|한 스텝 보존(`invariant_preserved`) + 귀납법
-|유한한 스텝 나열만으로는 부족 — 실행이 무한히 이어진다는 전제 위에서 성립을 논해야 함
+|한 스텝 보존(`floor_bound_preserved`) + 귀납법
+|유한한 스텝 나열만으로는 부족 — `tick`이 계속 온다는 전제 위에서 성립을 논해야 함
 |===
 
 == 왜 이 구분이 실전에서 중요한가
 
-"테스트를 충분히 돌려봤으니 안전하다"는 흔한 주장은 사실 안전성 성질에만 통합니다 — 테스트가 몇 번을 돌든, 그중 한 실행이라도 나쁜 상태에 도달했다면 그 즉시 반례를 잡은 것입니다. 그런데 "언젠가는 응답이 온다"거나 "언젠가는 락이 풀린다" 같은 생동성 성질은, 테스트를 아무리 오래 돌려도 "아직 안 일어났다"는 것 이상을 증명해주지 않습니다 — 프로세스가 영원히 멈춰있는(deadlock) 버그와, 그냥 느린 정상 동작을 유한한 관찰만으로는 구분할 수 없기 때문입니다. 실전에서 "타임아웃을 걸고 응답이 없으면 실패로 간주" 같은 관행이 생기는 이유가 정확히 이 한계 때문입니다 — 진짜 생동성은 증명하지 못하고, "충분히 긴 시간 안에"라는 안전성 비슷한 조건으로 타협하는 것입니다.
+"테스트를 충분히 돌려봤으니 안전하다"는 흔한 주장은 사실 안전성 성질에만 통합니다 — 테스트가 몇 번을 돌든, 그중 한 실행이라도 범위를 벗어났다면 그 즉시 반례를 잡은 것입니다. 그런데 "언젠가는 도착한다"는 생동성 성질은, 테스트를 아무리 오래 돌려도 "아직 안 도착했다"는 것 이상을 증명해주지 않습니다 — 엘리베이터가 고장 나서 영원히 멈춰있는 버그와, 그냥 느리게 오고 있는 정상 동작을 유한한 관찰만으로는 구분할 수 없기 때문입니다.
 
 == 다음 장으로: 무한한 실행을 값으로 다루기
 
-생동성을 제대로 다루려면 "무한히 이어지는 실행"을 유한한 코드 안에서 다룰 방법이 필요합니다. 다음 장에서는 이걸 **무한 수열(스트림)**로 표현하고, 그 위에 "언젠가"(eventually)와 "항상"(always) 같은 연산자를 정의하는 **선형 시제논리(LTL)**를 도입합니다 — 안전성과 생동성이라는 이 장의 구분이, LTL에서는 실제로 서로 다른 연산자(`Always`와 `Eventually`)로 정확히 대응됩니다.
+생동성을 제대로 다루려면 "무한히 이어지는 실행"을 유한한 코드 안에서 다룰 방법이 필요합니다. 다음 장에서는 이걸 **무한 수열(스트림)**로 표현하고, 그 위에 "언젠가"(eventually)와 "항상"(always) 같은 연산자를 정의하는 **선형 시제논리(LTL)**를 도입합니다 — 안전성과 생동성이라는 이 장의 구분이, LTL에서는 실제로 서로 다른 연산자로 정확히 대응됩니다.
 
 == 직접 해보기
 
-* 4장의 `TrafficLight`에 대해 "색이 절대 `red`도 `green`도 `yellow`도 아닌 값이 될 수 없다"는 성질이 왜 자명하게 참인지(증명이 필요조차 없는 이유를) 1장의 sum 타입 관점에서 설명해보세요.
-* 이 장의 `LockState`에 "정상 사용자가 결국 언젠가 올바른 코드를 넣는다"는 가정을 추가로 달면, "언젠가는 unlocked에 도달한다"는 생동성 성질이 성립할 것 같습니다. 이 가정 자체가 왜 "무한히 이어지는 실행"에 대한 이야기인지 설명해보세요.
+* `doors_open_floor_unchanged`와 비슷하게, "`idle` 상태에서는 `tick`을 받아도 층수와 국면이 전혀 안 바뀐다"는 성질을 증명해보세요.
+* `maxFloor`를 5로 낮췄을 때, `FloorBound`가 `[callFloor 5, tick, tick, tick, tick, tick]`이라는 이벤트 목록에 대해 여전히 성립하는지 `#eval`로 먼저 확인해보고, 왜 성립하는지 설명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example (floor : Nat) :
+    (ElevatorState.mk floor .idle).transition .tick = ElevatorState.mk floor .idle := rfl
+
+-- maxFloor를 5로 낮춰도, 요청 자체가 5(범위 안)이므로 FloorBound가 계속 성립함을
+-- 직접 실행해 확인할 수 있습니다 — floor가 5를 넘는 순간이 한 번도 없습니다.
+#eval runEvents ⟨0, .idle⟩ [.callFloor 5, .tick, .tick, .tick, .tick, .tick]
+-- { floor := 5, phase := movingTo 5 } — 5를 넘은 적이 없습니다
+----
+====
 
 == 요약
 

@@ -1,10 +1,10 @@
 ---
 title: "2장: 함수 합성 — 상태가 아니라 파이프라인으로"
-date: 2026-07-30T00:00:00+09:00
+date: 2026-07-31T00:00:00+09:00
 draft: false
-tags: ["lean4", "composition", "book"]
+tags: ["lean4", "composition", "elevator", "book"]
 categories: ["books"]
-description: "값을 여러 단계에 걸쳐 바꿔나갈 때, 중간 상태를 변수에 담아 순서대로 갱신하는 대신 작은 순수 함수를 합성해 하나의 파이프라인으로 짜는 법을 확인하는 장"
+description: "엘리베이터 버튼 입력을 정제하는 과정을 통해, 값을 여러 단계에 걸쳐 바꿔나갈 때 중간 상태를 변수에 담아 순서대로 갱신하는 대신 작은 순수 함수를 합성해 하나의 파이프라인으로 짜는 법을 확인하는 장"
 ---
 
 // tag::body[]
@@ -12,20 +12,26 @@ _link:../[전체 목차] · 이전: link:../01-algebraic-data-types/[1장: 대�
 
 '''
 
+== 문제: 버튼 입력은 항상 깨끗하지 않다
+
+1장에서 `ElevatorState`(층수 + 국면)를 설계했습니다. 그런데 그 `floor` 필드에 넣을 값이 어디서 오는지 생각해봅시다 — 버튼 입력입니다. 배선 오류나 하드웨어 결함으로 음수가 들어올 수도 있고, 건물에 없는 층(예: 15층짜리 건물인데 20을 누른 것 같은 신호)이 들어올 수도 있습니다. `sanitizeRequest`라는 함수 하나로 이 입력을 정제해야 합니다.
+
 == 합성 연산자: 함수 두 개를 하나로
 
 [source,lean]
 ----
-def double (n : Nat) : Nat := n * 2
-def addOne (n : Nat) : Nat := n + 1
-def square (n : Nat) : Nat := n * n
+def clampLow (f : Int) : Int := max f 0
+def clampHigh (maxFloor : Nat) (f : Int) : Int := min f (maxFloor : Int)
+def toNatFloor (f : Int) : Nat := f.toNat
 
-def pipeline : Nat → Nat := square ∘ addOne ∘ double
+def sanitizeRequest (maxFloor : Nat) : Int → Nat :=
+  toNatFloor ∘ (clampHigh maxFloor) ∘ clampLow
 
-example : pipeline 3 = 49 := by decide
+example : sanitizeRequest 10 (-3) = 0 := by decide
+example : sanitizeRequest 10 15 = 10 := by decide
 ----
 
-`∘`(`Function.comp`)는 "오른쪽 함수를 먼저 적용하고, 그 결과에 왼쪽 함수를 적용한다"는 뜻입니다. `square ∘ addOne ∘ double`은 수학 표기와 같은 순서로 읽혀서 `3 → double → 6 → addOne → 7 → square → 49`라는 흐름을 거칩니다. 중요한 건 `pipeline`이 **그 자체로 하나의 함수 값**이라는 점입니다 — `double`, `addOne`, `square` 각각을 개별 단계로 호출하는 코드를 쓴 게 아니라, 세 함수를 합성해서 만든 새 함수 하나를 정의한 것입니다.
+`∘`(`Function.comp`)는 "오른쪽 함수를 먼저 적용하고, 그 결과에 왼쪽 함수를 적용한다"는 뜻입니다. `toNatFloor ∘ (clampHigh maxFloor) ∘ clampLow`는 입력을 `clampLow`(음수를 0으로) → `clampHigh`(최고층을 넘으면 최고층으로) → `toNatFloor`(이제 안전해진 `Int`를 `Nat`으로) 순서로 통과시킵니다. `-3`을 넣으면 `clampLow`가 `0`으로 바꾸고, 나머지 단계는 그대로 통과시켜 최종 `0`이 나옵니다. `15`(최고층 10을 넘는 값)를 넣으면 `clampHigh`가 `10`으로 눌러줍니다. 중요한 건 `sanitizeRequest`가 **그 자체로 하나의 함수 값**이라는 점입니다 — 세 함수를 합성해서 만든 새 함수 하나를 정의한 것입니다.
 
 == 왼쪽에서 오른쪽으로 읽히는 파이프라인
 
@@ -36,35 +42,25 @@ example : pipeline 3 = 49 := by decide
 def myCompose (g : β → γ) (f : α → β) : α → γ := fun x => g (f x)
 infixr:90 " >>> " => fun f g => myCompose g f
 
-def pipeline2 : Nat → Nat := double >>> addOne >>> square
-example : pipeline2 3 = 49 := by decide
+def sanitizeRequest2 (maxFloor : Nat) : Int → Nat :=
+  clampLow >>> (clampHigh maxFloor) >>> toNatFloor
+
+example : sanitizeRequest2 10 (-3) = 0 := by decide
 ----
 
-`double >>> addOne >>> square`는 "double을 하고, 그다음 addOne을, 그다음 square를"이라고 실행 순서 그대로 읽힙니다. `myCompose`가 하는 일은 특별하지 않습니다 — 함수 두 개(`g`, `f`)를 받아 함수 하나(`fun x => g (f x)`)를 반환할 뿐입니다. 이 책 전체에서 "합성"이라고 부르는 건 결국 이 패턴입니다 — **함수를 값으로 취급해서, 함수를 조합해 새 함수를 만드는 것**입니다.
+`clampLow >>> (clampHigh maxFloor) >>> toNatFloor`는 "먼저 0 아래를 자르고, 그다음 최고층을 자르고, 그다음 Nat으로"라고 실행 순서 그대로 읽힙니다. `myCompose`가 하는 일은 특별하지 않습니다 — 함수 두 개(`g`, `f`)를 받아 함수 하나(`fun x => g (f x)`)를 반환할 뿐입니다. 이 책 전체에서 "합성"이라고 부르는 건 결국 이 패턴입니다 — **함수를 값으로 취급해서, 함수를 조합해 새 함수를 만드는 것**입니다.
 
 == 왜 이게 "상태 갱신"보다 나은가
 
-[source,lean]
-----
-def normalize (s : String) : String := s
-def toUpper (s : String) : String := s.toUpper
-def shout (s : String) : String := s ++ "!"
-def greet (s : String) : String := "안녕, " ++ s
-
-def greetPipeline : String → String := shout ∘ greet ∘ toUpper
-#eval greetPipeline "ada"
--- 출력: "안녕, ADA!"
-----
-
-만약 이 로직을 "변수 하나를 여러 줄에 걸쳐 갱신하는" 방식으로 짰다면, `let mut msg := input`, `msg := msg.toUpper`, `msg := "안녕, " ++ msg`, `msg := msg ++ "!"`처럼 **같은 이름의 변수가 매 줄 다른 값을 가리키는** 코드가 됐을 것입니다. 이 방식의 문제는 각 단계를 따로 테스트하거나 순서를 바꾸기 어렵다는 것입니다 — `msg`라는 이름 하나에 모든 단계의 책임이 뒤섞여 있기 때문입니다. 합성으로 짜면 `toUpper`, `greet`, `shout` 각각은 **독립적으로 테스트 가능한 순수 함수**이고, 파이프라인은 그 함수들을 늘어놓은 목록에 불과합니다 — 순서를 바꾸거나 단계를 하나 빼고 싶으면 그 목록만 편집하면 됩니다.
+만약 이 로직을 "변수 하나를 여러 줄에 걸쳐 갱신하는" 방식으로 짰다면, `let mut f := rawInput`, `f := max f 0`, `f := min f maxFloor`, `f := f.toNat`처럼 **같은 이름의 변수가 매 줄 다른 값을 가리키는** 코드가 됐을 것입니다. 이 방식의 문제는 각 단계를 따로 테스트하거나 순서를 바꾸기 어렵다는 것입니다 — `f`라는 이름 하나에 모든 단계의 책임이 뒤섞여 있기 때문입니다. 합성으로 짜면 `clampLow`, `clampHigh`, `toNatFloor` 각각은 **독립적으로 테스트 가능한 순수 함수**이고, 파이프라인은 그 함수들을 늘어놓은 목록에 불과합니다 — 예를 들어 "최고층 제한을 먼저 적용하고 음수는 나중에 자르고 싶다"고 순서를 바꾸고 싶으면 그 목록만 편집하면 됩니다.
 
 == 합성이 실패할 때: 다음 장으로 이어지는 문제
 
-여기까지는 모든 함수가 "입력 하나 → 출력 하나"로 깔끔하게 맞물렸습니다. 그런데 만약 중간 단계가 **실패할 수도 있는 함수**라면 어떨까요 — 예를 들어 문자열을 숫자로 바꾸는 함수는 입력이 숫자가 아니면 실패해야 합니다. `parseNat : String → Nat`라고 타입을 쓰면 거짓말입니다(항상 성공한다고 약속하는 셈이니까요). 그렇다고 실패를 배제한 함수들을 억지로 이어붙이면, 합성 연산자(`∘`)가 요구하는 "출력 타입과 다음 함수의 입력 타입이 정확히 맞아야 한다"는 조건이 깨집니다. 이 문제를 어떻게 풀지가 다음 장(모나드)의 주제입니다.
+여기까지는 모든 함수가 "입력 하나 → 출력 하나"로 깔끔하게 맞물렸습니다. 그런데 만약 중간 단계가 **실패할 수도 있는 함수**라면 어떨까요 — 예를 들어 버튼 입력이 숫자가 아니라 센서에서 온 문자열이고, 그 문자열을 숫자로 바꾸는 과정 자체가 실패할 수 있다면요. `parseFloor : String → Nat`라고 타입을 쓰면 거짓말입니다(항상 성공한다고 약속하는 셈이니까요). 그렇다고 실패를 배제한 함수들을 억지로 이어붙이면, 합성 연산자(`∘`)가 요구하는 "출력 타입과 다음 함수의 입력 타입이 정확히 맞아야 한다"는 조건이 깨집니다. 이 문제를 어떻게 풀지가 다음 장(모나드)의 주제입니다.
 
 == 직접 해보기
 
-* `Nat → Nat` 함수 세 개(예: 3 더하기, 2배, 10 나머지)를 만들어 `∘`로 합성하고, 순서를 바꾸면 결과가 달라지는지 확인해보세요.
+* `Int → Int` 함수 세 개(예: 5 더하기, 2배, 최고층 20으로 clampHigh)를 만들어 `∘`로 합성하고, 순서를 바꾸면 결과가 달라지는지 확인해보세요.
 * 같은 세 함수를 `>>>`로도 합성해, `∘` 버전과 인자 순서가 반대로 읽힌다는 것 말고는 같은 결과가 나오는지 확인해보세요.
 
 .해답 보기
@@ -72,19 +68,19 @@ def greetPipeline : String → String := shout ∘ greet ∘ toUpper
 ====
 [source,lean]
 ----
-def addThree (n : Nat) : Nat := n + 3
-def times2 (n : Nat) : Nat := n * 2
-def mod10 (n : Nat) : Nat := n % 10
+def addFive (n : Int) : Int := n + 5
+def doubleIt (n : Int) : Int := n * 2
+def clampTo20 (n : Int) : Int := min n 20
 
-def order1 : Nat → Nat := mod10 ∘ times2 ∘ addThree
-def order2 : Nat → Nat := addThree ∘ times2 ∘ mod10
+def order1 : Int → Int := clampTo20 ∘ doubleIt ∘ addFive
+def order2 : Int → Int := addFive ∘ doubleIt ∘ clampTo20
 
-example : order1 4 = 4 := by decide   -- (4+3)*2 % 10 = 14 % 10 = 4
-example : order2 4 = 11 := by decide  -- (4%10)*2 + 3 = 8 + 3 = 11
+example : order1 8 = 20 := by decide   -- (8+5)*2 = 26 -> 20으로 clamp
+example : order2 8 = 21 := by decide   -- min(8,20)=8, 8*2=16, 16+5=21
 -- 순서를 바꾸면 결과가 달라짐 — 합성은 교환법칙이 성립하지 않음
 
-def orderPipe : Nat → Nat := addThree >>> times2 >>> mod10
-example : orderPipe 4 = 4 := by decide
+def orderPipe : Int → Int := addFive >>> doubleIt >>> clampTo20
+example : orderPipe 8 = 20 := by decide
 ----
 ====
 
@@ -93,7 +89,7 @@ example : orderPipe 4 = 4 := by decide
 * `∘`(합성)는 함수 두 개를 값으로 받아 함수 하나를 반환합니다 — 함수를 조합해 새 함수를 만드는 연산입니다.
 * 여러 단계를 하나의 변수를 갱신하며 처리하는 대신, 각 단계를 독립된 순수 함수로 쪼개 합성하면 각 단계를 따로 테스트하고 순서를 바꿀 수 있습니다.
 * 합성은 교환법칙이 성립하지 않습니다 — `f ∘ g`와 `g ∘ f`는 보통 다른 함수입니다.
-* 중간 단계가 실패할 수 있으면(예: 문자열 파싱) 평범한 함수 합성만으로는 타입이 맞지 않게 됩니다 — 이 문제를 모나드가 풉니다.
+* 중간 단계가 실패할 수 있으면(예: 문자열로 들어온 버튼 입력을 파싱하는 것) 평범한 함수 합성만으로는 타입이 맞지 않게 됩니다 — 이 문제를 모나드가 풉니다.
 
 다음 장에서는 "실패할 수도 있는 함수"를 합성 가능하게 만드는 도구, 모나드를 다룹니다.
 // end::body[]

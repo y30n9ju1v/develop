@@ -3,7 +3,7 @@ title: "타입으로 설계하기: 모나드, 상태 기계, 시제논리"
 draft: false
 ---
 
-언어 문법은 언어마다 다르지만, "타입을 어떻게 조합해서 설계 공간을 좁힐 것인가"는 언어를 넘나드는 질문입니다. 이 책은 대수적 데이터 타입(1부)으로 불가능한 상태를 표현조차 못 하게 만들고, 상태 기계를 mutable 객체 대신 순수 함수(coalgebra)로 다루고(2부), 그렇게 만든 상태 기계가 시간에 걸쳐 어떤 성질을 만족하는지 시제논리로 명세·증명하는 것(3부)까지, 넷을 "합성 가능성"이라는 하나의 축으로 꿰어봅니다.
+언어 문법은 언어마다 다르지만, "타입을 어떻게 조합해서 설계 공간을 좁힐 것인가"는 언어를 넘나드는 질문입니다. 이 책은 **엘리베이터 하나를 처음부터 끝까지 함께 설계·구현·증명**하면서, 대수적 데이터 타입(1부)으로 불가능한 상태를 표현조차 못 하게 만들고, 상태 기계를 mutable 객체 대신 순수 함수(coalgebra)로 다루고(2부), 그렇게 만든 상태 기계가 시간에 걸쳐 어떤 성질을 만족하는지 시제논리로 명세·증명하는 것(3부)까지, 넷을 "합성 가능성"이라는 하나의 축으로 꿰어봅니다.
 
 이 책의 모든 코드는 Lean4(v4.32.0)로 실제로 컴파일하고, 가능한 곳마다 `decide`/`native_decide`/직접 증명으로 검증했습니다. Lean4 자체가 처음이라면 이 사이트의 link:../lean4-getting-started/[Lean4 입문]을 먼저 읽는 걸 권합니다 — 이 책은 문법 입문서가 아니라 설계 사고방식에 관한 책입니다.
 
@@ -17,35 +17,35 @@ draft: false
 *1부: 타입으로 생각하기 (합성의 기초)*
 
 [start=1]
-. *link:01-algebraic-data-types/[대수적 데이터 타입: 불가능한 상태를 표현조차 못 하게]*
-. *link:02-function-composition/[함수 합성: 상태가 아니라 파이프라인으로]*
-. *link:03-monads/[모나드: 부수효과를 값으로 감싸 합성 가능하게]*
+. *link:01-algebraic-data-types/[대수적 데이터 타입: 불가능한 상태를 표현조차 못 하게 (엘리베이터 시작)]*
+. *link:02-function-composition/[함수 합성: 버튼 입력을 파이프라인으로 정제하기]*
+. *link:03-monads/[모나드: 버튼 입력 파싱을 값으로 감싸 합성 가능하게]*
 
 *2부: 상태를 값으로 다루기 (FSM as coalgebra)*
 
 [start=4]
-. *link:04-fsm-as-pure-function/[순수 함수로서의 상태 기계]*
-. *link:05-coalgebra-intuition/[coalgebra 직관: 상태 기계가 범주론적으로 무엇인가]*
+. *link:04-fsm-as-pure-function/[순수 함수로서의 상태 기계: 엘리베이터를 움직이기]*
+. *link:05-coalgebra-intuition/[coalgebra 직관: 엘리베이터가 무엇을 보여주는가]*
 . *link:06-fsm-composition/[FSM의 합성: product는 병렬로, coproduct는 모드 전환으로]*
-. *link:07-case-study-lock-project/[실전 예제로 굳히기: 3회 실패하면 잠기는 도어록]*
+. *link:07-case-study-overload-safety/[실전 예제로 굳히기: 3회 과부하가 감지되면 멈추는 안전장치]*
 
 *3부: 시간에 걸친 성질 명세하기 (시제논리)*
 
 [start=8]
 . *link:08-safety-vs-liveness/[안전성 vs 생동성]*
 . *link:09-ltl-on-fsm-traces/[LTL로 FSM에 성질 달기]*
-. *link:10-ctl-branching-fsm/[CTL 맛보기: 갈래가 나뉘는 시스템]*
-. *link:11-end-to-end-project/[엔드투엔드 프로젝트: 교차로 신호등]*
+. *link:10-ctl-branching-fsm/[CTL 맛보기: 여러 층이 동시에 부를 때]*
+. *link:11-end-to-end-project/[엔드투엔드 프로젝트: 엘리베이터를 완결된 시스템으로]*
 
 *맺음말*
 
 [start=12]
-. *link:12-afterword/[여기서 더 나아가기]*
+. *link:12-afterword/[엘리베이터 하나로 배운 것]*
 
 *보너스*
 
 [start=13]
-. *link:13-safe-interleaving/[안전한 병렬 처리 맛보기: 번갈아 끼어드는 두 FSM]*
+. *link:13-safe-interleaving/[안전한 병렬 처리 맛보기: 두 대의 엘리베이터가 같은 호출을 다툴 때]*
 
 '''
 
@@ -77,7 +77,7 @@ include::06-fsm-composition.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::07-case-study-lock-project.adoc[tag=body,leveloffset=+1]
+include::07-case-study-overload-safety.adoc[tag=body,leveloffset=+1]
 
 '''
 

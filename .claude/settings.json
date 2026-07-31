@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/yeongjun/Develops/develop/**)",
+      "Read(//private/tmp/**)",
+      "Edit(//Users/yeongjun/Develops/develop/content/docs/**)",
+      "Write(//Users/yeongjun/Develops/develop/content/docs/**)",
+      "Edit(//private/tmp/**)",
+      "Write(//private/tmp/**)",
+      "Bash(elan run *)",
+      "Bash(elan toolchain *)",
+      "Bash(lean *)",
+      "Bash(lake *)",
+      "Bash(npx tsc *)",
+      "Bash(npx tsx *)",
+      "Bash(npx esbuild *)",
+      "Bash(npm install *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git mv *)",
+      "Bash(git rm *)",
+      "Bash(git push)",
+      "Bash(git push *)",
+      "Bash(hugo *)",
+      "Bash(grep *)",
+      "Bash(ls *)",
+      "Bash(mkdir -p *)",
+      "Bash(sed -i '' *)",
+      "Bash(sed -i *)",
+      "Bash(python3 *)",
+      "Bash(cat *)",
+      "Bash(rm /private/tmp/*)",
+      "Bash(cp *)",
+      "Bash(cd *)",
+      "Bash(which *)"
+    ]
+  }
+}
