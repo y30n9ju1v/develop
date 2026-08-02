@@ -1,0 +1,110 @@
+---
+title: "2장: 논리 연산자 다루기 — and·or·iff·not"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "logic", "book"]
+categories: ["books"]
+description: "논리곱은 짝짓기와 꺼내기로, 논리합은 경우 나누기로, 존재 명제는 목격자 제시로, iff는 양방향 구성으로, 부정은 모순 유도로 다룬다는 다섯 가지 패턴을 Mathlib 예제로 확인하는 1부의 두 번째 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-calc-proofs/[1장: calc로 여러 단계 증명 잇기] · 다음: link:../03-automation-tactics/[3장: ring과 field_simp]_
+
+'''
+
+Mathlib으로 증명을 쓰다 보면 `∧`, `∨`, `↔`, `¬`, `∃`가 끊임없이 등장합니다. 이 장에서는 각 연산자를 다루는 표준 패턴을 정리합니다.
+
+== 논리곱: 짝짓기와 꺼내기
+
+[source,lean]
+----
+example (a b : ℝ) (h1 : a > 0) (h2 : b > 0) : a > 0 ∧ b > 0 := ⟨h1, h2⟩
+
+example (a b : ℝ) (h : a > 0 ∧ b > 0) : a + b > 0 := by
+  obtain ⟨ha, hb⟩ := h
+  linarith
+----
+
+`P ∧ Q`를 **만들** 때는 두 증명을 익명 생성자(`⟨h1, h2⟩`)로 짝지으면 됩니다. `P ∧ Q`를 **쓸** 때는 `obtain ⟨ha, hb⟩ := h`로 두 성분을 꺼내 각각 이름 붙입니다 — `h.1`, `h.2`로 직접 접근할 수도 있지만, 나중에 각 성분을 여러 번 쓸 거라면 `obtain`으로 미리 이름 붙여두는 쪽이 읽기 편합니다.
+
+== 논리합: 경우를 나눠서 각각 증명
+
+[source,lean]
+----
+example (a : ℝ) (h : a = 3 ∨ a = -3) : a * a = 9 := by
+  rcases h with h | h
+  · rw [h]; norm_num
+  · rw [h]; norm_num
+----
+
+`P ∨ Q`라는 증거를 손에 쥐었을 때는, "`P`인 경우"와 "`Q`인 경우" 둘 다 원하는 결론에 도달한다는 걸 각각 보여야 합니다. `rcases h with h | h`가 그 두 경우로 나눠줍니다 — `|`가 "또는"에 대응하는 문법입니다. 이 예제에서는 `a = 3`이든 `a = -3`이든 결국 `a * a = 9`가 성립하니, 두 갈래 모두 비슷한 방식(대입 후 `norm_num`)으로 마무리됩니다.
+
+== 존재 명제: 목격자를 제시하기
+
+[source,lean]
+----
+example : ∃ n : ℕ, n > 100 ∧ n < 200 := ⟨150, by norm_num, by norm_num⟩
+----
+
+`∃ n, P n`을 증명하려면 **구체적인 값**(목격자, witness)과 **그 값이 `P`를 만족한다는 증거**를 짝지어 제시하면 됩니다. `⟨150, ..., ...⟩`처럼 익명 생성자 안에 목격자와 증거들을 순서대로 나열합니다 — 여기서는 `150`이라는 구체적인 수를 고르고, `150 > 100`과 `150 < 200`을 각각 `norm_num`(구체적인 수치 계산을 자동으로 처리하는 전술)으로 확인합니다.
+
+== iff: 양방향을 각각 구성하기
+
+[source,lean]
+----
+example (a : ℝ) : a * a = 0 ↔ a = 0 := by
+  constructor
+  · intro h
+    exact mul_self_eq_zero.mp h
+  · intro h
+    rw [h]; ring
+----
+
+`P ↔ Q`는 `constructor`로 "`P → Q`"와 "`Q → P`" 두 방향으로 쪼갤 수 있습니다(`↔`도 결국 두 함의를 묶은 구조체이니, `constructor`가 그 두 성분을 만들라고 요구하는 것입니다). 여기서는 "`a * a = 0`이면 `a = 0`이다" 방향에 Mathlib이 이미 갖고 있는 `mul_self_eq_zero`라는 정리를 그대로 가져다 썼습니다 — 이런 "이미 있는 정리를 찾아서 갖다 쓰는" 감각이 다음다음 장(4장)의 주제입니다. 반대 방향("`a = 0`이면 `a * a = 0`이다")은 `a`를 `0`으로 바꾼 뒤 `ring`(대수 항등식을 자동으로 검증하는 전술, 3장에서 다룹니다)으로 마무리합니다.
+
+== 부정: 모순을 이끌어내기
+
+[source,lean]
+----
+example (a : ℝ) (h : a > 0) : ¬ (a = 0) := by
+  intro heq
+  rw [heq] at h
+  linarith
+----
+
+`¬ P`는 사실 `P → False`(1장의 함수 대응을 떠올리면, "`P`의 증거를 받아 거짓을 내놓는 함수")입니다. 그래서 `¬ P`를 증명할 때도 `intro`로 `P`의 증거(`heq : a = 0`)를 받아서, 그 가정 아래 모순(`False`)을 이끌어내면 됩니다 — 여기서는 `a = 0`을 `h : a > 0`에 대입하면 `0 > 0`이라는 명백한 거짓이 나오고, `linarith`가 그 모순을 확인해줍니다.
+
+== 왜 이 다섯 패턴이 기반이 되는가
+
+이후 장들 — 2부의 집합·함수 증명, 3부의 정수론, 4부의 대수 구조 — 은 전부 이 다섯 연산자의 조합으로 표현되는 명제들을 다룹니다. "부분집합이다"는 `∀ x, x ∈ A → x ∈ B`처럼 함의와 전칭이 겹친 것이고, "단사함수다"는 `∀ a b, f a = f b → a = b`처럼 같은 패턴입니다. 이 장에서 익힌 감각(`⟨⟩`로 짓기, `obtain`/`rcases`로 열기, `constructor`로 iff 쪼개기, `intro`로 부정 다루기)이 책 전체에서 반복해서 쓰입니다.
+
+== 직접 해보기
+
+* `(a b : ℝ) : a^2 + b^2 = 0 ↔ a = 0 ∧ b = 0`을 증명해보세요(힌트: `sq_nonneg`가 "제곱은 항상 0 이상"이라는 Mathlib 정리이고, 이걸로 `a^2 = 0`과 `b^2 = 0`을 각각 이끌어낼 수 있습니다).
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example (a b : ℝ) : a^2 + b^2 = 0 ↔ a = 0 ∧ b = 0 := by
+  constructor
+  · intro h
+    have ha : a^2 = 0 := by nlinarith [sq_nonneg a, sq_nonneg b]
+    have hb : b^2 = 0 := by nlinarith [sq_nonneg a, sq_nonneg b]
+    exact ⟨pow_eq_zero_iff (n := 2) (by norm_num) |>.mp ha,
+           pow_eq_zero_iff (n := 2) (by norm_num) |>.mp hb⟩
+  · intro ⟨ha, hb⟩
+    rw [ha, hb]; ring
+----
+====
+
+== 요약
+
+* `∧`는 `⟨⟩`로 짓고 `obtain`으로 열고, `∨`는 `rcases ... with h | h`로 경우를 나눕니다.
+* `∃`는 목격자와 증거를 `⟨⟩`로 짝지어 제시합니다.
+* `↔`는 `constructor`로 양방향 함의로 쪼개고, `¬ P`는 `P → False`라 `intro`로 `P`를 받아 모순을 이끌어내는 방식으로 다룹니다.
+* 이 다섯 패턴이 이후 모든 장에서 반복되는 기본 어휘입니다.
+
+다음 장에서는 `ring`, `field_simp` 같은 대수 계산 자동화 전술을 다룹니다.
+// end::body[]

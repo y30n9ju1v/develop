@@ -1,0 +1,114 @@
+---
+title: "6장: 단사·전사·전단사 — 함수의 성질을 증명하기"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "functions", "book"]
+categories: ["books"]
+description: "서로 다른 입력이 서로 다른 출력을 낸다는 단사성, 모든 출력이 어떤 입력에서 온다는 전사성을 각각 증명·반증하고, 둘을 합친 전단사를 증명하는 2부의 두 번째 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-working-with-sets/[5장: 집합을 다루는 법] · 다음: link:../07-images-and-preimages/[7장: 상과 원상]_
+
+'''
+
+== 단사: 서로 다른 입력은 서로 다른 출력을 낸다
+
+[source,lean]
+----
+example : Function.Injective (fun n : ℕ => n + 1) := by
+  intro a b h
+  simpa using h
+
+def double (n : ℕ) : ℕ := 2 * n
+
+theorem double_injective : Function.Injective double := by
+  intro a b h
+  simpa [double] using h
+----
+
+`Function.Injective f`는 정의상 `∀ a b, f a = f b → a = b`입니다 — "출력이 같으면 입력도 같다"는 뜻입니다(직관적으로는 "서로 다른 입력이 서로 다른 출력을 낸다"이지만, Lean4/Mathlib에서는 대우 형태로 정의합니다). `intro a b h`로 "두 입력 `a`, `b`와 `f a = f b`라는 증거"를 받고, `a = b`를 보이면 됩니다. `n + 1`이나 `2 * n`처럼 "더하기/곱하기 상수"인 함수는 `simpa`(증명하려는 식과 가정을 동시에 단순화해서 맞춰주는 전술)로 대부분 바로 풀립니다 — 결국 `a + 1 = b + 1`에서 `1`을 양쪽에서 지우면 `a = b`이니까요.
+
+== 단사가 아닌 예: 반례로 반증하기
+
+[source,lean]
+----
+example : ¬ Function.Injective (fun n : ℤ => n^2) := by
+  intro h
+  have := h (a₁ := 1) (a₂ := -1) (by ring)
+  norm_num at this
+----
+
+"제곱 함수는 단사가 아니다"를 증명하려면, **정말로 단사라고 가정했을 때 모순이 생긴다**는 걸 보이면 됩니다(2장에서 배운 `¬ P`를 다루는 패턴입니다). `1`과 `-1`은 서로 다른 정수인데 둘 다 제곱하면 `1`이 됩니다 — `h`가 정말 단사성의 증거라면, 이 두 값에 적용했을 때 "`1 = -1`"이라는 거짓을 내놓아야 하고, `norm_num`이 그 거짓을 확인해줍니다. **반례 하나를 구체적으로 제시하는 것**이 "이 성질이 성립하지 않는다"를 증명하는 표준적인 방법입니다.
+
+== 전사: 모든 출력이 어떤 입력에서 온다
+
+[source,lean]
+----
+example : Function.Surjective (fun n : ℤ => n + 1) := by
+  intro y
+  exact ⟨y - 1, by ring⟩
+----
+
+`Function.Surjective f`는 `∀ y, ∃ x, f x = y`입니다 — "어떤 결과값을 원하든, 그걸 만들어내는 입력이 존재한다"는 뜻입니다. `intro y`로 "임의의 목표 결과값 `y`"를 받고, `∃ x, f x = y`를 증명해야 하니 3장(존재 명제)에서 배운 대로 목격자를 제시합니다 — `y - 1`을 넣으면 `(y-1) + 1 = y`이니 정확히 원하는 결과가 나옵니다.
+
+== 전사가 아닌 예: 도달 못 하는 값을 콕 짚기
+
+[source,lean]
+----
+example : ¬ Function.Surjective (fun n : ℕ => n^2) := by
+  intro h
+  obtain ⟨n, hn⟩ := h 3
+  have hlt : n < 2 := by nlinarith
+  interval_cases n <;> simp_all
+----
+
+"자연수의 제곱 함수는 전사가 아니다"는, `3`이라는 **도달할 수 없는 값**을 하나 콕 집어서 증명합니다. `h 3`이 "만약 전사라면, `3`을 만들어내는 자연수 `n`이 존재한다"는 증거를 주는데, 그런 `n`이 있다고 가정하면(`hn : n^2 = 3`) `n`은 `2`보다 작아야 합니다(`n ≥ 2`면 `n^2 ≥ 4 > 3`이니까요, `nlinarith`가 확인). `interval_cases n`이 `n`을 `0`과 `1`(2보다 작은 자연수)로 나눠서, 두 경우 다 `n^2 = 3`이 거짓이라는 걸 `simp_all`로 확인합니다.
+
+== 전단사: 단사이면서 전사
+
+[source,lean]
+----
+example : Function.Bijective (fun n : ℤ => n + 1) := by
+  constructor
+  · intro a b h; simpa using h
+  · intro y; exact ⟨y - 1, by ring⟩
+----
+
+`Function.Bijective f`는 정의상 `Function.Injective f ∧ Function.Surjective f`입니다 — 그냥 두 성질을 `∧`로 묶은 것뿐이라, `constructor`(2장의 논리곱 다루는 패턴)로 쪼개서 방금 각각 증명한 것과 똑같은 증명을 나란히 붙이면 끝입니다. 새로운 기술이 전혀 필요 없다는 게 이 예제의 요점입니다 — **전단사는 단사와 전사를 각자 증명하는 것 이상의 별도 작업이 아닙니다.**
+
+== 왜 이 구분이 중요한가
+
+단사·전사·전단사를 구분해서 증명하는 능력은 "역함수가 존재하는가", "두 집합의 크기를 비교할 수 있는가" 같은 훨씬 깊은 질문의 기초입니다 — 전단사 함수가 존재한다는 것 자체가 "두 집합이 같은 크기다"라는 정의로 이어집니다(무한집합을 다룰 때 특히 중요해집니다). 이 장에서 익힌 세 가지 패턴 — **가정을 받고 등식을 유도(단사)**, **목격자를 제시(전사)**, **반례로 반증(부정)** — 이 다음 장(상과 원상)과 3부의 정수론에서도 반복됩니다.
+
+== 직접 해보기
+
+* `f (n : ℤ) := 3 * n`이 단사라는 걸 증명해보세요.
+* `f (n : ℤ) := 3 * n`이 전사가 **아니라는** 걸 증명해보세요(힌트: `1`이 `3`의 배수가 아니라는 사실이 필요합니다 — `omega`가 이런 정수 나눗셈 관련 사실을 다루는 데 유용합니다).
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example : Function.Injective (fun n : ℤ => 3 * n) := by
+  intro a b h
+  simpa using h
+
+example : ¬ Function.Surjective (fun n : ℤ => 3 * n) := by
+  intro h
+  obtain ⟨n, hn⟩ := h 1
+  simp only at hn
+  omega
+----
+====
+
+== 요약
+
+* `Function.Injective f`는 "출력이 같으면 입력도 같다"(`∀ a b, f a = f b → a = b`)로, `intro`로 가정을 받아 등식을 유도해 증명합니다.
+* `Function.Surjective f`는 "모든 결과값에 도달하는 입력이 있다"(`∀ y, ∃ x, f x = y`)로, 목격자를 제시해 증명합니다.
+* 두 성질이 성립하지 않는다는 건 구체적인 반례(단사가 아님을 보일 땐 같은 출력을 내는 서로 다른 입력 쌍, 전사가 아님을 보일 땐 도달 못 하는 값)로 증명합니다.
+* `Function.Bijective`는 단사와 전사를 `∧`로 묶은 것뿐이라, 두 증명을 나란히 붙이면 끝입니다.
+
+다음 장에서는 집합을 함수로 밀어보내거나(상) 끌어오는(원상) 연산을 다룹니다.
+// end::body[]

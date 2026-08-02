@@ -1,0 +1,124 @@
+---
+title: "4장: Mathlib에서 정리 찾기 — exact?, apply?, 이름 규칙"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "book"]
+categories: ["books"]
+description: "수만 개의 정리가 있는 Mathlib에서 필요한 정리를 어떻게 찾는지, exact?가 목표를 그대로 닫아주는 정리를 자동으로 찾아주는 원리와, 정리 이름 자체에 담긴 규칙을 읽는 법을 확인하며 1부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-automation-tactics/[3장: ring과 field_simp] · 다음: link:../05-working-with-sets/[5장: 집합을 다루는 법]_
+
+'''
+
+이 책에서 지금까지 `mul_self_eq_zero`, `sub_ne_zero`, `sq_nonneg` 같은 Mathlib 정리를 이름만 알고 있다는 듯 가져다 썼습니다. 이 장에서는 그 이름들을 **어떻게 찾았는지**를 다룹니다 — Mathlib은 수만 개의 정리를 담고 있어서, 이름을 외우는 대신 찾는 기술이 필요합니다.
+
+== exact?: 목표를 그대로 닫아주는 정리 찾기
+
+[source,lean]
+----
+example (a b : ℝ) (h : a < b) : a ≤ b := by exact?
+-- Try this: exact Std.le_of_lt h
+----
+
+`exact?`는 "지금 목표를 정확히 증명하는 기존 정리(또는 지금 문맥에 있는 가정들의 조합)를 찾아라"는 전술입니다. `a < b`로부터 `a ≤ b`를 이끌어내는 정리를 자동으로 찾아 `Std.le_of_lt h`라는 제안을 내놓습니다 — 이 제안을 그대로 코드에 옮겨 적으면(`exact Std.le_of_lt h`) 최종 증명이 됩니다. `exact?`는 목표가 **정확히** 어떤 정리의 결론과 일치할 때 가장 잘 통합니다.
+
+[source,lean]
+----
+example (n : ℕ) (h : n > 0) : n ≠ 0 := by exact?
+-- Try this: exact Nat.ne_zero_of_lt h
+----
+
+이번엔 "`n > 0`이면 `n ≠ 0`이다"라는, 언뜻 당연해 보이지만 손으로 증명하려면 몇 줄이 걸릴 수 있는 사실을 `exact?`가 즉시 찾아줍니다. 이렇게 "당연해 보이는 사실도 Mathlib에 이미 있을 가능성이 높다"는 게 실전에서 중요한 감각입니다 — 직접 증명을 시도하기 전에 `exact?`부터 던져보는 습관을 들이면 시간을 크게 아낄 수 있습니다.
+
+== apply?: 결론만 맞으면, 남은 전제는 새 목표로
+
+`exact?`가 "증명을 통째로 끝내주는 정리"를 찾는다면, `apply?`는 "목표의 **결론 모양**과 일치하는 정리를 찾아서, 그 정리가 요구하는 전제를 새로운 (더 작은) 목표로 남겨준다"는 점이 다릅니다. 예를 들어 지금 목표가 `a + c ≤ b + c`이고 `add_le_add_right`라는 정리가 `a ≤ b → a + c ≤ b + c`꼴이라면, `apply?`(또는 직접 `apply add_le_add_right`)는 원래 목표를 `a ≤ b`라는 더 작은 목표로 줄여줍니다 — 그 뒤엔 그 작은 목표를 다시 `exact?`나 다른 전술로 마저 증명하면 됩니다.
+
+== 이름 규칙을 읽는 법
+
+Mathlib 정리 이름은 (대체로) **결론의 구조를 그대로 반영**하도록 지어집니다. 이 규칙을 알면 이름을 몰라도 어느 정도 짐작할 수 있습니다.
+
+[source,lean]
+----
+#check @add_comm
+-- ∀ {G} [AddCommMagma G] (a b : G), a + b = b + a
+
+#check @mul_le_mul_left
+-- b ≤ c → ∀ (a : α), b * a ≤ c * a
+
+#check @Nat.succ_le_iff
+-- m.succ ≤ n ↔ m < n
+----
+
+* `add_comm`: `add`(덧셈)의 `comm`(교환법칙, commutativity) — `a + b = b + a`.
+* `mul_le_mul_left`: `mul`(곱셈)이 `le`(부등식, ≤)를 유지하는데, `left`(왼쪽에 곱하는 경우)라는 뜻입니다. 이름 순서(`mul` → `le` → `mul`)가 "무엇을 곱해서 무슨 관계가 유지되는지"를 그대로 나열합니다.
+* `Nat.succ_le_iff`: `Nat` 네임스페이스 안에서, `succ`(다음 수)와 `le`(≤)에 관한 `iff`(동치) — 정리를 열어보면 실제로 `↔`로 끝나는 명제입니다.
+
+이 외에도 몇 가지 자주 보이는 접미사가 있습니다.
+
+[cols="1,2"]
+|===
+|접미사/패턴 |뜻
+
+|`_comm`
+|교환법칙(`a op b = b op a`)
+
+|`_assoc`
+|결합법칙(`(a op b) op c = a op (b op c)`)
+
+|`_iff`
+|결론이 `↔`(동치) 형태
+
+|`antisymm`
+|두 부등식(`a ≤ b`, `b ≤ a`)으로 등식을 이끌어냄
+
+|`_left`/`_right`
+|연산의 어느 쪽에 적용되는지 명시
+|===
+
+[source,lean]
+----
+example (a b : ℕ) (h1 : a ≤ b) (h2 : b ≤ a) : a = b := le_antisymm h1 h2
+
+example (a b : ℕ) : a < b ↔ a + 1 ≤ b := Nat.lt_iff_add_one_le
+----
+
+`le_antisymm`(부등식 두 개로 등식을 만드는, 위 표의 `antisymm` 패턴)과 `Nat.lt_iff_add_one_le`(이름 그대로 `<`와 `+1 ≤`가 동치라는 `_iff` 정리)가 이 규칙을 그대로 보여줍니다 — 정리를 한 번도 본 적 없어도, "지금 필요한 게 `<`와 `≤`를 잇는 동치 관계일 것 같다"는 감으로 `Nat.lt_iff_...`처럼 이름을 짐작해 자동완성으로 찾아볼 수 있습니다.
+
+== 실전에서 정리를 찾는 순서
+
+1. 먼저 **`exact?`를 던져본다** — 운이 좋으면 바로 끝납니다.
+2. 안 되면 **목표의 결론 모양에서 핵심 함수/관계 이름을 짐작**해서(`add_`, `mul_`, `Nat.`, `_iff`, `_comm` 등) 자동완성으로 후보를 찾아봅니다.
+3. 목표를 살짝 바꿔야 한다면(예: 나눗셈이 섞여 있다면 3장의 `field_simp`로 먼저 정리) 전처리 후 다시 `exact?`를 시도합니다.
+4. 그래도 안 되면 목표를 더 작은 조각으로 쪼개서(`apply` + 새 목표) 각 조각에 대해 이 과정을 반복합니다.
+
+== 직접 해보기
+
+* `(a b : ℕ) (h : a ≤ b) : a * 2 ≤ b * 2`를 `exact?`로 증명해보세요.
+* `Nat.add_one_le_iff`, `Nat.lt_iff_add_one_le` 같은 이름들이 서로 어떤 관계인지(둘 다 `<`와 `+1 ≤`를 잇지만, 어느 쪽이 어느 방향인지) `#check`로 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example (a b : ℕ) (h : a ≤ b) : a * 2 ≤ b * 2 := by exact?
+-- Try this: exact Nat.mul_le_mul_right 2 h
+
+#check @Nat.add_one_le_iff       -- n + 1 ≤ m ↔ n < m
+#check @Nat.lt_iff_add_one_le    -- n < m ↔ n + 1 ≤ m
+----
+
+두 정리가 사실상 같은 사실을 반대 방향에서 진술한 것뿐이라는 걸 `#check`로 직접 확인할 수 있습니다 — Mathlib에는 이렇게 같은 사실의 여러 변형이 종종 함께 있습니다.
+====
+
+== 요약
+
+* `exact?`는 목표를 그대로 닫아주는 정리를(있다면) 자동으로 찾아 제안해줍니다 — 증명을 시작하기 전에 먼저 시도해볼 가치가 있습니다.
+* `apply?`는 결론 모양이 맞는 정리를 찾아 전제를 새 목표로 남깁니다.
+* Mathlib 정리 이름은 결론의 구조를 그대로 반영합니다 — `_comm`, `_assoc`, `_iff`, `antisymm`, `_left`/`_right` 같은 패턴을 알면 이름을 짐작해 찾을 수 있습니다.
+
+1부가 여기서 끝났습니다. 2부에서는 이 도구들을 집합과 함수에 적용합니다.
+// end::body[]
