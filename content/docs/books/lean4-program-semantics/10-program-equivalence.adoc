@@ -1,0 +1,120 @@
+---
+title: "10장: 프로그램 동치 증명하기 — 최적화가 의미를 안 바꾼다는 것"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "program-equivalence", "book"]
+categories: ["books"]
+description: "9장의 결정성 위에서 프로그램 동치를 정의하고, skip을 앞에 붙이거나 조건이 항상 참·거짓인 조건문/반복문을 단순화해도 의미가 안 바뀐다는 걸 증명하며 3부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-determinism/[9장: 평가의 결정성 증명하기] · 다음: link:../11-proof-objects/[11장: 증명도 값이다]_
+
+'''
+
+7장에서 산술식 수준의 "0을 더하는 걸 생략해도 값이 그대로다"라는 동치를 봤습니다. 이 장에서는 같은 아이디어를 **명령문 수준**으로 끌어올립니다 — 다르게 생긴 두 프로그램이 사실은 같은 일을 한다는 걸, 9장에서 확립한 결정성 위에서 증명합니다.
+
+== 프로그램 동치를 정의하기
+
+[source,lean]
+----
+def ComEquiv (c1 c2 : Com) : Prop := ∀ s s', (c1 / s ⇓ s') ↔ (c2 / s ⇓ s')
+
+notation:50 c1 " ~ " c2 => ComEquiv c1 c2
+----
+
+`c1 ~ c2`는 "**모든** 시작 상태 `s`와 끝 상태 `s'`에 대해, `c1`이 `s`에서 `s'`에 도달하는 것과 `c2`가 `s`에서 `s'`에 도달하는 것이 동치다"라는 뜻입니다. `↔`(iff)를 쓴다는 게 중요합니다 — "`c1`이 하는 일은 `c2`도 할 수 있고, `c2`가 하는 일은 `c1`도 할 수 있다"는 **양방향** 보장입니다. 9장의 결정성이 없었다면 "도달하는 상태"라는 표현 자체가 애매했을 것입니다(여러 상태에 도달할 수 있다면 "그 상태"라고 딱 집어 말할 수 없으니까요) — 동치를 정의하는 이 순간부터 이미 9장에 기대고 있습니다.
+
+== 첫 번째 동치: skip을 앞에 붙여도 그대로
+
+[source,lean]
+----
+theorem skip_seq_equiv (c : Com) : (.seq .skip c) ~ c := by
+  intro s s'
+  constructor
+  · intro h
+    cases h with
+    | seq _ _ _ s2 _ h1 h2 =>
+      cases h1 with
+      | skip => exact h2
+  · intro h
+    exact BigStep.seq _ _ _ _ _ (BigStep.skip s) h
+----
+
+`skip; c`(아무 일도 안 하고 그다음 `c`를 실행)가 그냥 `c`와 동치라는 걸 증명합니다. `↔`의 양쪽을 `constructor`로 나눠서, 각 방향을 따로 증명합니다.
+
+* *`(skip;c) / s ⇓ s' → c / s ⇓ s'`*: `skip;c`의 실행 증거를 열어보면(`cases h`) `seq` 생성자로 지어져 있고, 그 안의 `skip` 부분을 다시 열어보면(`cases h1`) `skip`은 시작 상태와 끝 상태가 같다는 것만 말해주니, 결국 `c`의 실행 증거(`h2`)가 곧 원하는 답입니다.
+* *`c / s ⇓ s' → (skip;c) / s ⇓ s'`*: 반대로 `c`의 실행 증거가 있으면, 그 앞에 `BigStep.skip`을 하나 붙여서 `seq`로 감싸기만 하면 됩니다.
+
+== 두 번째 동치: 조건이 항상 참인 조건문
+
+[source,lean]
+----
+theorem if_true_equiv (c1 c2 : Com) : (.ifThenElse .tru c1 c2) ~ c1 := by
+  intro s s'
+  constructor
+  · intro h
+    cases h with
+    | ifTrue _ _ _ _ _ _ h1 => exact h1
+    | ifFalse _ _ _ _ _ hb _ => simp [evalB] at hb
+  · intro h
+    exact BigStep.ifTrue .tru c1 c2 s s' (by simp [evalB]) h
+----
+
+`if true then c1 else c2`가 그냥 `c1`과 동치입니다. `→` 방향에서 `cases h`가 `ifTrue`와 `ifFalse` 두 갈래를 만드는데, `ifFalse` 갈래는 `evalB s .tru = false`라는 증거를 요구합니다 — 그런데 `.tru`는 정의상 항상 `true`로 평가되니(7장의 `evalB`), 이 갈래는 애초에 지어질 수 없는 모순입니다(`simp [evalB] at hb`가 그 모순을 확인합니다). `← ` 방향은 `c1`의 실행 증거에 "조건이 참이라는 증거"(`.tru`니까 자명합니다)를 붙여 `ifTrue`로 감싸면 됩니다.
+
+== 세 번째 동치: 조건이 항상 거짓인 반복문
+
+[source,lean]
+----
+theorem while_false_equiv (c : Com) : (.whileLoop .fls c) ~ .skip := by
+  intro s s'
+  constructor
+  · intro h
+    cases h with
+    | whileFalse => exact BigStep.skip s
+    | whileTrue _ _ _ _ _ hb _ _ => simp [evalB] at hb
+  · intro h
+    cases h with
+    | skip => exact BigStep.whileFalse .fls c s (by simp [evalB])
+----
+
+`while false do c`(조건이 항상 거짓이니 본문이 한 번도 안 도는 반복문)가 `skip`과 동치입니다. 앞의 두 증명과 정확히 같은 패턴입니다 — 있을 수 없는 갈래(`whileTrue`, 조건이 참이라는 증거를 요구하지만 `.fls`는 항상 거짓)를 모순으로 없애고, 남은 갈래를 서로 이어줍니다.
+
+== 왜 세 증명이 전부 같은 모양인가
+
+`skip_seq_equiv`, `if_true_equiv`, `while_false_equiv`가 겉보기엔 다른 정리처럼 보이지만, 증명 구조가 거의 동일합니다 — **`↔`를 양방향으로 나누고, 각 방향에서 `BigStep` 증거를 열어보고(`cases`), 불가능한 갈래는 `evalB`의 정의로 모순을 잡고, 가능한 갈래는 그대로 이어붙이거나 생성자를 하나 더 씌운다**는 패턴입니다. 이 패턴은 앞으로 더 복잡한 동치(예: `x := x + 0`을 생략해도 되는가, `if b then c else c`가 `c`와 같은가)를 증명할 때도 그대로 재사용됩니다 — 언어의 문법이 유한한 몇 가지 생성자로 이뤄져 있으니, 그 생성자들을 하나씩 확인하는 것만으로 임의의 동치를 증명할 수 있습니다.
+
+== 왜 이게 4부의 기반인가
+
+3부에서는 "구문을 최적화해도 의미는 그대로"라는 동치에 집중했습니다. 13장(호어 논리)에서는 방향이 살짝 바뀝니다 — "이 프로그램이 이런 성질을 만족하는가"를 증명할 텐데, 그 증명 역시 결국 `BigStep`을 열어보고 조립하는 이 장의 기술에 기대게 됩니다. 3부에서 다진 "관계를 증거로 다루는 감각"이 4부 전체의 재료입니다.
+
+== 직접 해보기
+
+* `(.ifThenElse .fls c1 c2) ~ c2`(조건이 항상 거짓인 조건문은 else 가지와 같다)를 증명해보세요 — `if_true_equiv`와 거의 대칭적인 구조입니다.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+theorem if_false_equiv (c1 c2 : Com) : (.ifThenElse .fls c1 c2) ~ c2 := by
+  intro s s'
+  constructor
+  · intro h
+    cases h with
+    | ifTrue _ _ _ _ _ hb _ => simp [evalB] at hb
+    | ifFalse _ _ _ _ _ _ h2 => exact h2
+  · intro h
+    exact BigStep.ifFalse .fls c1 c2 s s' (by simp [evalB]) h
+----
+====
+
+== 요약
+
+* 프로그램 동치(`c1 ~ c2`)는 모든 시작·끝 상태에 대해 두 프로그램의 `BigStep` 관계가 서로 동치라는 것으로 정의하고, 이 정의는 9장의 결정성 위에서만 뜻이 통합니다.
+* `skip;c ~ c`, `if true then c1 else c2 ~ c1`, `while false do c ~ skip` 같은 동치는 전부 "`↔`를 양방향으로 나누고, `BigStep` 증거를 열어 불가능한 갈래는 모순으로 없앤다"는 같은 패턴으로 증명됩니다.
+* 언어의 문법이 유한한 생성자로 이뤄져 있다는 사실이, 이런 동치 증명을 체계적으로 반복 가능하게 만듭니다.
+
+3부가 여기서 끝났습니다. 4부에서는 증명 그 자체를 더 깊이 들여다봅니다 — 전술 없이 증명 항을 손으로 짓는 법, 나만의 귀납 원리를 만드는 법, 그리고 "이 프로그램은 이 명세를 만족한다"를 증명하는 호어 논리를 맛봅니다.
+// end::body[]

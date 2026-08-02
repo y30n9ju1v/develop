@@ -15,3 +15,4 @@ title: "Books"
 - **[Category Theory for Programmers](category-theory-for-programmers/)** — Bartosz Milewski가 프로그래머를 위해 쓴 범주론 입문서를 장별로 옮긴 한국어 번역
 - **[TypeScript + React 입문: react.dev와 Handbook을 왜라는 질문으로 잇기](ts-react-getting-started/)** — 공식 React 문서와 TypeScript Handbook을 재료로 "왜 이렇게 생겼는가"를 축으로 재구성한 입문서. 값과 타입(1부) → 컴포넌트·State·렌더링·useRef(2부) → API 호출·폼·React Router로 합치기(3부) 순서로 쌓아 올린다
 - **[타입으로 설계하기: 모나드, 상태 기계, 시제논리](type-driven-design/)** — 엘리베이터 하나를 처음부터 끝까지 함께 설계·구현·증명하며, 대수적 데이터 타입·모나드(1부)로 합성을 다지고, 상태 기계를 순수 함수(coalgebra)로 다루는 법(2부)을 거쳐, 그렇게 만든 시스템이 시간에 걸쳐 만족해야 할 성질을 LTL·CTL로 명세·증명하는(3부) Lean4 책
+- **[관계, 명제, 그리고 작은 언어: Lean4로 짓는 프로그램 의미론](lean4-program-semantics/)** — 정리 증명 기초(1부) 위에 관계·귀납적 명제·맵이라는 세 도구를 준비하고(2부), 작은 명령형 언어를 직접 지어 그 실행을 조작적 의미론으로 정의하고 결정성·동치를 증명한 뒤(3부), 증명 항·나만의 귀납 원리·호어 논리로 마무리하는(4부) 독립적인 Lean4 입문서

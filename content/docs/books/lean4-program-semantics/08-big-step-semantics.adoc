@@ -1,0 +1,144 @@
+---
+title: "8장: 명령문과 빅스텝 의미론"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "big-step-semantics", "book"]
+categories: ["books"]
+description: "반복문이 있는 명령문은 왜 함수로 의미론을 정의할 수 없는지 확인하고, '이 명령문을 이 상태에서 실행하면 저 상태에 도달한다'는 것을 4장의 관계처럼 귀납적으로 정의하는 빅스텝 의미론을 실제 프로그램 예제로 검증하는 3부의 두 번째 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-arithmetic-and-boolean-expressions/[7장: 산술·불 표현식의 구문과 의미론] · 다음: link:../09-determinism/[9장: 평가의 결정성 증명하기]_
+
+'''
+
+== 문제: 반복문은 함수로 의미론을 정의할 수 없다
+
+7장에서 산술식·불식의 의미론을 `evalA`, `evalB`라는 **함수**로 정의했습니다. 명령문에도 같은 방식을 쓰고 싶은데, 반복문이 있으면 문제가 생깁니다.
+
+[source,lean]
+----
+inductive Com where
+  | skip
+  | assign (x : String) (a : AExp)
+  | seq (c1 c2 : Com)
+  | ifThenElse (b : BExp) (c1 c2 : Com)
+  | whileLoop (b : BExp) (c : Com)
+----
+
+`Com`이 명령문의 구문입니다 — 아무 일도 안 하는 `skip`, 변수에 값을 대입하는 `assign`, 두 명령문을 순서대로 실행하는 `seq`, 조건에 따라 갈라지는 `ifThenElse`, 조건이 참인 동안 반복하는 `whileLoop`. 문제는 `whileLoop b c` 같은 프로그램이 **영원히 끝나지 않을 수도 있다**는 것입니다(`while true do skip`처럼) — Lean4의 일반 함수는 항상 종료해야 하므로, "이 명령문을 실행한 결과 상태"를 계산하는 함수 `evalC : Com → State → State`는 애초에 정의할 방법이 없습니다.
+
+== 해법: 실행 결과를 함수가 아니라 관계로
+
+4장에서 관계가 "두 값이 어떤 식으로 이어져 있는가"를 표현한다고 했습니다. "이 명령문을 이 상태에서 실행하면 저 상태에 도달한다"도 정확히 이런 관계입니다 — **함수처럼 항상 답을 계산해서 내놓을 필요 없이, "이 세 가지(명령문, 시작 상태, 끝 상태)가 서로 이렇게 이어져 있다"는 증거만 지으면 됩니다.**
+
+[source,lean]
+----
+inductive BigStep : Com → State → State → Prop where
+  | skip (s : State) : BigStep .skip s s
+  | assign (s : State) (x : String) (a : AExp) :
+      BigStep (.assign x a) s (update s x (evalA s a))
+  | seq (c1 c2 : Com) (s1 s2 s3 : State)
+      (h1 : BigStep c1 s1 s2) (h2 : BigStep c2 s2 s3) :
+      BigStep (.seq c1 c2) s1 s3
+  | ifTrue (b : BExp) (c1 c2 : Com) (s s' : State)
+      (hb : evalB s b = true) (h1 : BigStep c1 s s') :
+      BigStep (.ifThenElse b c1 c2) s s'
+  | ifFalse (b : BExp) (c1 c2 : Com) (s s' : State)
+      (hb : evalB s b = false) (h2 : BigStep c2 s s') :
+      BigStep (.ifThenElse b c1 c2) s s'
+  | whileFalse (b : BExp) (c : Com) (s : State) (hb : evalB s b = false) :
+      BigStep (.whileLoop b c) s s
+  | whileTrue (b : BExp) (c : Com) (s s' s'' : State)
+      (hb : evalB s b = true) (h1 : BigStep c s s')
+      (h2 : BigStep (.whileLoop b c) s' s'') :
+      BigStep (.whileLoop b c) s s''
+
+notation:50 c " / " s " ⇓ " s' => BigStep c s s'
+----
+
+이걸 **빅스텝 의미론(big-step semantics)**이라고 부릅니다 — "시작 상태에서 끝 상태까지, 중간 과정은 생략하고 한 번에(빅스텝) 도달했다는 증거"를 짓는다는 뜻입니다. 각 생성자가 정확히 우리가 프로그램을 실행할 때 머릿속으로 하는 추론과 대응됩니다.
+
+* `skip`은 아무것도 안 바뀝니다.
+* `assign`은 6장의 `update`로 상태를 갱신합니다 — 계산할 값은 7장의 `evalA`로 구합니다.
+* `seq c1 c2`는 `c1`을 실행해서 도달한 중간 상태에서 `c2`를 이어서 실행합니다.
+* `ifTrue`/`ifFalse`는 조건(`evalB`로 계산)에 따라 `c1` 또는 `c2` 중 하나만 실행합니다.
+* `whileFalse`는 조건이 거짓이면 반복문이 그 자리에서 끝난다는 뜻이고, `whileTrue`는 조건이 참이면 본문을 한 번 실행한 뒤 **같은 반복문을 다시** 실행한다는 뜻입니다.
+
+`whileTrue`가 이 문제를 어떻게 푸는지 눈여겨보세요 — `BigStep`이 함수가 아니라 **귀납적 명제**이기 때문에, "반복문이 자기 자신을 다시 참조한다"는 게 전혀 문제가 되지 않습니다. `while true do skip`처럼 정말 끝나지 않는 프로그램에 대해서는, 그 프로그램이 어떤 상태에 도달한다는 **증거 자체를 지을 수가 없습니다**(유한한 증명 항은 유한한 단계 안에서 끝나야 하니까요) — 함수였다면 "무한 루프에 빠진다"는 게 실행이 영원히 안 끝나는 문제였을 텐데, 관계로 정의하면 "그 프로그램에 대한 증거가 아예 존재하지 않는다"는 것으로 자연스럽게 표현됩니다.
+
+== 실제 프로그램으로 확인하기
+
+[source,lean]
+----
+def prog1 : Com :=
+  .seq (.assign "x" (.num 0)) (.seq (.assign "y" (.num 1))
+    (.assign "x" (.add (.var "x") (.var "y"))))
+
+example : ∃ s', (prog1 / emptyState ⇓ s') ∧ s' "x" = 1 := by
+  refine ⟨update (update (update emptyState "x" 0) "y" 1) "x"
+    ((update (update emptyState "x" 0) "y" 1) "x" +
+      (update (update emptyState "x" 0) "y" 1) "y"), ?_, ?_⟩
+  · exact BigStep.seq _ _ _ _ _ (BigStep.assign _ _ _)
+      (BigStep.seq _ _ _ _ _ (BigStep.assign _ _ _) (BigStep.assign _ _ _))
+  · simp [update]
+----
+
+`prog1`은 `x := 0; y := 1; x := x + y`입니다 — 손으로 계산하면 최종적으로 `x`가 `1`이어야 합니다. 이 증명이 정확히 **`prog1`을 실제로 한 줄씩 실행하는 과정을 증거로 지은 것**입니다 — `seq`를 두 번 겹쳐서 세 문장을 순서대로 실행하고, 각 `assign`이 실제 대입을 나타냅니다. 손으로 프로그램을 실행하는 것과 이 증명을 짓는 것이 사실상 같은 일이라는 걸 느낄 수 있습니다.
+
+[source,lean]
+----
+def loopProg : Com :=
+  .whileLoop (.le (.var "x") (.num 2)) (.assign "x" (.add (.var "x") (.num 1)))
+
+example : loopProg / (update emptyState "x" 0) ⇓
+    (update (update (update (update emptyState "x" 0) "x" 1) "x" 2) "x" 3) := by
+  apply BigStep.whileTrue
+  · decide
+  · exact BigStep.assign _ _ _
+  apply BigStep.whileTrue
+  · decide
+  · exact BigStep.assign _ _ _
+  apply BigStep.whileTrue
+  · decide
+  · exact BigStep.assign _ _ _
+  apply BigStep.whileFalse
+  decide
+----
+
+`loopProg`는 `while (x ≤ 2) do x := x + 1`입니다 — `x`가 `0`에서 시작하면 `1`, `2`, `3`까지 세 번 돌고, `x`가 `3`이 되는 순간 `3 ≤ 2`가 거짓이라 멈춥니다. 증명이 `whileTrue`를 세 번 연달아 적용하고 마지막에 `whileFalse`로 마무리하는 모양인데, 이게 바로 **반복문이 실제로 세 바퀴 돌고 멈춘다는 걸 증거의 구조로 직접 보여주는 것**입니다.
+
+== 왜 이게 나머지 3부의 기반인가
+
+9장에서 "같은 프로그램을 같은 상태에서 실행하면 항상 같은 결과가 나온다"(결정성)를, 10장에서 "다르게 생긴 두 프로그램이 사실은 같은 일을 한다"(동치)를 증명할 텐데, 둘 다 **`BigStep` 증거에 대한 귀납법**으로 이뤄집니다 — 정확히 4장의 `Star`, 5장의 `Sorted`에 대해 귀납법을 걸었던 것과 같은 패턴입니다. 이 장에서 `BigStep`을 관계로, 특히 귀납적 명제로 정의해둔 선택이 다음 두 장의 증명을 가능하게 만드는 핵심 결정입니다.
+
+== 직접 해보기
+
+* `prog2 := if (x ≤ 0) then (y := 1) else (y := 2)`(x가 0 이하면 y에 1, 아니면 2)를 정의하고, `x`가 `5`인 상태에서 시작하면 `y`가 `2`가 된다는 걸 `BigStep` 증거로 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def prog2 : Com := .ifThenElse (.le (.var "x") (.num 0))
+  (.assign "y" (.num 1)) (.assign "y" (.num 2))
+
+example : ∃ s', (prog2 / (update emptyState "x" 5) ⇓ s') ∧ s' "y" = 2 := by
+  refine ⟨update (update emptyState "x" 5) "y" 2, ?_, ?_⟩
+  · apply BigStep.ifFalse
+    · decide
+    · exact BigStep.assign _ _ _
+  · simp [update]
+----
+====
+
+== 요약
+
+* 반복문이 있는 명령문은 항상 종료하는 함수로 의미론을 정의할 수 없습니다 — 프로그램이 끝나지 않을 수도 있기 때문입니다.
+* 빅스텝 의미론(`BigStep`)은 "실행 결과"를 계산하는 함수 대신, "이 명령문이 이 상태에서 저 상태에 도달한다"는 걸 귀납적으로 정의된 관계로 표현합니다.
+* 이렇게 하면 반복문의 재귀적 특성이 문제가 되지 않습니다 — 끝나지 않는 프로그램에는 그저 증거가 존재하지 않을 뿐입니다.
+* 구체적인 프로그램에 대한 `BigStep` 증거를 손으로 짓는 것은, 그 프로그램을 실제로 한 줄씩 실행하는 것과 같은 일입니다.
+
+다음 장에서는 "같은 프로그램을 같은 상태에서 실행하면 항상 같은 결과가 나온다"는 결정성을 증명합니다.
+// end::body[]

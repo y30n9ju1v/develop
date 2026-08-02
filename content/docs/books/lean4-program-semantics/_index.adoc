@@ -1,0 +1,109 @@
+---
+title: "관계, 명제, 그리고 작은 언어: Lean4로 짓는 프로그램 의미론"
+draft: false
+---
+
+정리 증명 보조 도구로 프로그래밍 언어 이론(관계, 귀납적 명제, 조작적 의미론, 호어 논리)을 다루는 법을 Lean4로 처음부터 끝까지 새로 짜며 배우는 독립적인 입문서입니다. 명제도 타입이라는 발상과 귀납법(1부) → 관계·귀납적 명제·맵이라는 세 도구(2부) → 그 위에 짓는 작은 명령형 언어와 조작적 의미론(3부) → 증명 항·귀납 원리·호어 논리(4부)까지, 작은 프로그래밍 언어 하나를 처음부터 끝까지 설계·구현·검증합니다.
+
+이 책의 코드 예제는 전부 이 책을 위해 새로 지은 것입니다 — 산술식·불식·명령문 언어(`AExp`, `BExp`, `Com`)와 그 예제 프로그램 전부 원본이며, 모든 코드는 Lean4(v4.32.0)로 실제 컴파일하고 증명을 검증했습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 관계, 명제, 그리고 작은 언어]*
+
+*1부: Lean4로 증명하기*
+
+[start=1]
+. *link:01-propositions-as-types/[명제도 타입이다: 증명이 왜 값인가]*
+. *link:02-induction/[귀납으로 증명하기: 무한히 많은 경우를 유한한 단계로]*
+. *link:03-writing-proofs-with-tactics/[전술로 증명 쓰기]*
+
+*2부: 관계와 귀납적 명제*
+
+[start=4]
+. *link:04-relations/[관계란 무엇인가]*
+. *link:05-inductive-propositions/[귀납적으로 정의된 명제: 데이터가 아니라 증거를 짓는 법]*
+. *link:06-maps/[부분함수로서의 맵: 변수와 값을 잇는 환경]*
+
+*3부: 작은 명령형 언어 설계하기*
+
+[start=7]
+. *link:07-arithmetic-and-boolean-expressions/[산술·불 표현식의 구문과 의미론]*
+. *link:08-big-step-semantics/[명령문과 빅스텝 의미론]*
+. *link:09-determinism/[평가의 결정성 증명하기]*
+. *link:10-program-equivalence/[프로그램 동치 증명하기]*
+
+*4부: 증명 자체를 다루기*
+
+[start=11]
+. *link:11-proof-objects/[증명도 값이다: 증명 항을 손으로 직접 짓기]*
+. *link:12-custom-induction-principles/[나만의 귀납 원리 만들기]*
+. *link:13-hoare-logic/[호어 논리 맛보기: 이 프로그램은 이 명세를 만족한다]*
+
+*맺음말*
+
+[start=14]
+. *link:14-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-propositions-as-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-induction.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-writing-proofs-with-tactics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-relations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-inductive-propositions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-maps.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-arithmetic-and-boolean-expressions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-big-step-semantics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-determinism.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-program-equivalence.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-proof-objects.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-custom-induction-principles.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-hoare-logic.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-afterword.adoc[tag=body,leveloffset=+1]

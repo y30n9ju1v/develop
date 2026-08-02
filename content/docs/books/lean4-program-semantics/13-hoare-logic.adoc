@@ -1,0 +1,145 @@
+---
+title: "13장: 호어 논리 맛보기 — 이 프로그램은 이 명세를 만족한다"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "hoare-logic", "book"]
+categories: ["books"]
+description: "8장의 빅스텝 의미론 위에 '이 조건에서 시작해서 끝나면 항상 저 조건을 만족한다'는 호어 트리플을 정의하고, skip·대입·순차·귀결이라는 네 규칙을 증명한 뒤 실제 프로그램 하나를 검증하며 이 책을 마무리하는 4부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-custom-induction-principles/[12장: 나만의 귀납 원리 만들기] · 다음: link:../14-afterword/[14장: 맺음말]_
+
+'''
+
+지금까지 "프로그램이 무엇을 계산하는가"(8장의 `BigStep`)와 "구문을 바꿔도 계산이 같은가"(10장)를 다뤘습니다. 이 마지막 장에서는 방향을 살짝 바꿉니다 — "이 프로그램이 **이런 조건을 만족하는가**"를 증명하는 도구, **호어 논리(Hoare logic)**입니다.
+
+== 호어 트리플: 시작 조건과 끝 조건을 명세로
+
+[source,lean]
+----
+def Assertion := State → Prop
+
+def Hoare (P : Assertion) (c : Com) (Q : Assertion) : Prop :=
+  ∀ s s', P s → (c / s ⇓ s') → Q s'
+----
+
+`Assertion`은 그냥 "상태에 대한 명제"입니다(6장의 `State`가 다시 등장합니다). `Hoare P c Q`(**호어 트리플**, 보통 `{P} c {Q}`로 표기합니다)는 "**`P`를 만족하는 어떤 상태에서 `c`를 실행해서 끝난다면, 도착한 상태는 항상 `Q`를 만족한다**"는 뜻입니다. `P`를 **사전조건(precondition)**, `Q`를 **사후조건(postcondition)**이라고 부릅니다. 정의 자체는 8장의 `BigStep`을 그대로 재료로 쓴 함의 하나일 뿐입니다 — 새로운 개념이 아니라, 지금까지 만든 것 위에 붙인 새 이름표입니다.
+
+== 규칙 1: skip은 아무것도 안 바꾼다
+
+[source,lean]
+----
+theorem hoare_skip (P : Assertion) : Hoare P .skip P := by
+  intro s s' hp h
+  cases h with
+  | skip => exact hp
+----
+
+`skip`은 상태를 안 바꾸니, 시작할 때 `P`가 성립했다면 끝날 때도 똑같은 `P`가 성립합니다. `cases h`가 `skip`의 `BigStep` 증거를 열어보면 시작 상태와 끝 상태가 같다는 것만 남아서(8장에서 `BigStep.skip s : BigStep .skip s s`였습니다), `hp : P s`가 그대로 `P s'`(`s' = s`이므로)이 됩니다.
+
+== 규칙 2: 대입은 "미리 대입해본 조건"을 요구한다
+
+[source,lean]
+----
+theorem hoare_assign (Q : Assertion) (x : String) (a : AExp) :
+    Hoare (fun s => Q (update s x (evalA s a))) (.assign x a) Q := by
+  intro s s' hp h
+  cases h with
+  | assign => exact hp
+----
+
+대입문의 규칙이 가장 낯설게 느껴질 수 있습니다 — **결과로 원하는 조건 `Q`가 주어지면, 사전조건은 "대입을 미리 해본 상태에서 `Q`가 성립한다"**는 것입니다. 예를 들어 대입 후 "`x`가 `3`이다"(`Q`)를 원한다면, 사전조건은 "지금 대입할 값 자체가 `3`이다"가 됩니다. 이게 이상해 보일 수 있지만, 8장의 `BigStep.assign`이 정확히 `update s x (evalA s a)`라는 상태로 도착한다고 정의했으니, 그 도착한 상태에 `Q`를 적용한 것과 지금 정의한 사전조건이 **정의상 같은 것**입니다(`cases h`가 이걸 그대로 확인해줍니다).
+
+== 규칙 3: 순차 실행은 중간 명세로 이어붙인다
+
+[source,lean]
+----
+theorem hoare_seq (P Q R : Assertion) (c1 c2 : Com)
+    (h1 : Hoare P c1 R) (h2 : Hoare R c2 Q) :
+    Hoare P (.seq c1 c2) Q := by
+  intro s s' hp h
+  cases h with
+  | seq _ _ _ s2 _ hc1 hc2 => exact h2 s2 s' (h1 s s2 hp hc1) hc2
+----
+
+`c1 ; c2`를 검증하려면, **중간 명세 `R`**을 하나 정해서 "`c1`은 `P`에서 시작해 `R`로 끝난다"와 "`c2`는 `R`에서 시작해 `Q`로 끝난다"를 각각 증명하고 이어붙입니다. 8장의 `BigStep.seq`가 `c1`의 도착 상태(`s2`)를 `c2`의 시작 상태로 그대로 넘겨준다는 사실이, 이 트리플을 이어붙이는 걸 정당화합니다.
+
+== 규칙 4: 귀결 — 조건을 자유롭게 넘나들기
+
+[source,lean]
+----
+theorem hoare_consequence (P P' Q Q' : Assertion) (c : Com)
+    (h : Hoare P' c Q')
+    (hp : ∀ s, P s → P' s) (hq : ∀ s, Q' s → Q s) :
+    Hoare P c Q := by
+  intro s s' hps h'
+  exact hq s' (h s s' (hp s hps) h')
+----
+
+`hoare_assign`이 요구하는 사전조건은 보통 우리가 실제로 쓰고 싶은 조건과 정확히 일치하지 않습니다(방금 본 것처럼 "대입을 미리 해본" 낯선 모양이니까요). `hoare_consequence`가 이 간극을 메웁니다 — "지금 가진 조건 `P`가 필요한 조건 `P'`보다 더 강하다면"(더 많은 걸 보장한다면), 그리고 "증명되는 조건 `Q'`이 원하는 조건 `Q`보다 더 강하다면", `{P} c {Q}`로 자유롭게 바꿔 쓸 수 있습니다.
+
+== 실전 예시: 두 줄짜리 프로그램 검증하기
+
+[source,lean]
+----
+def prog3 : Com := .seq (.assign "x" (.num 3)) (.assign "y" (.add (.var "x") (.num 1)))
+
+theorem prog3_spec : Hoare (fun _ => True) prog3 (fun s => s "y" = 4) := by
+  apply hoare_seq (fun _ => True) (fun s => s "y" = 4) (fun s => s "x" = 3)
+  · apply hoare_consequence (fun _ => True)
+      (fun s => update s "x" (evalA s (.num 3)) "x" = 3)
+      (fun s => s "x" = 3) (fun s => s "x" = 3)
+    · exact hoare_assign (fun s => s "x" = 3) "x" (.num 3)
+    · intro s _; simp [update, evalA]
+    · intro s hs; exact hs
+  · apply hoare_consequence (fun s => s "x" = 3)
+      (fun s => update s "y" (evalA s (.add (.var "x") (.num 1))) "y" = 4)
+      (fun s => s "y" = 4) (fun s => s "y" = 4)
+    · exact hoare_assign (fun s => s "y" = 4) "y" (.add (.var "x") (.num 1))
+    · intro s hs; simp [update, evalA]; omega
+    · intro s hs; exact hs
+----
+
+`prog3`은 `x := 3; y := x + 1`입니다. `prog3_spec`은 "**어떤 상태에서 시작하든**(`fun _ => True`), 이 프로그램이 끝나면 `y`는 항상 `4`다"라는 걸 증명합니다. `hoare_seq`로 `x := 3`과 `y := x + 1`을 중간 명세 `s "x" = 3`으로 잇고, 각 대입문에는 `hoare_assign`이 요구하는 낯선 사전조건을 `hoare_consequence`로 우리가 실제로 아는 조건(`True`, `x = 3`)과 이어줍니다. 8장에서 이 프로그램을 `BigStep` 증거로 직접(구체적인 상태를 하나하나 대며) 검증했다면, 이번엔 **어떤 시작 상태든 상관없이** 성립하는 일반적인 성질을 검증했다는 차이가 있습니다.
+
+== 이 책 전체가 이 장으로 모이는 이유
+
+`prog3_spec`의 증명을 이루는 네 조각 — `hoare_skip`, `hoare_assign`, `hoare_seq`, `hoare_consequence` — 은 전부 8장의 `BigStep`을 열어보고(`cases`), 함의를 조립하고(1장), 조건들 사이를 오가는(`hoare_consequence`가 결국 3장의 `apply`가 하는 일을 정리로 만든 것) 작업입니다. 4부 전체(증명 항, 귀납 원리)와 3부 전체(구문, 의미론, 결정성, 동치)가 이 마지막 장에서 한곳에 모입니다 — "프로그램을 설계하고, 그 실행을 관계로 정의하고, 그 관계에 대해 원하는 성질을 증명한다"는 이 책의 전체 흐름이 호어 논리라는 하나의 실전 도구로 완성됩니다.
+
+== 직접 해보기
+
+* `hoare_skip`, `hoare_assign`, `hoare_seq`, `hoare_consequence`만 써서, `x := 5; y := x` 실행 후 `y = 5`라는 걸 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def prog4 : Com := .seq (.assign "x" (.num 5)) (.assign "y" (.var "x"))
+
+theorem prog4_spec : Hoare (fun _ => True) prog4 (fun s => s "y" = 5) := by
+  apply hoare_seq (fun _ => True) (fun s => s "y" = 5) (fun s => s "x" = 5)
+  · apply hoare_consequence (fun _ => True)
+      (fun s => update s "x" (evalA s (.num 5)) "x" = 5)
+      (fun s => s "x" = 5) (fun s => s "x" = 5)
+    · exact hoare_assign (fun s => s "x" = 5) "x" (.num 5)
+    · intro s _; simp [update, evalA]
+    · intro s hs; exact hs
+  · apply hoare_consequence (fun s => s "x" = 5)
+      (fun s => update s "y" (evalA s (.var "x")) "y" = 5)
+      (fun s => s "y" = 5) (fun s => s "y" = 5)
+    · exact hoare_assign (fun s => s "y" = 5) "y" (.var "x")
+    · intro s hs; simp [update, evalA]; exact hs
+    · intro s hs; exact hs
+----
+====
+
+== 요약
+
+* 호어 트리플 `Hoare P c Q`는 "`P`에서 시작해 `c`가 끝나면 항상 `Q`다"라는 걸 뜻하고, 정의 자체는 8장의 `BigStep`을 재료로 한 함의입니다.
+* `skip` 규칙은 조건이 그대로 유지된다는 것을, `assign` 규칙은 "미리 대입해본" 조건이 사전조건이라는 것을, `seq` 규칙은 중간 명세로 두 트리플을 잇는다는 것을, `consequence` 규칙은 조건을 자유롭게 강화·약화할 수 있다는 것을 말해줍니다.
+* 이 네 규칙만으로 실제 프로그램의 사후조건을 증명할 수 있습니다 — 이 책 전체(구문·의미론·귀납·증명 기법)가 여기서 한곳에 모입니다.
+
+맺음말에서는 이 책 전체를 되짚고, 여기서 더 나아가고 싶을 때 어디로 가면 되는지 안내합니다.
+// end::body[]

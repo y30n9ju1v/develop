@@ -1,0 +1,108 @@
+---
+title: "11장: 증명도 값이다 — 증명 항을 손으로 직접 짓기"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "proof-objects", "book"]
+categories: ["books"]
+description: "1장에서 살짝 맛본 Curry-Howard 대응으로 돌아가, induction 전술이 실제로는 Nat.rec라는 재귀자 호출을 대신 짜주는 것뿐이라는 걸 손으로 직접 확인하며 4부를 여는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-program-equivalence/[10장: 프로그램 동치 증명하기] · 다음: link:../12-custom-induction-principles/[12장: 나만의 귀납 원리 만들기]_
+
+'''
+
+1장에서 "증명은 값이다"라는 대응을 봤습니다. 3부 내내 `by ...`(전술 모드)로 증명을 지었는데, 이 장에서는 그 전술들이 뒤에서 실제로 무엇을 하고 있는지 — **결국 증명 항을 지어주는 것뿐**이라는 걸 직접 확인합니다.
+
+== 가장 단순한 예: rfl은 이미 증명 항이다
+
+[source,lean]
+----
+theorem addZero_tactic (n : Nat) : n + 0 = n := by rfl
+
+theorem addZero_term (n : Nat) : n + 0 = n := rfl
+----
+
+`by rfl`과 그냥 `rfl`은 사실상 같은 걸 하고 있습니다 — `rfl`은 원래 "정의를 그대로 펼쳐서 양쪽이 같은지 확인하는" **증명 항의 이름**이고, `by rfl`은 "그 증명 항을 지어달라"고 전술 모드에 요청한 것뿐입니다. 이렇게 단순한 경우는 전술을 거칠 필요조차 없습니다.
+
+== 귀납법도 결국 재귀자 호출이다
+
+[source,lean]
+----
+theorem addComm_tactic (n m : Nat) : n + m = m + n := by
+  induction n with
+  | zero => simp
+  | succ n ih => omega
+----
+
+2장부터 계속 써온 `induction` 전술이 뒤에서 하는 일을 손으로 재현해봅시다.
+
+[source,lean]
+----
+theorem addComm_term (n m : Nat) : n + m = m + n :=
+  Nat.rec
+    (motive := fun n => n + m = m + n)
+    (by simp)
+    (fun n ih => by omega)
+    n
+----
+
+`Nat.rec`는 `Nat`이라는 귀납적 타입에 딸려오는 **재귀자(recursor)**입니다 — 새로운 개념이 아니라, `inductive Nat`을 정의하는 순간 Lean4가 자동으로 만들어주는 함수입니다. 인자를 하나씩 뜯어보면 2장의 `induction ... with | zero => ... | succ n ih => ...`와 정확히 대응됩니다.
+
+* `motive`는 "`n`에 대해 무엇을 증명하고 싶은가"를 명시한 것입니다 — `induction`을 쓸 때는 이걸 목표에서 자동으로 읽어옵니다.
+* 두 번째 인자(`by simp`)는 `zero` 갈래의 증명입니다.
+* 세 번째 인자(`fun n ih => by omega`)는 `succ` 갈래의 증명인데, **`n`과 귀납 가설 `ih`를 받아 증명을 내놓는 함수**라는 게 핵심입니다 — "귀납 가설"이라는 게 사실은 그냥 **함수의 매개변수**였다는 걸 이 함수 꼴이 그대로 보여줍니다.
+* 마지막 `n`은 "이 재귀자를 실제로 어느 `n`에 대해 적용할 것인가"입니다.
+
+`induction n with | zero => ... | succ n ih => ...`라고 쓰면, Lean4가 뒤에서 정확히 이 `Nat.rec` 호출을 대신 조립해줍니다 — **전술은 증명 항을 손으로 짓는 수고를 덜어주는 도구일 뿐, 증명 항이라는 실체를 대체하는 게 아닙니다.**
+
+== 존재 명제와 함의 연쇄도 다시 확인
+
+[source,lean]
+----
+theorem hasWitness : ∃ n : Nat, n * n = 16 := ⟨4, by decide⟩
+
+theorem chain {P Q R : Prop} (f : P → Q) (g : Q → R) : P → R :=
+  fun hp => g (f hp)
+----
+
+1장에서 본 패턴이 8~10장의 증명 안에서도 계속 쓰이고 있었다는 걸 이제 알아볼 수 있습니다 — `hasWitness`는 1장의 `∃`(익명 생성자로 목격자와 증거를 짝짓기)이고, `chain`은 1장의 `modusPonens`를 두 번 겹친 것(함수 합성, 2장에서 본 `∘`와 똑같은 모양)입니다. 8장의 `BigStep.seq _ _ _ _ _ h1 h2`처럼 증명 항을 직접 조립했던 것도, 사실 매 순간 이 장에서 정리한 원리를 이미 쓰고 있었던 것입니다.
+
+== 왜 이걸 굳이 손으로 확인하는가
+
+실무에서 재귀자를 손으로 이렇게 풀어 쓸 일은 거의 없습니다 — `induction`이 항상 더 편하고 읽기 쉽습니다. 그런데도 한 번은 이 대응을 직접 확인해두면 두 가지가 달라집니다.
+
+* *전술이 막힐 때 무슨 일이 일어나는지 짐작할 수 있습니다* — "`induction`이 실패했다"는 에러가 뜨면, 결국 "이 모양의 재귀자 호출을 자동으로 못 만들었다"는 뜻이라는 걸 알면 원인을 훨씬 구체적으로 좁힐 수 있습니다.
+* *다음 장(나만의 귀납 원리)의 기반이 됩니다* — `Nat.rec`가 "자동으로 주어지는 재귀자"였다면, 우리가 만드는 타입에도 이런 재귀자가 있고, 그걸 직접 설계할 수도 있다는 게 다음 장의 주제입니다.
+
+== 직접 해보기
+
+* `mulZero_term (n : Nat) : n * 0 = 0`을 `rfl`로 증명해보고, 왜 `rfl` 하나로 끝나는지(`Nat.mul`의 정의를 떠올리며) 설명해보세요.
+* `List.length`에 대한 간단한 성질 하나를 `List.rec`로 손수 증명해보세요(`induction xs with | nil => ... | cons x xs ih => ...`가 무엇으로 풀리는지 확인하는 것입니다).
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+theorem mulZero_term (n : Nat) : n * 0 = 0 := rfl
+-- Nat.mul은 두 번째 인자에 대해 재귀적으로 정의되고, n * 0의 정의 자체가 0이라 rfl로 끝남
+
+theorem length_append_term (xs ys : List Nat) :
+    (xs ++ ys).length = xs.length + ys.length :=
+  List.rec
+    (motive := fun xs => (xs ++ ys).length = xs.length + ys.length)
+    (by simp)
+    (fun x xs ih => by simp [ih]; omega)
+    xs
+----
+====
+
+== 요약
+
+* 전술은 증명 항을 짓는 수고를 대신해주는 도구일 뿐, 그 뒤에는 항상 실제 증명 항(함수, 곱, 재귀자 호출)이 있습니다.
+* `induction` 전술은 뒤에서 `Nat.rec`(또는 다른 타입의 재귀자)를 호출하는 걸 자동화한 것입니다 — 귀납 가설은 재귀자에 넘기는 함수의 매개변수입니다.
+* 이 대응을 한 번 손으로 확인해두면, 전술이 막혔을 때 원인을 짐작하기 쉬워지고, 다음 장에서 나만의 재귀자를 설계하는 발판이 됩니다.
+
+다음 장에서는 `Nat.rec`처럼 자동으로 주어지는 재귀자 대신, 우리가 직접 필요에 맞는 귀납 원리를 설계하는 법을 다룹니다.
+// end::body[]

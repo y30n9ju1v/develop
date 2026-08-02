@@ -1,0 +1,160 @@
+---
+title: "7장: 산술·불 표현식의 구문과 의미론"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "operational-semantics", "book"]
+categories: ["books"]
+description: "작은 언어를 지을 때 항상 두 조각(구문과 의미론)이 필요하다는 것을 산술식·불식으로 확인하고, '0을 더하는 걸 생략하는' 최적화가 계산 결과를 안 바꾼다는 것까지 증명하는 3부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-maps/[6장: 부분함수로서의 맵] · 다음: link:../08-big-step-semantics/[8장: 명령문과 빅스텝 의미론]_
+
+'''
+
+지금까지 준비한 세 도구(1~3장의 증명 기초, 4장의 관계, 5장의 귀납적 명제, 6장의 맵)를 동원해, 이제 실제로 작은 프로그래밍 언어를 짓습니다. 언어를 설계할 때는 항상 두 조각이 필요합니다 — **구문(syntax)**("이 언어로 어떤 문장을 쓸 수 있는가")과 **의미론(semantics)**("그 문장이 무엇을 뜻하는가"). 이 장에서는 가장 간단한 조각인 산술식과 불식부터 시작합니다.
+
+== 구문: 산술식이 어떤 모양일 수 있는지 정의하기
+
+[source,lean]
+----
+inductive AExp where
+  | num (n : Nat)
+  | var (x : String)
+  | add (a1 a2 : AExp)
+  | sub (a1 a2 : AExp)
+  | mul (a1 a2 : AExp)
+----
+
+`AExp`(Arithmetic Expression)는 "산술식으로 쓸 수 있는 모든 것"을 sum 타입으로 나열합니다 — 숫자 상수, 변수, 덧셈·뺄셈·곱셈. `add`, `sub`, `mul`이 각자 `AExp` 두 개를 담고 있다는 점에서 **재귀적** 타입입니다 — `(x + 3) * 2`같은 식은 `.mul (.add (.var "x") (.num 3)) (.num 2)`처럼, `AExp` 안에 다시 `AExp`가 중첩된 값입니다. 2장에서 다룬 재귀적 타입(`List`)과 정확히 같은 성격이라, 이 타입 위에서 증명할 때도 귀납법을 쓰게 됩니다.
+
+== 의미론: 산술식이 무엇을 계산하는지 정의하기
+
+[source,lean]
+----
+def evalA (s : State) : AExp → Nat
+  | .num n => n
+  | .var x => s x
+  | .add a1 a2 => evalA s a1 + evalA s a2
+  | .sub a1 a2 => evalA s a1 - evalA s a2
+  | .mul a1 a2 => evalA s a1 * evalA s a2
+
+#eval evalA (update emptyState "x" 5) (.add (.var "x") (.num 3))  -- 8
+----
+
+`evalA`가 산술식의 의미론입니다 — "이 산술식과 지금 변수 상태(6장의 `State`)가 주어지면, 최종적으로 어떤 수가 나오는가"를 재귀적으로 계산합니다. `AExp`가 재귀적으로 정의된 것과 정확히 같은 모양으로 `evalA`도 재귀 호출을 합니다 — `.add a1 a2`의 값은 `a1`의 값과 `a2`의 값을 각각 계산해서 더한 것입니다. 산술식은 반복문이 없어서 **항상 종료하는 함수**로 의미론을 정의할 수 있습니다(이게 왜 특별한지는 다음 장에서 반복문이 있는 명령문을 다룰 때 드러납니다).
+
+== 불식도 같은 패턴으로
+
+[source,lean]
+----
+inductive BExp where
+  | tru
+  | fls
+  | eq (a1 a2 : AExp)
+  | le (a1 a2 : AExp)
+  | not (b : BExp)
+  | and (b1 b2 : BExp)
+
+def evalB (s : State) : BExp → Bool
+  | .tru => true
+  | .fls => false
+  | .eq a1 a2 => evalA s a1 == evalA s a2
+  | .le a1 a2 => evalA s a1 <= evalA s a2
+  | .not b => !evalB s b
+  | .and b1 b2 => evalB s b1 && evalB s b2
+
+#eval evalB (update emptyState "x" 5) (.le (.var "x") (.num 10))  -- true
+----
+
+`BExp`(Boolean Expression)는 참·거짓 리터럴, 두 산술식의 비교(`eq`, `le`), 그리고 논리 부정·논리곱으로 이뤄진 불식입니다. `eq`와 `le`가 `AExp` 두 개를 받는다는 점에서 `AExp`와 `BExp`는 서로 얽혀 있습니다 — "산술식을 비교해서 불식을 만든다"는 이 관계가 다음 장에서 "산술식을 계산해서 조건문·반복문의 조건으로 쓴다"는 형태로 다시 등장합니다.
+
+== 산술식에 최적화를 적용해도 값은 그대로
+
+구문과 의미론을 갖췄으니, 이제 "구문을 바꿔도 의미론은 그대로"라는 것의 첫 사례를 봅니다 — 산술식에서 **"0을 더하는" 부분을 생략**하는 최적화입니다.
+
+[source,lean]
+----
+def mkAdd (a1 a2 : AExp) : AExp :=
+  match a2 with
+  | .num 0 => a1
+  | _ => .add a1 a2
+
+theorem mkAdd_correct (s : State) (a1 a2 : AExp) :
+    evalA s (mkAdd a1 a2) = evalA s a1 + evalA s a2 := by
+  cases a2 with
+  | num n =>
+    cases n with
+    | zero => simp [mkAdd, evalA]
+    | succ n => simp [mkAdd, evalA]
+  | var x => simp [mkAdd, evalA]
+  | add b1 b2 => simp [mkAdd, evalA]
+  | sub b1 b2 => simp [mkAdd, evalA]
+  | mul b1 b2 => simp [mkAdd, evalA]
+
+def foldZeroAdd : AExp → AExp
+  | .num n => .num n
+  | .var x => .var x
+  | .add a1 a2 => mkAdd (foldZeroAdd a1) (foldZeroAdd a2)
+  | .sub a1 a2 => .sub (foldZeroAdd a1) (foldZeroAdd a2)
+  | .mul a1 a2 => .mul (foldZeroAdd a1) (foldZeroAdd a2)
+
+theorem foldZeroAdd_correct (s : State) (a : AExp) :
+    evalA s (foldZeroAdd a) = evalA s a := by
+  induction a with
+  | num n => rfl
+  | var x => rfl
+  | add a1 a2 ih1 ih2 => simp [foldZeroAdd, mkAdd_correct, ih1, ih2, evalA]
+  | sub a1 a2 ih1 ih2 => simp [foldZeroAdd, evalA, ih1, ih2]
+  | mul a1 a2 ih1 ih2 => simp [foldZeroAdd, evalA, ih1, ih2]
+
+#eval foldZeroAdd (.add (.var "x") (.num 0))  -- var "x"
+example : foldZeroAdd (.add (.var "x") (.num 0)) = .var "x" := rfl
+----
+
+`mkAdd`는 "덧셈 산술식을 만드는 똑똑한 생성자"입니다 — 두 번째 인자가 `.num 0`이면 아예 덧셈 자체를 생략하고 첫 번째 인자만 돌려줍니다. `mkAdd_correct`가 "이렇게 생략해도 계산 결과는 그냥 `.add`를 썼을 때와 같다"는 걸 증명합니다. `foldZeroAdd`는 이 아이디어를 산술식 전체에 재귀적으로 적용하는 최적화기이고, `foldZeroAdd_correct`가 "이 최적화를 어디에 적용하든 최종 계산 결과는 절대 안 바뀐다"는 걸 증명합니다 — `add` 갈래의 증명이 `mkAdd_correct`(방금 만든 보조 정리)를 가져다 쓰는 걸 눈여겨보세요. 2장에서 본 "보조 정리를 먼저 증명하고 그 위에 올라선다"는 전략이 여기서도 그대로 통합니다.
+
+== 왜 이게 3부의 나머지를 이끄는가
+
+`mkAdd_correct`와 `foldZeroAdd_correct`는 "구문을 바꿔도 의미는 그대로"라는 개념을 가장 단순한 형태로 보여준 것입니다. 10장에서 명령문 수준의 훨씬 흥미로운 동치(`if true then c1 else c2`가 `c1`과 같다는 것 등)를 증명할 때, 지금 여기서 익힌 전략(최적화 함수를 정의하고, 그 결과가 원래 의미론과 같다는 걸 귀납법으로 증명)이 그대로 확장됩니다.
+
+== 직접 해보기
+
+* `mkMul`(스마트 곱셈 생성자, 두 인자 중 하나가 `.num 1`이면 그 곱셈을 생략)을 만들고, `mkMul_correct`를 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def isOne : AExp → Bool
+  | .num n => n == 1
+  | _ => false
+
+theorem isOne_correct (s : State) (a : AExp) (h : isOne a = true) : evalA s a = 1 := by
+  cases a <;> simp [isOne] at h <;> simp_all [evalA]
+
+def mkMul (a1 a2 : AExp) : AExp :=
+  if isOne a1 then a2 else if isOne a2 then a1 else .mul a1 a2
+
+theorem mkMul_correct (s : State) (a1 a2 : AExp) :
+    evalA s (mkMul a1 a2) = evalA s a1 * evalA s a2 := by
+  unfold mkMul
+  split
+  · next h => rw [isOne_correct s a1 h]; simp
+  · split
+    · next h => rw [isOne_correct s a2 h]; simp
+    · rfl
+----
+
+`isOne`을 먼저 별도 함수로 뽑아 `isOne_correct`를 증명해두면, `mkMul_correct`는 그 보조 정리를 가져다 쓰기만 하면 됩니다 — 2장·7장 본문에서 계속 본 "보조 정리 먼저" 전략입니다.
+====
+
+== 요약
+
+* 작은 언어를 지을 때는 항상 구문(어떤 표현이 가능한가, `inductive`)과 의미론(그 표현이 무엇을 뜻하는가, 재귀 함수)이 짝을 이룹니다.
+* 반복문이 없는 산술식·불식은 항상 종료하는 함수로 의미론을 정의할 수 있습니다.
+* "구문을 바꿔도 계산 결과는 그대로"라는 최적화의 정확성은, 최적화 전후의 `evalA` 결과가 같다는 걸 귀납법으로 증명하는 것입니다.
+
+다음 장에서는 대입문·조건문·반복문을 가진 명령문을 설계하고, 반복문 때문에 함수로는 의미론을 정의할 수 없는 이유와 그 대안(빅스텝 의미론)을 다룹니다.
+// end::body[]

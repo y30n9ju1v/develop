@@ -1,0 +1,135 @@
+---
+title: "4장: 관계란 무엇인가"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "relations", "book"]
+categories: ["books"]
+description: "두 값을 잇는 명제로서의 관계를 정의하고, 반사성·추이성 같은 성질을 직접 확인한 뒤, 하나의 관계를 0번 이상 반복 적용해 이어지는 반사·추이 폐쇄를 지어 그것이 익숙한 <= 관계와 정확히 같다는 걸 증명하는 2부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-writing-proofs-with-tactics/[3장: 전술로 증명 쓰기] · 다음: link:../05-inductive-propositions/[5장: 귀납적으로 정의된 명제]_
+
+'''
+
+== 관계: 두 값을 잇는 명제
+
+[source,lean]
+----
+def Rel (α : Type) := α → α → Prop
+
+def Adjacent : Rel Nat := fun a b => b = a + 1
+----
+
+`Rel α`는 "`α` 타입의 값 두 개를 받아 명제를 만드는 함수"입니다 — 1장에서 본 `IsPositive : Nat → Prop`가 값 하나에 대한 명제였다면, `Rel α`는 **값 두 개 사이의 관계**에 대한 명제입니다. `Adjacent a b`는 "`b`가 `a`의 바로 다음 수다"라는 관계입니다. `Adjacent 3 4`는 참(`4 = 3 + 1`)이고, `Adjacent 3 5`는 거짓입니다.
+
+== 관계의 성질: 반사성과 추이성
+
+[source,lean]
+----
+def Reflexive (r : Rel Nat) : Prop := ∀ a, r a a
+def Transitive (r : Rel Nat) : Prop := ∀ a b c, r a b → r b c → r a c
+
+example : ¬ Reflexive Adjacent := by
+  intro h
+  have := h 0
+  simp [Adjacent] at this
+
+example : ¬ Transitive Adjacent := by
+  intro h
+  have := h 0 1 2 (by simp [Adjacent]) (by simp [Adjacent])
+  simp [Adjacent] at this
+----
+
+`Reflexive r`는 "모든 `a`에 대해 `a`가 자기 자신과 관계를 맺는다"는 뜻이고, `Transitive r`는 "`a`가 `b`와, `b`가 `c`와 관계를 맺으면 `a`도 `c`와 관계를 맺는다"는 뜻입니다. `Adjacent`는 **둘 다 만족하지 않습니다** — `0`은 자기 자신의 바로 다음 수가 아니고(반사성 실패), `0`이 `1`과, `1`이 `2`와 인접해도 `0`은 `2`와 인접하지 않습니다(추이성 실패, 인접이 아니라 "2칸 떨어짐"이니까요). 이 두 반례를 직접 증명해보면, "관계가 성질을 만족한다"는 게 저절로 주어지는 게 아니라 **구체적으로 검증해야 하는 것**이라는 걸 체감할 수 있습니다.
+
+== 반사·추이 폐쇄: 관계를 0번 이상 이어붙이기
+
+`Adjacent`는 추이적이지 않지만, "몇 단계를 거쳐서든 이어질 수 있는가"라는 더 느슨한 관계는 만들 수 있습니다 — `Adjacent`를 0번 이상 반복 적용해서 이어지는 관계를, 그 관계의 **반사·추이 폐쇄(reflexive-transitive closure)**라고 부릅니다.
+
+[source,lean]
+----
+inductive Star (r : Rel Nat) : Nat → Nat → Prop where
+  | refl (a : Nat) : Star r a a
+  | step (a b c : Nat) (hab : r a b) (hbc : Star r b c) : Star r a c
+----
+
+`Star r`가 그 폐쇄입니다 — **귀납적으로 정의된 명제**라는 점이 새롭습니다(다음 장에서 이 패턴을 본격적으로 다룹니다). `refl`은 "0번 적용"(자기 자신과 이어짐)이고, `step`은 "`r`을 한 번 적용한 다음(`a`에서 `b`로), 나머지는 이미 `Star r`로 이어져 있다"는 뜻입니다. `Star Adjacent 0 3`을 증명하려면 `0 → 1 → 2 → 3`처럼 `Adjacent`를 세 번 이어 붙인 증거를 지어야 합니다.
+
+[source,lean]
+----
+theorem star_reflexive (r : Rel Nat) : Reflexive (Star r) := Star.refl
+
+theorem star_transitive (r : Rel Nat) : Transitive (Star r) := by
+  intro a b c hab hbc
+  induction hab with
+  | refl a => exact hbc
+  | step a a' b hab' hstar ih => exact Star.step a a' c hab' (ih hbc)
+----
+
+`Adjacent` 자체는 반사적이지도 추이적이지도 않았지만, **그 폐쇄 `Star Adjacent`는 정의 그대로 반사적이고, 증명해보면 추이적이기까지 합니다** — `star_transitive`의 증명이 `hab`(첫 번째 `Star` 증거)에 대한 **귀납법**으로 이뤄진다는 걸 눈여겨보세요. `Star`가 재귀적으로 정의된 명제이니, 2장에서 본 것과 같은 원리(기본 경우 `refl`, 귀납 가설을 딛고 나아가는 경우 `step`)로 증명합니다.
+
+== Star Adjacent가 사실은 ≤ 다
+
+[source,lean]
+----
+theorem star_snoc (r : Rel Nat) (a b c : Nat) (hab : Star r a b) (hbc : r b c) :
+    Star r a c := by
+  induction hab with
+  | refl a => exact Star.step a c c hbc (Star.refl c)
+  | step a a' b hab' hstar ih => exact Star.step a a' c hab' (ih hbc)
+
+theorem star_adjacent_iff_le (a b : Nat) : Star Adjacent a b ↔ a ≤ b := by
+  constructor
+  · intro h
+    induction h with
+    | refl a => omega
+    | step a a' b hab hstar ih => simp [Adjacent] at hab; omega
+  · intro h
+    induction h with
+    | refl => exact Star.refl a
+    | @step m h ih => exact star_snoc Adjacent a m (m+1) ih (by simp [Adjacent])
+----
+
+`Star Adjacent a b`(어떤 경로로든 `a`에서 `b`까지 한 칸씩 이어질 수 있다)가 정확히 `a ≤ b`(익숙한 자연수 비교)와 **동치**라는 걸 증명했습니다. `→` 방향은 `Star`에 대한 귀납법으로, `←` 방향은 `a ≤ b`(즉 `Nat.le`, 이것도 내부적으로 귀납적 명제입니다)에 대한 귀납법으로 풉니다. `star_snoc`("이미 이어진 경로 끝에 한 칸을 더 이어붙인다")이라는 보조 정리가 2장에서 본 전략("직접 어려운 성질은 더 일반적인 보조 정리를 먼저 증명")을 다시 보여줍니다. 이 증명이 흥미로운 이유는, **"한 칸씩 여러 번 이어진다"는 재귀적 정의와 "크거나 같다"는 익숙한 순서 관계가 사실 같은 것을 두 가지 방식으로 말한 것뿐**이라는 걸 보여주기 때문입니다.
+
+== 왜 이게 3부의 기반인가
+
+3부에서 "프로그램을 한 스텝 실행한다"는 관계를 정의하고, 그 위에서 이 장의 `Star`와 정확히 같은 아이디어로 "여러 스텝을 거쳐 최종 결과에 도달한다"는 개념을 다룰 것입니다. 반사·추이 폐쇄가 "관계를 반복 적용해서 확장하는 표준적인 방법"이라는 걸 여기서 익혀두면, 나중에 "프로그램 실행"이라는 훨씬 복잡해 보이는 관계도 사실은 같은 틀 안에 있다는 걸 알아볼 수 있습니다.
+
+== 직접 해보기
+
+* `DoubleStep : Rel Nat := fun a b => b = a + 2`(두 칸씩 건너뛰는 관계)를 정의하고, `Star DoubleStep a b ↔ (∃ k, b = a + 2 * k)`를 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def DoubleStep : Rel Nat := fun a b => b = a + 2
+
+theorem star_double_iff (a b : Nat) : Star DoubleStep a b ↔ ∃ k, b = a + 2 * k := by
+  constructor
+  · intro h
+    induction h with
+    | refl a => exact ⟨0, by omega⟩
+    | step a a' b hab hstar ih =>
+      obtain ⟨k, hk⟩ := ih
+      exact ⟨k + 1, by simp [DoubleStep] at hab; omega⟩
+  · intro ⟨k, hk⟩
+    subst hk
+    induction k with
+    | zero => simpa using Star.refl a
+    | succ k ih => exact star_snoc DoubleStep a (a + 2 * k) (a + 2 * (k + 1)) ih (by simp [DoubleStep]; omega)
+----
+====
+
+== 요약
+
+* `Rel α := α → α → Prop`은 두 값 사이의 관계를 명제로 표현합니다.
+* 반사성·추이성 같은 성질은 관계마다 따로 검증해야 하는 것이지, 저절로 주어지지 않습니다.
+* 반사·추이 폐쇄(`Star`)는 관계를 0번 이상 반복 적용해서 이어지는 더 느슨한 관계이고, 귀납적 명제로 정의됩니다.
+* `Star Adjacent`가 `≤`와 동치라는 것처럼, 재귀적으로 정의된 관계가 익숙한 순서 관계와 같은 것으로 밝혀지기도 합니다.
+
+다음 장에서는 이 장에서 살짝 맛본 "귀납적으로 정의된 명제"를 본격적으로 다룹니다 — 데이터가 아니라 증거 자체를 재귀적으로 짓는 법을 봅니다.
+// end::body[]

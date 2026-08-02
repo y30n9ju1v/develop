@@ -1,0 +1,104 @@
+---
+title: "3장: 전술로 증명 쓰기"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "tactics", "book"]
+categories: ["books"]
+description: "intro, apply, rw, cases, simp라는 다섯 가지 기본 전술이 각각 어떤 논리적 동작을 자동화하는지 확인하며, 이후 장에서 계속 재사용할 증명 어휘를 다지는 1부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-induction/[2장: 귀납으로 증명하기] · 다음: link:../04-relations/[4장: 관계란 무엇인가]_
+
+'''
+
+1장에서 증명 항을 손으로 직접 지어봤고, 2장에서 `induction`이라는 전술을 이미 썼습니다. 이 장에서는 앞으로 계속 쓸 다섯 가지 기본 전술 — `intro`, `apply`, `rw`, `cases`, `simp` — 을 정리합니다. 각 전술이 1장에서 본 어떤 논리적 동작을 자동화하는지 짝지어 보면 외우기가 훨씬 쉽습니다.
+
+== intro: 함의·전칭의 "받는 쪽"을 자동화
+
+[source,lean]
+----
+theorem imp_trans {P Q R : Prop} (hpq : P → Q) (hqr : Q → R) : P → R := by
+  intro hp
+  apply hqr
+  apply hpq
+  exact hp
+----
+
+1장에서 "`P → Q`의 증명은 `P`의 증명을 받아 `Q`의 증명을 내놓는 함수"라고 했습니다. 목표가 `P → R`처럼 함의 꼴일 때, `intro hp`는 정확히 그 함수의 매개변수를 받는 동작입니다 — "`hp : P`라는 증명이 주어졌다고 하자"고 선언하고, 남은 목표를 `R`로 좁힙니다. `∀ x, P x`처럼 전칭 꼴일 때도 `intro x`가 똑같이 동작합니다(1장에서 `intro n`으로 이미 썼습니다).
+
+== apply: "이 결론을 내놓는 정리가 있다면, 그 전제만 증명하면 된다"
+
+[source,lean]
+----
+theorem le_trans_ex (a b c : Nat) (hab : a ≤ b) (hbc : b ≤ c) : a ≤ c := by
+  apply Nat.le_trans hab hbc
+----
+
+`apply`는 "지금 목표가 어떤 정리의 결론과 일치한다면, 그 정리를 쓰고 남은 일은 그 정리의 전제를 증명하는 것으로 바꿔치기하라"는 뜻입니다. `Nat.le_trans : a ≤ b → b ≤ c → a ≤ c`라는 기존 정리를 그대로 가져다 썼습니다 — `imp_trans` 예제에서도 `apply hqr`가 목표 `R`을 `Q`(그 `hqr : Q → R`의 전제)로 바꿔치기했습니다. `apply`는 1장의 `modusPonens`(함수 적용)를 "뒤에서부터" 쓰는 것과 같습니다 — 최종 결과에서 시작해서, 그 결과를 내놓는 함수를 찾고, 그 함수에 넣을 인자를 증명하는 일로 거슬러 올라갑니다.
+
+== rw: 등식으로 목표를 다시 쓰기
+
+[source,lean]
+----
+theorem rewrite_ex (a b : Nat) (h : a = b) : a + 1 = b + 1 := by
+  rw [h]
+----
+
+`rw [h]`는 `h : a = b`라는 등식을 이용해, 목표 안에 나타나는 `a`를 전부 `b`로 바꿔치기합니다. `a + 1 = b + 1`이었던 목표가 `rw [h]` 한 번으로 `b + 1 = b + 1`이 되고, 이건 자명하게 참이라 `rw`가 알아서 마무리까지 해줍니다(내부적으로 `rfl`을 시도합니다). 2장에서 `expand`를 만들 때 `rw [Nat.mul_succ, Nat.succ_mul]`로 이미 이 전술을 썼습니다.
+
+== cases: 유한한 경우로 쪼개기
+
+[source,lean]
+----
+theorem bool_cases (b : Bool) : b = true ∨ b = false := by
+  cases b with
+  | true => left; rfl
+  | false => right; rfl
+----
+
+`cases b`는 `b`가 될 수 있는 모든 생성자(`Bool`은 `true`와 `false` 둘뿐입니다)로 증명을 나눕니다 — 2장의 `induction`과 비슷해 보이지만, **귀납 가설이 생기지 않는다**는 차이가 있습니다. `Bool`처럼 재귀적이지 않은 타입(자기 자신을 다시 참조하지 않는 타입)은 각 경우를 그냥 나열해서 확인하면 끝이라 `induction` 대신 `cases`로 충분합니다 — 반대로 `Nat`이나 `List`처럼 재귀적인 타입은 `succ`/`cons` 갈래에서 "한 단계 작은 경우"에 대한 가정(귀납 가설)이 있어야 증명이 풀리는 경우가 많아 `induction`을 씁니다. `left`/`right`는 1장의 `Or.inl`/`Or.inr`을 전술로 쓰는 버전입니다.
+
+== simp: 알려진 단순화 규칙을 자동으로 반복 적용
+
+[source,lean]
+----
+theorem simp_ex (xs : List Nat) : xs ++ [] = xs := by simp
+----
+
+`simp`는 라이브러리에 등록된 "단순화 규칙"(예: "빈 리스트를 뒤에 이어붙여도 그대로다")들을 목표에 반복해서 적용해, 더 이상 단순해지지 않을 때까지 밀어붙입니다. `simp [myReverse]`처럼 대괄호 안에 이름을 넣으면 "이 정의/정리도 단순화 규칙으로 같이 써라"는 뜻입니다 — 2장에서 재귀 함수의 정의를 펼칠 때 이렇게 썼습니다. `simp`는 강력하지만 "왜 되는지" 눈에 안 보일 때가 있어서, 처음 증명을 짤 때는 `rw`나 `apply`로 손으로 짚어보고 익숙해진 다음 `simp`로 줄이는 순서를 권합니다.
+
+== 전술을 조합하기
+
+[source,lean]
+----
+theorem combined (a b : Nat) (h : a = 0) : a + b = b := by
+  rw [h]
+  simp
+----
+
+실전 증명은 보통 이 다섯 가지를 순서대로 이어붙인 것입니다 — `rw [h]`로 `a`를 `0`으로 바꾼 뒤 `simp`로 `0 + b = b`를 자동 정리합니다. 증명을 쓸 때 막막하다면 "지금 목표가 함의/전칭이면 `intro`, 결론이 일치하는 기존 정리가 있으면 `apply`, 등식이 있으면 `rw`, 유한한 경우로 나뉘면 `cases`(재귀적이면 `induction`), 그래도 안 풀리면 `simp`"라는 순서로 시도해보는 게 실용적인 출발점입니다.
+
+== 직접 해보기
+
+* `and_swap {P Q : Prop} (h : P ∧ Q) : Q ∧ P`를 1장처럼 증명 항으로 짓지 말고, 이번엔 `cases h with | intro hp hq => ...` 전술로 증명해보세요(`∧`도 생성자가 하나뿐인 귀납적 타입이라 `cases`로 분해할 수 있습니다).
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+theorem and_swap {P Q : Prop} (h : P ∧ Q) : Q ∧ P := by
+  cases h with
+  | intro hp hq => exact ⟨hq, hp⟩
+----
+====
+
+== 요약
+
+* `intro`는 함의·전칭의 증명(함수)이 매개변수를 받는 동작을, `apply`는 목표를 기존 정리의 전제로 거슬러 올라가는 동작을 자동화합니다.
+* `rw`는 등식으로 목표를 다시 쓰고, `cases`는 유한한 경우로(귀납 가설 없이) 쪼개고, `induction`은 재귀적 타입에 대해 귀납 가설과 함께 쪼갭니다.
+* `simp`는 알려진 단순화 규칙을 반복 적용해 목표를 자동으로 정리합니다.
+
+1부는 여기서 마칩니다. 2부에서는 이 다섯 가지 전술을 도구 삼아, 3부의 언어 설계에 필요한 관계·귀납적 명제·맵을 준비합니다.
+// end::body[]

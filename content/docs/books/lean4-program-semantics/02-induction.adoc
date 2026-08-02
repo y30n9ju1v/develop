@@ -1,0 +1,119 @@
+---
+title: "2장: 귀납으로 증명하기 — 무한히 많은 경우를 유한한 단계로"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "induction", "book"]
+categories: ["books"]
+description: "자연수와 리스트라는 두 재귀적 타입 위에서, 귀납법이 왜 '무한히 많은 경우를 확인하는 것'을 '두 단계만 증명하는 것'으로 압축해주는지 재귀 함수의 합 공식과 리스트 뒤집기 성질로 직접 확인하는 1부의 두 번째 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-propositions-as-types/[1장: 명제도 타입이다] · 다음: link:../03-writing-proofs-with-tactics/[3장: 전술로 증명 쓰기]_
+
+'''
+
+== 문제: 모든 자연수에 대해 증명해야 한다면
+
+[source,lean]
+----
+def sumUpTo : Nat → Nat
+  | 0 => 0
+  | n + 1 => (n + 1) + sumUpTo n
+
+#eval sumUpTo 5  -- 15
+----
+
+`sumUpTo n`은 `0`부터 `n`까지의 합을 재귀적으로 계산합니다. 이 함수가 "닫힌 형태"의 공식 `n * (n + 1) / 2`와 항상 같은 값을 낸다는 걸 증명하고 싶다고 해봅시다(나눗셈을 피하려고 `2 * sumUpTo n = n * (n + 1)`로 씁니다). `n`이 `0`, `1`, `2`, ...로 무한히 많은데, 그 각각에 대해 따로 증명할 수는 없습니다. **귀납법**이 이 문제를 유한한 증명으로 바꿔줍니다.
+
+== 귀납법: 두 가지만 증명하면 전부 증명된다
+
+[source,lean]
+----
+theorem sumUpTo_formula (n : Nat) : 2 * sumUpTo n = n * (n + 1) := by
+  induction n with
+  | zero => rfl
+  | succ n ih =>
+    have expand : (n + 1) * (n + 1 + 1) = n * (n + 1) + (n + 1) + (n + 1) := by
+      rw [Nat.mul_succ, Nat.succ_mul]
+    simp only [sumUpTo]
+    omega
+----
+
+`induction n with`이 증명해야 할 일을 정확히 둘로 나눕니다.
+
+* *`zero` 갈래*: `n = 0`일 때 성립하는가 — `2 * sumUpTo 0 = 0 * 1`이 정의 그대로 참이라 `rfl`(정의를 그대로 펼쳐서 확인) 하나로 끝납니다.
+* *`succ n ih` 갈래*: "`n`에서 성립한다고 가정했을 때(`ih`, 귀납 가설), `n + 1`에서도 성립하는가" — `ih : 2 * sumUpTo n = n * (n + 1)`을 이미 참이라고 손에 쥔 채로, `2 * sumUpTo (n + 1) = (n + 1) * (n + 2)`를 증명합니다.
+
+이 두 갈래만 증명하면, 왜 **모든** 자연수에 대해 성립하는지 알 수 있을까요 — `0`에서 성립하고, "`n`에서 성립하면 `n+1`에서도 성립한다"가 참이면, 도미노처럼 `0 → 1 → 2 → 3 → ...`로 계속 이어지기 때문입니다. 무한히 많은 경우를 일일이 확인하는 대신, **"도미노의 첫 조각이 넘어진다"와 "한 조각이 넘어지면 다음 조각도 넘어진다"** 이 두 가지만 증명하면 되는 것입니다.
+
+`succ` 갈래 안의 `expand`는 `(n+1)*(n+2)`라는 곱셈식을 `n*(n+1)`(귀납 가설에 나오는 것과 같은 모양)과 나머지 덧셈으로 풀어씁니다 — `Nat.mul_succ`(`a * (b+1) = a * b + a`)와 `Nat.succ_mul`(`(a+1) * b = a * b + b`)이라는 곱셈의 기본 성질을 조합한 것입니다. 이렇게 곱셈 부분을 정리해두면, `n * (n+1)`이라는 항이 양쪽에서 정확히 같은 모양으로 나타나서 `omega`가 나머지 덧셈·곱셈 없는 부분만 선형 산술로 마무리할 수 있습니다.
+
+== 리스트에도 같은 원리: 두 번 뒤집으면 원래대로
+
+귀납법은 자연수에만 쓰이는 게 아닙니다 — **재귀적으로 정의된 모든 타입**에 같은 원리가 적용됩니다. 리스트로 확인해봅시다.
+
+[source,lean]
+----
+def myReverse : List Nat → List Nat
+  | [] => []
+  | x :: xs => myReverse xs ++ [x]
+
+theorem reverse_append (xs ys : List Nat) :
+    myReverse (xs ++ ys) = myReverse ys ++ myReverse xs := by
+  induction xs with
+  | nil => simp [myReverse]
+  | cons x xs ih => simp [myReverse, ih]
+
+theorem reverse_reverse (xs : List Nat) : myReverse (myReverse xs) = xs := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih => simp [myReverse, reverse_append, ih]
+----
+
+리스트의 귀납법도 자연수와 같은 모양입니다 — `nil`(빈 리스트) 갈래와 `cons x xs`(머리 `x`와 나머지 `xs`로 이뤄진 리스트) 갈래, 둘만 증명하면 됩니다. `reverse_reverse`("뒤집고 또 뒤집으면 원래대로")는 `reverse_append`("두 리스트를 이어붙인 뒤 뒤집는 것은, 각각 뒤집어서 순서를 바꿔 이어붙이는 것과 같다")라는 보조 정리를 먼저 증명해야 풀립니다 — **직접 증명하기 어려운 성질은, 그걸 뒷받침하는 더 일반적인 보조 정리를 먼저 증명하고 그 위에 올라서는 것**이 귀납적 증명에서 흔한 전략입니다.
+
+[source,lean]
+----
+#eval myReverse [1, 2, 3]  -- [3, 2, 1]
+example : myReverse (myReverse [1, 2, 3, 4]) = [1, 2, 3, 4] := by native_decide
+----
+
+== 왜 이게 3부의 기반인가
+
+3부에서 만들 작은 언어의 문법(산술식, 명령문)도 전부 `Nat`이나 `List`처럼 **재귀적으로 정의된 타입**입니다 — "이 프로그램의 모든 경우에 대해 이 성질이 성립한다"를 증명하려면 결국 이 장에서 본 것과 똑같은 방식(기본 경우 + 귀납 가설을 딛고 한 단계 더 나아가는 경우)으로 증명하게 됩니다. 지금 자연수·리스트라는 단순한 재료로 이 패턴에 익숙해지는 게, 나중에 훨씬 복잡한 문법에 대해 귀납법을 쓸 때 그대로 도움이 됩니다.
+
+== 직접 해보기
+
+* `myLength : List Nat → Nat`(리스트 길이를 재귀적으로 계산)를 정의하고, `myLength (myReverse xs) = myLength xs`(뒤집어도 길이는 그대로)를 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def myLength : List Nat → Nat
+  | [] => 0
+  | _ :: xs => 1 + myLength xs
+
+theorem length_append (xs ys : List Nat) :
+    myLength (xs ++ ys) = myLength xs + myLength ys := by
+  induction xs with
+  | nil => simp [myLength]
+  | cons x xs ih => simp [myLength, ih]; omega
+
+theorem length_reverse (xs : List Nat) : myLength (myReverse xs) = myLength xs := by
+  induction xs with
+  | nil => rfl
+  | cons x xs ih => simp [myReverse, myLength, length_append, ih]; omega
+----
+====
+
+== 요약
+
+* 귀납법은 "무한히 많은 경우"를 "기본 경우(`zero`/`nil`)"와 "귀납 가설을 딛고 한 단계 나아가는 경우(`succ`/`cons`)", 딱 두 가지 증명으로 압축합니다.
+* 재귀적으로 정의된 함수(`sumUpTo`, `myReverse`)의 성질을 증명할 때는, 그 함수가 재귀적으로 정의된 구조를 그대로 따라 귀납법을 겁니다.
+* 직접 증명하기 어려운 성질은, 그걸 뒷받침하는 더 일반적인 보조 정리를 먼저 증명하는 전략이 자주 통합니다.
+* 3부에서 다룰 프로그램의 문법도 재귀적 타입이라, 이 장의 패턴이 그대로 재사용됩니다.
+
+다음 장에서는 지금까지 `omega`, `simp`, `rfl` 정도로만 써온 전술들을 체계적으로 정리하고, 증명을 쓸 때 어떤 전술을 언제 골라야 하는지 다룹니다.
+// end::body[]

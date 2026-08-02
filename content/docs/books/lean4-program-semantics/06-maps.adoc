@@ -1,0 +1,121 @@
+---
+title: "6장: 부분함수로서의 맵 — 변수와 값을 잇는 환경"
+date: 2026-08-01T00:00:00+09:00
+draft: false
+tags: ["lean4", "maps", "book"]
+categories: ["books"]
+description: "변수 이름을 값에 잇는 프로그램의 상태(state)를 함수로 표현하고, 갱신 직후 조회·다른 변수 보존·중복 갱신·순서 무관성 같은 기본 성질을 증명하며 2부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-inductive-propositions/[5장: 귀납적으로 정의된 명제] · 다음: link:../07-arithmetic-and-boolean-expressions/[7장: 산술·불 표현식의 구문과 의미론]_
+
+'''
+
+2부의 마지막 준비물입니다. 3부에서 지을 언어는 `x := 3`처럼 변수에 값을 대입하는 명령을 가질 텐데, "지금 `x`가 몇인지"를 표현할 방법이 필요합니다 — 이 장에서 그 도구, **맵(map)**을 만듭니다.
+
+== 맵: 이름을 값에 잇는 함수
+
+[source,lean]
+----
+def State := String → Nat
+
+def emptyState : State := fun _ => 0
+----
+
+`State`는 그냥 `String → Nat`, "변수 이름을 받아 값을 반환하는 함수"입니다 — 리스트나 트리 같은 별도 자료구조가 아니라 **함수 자체가 맵**입니다. `emptyState`는 "아직 아무것도 대입 안 된 상태"를 뜻하는데, 모든 변수를 `0`으로 취급합니다(실전 언어라면 "정의 안 된 변수를 읽으면 에러"가 더 정확하겠지만, 이 책에서는 단순화해서 항상 `0`을 초깃값으로 씁니다). 이렇게 "정의 안 된 입력에도 항상 답을 내놓는" 맵을 **전역 맵(total map)**이라고 부릅니다 — 5장에서 본 "증거가 있을 때만 성립하는" 부분적인 명제와 달리, 이 함수는 어떤 이름을 넣어도 항상 값을 돌려줍니다.
+
+== 갱신: 기존 맵에서 한 자리만 바꾼 새 맵
+
+[source,lean]
+----
+def update (s : State) (x : String) (v : Nat) : State :=
+  fun y => if y = x then v else s y
+----
+
+`update s x v`는 "`s`와 거의 같지만, `x`라는 자리만 `v`로 바뀐 새로운 맵"을 만듭니다 — `s` 자체를 바꾸는 게 아니라(함수는 불변값이니 바꿀 수도 없습니다) **새 함수를 하나 더 만드는 것**입니다. 이 새 함수는 "질문받은 이름이 `x`와 같으면 `v`를, 아니면 원래 `s`에게 물어봐서 그 답을 그대로 돌려준다"는 규칙으로 정의됩니다.
+
+== 갱신이 지켜야 할 기본 성질들
+
+`update`가 "제대로 동작한다"는 걸 그냥 눈으로 보고 믿는 대신, 앞으로 3부에서 계속 기댈 몇 가지 성질을 미리 증명해둡니다.
+
+[source,lean]
+----
+theorem update_lookup_same (s : State) (x : String) (v : Nat) :
+    update s x v x = v := by
+  simp [update]
+
+theorem update_lookup_other (s : State) (x y : String) (v : Nat) (h : y ≠ x) :
+    update s x v y = s y := by
+  simp [update, h]
+----
+
+`update_lookup_same`("갱신 직후 그 변수를 읽으면 갱신한 값이 나온다")과 `update_lookup_other`("다른 변수를 읽으면 갱신 전과 같다")가 `update`의 존재 이유입니다 — 대입문 `x := 3` 다음에 `x`를 읽으면 `3`이어야 하고, `y`를 읽으면 대입 전 그대로여야 한다는 상식을, 함수의 정의만으로 증명 가능한 사실로 만들었습니다.
+
+[source,lean]
+----
+theorem update_shadow (s : State) (x : String) (v1 v2 : Nat) :
+    update (update s x v1) x v2 = update s x v2 := by
+  funext y
+  simp [update]
+  split <;> simp_all
+
+theorem update_comm (s : State) (x y : String) (v1 v2 : Nat) (h : x ≠ y) :
+    update (update s x v1) y v2 = update (update s y v2) x v1 := by
+  funext z
+  simp only [update]
+  split
+  · split
+    · exact absurd (by simp_all : x = y) h
+    · rfl
+  · split
+    · rfl
+    · rfl
+----
+
+`update_shadow`는 "같은 변수를 연달아 두 번 갱신하면, 첫 번째 값은 완전히 가려지고 나중 값만 남는다"는 걸 증명합니다 — 프로그램에서 `x := 1; x := 2`를 실행하면 `x`가 결국 `2`여야지 `1`과 `2`가 섞여서는 안 된다는 상식입니다. `update_comm`은 "**서로 다른** 두 변수를 갱신하는 순서는 결과에 영향을 주지 않는다"는 걸 증명합니다 — `x := 1; y := 2`와 `y := 2; x := 1`이 같은 최종 상태를 만든다는 뜻입니다. `funext y`(두 함수가 같다는 걸 증명하려면, 모든 입력 `y`에 대해 같은 값을 낸다는 걸 보이면 된다는 전술)를 눈여겨보세요 — 맵이 함수이기 때문에 "두 맵이 같다"는 것도 "모든 이름에 대해 같은 값을 돌려준다"는 뜻입니다.
+
+[source,lean]
+----
+#eval (update (update emptyState "x" 3) "y" 5) "x"  -- 3
+#eval (update (update emptyState "x" 3) "y" 5) "z"  -- 0
+----
+
+== 왜 이게 3부의 기반인가
+
+3부에서 `State`가 정확히 이 장의 `State`이고, 대입문의 의미론이 정확히 `update`로 정의됩니다. `update_lookup_same`·`update_lookup_other`·`update_shadow`·`update_comm`은 겉보기엔 사소해 보이지만, 나중에 "이 두 프로그램은 같은 일을 한다"는 걸 증명할 때(10장) 계속 다시 쓰이는 재료입니다 — 예를 들어 "`x := 1; y := 2`와 `y := 2; x := 1`은 같은 프로그램이다"라는 주장은 결국 `update_comm` 하나로 증명됩니다.
+
+== 직접 해보기
+
+* `hasKey (s : State) (x : String) : Bool := s x != 0`(엉성하지만) 대신, "이 이름이 한 번이라도 `update`로 설정된 적이 있는가"를 추적하는 진짜 부분함수 `State' := String → Option Nat`을 설계해보고, `emptyState'`와 `update'`를 다시 정의해보세요. `update_lookup_same`에 해당하는 성질도 다시 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def State' := String → Option Nat
+
+def emptyState' : State' := fun _ => none
+
+def update' (s : State') (x : String) (v : Nat) : State' :=
+  fun y => if y = x then some v else s y
+
+theorem update'_lookup_same (s : State') (x : String) (v : Nat) :
+    update' s x v x = some v := by
+  simp [update']
+
+example : emptyState' "x" = none := rfl
+----
+
+`Option Nat`을 쓰면 "설정된 적 없는 변수를 읽으면 `none`"이라는 걸 타입으로 정확히 표현할 수 있습니다 — 이 장의 `State`(항상 `0`으로 취급)보다 실전에 더 가깝지만, 그만큼 "변수가 없을 때는 어떻게 할지"를 매번 `Option`으로 처리해야 해서 이후 장의 예제가 복잡해집니다. 이 책은 단순함을 위해 `State`(전역 맵) 쪽을 계속 씁니다.
+====
+
+== 요약
+
+* 맵은 별도 자료구조가 아니라 그냥 함수(`String → Nat`)로 표현할 수 있습니다 — "이름을 넣으면 값이 나온다"는 것 자체가 함수의 정의입니다.
+* `update s x v`는 `s`를 바꾸는 게 아니라, 한 자리만 다른 새 함수를 만듭니다.
+* 갱신 직후 조회, 다른 변수 보존, 중복 갱신 시 나중 값만 남음, 서로 다른 변수 갱신의 순서 무관성 — 이 네 가지가 3부 전체에서 계속 재사용될 기본 성질입니다.
+
+2부가 여기서 끝났습니다. 3부에서는 이 장의 `State`와 4~5장의 관계·귀납적 명제를 전부 동원해, 실제로 작은 프로그래밍 언어를 처음부터 짓습니다.
+// end::body[]
