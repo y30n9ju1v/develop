@@ -1,5 +1,5 @@
 ---
-title: "13장: 컴포넌트에 타입 입히기 — Props, 이벤트, children"
+title: "14장: 컴포넌트에 타입 입히기 — Props, 이벤트, children"
 date: 2026-07-30T00:00:00+09:00
 draft: false
 tags: ["typescript", "react", "book"]
@@ -8,7 +8,7 @@ description: "지금까지 느슨하게 써온 이벤트 핸들러 타입을 제
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../12-custom-hooks/[12장: 커스텀 훅] · 다음: link:../14-forms-and-api-calls/[14장: API 호출과 폼]_
+_link:../[전체 목차] · 이전: link:../13-custom-hooks/[13장: 커스텀 훅] · 다음: link:../15-forms-and-api-calls/[15장: API 호출과 폼]_
 
 '''
 
@@ -110,7 +110,7 @@ function List<T>({ items, renderItem, keyOf }: ListProps<T>) {
 }
 ----
 
-`ListProps<T>`가 `items: T[]`와 `renderItem: (item: T) => ...`을 같은 `T`로 묶어둡니다 — 11장에서 배운 `key`를 여기서도 `keyOf`로 강제해, 이 컴포넌트를 쓰는 쪽이 실수로 key를 빠뜨리지 못하게 합니다.
+`ListProps<T>`가 `items: T[]`와 `renderItem: (item: T) => ...`을 같은 `T`로 묶어둡니다 — 12장에서 배운 `key`를 여기서도 `keyOf`로 강제해, 이 컴포넌트를 쓰는 쪽이 실수로 key를 빠뜨리지 못하게 합니다.
 
 [source,tsx]
 ----

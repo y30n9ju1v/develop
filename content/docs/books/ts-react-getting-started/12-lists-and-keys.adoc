@@ -1,5 +1,5 @@
 ---
-title: "11장: 리스트와 key — 왜 index를 key로 쓰면 안 되는가"
+title: "12장: 리스트와 key — 왜 index를 key로 쓰면 안 되는가"
 date: 2026-07-30T00:00:00+09:00
 draft: false
 tags: ["react", "key", "book"]
@@ -8,7 +8,7 @@ description: "key가 재조정 과정에서 정확히 어떤 문제를 푸는지
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../10-useeffect/[10장: useEffect] · 다음: link:../12-custom-hooks/[12장: 커스텀 훅]_
+_link:../[전체 목차] · 이전: link:../11-useref/[11장: useRef] · 다음: link:../13-custom-hooks/[13장: 커스텀 훅]_
 
 '''
 

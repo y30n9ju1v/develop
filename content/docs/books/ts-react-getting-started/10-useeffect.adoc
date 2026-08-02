@@ -8,7 +8,7 @@ description: "컴포넌트 함수 몸체에서 API를 직접 호출하면 안 �
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../09-rendering-and-reconciliation/[9장: 렌더링과 재조정] · 다음: link:../11-lists-and-keys/[11장: 리스트와 key]_
+_link:../[전체 목차] · 이전: link:../09-rendering-and-reconciliation/[9장: 렌더링과 재조정] · 다음: link:../11-useref/[11장: useRef]_
 
 '''
 
@@ -130,5 +130,5 @@ function DelayedMessage() {
 * 의존성 배열은 "이 값이 바뀌었을 때만 다시 실행하라"는 조건이고, React가 자동으로 추적할 수 없어 사람이 명시해야 합니다.
 * effect가 반환하는 정리 함수는 타이머·구독처럼 "시작한 일을 되돌리는" 짝을 실행하는 자리입니다.
 
-다음 장에서는 9장에서 미뤄뒀던 `key`가 리스트 재조정에서 정확히 어떤 문제를 해결하는지, 그리고 `key={index}`가 왜 항상 안전하지는 않은지 다룹니다.
+다음 장에서는 `useEffect`와 자주 짝지어 쓰이는 또 다른 훅, `useRef`를 다룹니다 — DOM에 직접 접근해야 하거나, State처럼 값을 기억하되 그 값이 바뀌어도 다시 렌더링하고 싶지 않을 때 씁니다. 그다음 장에서 9장에서 미뤄뒀던 `key`가 리스트 재조정에서 정확히 어떤 문제를 해결하는지, 그리고 `key={index}`가 왜 항상 안전하지는 않은지 다룹니다.
 // end::body[]

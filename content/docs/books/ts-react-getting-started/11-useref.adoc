@@ -1,0 +1,123 @@
+---
+title: "11장: useRef — 렌더링을 안 일으키면서 값을 기억하기"
+date: 2026-07-31T00:00:00+09:00
+draft: false
+tags: ["react", "useref", "book"]
+categories: ["books"]
+description: "State(렌더링을 일으키며 기억하는 값)와 평범한 변수(아예 기억 못 하는 값) 사이에 왜 세 번째 자리가 필요한지, DOM에 직접 접근하거나 렌더링과 무관한 값을 다뤄야 할 때 useRef가 그 자리를 어떻게 채우는지 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-useeffect/[10장: useEffect] · 다음: link:../12-lists-and-keys/[12장: 리스트와 key]_
+
+'''
+
+== 지금까지 두 가지 "기억하는 방법"을 봤습니다
+
+8장에서 State(`useState`)가 "렌더링 사이에도 값을 기억하고, 값이 바뀌면 다시 렌더링을 일으킨다"고 했습니다. 그리고 그 8장에서 평범한 지역 변수는 "렌더링마다 초기화되어 아예 기억을 못 한다"는 것도 확인했습니다. 그런데 실전에는 이 둘 사이, **"렌더링 사이에 값은 기억하고 싶은데, 그 값이 바뀌었다고 화면을 다시 그리고 싶지는 않다"**는 세 번째 경우가 자주 생깁니다.
+
+[source,tsx]
+----
+function RefCounter() {
+  const renderCount = useRef(0);
+  renderCount.current++; // 렌더링될 때마다 1씩 늘어남
+  return <p>이 컴포넌트는 {renderCount.current}번 렌더링됐습니다</p>;
+}
+----
+
+`useRef(0)`이 반환하는 건 `{ current: 0 }`처럼 `current`라는 필드 하나를 가진 평범한 객체(**ref 객체**라고 부릅니다)입니다. `renderCount.current`를 직접 바꿔도(`useState`처럼 `set...` 함수를 거칠 필요 없이) **그 값이 렌더링 사이에도 그대로 유지됩니다** — 실제로 버튼을 눌러 다시 렌더링을 일으켜보면 `renderCount.current`가 1, 2, 3으로 계속 늘어나는 걸 확인할 수 있습니다(평범한 지역 변수였다면 매번 0으로 되돌아갔을 것입니다). 그런데 `renderCount.current++`를 실행한 것 자체는 **화면을 다시 그리라는 신호가 아닙니다** — `useState`의 `setCount`와 달리, `.current`를 바꾸는 건 React에게 아무것도 알리지 않는 조용한 변경입니다.
+
+[cols="1,1,1"]
+|===
+|구분 |렌더링 사이에 기억하는가 |값이 바뀌면 다시 렌더링하는가
+
+|평범한 지역 변수
+|아니오
+|해당 없음
+
+|`useState`
+|예
+|예
+
+|`useRef`
+|예
+|아니오
+|===
+
+== 왜 이게 필요한가: DOM에 직접 접근해야 할 때
+
+React는 보통 "지금 데이터가 이렇다면 화면은 이런 모양이어야 한다"를 선언하는 것만으로 충분합니다(6장). 그런데 가끔은 그 선언만으로는 안 되는, **DOM 자체를 직접 건드려야 하는** 일이 있습니다 — 예를 들어 "페이지가 열리자마자 이 입력창에 커서를 자동으로 놓기"입니다. `focus()`는 State로 선언할 수 있는 게 아니라, 실제 `<input>` DOM 노드를 붙잡고 직접 호출해야 하는 명령입니다.
+
+[source,tsx]
+----
+import { useRef, useEffect } from "react";
+
+function AutoFocusInput() {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  return <input ref={inputRef} />;
+}
+----
+
+`<input ref={inputRef} />`처럼 JSX 요소에 `ref` 속성을 달아주면, React가 그 요소에 대응하는 **실제 DOM 노드**를 `inputRef.current`에 채워줍니다(컴포넌트가 마운트되기 전에는 `null`이라, `useRef<HTMLInputElement>(null)`처럼 초깃값과 타입을 함께 지정합니다). `useEffect(..., [])`(10장에서 배운 "마운트 시점에 한 번만 실행")로 감싸서 화면에 실제로 나타난 뒤에 `.focus()`를 호출합니다 — 실제로 이 컴포넌트를 렌더링하면 `document.activeElement`(현재 포커스된 요소)가 정말로 이 `input`이 됩니다.
+
+== 왜 이걸 State로는 못 하는가
+
+"그냥 `isFocused` 같은 State를 두고 처리하면 안 되나?"라고 생각할 수 있습니다. 안 되는 이유는, **"포커스를 준다"는 동작 자체가 DOM 노드에게 내리는 명령이지, "화면이 어떤 모양이어야 하는가"를 나타내는 데이터가 아니기 때문**입니다. State는 "이 값이 바뀌면 화면이 이렇게 보여야 한다"는 선언에 쓰는 도구인데, 포커스·스크롤 위치·재생 중인 `<video>` 같은 것들은 "화면 모양"이 아니라 "지금 이 DOM 노드에 직접 내려야 하는 명령"입니다. `ref`는 정확히 이럴 때 — 선언형 모델을 깨고 명령형으로 DOM에 접근해야 하는, 많지 않지만 실재하는 순간을 위한 탈출구입니다.
+
+== 왜 이걸 지역 변수로는 못 하는가
+
+반대 방향의 질문도 있습니다 — "타이머 ID처럼 렌더링과 무관한 값은 그냥 컴포넌트 밖의 변수에 두면 안 되나?"입니다. 문제는 **컴포넌트는 화면에 여러 개 동시에 존재할 수 있다**는 것입니다(8장에서 `<Counter />`를 두 번 렌더링했을 때 각자 독립된 State를 가졌던 것과 같은 이유로). 컴포넌트 함수 몸체에 그냥 `let timerId`를 두면 렌더링마다 초기화되어 이전 타이머를 잃어버리고, 컴포넌트 밖에 전역으로 두면 이번엔 여러 인스턴스가 그 하나의 변수를 공유해버립니다. `useRef`는 "이 컴포넌트 인스턴스 하나에 묶여 있으면서도, 렌더링 사이에는 계속 유지되는" 정확히 필요한 자리를 제공합니다.
+
+== 직접 해보기
+
+* `useRef`로 초시계(스톱워치)를 만들어보세요 — "시작" 버튼을 누르면 `setInterval`로 1초마다 State를 늘리고, 그 인터벌 ID는 `useRef`에 저장해서 "정지" 버튼을 누르면 `clearInterval`로 멈추게 하세요. "시작"을 두 번 눌러도 인터벌이 중복 생성되지 않도록 막아보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,tsx]
+----
+import { useState, useRef } from "react";
+
+function Stopwatch() {
+  const [seconds, setSeconds] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function start() {
+    if (intervalRef.current !== null) return; // 이미 실행 중이면 중복 시작 방지
+    intervalRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
+  }
+
+  function stop() {
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }
+
+  return (
+    <div>
+      <p>{seconds}초</p>
+      <button onClick={start}>시작</button>
+      <button onClick={stop}>정지</button>
+    </div>
+  );
+}
+----
+
+`intervalRef.current !== null`로 "이미 시작됐는지"를 확인하는 게 핵심입니다 — 이 값을 평범한 지역 변수에 뒀다면 렌더링마다 초기화되어 이 검사 자체가 무의미해졌을 것입니다. 실제로 "시작"을 두 번 눌러도 인터벌이 하나만 생기고(초당 1씩만 증가), "정지"를 누르면 그 즉시 더 이상 증가하지 않는다는 걸 직접 실행해 확인할 수 있습니다.
+====
+
+== 요약
+
+* `useRef(initial)`은 `{ current: initial }` 모양의 ref 객체를 반환합니다 — `.current`를 바꿔도 렌더링을 일으키지 않으면서, 그 값은 렌더링 사이에 계속 유지됩니다.
+* JSX 요소에 `ref` 속성을 달면 React가 그 요소의 실제 DOM 노드를 `.current`에 채워줘서, `focus()`처럼 선언형으로 표현할 수 없는 명령형 DOM 조작을 할 수 있게 해줍니다.
+* 타이머 ID처럼 "렌더링과 무관하지만 컴포넌트 인스턴스별로 유지돼야 하는" 값도 `useRef`의 대표적인 용도입니다 — 평범한 지역 변수(매 렌더링 초기화)나 컴포넌트 밖 전역 변수(여러 인스턴스가 공유)로는 풀리지 않는 문제입니다.
+
+다음 장에서는 9장에서 미뤄뒀던 `key`가 리스트 재조정에서 정확히 어떤 문제를 해결하는지, 그리고 `key={index}`가 왜 항상 안전하지는 않은지 다룹니다.
+// end::body[]

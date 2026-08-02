@@ -3,7 +3,7 @@ title: "TypeScript + React 입문: react.dev와 Handbook을 왜라는 질문으�
 draft: false
 ---
 
-react.dev(공식 React 문서)와 TypeScript Handbook을 재료로, "왜 이렇게 생겼는가"라는 질문을 축으로 처음부터 다시 엮은 입문서입니다. TypeScript를 JavaScript 위에 얹는 타입 시스템으로 놓고 시작해(1부), React의 컴포넌트·State·렌더링 원리로 넘어가고(2부), 마지막으로 그 둘을 실제 API 호출과 폼으로 합칩니다(3부).
+react.dev(공식 React 문서)와 TypeScript Handbook을 재료로, "왜 이렇게 생겼는가"라는 질문을 축으로 처음부터 다시 엮은 입문서입니다. TypeScript를 JavaScript 위에 얹는 타입 시스템으로 놓고 시작해(1부), React의 컴포넌트·State·렌더링 원리로 넘어가고(2부), 마지막으로 그 둘을 실제 API 호출·폼·페이지 전환(React Router)으로 합칩니다(3부).
 
 이 책의 코드 예제는 전부 이 책을 위해 새로 짠 것이며, 원본 문서의 예제를 그대로 옮기지 않습니다. 모든 예제는 실제로 TypeScript 컴파일러로 타입 검사를 통과했고, React 컴포넌트의 상당수는 jsdom 기반 상호작용 테스트로 동작까지 확인했습니다.
 
@@ -31,19 +31,21 @@ react.dev(공식 React 문서)와 TypeScript Handbook을 재료로, "왜 이렇�
 . *link:08-state-and-usestate/[State와 useState]*
 . *link:09-rendering-and-reconciliation/[렌더링과 재조정]*
 . *link:10-useeffect/[useEffect]*
-. *link:11-lists-and-keys/[리스트와 key: 왜 index를 key로 쓰면 안 되는가]*
-. *link:12-custom-hooks/[커스텀 훅: 로직을 재사용하는 진짜 이유]*
+. *link:11-useref/[useRef: 렌더링을 안 일으키면서 값을 기억하기]*
+. *link:12-lists-and-keys/[리스트와 key: 왜 index를 key로 쓰면 안 되는가]*
+. *link:13-custom-hooks/[커스텀 훅: 로직을 재사용하는 진짜 이유]*
 
 *3부: 합치기*
 
-[start=13]
-. *link:13-typing-components/[컴포넌트에 타입 입히기: Props, 이벤트, children]*
-. *link:14-forms-and-api-calls/[API 호출과 폼: 지금까지 배운 걸 합치기]*
+[start=14]
+. *link:14-typing-components/[컴포넌트에 타입 입히기: Props, 이벤트, children]*
+. *link:15-forms-and-api-calls/[API 호출과 폼: 지금까지 배운 걸 합치기]*
+. *link:16-react-router/[React Router: 페이지 전환이 왜 일반 링크와 다른가]*
 
 *맺음말*
 
-[start=15]
-. *link:15-afterword/[어디로 갈 것인가]*
+[start=17]
+. *link:17-afterword/[어디로 갈 것인가]*
 
 '''
 
@@ -91,20 +93,28 @@ include::10-useeffect.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::11-lists-and-keys.adoc[tag=body,leveloffset=+1]
+include::11-useref.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::12-custom-hooks.adoc[tag=body,leveloffset=+1]
+include::12-lists-and-keys.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::13-typing-components.adoc[tag=body,leveloffset=+1]
+include::13-custom-hooks.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::14-forms-and-api-calls.adoc[tag=body,leveloffset=+1]
+include::14-typing-components.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::15-afterword.adoc[tag=body,leveloffset=+1]
+include::15-forms-and-api-calls.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::16-react-router.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::17-afterword.adoc[tag=body,leveloffset=+1]

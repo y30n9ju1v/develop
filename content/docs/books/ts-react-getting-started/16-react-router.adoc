@@ -1,0 +1,121 @@
+---
+title: "16장: React Router — 페이지 전환이 왜 일반 링크와 다른가"
+date: 2026-07-31T00:00:00+09:00
+draft: false
+tags: ["react", "react-router", "spa", "book"]
+categories: ["books"]
+description: "일반 <a href>를 클릭하면 브라우저가 서버에 새 페이지를 통째로 다시 요청한다는 사실에서 출발해, React Router의 Link/Routes가 그 요청 자체를 막고 화면 일부만 바꿔치기하는 SPA 방식을 실제로 확인하는 3부 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../15-forms-and-api-calls/[15장: API 호출과 폼] · 다음: link:../17-afterword/[17장: 맺음말]_
+
+'''
+
+== 지금까지는 페이지가 하나였습니다
+
+이 책의 모든 예제는 화면이 하나였습니다 — 컴포넌트를 이리저리 조합했지만, 브라우저 주소창의 경로(`/`, `/about` 같은)가 바뀌는 상황은 다루지 않았습니다. 실제 앱은 보통 여러 "페이지"(홈, 상세 페이지, 로그인 등)를 가지고, 사용자가 링크를 눌러 그 사이를 오갑니다. 이 장에서는 그 페이지 전환이 왜 평범한 HTML 링크와 다르게 동작해야 하는지부터 확인합니다.
+
+== 문제: 평범한 `<a href>`는 서버에 새로 요청한다
+
+[source,tsx]
+----
+function PlainNav() {
+  return <a href="/about">소개로 이동</a>;
+}
+----
+
+이 링크를 클릭하면 브라우저는 지금 떠 있는 페이지를 통째로 버리고, **서버에 `/about`이라는 새 페이지 전체를 처음부터 다시 요청**합니다 — HTML을 처음부터 다시 받고, 그 안의 모든 `<script>`를 다시 실행하고, React 앱도 처음부터 다시 부팅됩니다(실제로 jsdom으로 이 클릭을 시뮬레이션해보면 "Not implemented: navigation to another Document"라는 경고가 뜹니다 — 브라우저가 진짜로 새 문서로 이동하려 한다는 뜻입니다). 문제는 대부분의 경우 페이지 전체가 처음부터 다시 필요한 게 아니라는 겁니다 — 상단 내비게이션 바나 로그인한 사용자 정보처럼, 페이지가 바뀌어도 그대로 남아있어야 할 부분이 매번 통째로 새로고침되는 건 느리고 화면이 깜빡입니다.
+
+== React Router: 페이지 전환을 "요청"이 아니라 "렌더링 전환"으로
+
+React Router는 정확히 이 문제를 풉니다 — **서버에 새로 요청하는 대신, 브라우저 주소만 바꾸고 화면에서 필요한 부분만 다른 컴포넌트로 바꿔치기**합니다. 이런 방식으로 여러 "페이지"를 갖는 웹 앱을 SPA(Single Page Application, 한 페이지 애플리케이션)라고 부릅니다 — 실제로는 서버가 페이지를 처음 한 번만 내려주고, 그 뒤로는 전부 브라우저 안에서 처리합니다.
+
+[source,tsx]
+----
+import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
+
+function Home() {
+  return <p>홈 페이지</p>;
+}
+
+function About() {
+  return <p>소개 페이지</p>;
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <nav>
+        <Link to="/">홈</Link>
+        <Link to="/about">소개</Link>
+      </nav>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/about" element={<About />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+----
+
+세 가지 조각을 눈여겨보세요.
+
+* *`BrowserRouter`*: 앱 전체를 감싸서, 브라우저 주소창의 경로를 React가 관찰하고 제어할 수 있게 해주는 뿌리 컴포넌트입니다.
+* *`Routes`와 `Route`*: "지금 경로가 `path`와 일치하면 `element`를 화면에 그려라"는 규칙을 나열합니다 — 6장에서 본 "지금 데이터가 이렇다면 화면은 이런 모양이어야 한다"는 선언형 원칙이, 여기서는 "지금 경로가 이렇다면 화면은 이런 모양이어야 한다"로 그대로 확장된 것입니다.
+* *`Link`*: `<a>` 대신 쓰는 컴포넌트입니다. 겉보기엔 `<a>`처럼 렌더링되지만, 클릭했을 때 **브라우저의 기본 동작(서버에 새로 요청하는 것)을 막고**, 대신 브라우저 히스토리 API로 주소만 조용히 바꾼 뒤 React Router에게 "이제 다른 `Route`를 그릴 차례"라고 알립니다.
+
+`<Link to="/about">`을 클릭하면 실제로 주소창의 경로가 `/about`으로 바뀌고 화면엔 `About`이 나타나지만, 이번엔 서버 요청도, "Not implemented: navigation" 경고도 없습니다 — 페이지 전체가 아니라 `Routes`가 감싸고 있는 부분만 바뀌었기 때문입니다.
+
+== 왜 이게 중요한가: 같은 화면, 다른 비용
+
+`<a href>`와 `<Link>`는 사용자 눈에는 둘 다 "클릭하면 다른 화면이 나온다"로 똑같이 보일 수 있습니다. 차이는 **그 화면 전환에 드는 비용**입니다.
+
+[cols="1,2,2"]
+|===
+|구분 |`<a href>` |`<Link to>`
+
+|브라우저의 동작
+|서버에 새 페이지를 통째로 요청
+|브라우저 히스토리 API로 주소만 변경
+
+|리액트 앱의 상태
+|전부 초기화되고 처음부터 다시 부팅
+|유지됨(내비게이션 바 등은 다시 그릴 필요 없음)
+
+|네트워크 요청
+|HTML·CSS·JS를 처음부터 다시 받음
+|필요한 데이터만(있다면) API로 요청
+|===
+
+실전에서 "왜 페이지를 옮겼는데 로그인 정보가 순간적으로 사라졌다가 다시 나타나지" 같은 버그는 종종 `<Link>`를 써야 할 자리에 실수로 평범한 `<a href>`를 써서 생깁니다 — 겉보기엔 똑같이 동작하는 것 같아서 놓치기 쉽습니다.
+
+== 직접 해보기
+
+* `/users/:id`처럼 경로 안에 변수를 담는 라우트(`<Route path="/users/:id" element={<UserDetail />} />`)를 만들고, `useParams()` 훅으로 그 `id` 값을 컴포넌트 안에서 꺼내보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,tsx]
+----
+import { useParams } from "react-router-dom";
+
+function UserDetail() {
+  const { id } = useParams<{ id: string }>();
+  return <p>{id}번 사용자의 상세 페이지</p>;
+}
+
+// <Route path="/users/:id" element={<UserDetail />} />로 등록해두면
+// /users/42로 이동했을 때 id가 "42"로 채워집니다.
+----
+====
+
+== 요약
+
+* 평범한 `<a href>`는 클릭할 때마다 서버에 새 페이지를 통째로 요청합니다 — React 앱 전체가 처음부터 다시 부팅됩니다.
+* React Router의 `<Link>`는 그 기본 동작을 막고, 브라우저 주소만 바꾼 뒤 `Routes`가 감싼 부분만 다른 컴포넌트로 바꿔치기합니다 — 이런 방식의 앱을 SPA라고 부릅니다.
+* `Routes`/`Route`는 "지금 경로가 이렇다면 화면은 이런 모양이어야 한다"는 선언으로, 6장에서 배운 React의 선언형 원칙이 경로에도 그대로 확장된 것입니다.
+
+다음 장(맺음말)에서는 이 책이 일부러 다루지 않은 것들과, 여기서 더 나아가고 싶을 때 어디로 가면 되는지 정리합니다.
+// end::body[]
