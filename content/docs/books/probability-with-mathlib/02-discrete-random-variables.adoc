@@ -1,0 +1,75 @@
+---
+title: "2장: 이산 확률변수와 기댓값"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "probability", "book"]
+categories: ["books"]
+description: "결과를 실숫값으로 바꾸는 확률변수를 정의하고, 확률질량함수에 대한 적분이 곧 가중합이라는 사실로 기댓값을 실제로 계산하며, 기댓값의 선형성을 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-discrete-probability-spaces/[1장: 이산 확률공간] · 다음: link:../03-discrete-independence/[3장: 이산적 독립성]_
+
+'''
+
+1장에서 지은 `fairDie`는 "어떤 결과가 나오는가"만 말해줄 뿐, 그 결과가 **얼마의 가치를 갖는지**는 말해주지 않습니다. 확률변수는 이 둘을 잇는 다리입니다.
+
+== 확률변수: 결과를 숫자로 바꾸는 함수
+
+[source,lean]
+----
+noncomputable def faceValue (i : Fin 6) : ℝ := (i.val : ℝ) + 1
+----
+
+`Fin 6`의 값 `0`부터 `5`는 그 자체로는 "주사위 눈"이 아니라 그냥 "여섯 가지 중 하나"라는 색인일 뿐입니다. `faceValue`가 이 색인을 실제 주사위 눈(1부터 6)으로 바꿔주는 **확률변수**입니다 — 확률변수는 이름과 달리 변수가 아니라, 결과 공간에서 실수(또는 다른 값의 공간)로 가는 그냥 **함수**입니다. "확률변수"라는 이름은 그 함수의 값이 무작위 결과에 따라 달라진다는 뜻에서 붙은 것뿐입니다.
+
+== 기댓값: PMF에 대한 적분
+
+[source,lean]
+----
+example : ∫ i, faceValue i ∂(fairDie.toMeasure) = 7 / 2 := by
+  rw [PMF.integral_eq_sum]
+  simp [fairDie, PMF.ofFintype_apply, faceValue]
+  norm_num [Fin.sum_univ_six]
+----
+
+기댓값은 **확률로 가중 평균을 낸 값**입니다 — Mathlib에서는 이걸 "확률측도에 대한 적분"(`∫ i, faceValue i ∂(fairDie.toMeasure)`)으로 표현합니다. `PMF.integral_eq_sum`이라는 정리가, 유한한 결과 공간 위에서는 이 적분이 정확히 `∑ a, (p a).toReal • f a`(각 결과의 확률에 그 결과의 값을 곱해 전부 더한 것)과 같다는 걸 보장합니다 — "기댓값 = 확률 가중 평균"이라는 익숙한 정의가, 적분이라는 더 일반적인 언어로 다시 쓰인 것뿐입니다. 실제로 계산하면 `(1+2+3+4+5+6)/6 = 21/6 = 7/2`, 주사위의 기댓값이 정확히 3.5라는 익숙한 결과를 얻습니다.
+
+이렇게 적분으로 기댓값을 정의하는 이유는 2부에서 드러납니다 — 이산적인 경우에는 "적분 = 가중합"이지만, 결과가 무한히 많은 연속적인 경우에는 진짜 적분(넓이)이 필요합니다. 이산과 연속을 하나의 언어(적분)로 통일해서 다루는 게 이 책 전체의 전략입니다.
+
+== 기댓값의 선형성
+
+[source,lean]
+----
+example : ∫ i, 2 * faceValue i ∂(fairDie.toMeasure) = 2 * ∫ i, faceValue i ∂(fairDie.toMeasure) := by
+  rw [← MeasureTheory.integral_const_mul]
+----
+
+"확률변수를 2배로 부풀리면, 기댓값도 정확히 2배가 된다"는 사실은 적분의 일반적인 성질(상수를 적분 밖으로 빼낼 수 있다는 것)에서 공짜로 따라옵니다 — `MeasureTheory.integral_const_mul`은 이산 확률뿐 아니라 **어떤 측도에 대한 적분에서도** 성립하는 일반적인 정리입니다. 기댓값이 적분으로 정의된 덕분에, 적분에 관해 이미 알려진 방대한 정리들을 기댓값에 대해서도 공짜로 쓸 수 있다는 게 이 정의 방식의 힘입니다.
+
+== 직접 해보기
+
+* `faceValue`에 1을 더한 새 확률변수(`fun i => faceValue i + 1`)의 기댓값이 원래 기댓값보다 정확히 1 크다는 것을, `MeasureTheory.integral_add`(적분의 덧셈 분배)를 이용해 증명해보세요(상수 함수의 적분이 그 상수와 같다는 `MeasureTheory.integral_const`도 필요합니다).
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example :
+    ∫ i, (faceValue i + 1) ∂(fairDie.toMeasure) =
+      (∫ i, faceValue i ∂(fairDie.toMeasure)) + 1 := by
+  rw [MeasureTheory.integral_add (MeasureTheory.Integrable.of_finite)
+    (MeasureTheory.Integrable.of_finite), MeasureTheory.integral_const]
+  simp
+----
+====
+
+== 요약
+
+* 확률변수는 결과 공간에서 실수(혹은 다른 값의 공간)로 가는 함수일 뿐입니다.
+* 기댓값은 확률측도에 대한 적분이고, 유한한 이산 확률에서는 이 적분이 정확히 확률 가중합과 같습니다.
+* 기댓값이 적분으로 정의된 덕분에, 선형성 같은 적분의 일반적인 성질을 기댓값에 대해서도 그대로 쓸 수 있습니다.
+
+다음 장에서는 두 확률변수(혹은 두 사건)가 서로 영향을 주지 않는다는 것, 독립성을 다룹니다.
+// end::body[]

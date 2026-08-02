@@ -1,0 +1,91 @@
+---
+title: "6장: 분포: 밀어내기측도"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "probability", "measure-theory", "book"]
+categories: ["books"]
+description: "확률변수가 만들어내는 새로운 측도, 분포를 Measure.map으로 직접 짓고, 그 분포에서의 확률이 원상의 측도와 정확히 일치한다는 것과 분포 역시 확률측도라는 것을 확인하며 2부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-random-variables-as-measurable-functions/[5장: 가측함수로서의 확률변수] · 다음: link:../07-expectation-as-integral/[7장: 기댓값을 적분으로 다시 보기]_
+
+'''
+
+5장에서 "확률변수가 어떤 범위에 들어갈 확률 = 그 범위의 원상의 측도"라는 계산을 매번 원상을 직접 구해서 했습니다. 이 장에서는 그 계산을 한 번만 해두고 재사용할 수 있는 새로운 측도, **분포**를 짓습니다.
+
+== 밀어내기측도: 확률변수가 만드는 새 측도
+
+[source,lean]
+----
+noncomputable def doubledDist : Measure ℝ := uniformMeasure.map doubled
+----
+
+`μ.map f`는 "측도 `μ`를 함수 `f`를 통해 밀어낸" 새로운 측도입니다 — 원래 공간에서 확률이 `μ`대로 분포돼 있었다면, `f`를 적용해서 얻은 새로운 값들이 새 공간에서 어떻게 분포되는지를 나타내는 측도입니다. `doubledDist`는 "`doubled`(2배 함수)를 통과한 결과가 어떻게 분포하는지"를 나타내는 측도이고, 이게 바로 확률론에서 말하는 **분포(distribution)**입니다.
+
+== 분포에서의 확률 = 원상의 측도
+
+[source,lean]
+----
+example : doubledDist (Set.Icc (0.4:ℝ) 1.0) = uniformMeasure (Set.Icc (0.2:ℝ) 0.5) := by
+  rw [doubledDist, Measure.map_apply (by unfold doubled; fun_prop) measurableSet_Icc]
+  congr 1
+  ext x
+  simp [doubled, Set.mem_Icc]
+  constructor
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+----
+
+`Measure.map_apply`라는 정리가 정확히 5장에서 손으로 했던 계산 — "밀어낸 측도로 잰 사건의 확률은, 원래 측도로 잰 그 사건의 원상의 확률과 같다"(`(μ.map f)(B) = μ(f⁻¹(B))`) — 을 그대로 정리로 제공합니다. `doubledDist`가 `[0.4, 1]`에 있을 확률이, 5장에서 이미 계산해둔 `uniformMeasure`가 `[0.2, 0.5]`에 있을 확률과 같다는 걸 다시 확인했습니다 — 다른 점은, 이번에는 "분포"라는 새로운 측도 하나를 지어두고 나면, 앞으로 `doubled`와 관련된 모든 확률 질문을 이 `doubledDist`에 직접 물어볼 수 있다는 겁니다(매번 원상을 손으로 계산할 필요 없이).
+
+== 분포도 확률측도다
+
+[source,lean]
+----
+example : IsProbabilityMeasure doubledDist := by
+  haveI : IsProbabilityMeasure uniformMeasure := by
+    constructor
+    simp [uniformMeasure, Measure.restrict_apply, Real.volume_Icc]
+  exact Measure.isProbabilityMeasure_map (μ := uniformMeasure)
+    (Measurable.aemeasurable (by unfold doubled; fun_prop))
+----
+
+원래 측도가 확률측도(전체 확률 1)였다면, 거기서 밀어낸 분포도 자동으로 확률측도입니다 — `Measure.isProbabilityMeasure_map`이 이 사실을 보장합니다. 직관적으로 당연합니다: 원래 결과 전체의 확률이 1이었다면, 그 결과들을 `doubled`로 옮겨봐야 "무슨 값이 나오는가"만 바뀔 뿐 "무슨 일이든 일어난다"는 사실(전체 확률 1) 자체는 바뀌지 않습니다.
+
+== 왜 분포가 확률론에서 가장 중요한 대상인가
+
+확률론에서 "확률변수 `X`의 분포"라고 말할 때, 사실 우리가 정말 알고 싶은 건 `X` 그 자체(원래 결과 공간에서 어떤 함수인지)가 아니라, `X`가 만들어내는 이 새로운 측도 `μ.map X`인 경우가 대부분입니다 — 주사위 자체가 물리적으로 어떻게 생겼는지는 몰라도, "1부터 6까지 각각 1/6의 확률로 나온다"는 분포만 알면 그 주사위에 관한 모든 확률적 질문에 답할 수 있는 것과 같은 이치입니다. 사실 1장의 `PMF` 역시, 이산적인 세계에서의 "분포"였습니다 — `PMF`와 이 장의 `Measure.map`이 같은 개념을 이산과 일반의 두 언어로 각각 표현한 것뿐입니다.
+
+== 직접 해보기
+
+* 5장 연습문제의 `shifted`(`x ↦ x + 0.1`)로 `uniformMeasure`를 밀어낸 분포 `shiftedDist`를 정의하고, `shiftedDist (Set.Icc (0.3:ℝ) 0.6) = uniformMeasure (Set.Icc (0.2:ℝ) 0.5)`임을 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+noncomputable def shifted : ℝ → ℝ := fun x => x + 0.1
+noncomputable def shiftedDist : Measure ℝ := uniformMeasure.map shifted
+
+example : shiftedDist (Set.Icc (0.3:ℝ) 0.6) = uniformMeasure (Set.Icc (0.2:ℝ) 0.5) := by
+  rw [shiftedDist, Measure.map_apply (by unfold shifted; fun_prop) measurableSet_Icc]
+  congr 1
+  ext x
+  simp [shifted, Set.mem_Icc]
+  constructor
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+----
+====
+
+== 요약
+
+* `μ.map f`(밀어내기측도)는 확률변수 `f`가 만들어내는 새로운 측도, 즉 **분포**입니다.
+* `Measure.map_apply`에 따라, 분포로 잰 확률은 정확히 원래 측도로 잰 원상의 확률과 같습니다.
+* 원래 측도가 확률측도면 그 분포도 자동으로 확률측도이고, 확률론은 대부분 확률변수 자체보다 이 분포에 관심을 둡니다.
+* 1장의 `PMF`도 사실 이산 세계에서의 분포였습니다 — 이산과 일반을 잇는 다리가 여기서 완성됩니다.
+
+2부가 여기서 끝났습니다. 3부에서는 기댓값을 적분으로 다시 정의하고, 분산과 독립성, 조건부 확률을 다룹니다.
+// end::body[]

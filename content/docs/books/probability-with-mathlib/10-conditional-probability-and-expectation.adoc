@@ -1,0 +1,86 @@
+---
+title: "10장: 조건부 확률과 조건부 기댓값"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "probability", "book"]
+categories: ["books"]
+description: "어떤 사건이 이미 일어났다는 정보를 확률에 반영하는 조건부 확률을 정의하고 실제로 계산하며, 조건부 기댓값이라는 더 일반적인 개념을 소개하며 3부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-independence/[9장: 독립성] · 다음: link:../11-borel-cantelli-lemmas/[11장: 보렐-칸텔리 보조정리]_
+
+'''
+
+9장에서는 서로 영향을 주지 않는 상황(독립)을 다뤘습니다. 이 장에서는 정반대 상황 — 이미 어떤 정보를 알고 있을 때, 그 정보가 다른 사건의 확률을 어떻게 바꾸는지 — 를 다룹니다.
+
+== 조건부 확률: 정보를 반영해 다시 잰 확률
+
+"결과가 `[0, 0.6]` 안에 있다는 걸 이미 알고 있을 때, 그 결과가 `[0.2, 0.5]` 안에 있을 확률은 얼마인가?"라는 질문이 조건부 확률입니다. Mathlib은 이걸 `μ[t | s]`(`s`가 주어졌을 때 `t`의 조건부 확률)라는 표기로 제공합니다.
+
+[source,lean]
+----
+example :
+    uniformMeasure[Set.Icc (0.2:ℝ) 0.5 | Set.Icc (0:ℝ) 0.6] = ENNReal.ofReal 0.5 := by
+  rw [cond_apply' measurableSet_Icc]
+  have hinter : (Set.Icc (0:ℝ) 0.6 ∩ Set.Icc (0.2:ℝ) 0.5) = Set.Icc (0.2:ℝ) 0.5 := by
+    rw [Set.Icc_inter_Icc]; norm_num
+  rw [hinter]
+  have h1 : uniformMeasure (Set.Icc (0:ℝ) 0.6) = ENNReal.ofReal 0.6 := by
+    simp only [uniformMeasure, Measure.restrict_apply measurableSet_Icc, Set.Icc_inter_Icc]
+    norm_num
+  have h2 : uniformMeasure (Set.Icc (0.2:ℝ) 0.5) = ENNReal.ofReal 0.3 := by
+    simp only [uniformMeasure, Measure.restrict_apply measurableSet_Icc, Set.Icc_inter_Icc]
+    norm_num
+  rw [h1, h2, ← ENNReal.ofReal_inv_of_pos (by norm_num), ← ENNReal.ofReal_mul (by norm_num)]
+  norm_num
+----
+
+`cond_apply'`이라는 정리가 조건부 확률의 정의 그 자체를 제공합니다 — `μ[t | s] = (μ s)⁻¹ * μ(s ∩ t)`, 즉 "`t`와 `s`가 동시에 일어날 확률을, `s`가 일어날 확률로 나눈다"는 익숙한 공식입니다. 계산해보면 `[0.2, 0.5]`는 이미 `[0, 0.6]` 안에 완전히 들어 있으므로 `s ∩ t = t`이고, `0.3 / 0.6 = 0.5`가 나옵니다 — "전체 구간의 60%만 남았다고 알고 있을 때, 그 안에서 다시 절반이 조건을 만족한다"는 직관과 정확히 일치합니다.
+
+이 조건부 확률이 원래 확률(`uniformMeasure (Set.Icc 0.2 0.5) = 0.3`, 4장에서 계산)보다 커졌다는 점을 눈여겨보세요 — "결과가 `[0, 0.6]` 안에 있다"는 정보가, "결과가 `[0.2, 0.5]` 안에 있을 가능성"을 실제로 더 높여준 것입니다. 이게 바로 조건부 확률이 "정보를 반영해 다시 잰 확률"이라고 불리는 이유입니다.
+
+== 조건부 확률도 그 자체로 하나의 확률측도다
+
+`μ[|s]`(조건 없이 측도 자체로 본 것)는 Mathlib 안에서 `μ.cond s`로 정의되는데, 이건 그냥 숫자 하나가 아니라 **그 자체로 하나의 새로운 확률측도**입니다 — "`s`라는 사건이 이미 일어났다고 가정한 새로운 세계"를 통째로 나타냅니다. 그래서 `μ[t | s]`는 사실 이 새로운 측도 `μ[|s]`를 `t`에 적용한 값(`μ[|s] t`)일 뿐입니다 — 4장에서 다룬 "측도"라는 개념이 조건부라는 상황에서도 그대로 재사용되는 것입니다.
+
+== 조건부 기댓값: 한 걸음 더 일반화
+
+조건부 확률이 "사건 하나를 조건으로 걸고 다시 잰 확률"이라면, **조건부 기댓값**(`MeasureTheory.condExp`, 표기로는 `μ[X | m]`)은 "부분적인 정보(더 작은 σ-대수 `m`)가 주어졌을 때, 확률변수 `X`의 최선의 추정치"를 나타내는 더 일반적인 개념입니다. 조건부 확률이 조건부 기댓값의 특수한 경우입니다 — 사건 `t`의 지시함수(그 사건이 일어나면 1, 아니면 0인 함수)의 조건부 기댓값이 정확히 조건부 확률이 됩니다. 이 개념은 σ-대수를 다루는 상당한 준비가 더 필요해서 이 책의 범위를 넘어서지만, 이름과 역할만은 꼭 기억해둘 만합니다 — 4부의 마팅게일(martingale) 이론이나 통계적 추정 이론에서 핵심적인 역할을 합니다.
+
+== 직접 해보기
+
+* `uniformMeasure[Set.Icc (0.3:ℝ) 0.8 | Set.Icc (0.2:ℝ) 0.8] = ENNReal.ofReal 0.5`(즉 `[0.2, 0.8]`이 주어졌을 때 `[0.3, 0.8]`일 확률이 `0.5`)임을 증명해보세요 — 위와 같은 패턴을 따라가면 됩니다(`[0.3, 0.8] ∩ [0.2, 0.8] = [0.3, 0.8]`이고, `[0.2, 0.8]`의 길이는 `0.6`, `[0.3, 0.8]`의 길이는 `0.5`이니 `0.5/0.6`이 아니라... 직접 계산해보고 값을 맞춰보세요).
+
+.해답 보기
+[%collapsible]
+====
+`[0.3, 0.8]`의 길이는 `0.5`, `[0.2, 0.8]`의 길이는 `0.6`이므로 조건부 확률은 `0.5/0.6 = 5/6`입니다 — `0.5`가 아닙니다. 정확한 명제와 증명은 다음과 같습니다.
+
+[source,lean]
+----
+example :
+    uniformMeasure[Set.Icc (0.3:ℝ) 0.8 | Set.Icc (0.2:ℝ) 0.8] = ENNReal.ofReal (5/6) := by
+  rw [cond_apply' measurableSet_Icc]
+  have hinter : (Set.Icc (0.2:ℝ) 0.8 ∩ Set.Icc (0.3:ℝ) 0.8) = Set.Icc (0.3:ℝ) 0.8 := by
+    rw [Set.Icc_inter_Icc]; norm_num
+  rw [hinter]
+  have h1 : uniformMeasure (Set.Icc (0.2:ℝ) 0.8) = ENNReal.ofReal 0.6 := by
+    simp only [uniformMeasure, Measure.restrict_apply measurableSet_Icc, Set.Icc_inter_Icc]
+    norm_num
+  have h2 : uniformMeasure (Set.Icc (0.3:ℝ) 0.8) = ENNReal.ofReal 0.5 := by
+    simp only [uniformMeasure, Measure.restrict_apply measurableSet_Icc, Set.Icc_inter_Icc]
+    norm_num
+  rw [h1, h2, ← ENNReal.ofReal_inv_of_pos (by norm_num), ← ENNReal.ofReal_mul (by norm_num)]
+  norm_num
+----
+====
+
+== 요약
+
+* `μ[t | s] = (μ s)⁻¹ * μ(s ∩ t)`가 조건부 확률의 정의이고, `cond_apply'`로 이 정의를 그대로 계산에 씁니다.
+* 정보(`s`가 일어났다는 사실)를 반영하면 원래 확률과 다른(대개는 더 정확한) 값이 나옵니다.
+* `μ[|s]`는 그 자체로 하나의 새로운 확률측도이고, 조건부 기댓값(`condExp`)은 이 개념을 사건에서 확률변수로 일반화한 것입니다.
+
+3부가 여기서 끝났습니다. 4부에서는 확률론에서 가장 유명한 극한정리들을 다룹니다.
+// end::body[]

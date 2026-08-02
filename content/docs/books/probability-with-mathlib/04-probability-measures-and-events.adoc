@@ -1,0 +1,101 @@
+---
+title: "4장: 확률측도와 사건"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "probability", "measure-theory", "book"]
+categories: ["books"]
+description: "구간 위의 균등분포를 실제 길이(르베그 측도)로 지어, 사건의 확률이 정말 그 구간의 넓이와 같다는 것과 여집합·서로소 사건의 덧셈법칙을 직접 증명하며 2부를 여는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-discrete-independence/[3장: 이산적 독립성] · 다음: link:../05-random-variables-as-measurable-functions/[5장: 가측함수로서의 확률변수]_
+
+'''
+
+1부는 주사위처럼 결과가 유한한 세계였습니다. 이 장부터는 "`0`과 `1` 사이의 임의의 실수"처럼 결과가 무한히(그것도 셀 수 없이 많이) 있는 세계를 다룹니다 — 여기서는 "경우의 수를 센다"는 방법이 통하지 않고, 진짜 **측도**(넓이, 길이, 부피의 일반화)가 필요합니다.
+
+== 균등분포: 길이 그 자체가 확률이다
+
+[source,lean]
+----
+noncomputable def uniformMeasure : Measure ℝ := (volume.restrict (Set.Icc (0:ℝ) 1))
+----
+
+`volume`은 Mathlib에서 실수 위의 **르베그 측도**(직관적으로 "길이")를 가리킵니다. `volume.restrict (Set.Icc 0 1)`은 이 길이를 구간 `[0, 1]` 안에서만 재는 측도입니다 — `[0, 1]` 바깥은 아예 재지 않고(측도 0), 안쪽은 원래 르베그 측도 그대로입니다. 이렇게 만든 `uniformMeasure`가 바로 "`[0, 1]` 위의 균등분포"입니다.
+
+[source,lean]
+----
+example : IsProbabilityMeasure uniformMeasure := by
+  constructor
+  simp [uniformMeasure, Measure.restrict_apply, Real.volume_Icc]
+----
+
+`IsProbabilityMeasure`라는 typeclass는 "전체 공간의 측도가 정확히 1이다"라는 조건 하나만 요구합니다 — 1장에서 `PMF`가 "합이 1"을 요구했던 것과 정확히 같은 조건을, 이번에는 셀 수 없이 많은 결과를 가진 세계에서 "구간 `[0, 1]`의 길이가 1이다"라는 형태로 만족시킵니다.
+
+== 사건의 확률이 정말 넓이(길이)와 같다
+
+[source,lean]
+----
+example : uniformMeasure (Set.Icc (0.2:ℝ) 0.5) = ENNReal.ofReal 0.3 := by
+  simp only [uniformMeasure, Measure.restrict_apply measurableSet_Icc, Set.Icc_inter_Icc]
+  norm_num
+----
+
+이게 이 책이 시작하며 던진 질문에 대한 실제 증명입니다 — "결과가 `0.2`와 `0.5` 사이일 확률"이 정확히 `0.3`, 즉 그 구간의 **길이**와 같습니다. 손으로 계산할 때 "균등분포에서 확률은 구간의 길이다"라고 그냥 받아들였던 사실이, 여기서는 `volume`(르베그 측도)이라는 구체적인 대상으로 실제로 계산되고 증명됩니다. `Set.Icc_inter_Icc`는 두 구간의 교집합이 다시 구간이 된다는 정리로, `[0.2, 0.5]`가 이미 `[0, 1]` 안에 완전히 들어 있기 때문에 이 교집합이 원래 구간 그대로 남는다는 걸 확인해줍니다.
+
+== 서로소 사건의 덧셈법칙
+
+[source,lean]
+----
+example :
+    uniformMeasure (Set.Icc (0:ℝ) 0.2 ∪ Set.Icc (0.3:ℝ) 0.5) =
+      uniformMeasure (Set.Icc (0:ℝ) 0.2) + uniformMeasure (Set.Icc (0.3:ℝ) 0.5) := by
+  apply measure_union _ measurableSet_Icc
+  rw [Set.disjoint_left]
+  intro x hx1 hx2
+  simp only [Set.mem_Icc] at hx1 hx2
+  linarith [hx1.2, hx2.1]
+----
+
+측도의 가장 근본적인 공리 — **서로 겹치지 않는(서로소인) 두 사건의 합집합의 확률은 각자의 확률의 합과 같다** — 를 `measure_union`으로 직접 증명했습니다. `[0, 0.2]`와 `[0.3, 0.5]`는 서로 겹치지 않으므로(`Set.disjoint_left`로 "한쪽에 속하면 다른 쪽에는 속하지 않는다"는 걸 확인), 두 구간을 합친 사건의 확률이 정확히 각 구간 길이의 합이 됩니다. 넓이(길이)의 세계에서 "서로 겹치지 않는 두 조각을 합친 넓이는 각 조각 넓이의 합"이라는 직관과 정확히 일치합니다.
+
+== 왜 여집합의 확률도 자동으로 따라오는가
+
+`IsProbabilityMeasure`(전체 확률 1)와 방금 본 덧셈법칙만 있으면, "여사건의 확률은 1에서 원래 사건의 확률을 뺀 것"(`P(Aᶜ) = 1 - P(A)`)도 자동으로 증명됩니다 — `A`와 `Aᶜ`는 서로소이고 합치면 전체 공간이 되기 때문입니다. Mathlib은 이 사실을 `prob_compl_eq_one_sub`라는 정리로 이미 증명해뒀습니다.
+
+[source,lean]
+----
+example (A : Set ℝ) (hA : MeasurableSet A) :
+    uniformMeasure Aᶜ = 1 - uniformMeasure A := by
+  haveI : IsProbabilityMeasure uniformMeasure := by
+    constructor
+    simp [uniformMeasure, Measure.restrict_apply, Real.volume_Icc]
+  exact prob_compl_eq_one_sub hA
+----
+
+`hA : MeasurableSet A`라는 전제가 필요하다는 점을 눈여겨보세요 — 측도는 **모든** 부분집합이 아니라, "잴 수 있는"(가측인) 부분집합에 대해서만 정의됩니다. 다음 장에서 이 "가측"이라는 조건이 확률변수의 정의에서도 왜 중요한지 다룹니다.
+
+== 직접 해보기
+
+* `uniformMeasure (Set.Icc (0.6:ℝ) 0.9) = ENNReal.ofReal 0.3`을 증명해보세요 — 위에서 본 것과 같은 패턴입니다.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example : uniformMeasure (Set.Icc (0.6:ℝ) 0.9) = ENNReal.ofReal 0.3 := by
+  simp only [uniformMeasure, Measure.restrict_apply measurableSet_Icc, Set.Icc_inter_Icc]
+  norm_num
+----
+====
+
+== 요약
+
+* `volume.restrict (Set.Icc 0 1)`처럼 르베그 측도를 특정 구간으로 제한하면, 그 구간 위의 균등분포를 얻습니다.
+* `IsProbabilityMeasure`는 "전체 공간의 측도가 1"이라는 조건이고, 균등분포는 이 조건을 실제로 만족합니다.
+* 사건의 확률은 정말로 그 구간의 길이(넓이)와 같다는 걸 직접 계산으로 확인했습니다 — "확률은 넓이다"라는 직관이 여기서 정확한 증명이 됩니다.
+* 측도는 서로소 사건에 대해 덧셈법칙을 만족하고, 여사건의 확률(`1 - P(A)`)은 그 덧셈법칙에서 자동으로 따라나옵니다.
+
+다음 장에서는 이 일반적인 확률공간 위에서 확률변수가 무엇인지, 그리고 왜 "가측함수"여야 하는지를 다룹니다.
+// end::body[]

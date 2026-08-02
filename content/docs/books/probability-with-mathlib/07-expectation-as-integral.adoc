@@ -1,0 +1,77 @@
+---
+title: "7장: 기댓값을 적분으로 다시 보기"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "probability", "measure-theory", "book"]
+categories: ["books"]
+description: "구간 위의 확률측도에 대한 적분으로 기댓값을 실제로 계산하고, 구간 적분(intervalIntegral)과 측도 적분을 잇는 다리를 확인하며 3부를 여는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-distributions/[6장: 분포: 밀어내기측도] · 다음: link:../08-variance-and-moments/[8장: 분산과 모멘트]_
+
+'''
+
+2장에서 이산 확률의 기댓값을 적분(사실상 가중합)으로 계산했습니다. 이 장에서는 같은 정의(`∫ x, X x ∂μ`)를 4~6장에서 지은 일반적인(연속) 확률공간에 그대로 적용합니다.
+
+== 균등분포의 기댓값
+
+[source,lean]
+----
+example : ∫ x, x ∂uniformMeasure = 1 / 2 := by
+  rw [uniformMeasure]
+  rw [MeasureTheory.integral_Icc_eq_integral_Ioc]
+  rw [← intervalIntegral.integral_of_le (by norm_num : (0:ℝ) ≤ 1)]
+  rw [integral_id]
+  norm_num
+----
+
+"`[0, 1]` 위에 균등하게 분포된 값의 평균은 정확히 그 구간의 한가운데인 `0.5`다"라는, 직관적으로 당연한 사실을 실제로 증명했습니다. 증명 과정이 몇 단계를 거치는 이유는, Mathlib이 **측도에 대한 일반적인 적분**(`∫ x, f x ∂μ`, 이 책에서 계속 써온 것)과, 미적분학에서 배운 **구간 적분**(`∫ x in a..b, f x`, "부정적분의 차"로 계산하는 익숙한 방식)을 서로 다른 도구로 관리하기 때문입니다.
+
+* `MeasureTheory.integral_Icc_eq_integral_Ioc`: 닫힌구간 `[0,1]`에 대한 적분과 반열린구간 `(0,1]`에 대한 적분이 같다는 것(끝점 하나는 측도 0이라 적분값에 영향을 주지 않습니다).
+* `intervalIntegral.integral_of_le`: `a ≤ b`일 때, 측도에 대한 구간 적분(`∫ x in Ioc a b, f x ∂μ`)이 익숙한 구간 적분 표기(`∫ x in a..b, f x ∂μ`)와 같다는 것.
+* `integral_id`: `∫ x in a..b, x = (b² - a²) / 2`라는, 미적분학에서 배운 "`x`의 적분은 `x²/2`"라는 공식 그 자체.
+
+이 세 다리를 건너면, 측도론적으로 정의된 기댓값이 결국 미적분학 시간에 배운 정적분 계산으로 환원된다는 걸 확인할 수 있습니다 — `(1² - 0²)/2 = 1/2`.
+
+== 선형성은 여기서도 성립한다
+
+[source,lean]
+----
+example : ∫ x, 2 * x ∂uniformMeasure = 1 := by
+  rw [uniformMeasure]
+  rw [MeasureTheory.integral_Icc_eq_integral_Ioc]
+  rw [← intervalIntegral.integral_of_le (by norm_num : (0:ℝ) ≤ 1)]
+  rw [intervalIntegral.integral_const_mul, integral_id]
+  norm_num
+----
+
+2장에서 본 "상수를 곱하면 기댓값도 그 배수만큼 커진다"는 선형성이 구간 적분에서도 `intervalIntegral.integral_const_mul`이라는 이름으로 똑같이 성립합니다 — `E[2X] = 2 * E[X] = 2 * (1/2) = 1`. 적분이라는 하나의 언어로 기댓값을 정의해둔 덕분에, 2장에서 이산 확률에 대해 확인한 성질들이 이름만 조금 바뀔 뿐 그대로 연속 확률에서도 성립한다는 걸 다시 확인했습니다.
+
+== 직접 해보기
+
+* `∫ x, x + 1 ∂uniformMeasure = 3 / 2`를 증명해보세요(힌트: `intervalIntegral.integral_add`와 `intervalIntegral.integral_const`, `integral_id`를 조합합니다).
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example : ∫ x, (x + 1) ∂uniformMeasure = 3 / 2 := by
+  rw [uniformMeasure]
+  rw [MeasureTheory.integral_Icc_eq_integral_Ioc]
+  rw [← intervalIntegral.integral_of_le (by norm_num : (0:ℝ) ≤ 1)]
+  rw [intervalIntegral.integral_add intervalIntegrable_id intervalIntegrable_const,
+    integral_id, intervalIntegral.integral_const]
+  norm_num
+----
+====
+
+== 요약
+
+* 연속 확률변수의 기댓값도 2장과 똑같이 `∫ x, X x ∂μ`(측도에 대한 적분)로 정의됩니다.
+* `MeasureTheory.integral_Icc_eq_integral_Ioc`, `intervalIntegral.integral_of_le`를 거치면, 측도론적 적분이 미적분학의 구간 적분으로 환원되어 익숙한 방식으로 계산할 수 있습니다.
+* 선형성 같은 기댓값의 성질은 이산이든 연속이든 같은 형태로 성립합니다.
+
+다음 장에서는 기댓값을 한 번 더 활용해서, "값이 평균에서 얼마나 퍼져 있는가"를 재는 분산을 다룹니다.
+// end::body[]

@@ -1,0 +1,80 @@
+---
+title: "5장: 가측함수로서의 확률변수"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["lean4", "mathlib", "probability", "measure-theory", "book"]
+categories: ["books"]
+description: "확률변수가 왜 그냥 함수가 아니라 가측함수여야 하는지, 그리고 확률변수가 특정 값의 범위에 들어갈 확률이 원상의 측도로 정확히 계산된다는 것을 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-probability-measures-and-events/[4장: 확률측도와 사건] · 다음: link:../06-distributions/[6장: 분포: 밀어내기측도]_
+
+'''
+
+2장에서 확률변수를 "결과를 숫자로 바꾸는 함수"라고 소개했습니다. 결과가 무한히 많은 세계에서는 이 정의에 조건이 하나 더 필요합니다 — 그 함수가 **가측(measurable)**이어야 합니다.
+
+== 왜 아무 함수나 확률변수가 될 수는 없는가
+
+"확률변수 `X`가 `[0.4, 1]` 사이의 값을 가질 확률"을 구하고 싶다면, `X⁻¹([0.4, 1])`(그 값을 내놓는 원래 결과들의 집합)의 확률을 재야 합니다. 그런데 4장에서 봤듯, 측도는 **가측인 집합**에 대해서만 정의됩니다 — 만약 `X`의 원상이 가측이 아닌 이상한 집합이라면, "그 확률"이라는 것 자체가 정의되지 않습니다. 그래서 확률변수는 그냥 함수가 아니라, **모든 가측 집합의 원상이 다시 가측이 되는** 함수, 즉 **가측함수**여야 합니다.
+
+[source,lean]
+----
+noncomputable def doubled : ℝ → ℝ := fun x => 2 * x
+
+example : Measurable doubled := by
+  unfold doubled
+  fun_prop
+----
+
+`doubled`는 결과 `x`를 두 배로 만드는 확률변수입니다. `Measurable doubled`가 바로 "가측함수"라는 조건이고, `fun_prop`(함수의 성질을 자동으로 증명해주는 전술)이 "연속함수는 가측이다"라는 사실 등을 이용해 바로 증명해줍니다 — 실전에서 만나는 대부분의 함수(다항식, 지수함수, 삼각함수, 그리고 이들의 조합)는 연속이기 때문에 자동으로 가측이고, `fun_prop`이나 `measurability` 전술로 손쉽게 증명됩니다.
+
+== 확률변수의 확률: 원상의 측도
+
+[source,lean]
+----
+example : uniformMeasure (doubled ⁻¹' (Set.Icc (0.4:ℝ) 1.0)) = uniformMeasure (Set.Icc (0.2:ℝ) 0.5) := by
+  congr 1
+  ext x
+  simp [doubled, Set.mem_Icc]
+  constructor
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+----
+
+"`doubled`가 `[0.4, 1]` 안의 값을 가질 확률"을 구하려면, `doubled`가 그 범위 안의 값을 내놓게 만드는 원래 결과들의 집합, `doubled ⁻¹' (Set.Icc 0.4 1.0)`의 확률을 재면 됩니다. `doubled x = 2x`이니 `2x ∈ [0.4, 1]`은 정확히 `x ∈ [0.2, 0.5]`와 같고, 그래서 이 원상이 정확히 `Set.Icc 0.2 0.5`와 같은 집합이라는 걸 증명했습니다 — 4장에서 이미 이 구간의 확률(`0.3`)을 계산해뒀으니, `doubled`가 `[0.4, 1]` 사이의 값을 가질 확률도 `0.3`이라는 걸 이 두 결과를 이어붙여 알 수 있습니다.
+
+이 계산 패턴 — **확률변수가 어떤 범위에 들어갈 확률 = 그 범위의 원상의 측도** — 이 다음 장에서 다룰 "분포"라는 개념의 정의 그 자체입니다.
+
+== 직접 해보기
+
+* `shifted : ℝ → ℝ := fun x => x + 0.1`이 가측함수라는 걸 증명하고, `shifted ⁻¹' (Set.Icc (0.3:ℝ) 0.6) = Set.Icc (0.2:ℝ) 0.5`임을 증명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+noncomputable def shifted : ℝ → ℝ := fun x => x + 0.1
+
+example : Measurable shifted := by
+  unfold shifted
+  fun_prop
+
+example : shifted ⁻¹' (Set.Icc (0.3:ℝ) 0.6) = Set.Icc (0.2:ℝ) 0.5 := by
+  ext x
+  simp [shifted, Set.mem_Icc]
+  constructor
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+  · intro ⟨h1, h2⟩; constructor <;> linarith
+----
+====
+
+== 요약
+
+* 확률변수는 결과를 숫자로 바꾸는 함수이면서, **가측함수**여야 합니다 — 그래야 "확률변수가 어떤 범위에 들어갈 확률"이라는 것 자체가 정의됩니다.
+* `fun_prop`, `measurability` 같은 전술이 연속함수 등 흔한 함수의 가측성을 자동으로 증명해줍니다.
+* 확률변수가 특정 범위의 값을 가질 확률은, 그 범위의 원상(그 값을 내놓는 원래 결과들의 집합)의 측도와 정확히 같습니다.
+
+다음 장에서는 이 원상-측도 대응을 "분포"라는 하나의 새 측도로 묶어내는 밀어내기측도(pushforward measure)를 다룹니다.
+// end::body[]

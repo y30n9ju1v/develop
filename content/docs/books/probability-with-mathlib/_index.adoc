@@ -1,0 +1,109 @@
+---
+title: "확률, 넓이로 재다"
+draft: false
+---
+
+주사위 같은 이산 확률에서 시작해 측도로서의 확률, 기댓값과 독립성, 그리고 큰 수의 법칙과 중심극한정리까지 Lean4와 Mathlib으로 직접 증명하며 배우는 독립적인 확률론 입문서입니다. "확률은 넓이다"라는 하나의 그림을 축으로, 이산 확률(1부) → 일반 확률공간(2부) → 기댓값과 구조(3부) → 극한정리(4부) 순서로 쌓아 올립니다.
+
+이 책의 모든 예제·증명·연습문제는 이 책을 위해 새로 지은 원본이며, 모든 코드는 Lean4(v4.33.0-rc1)와 Mathlib으로 실제 컴파일하고 검증했습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 확률, 넓이로 재다]*
+
+*1부: 이산 확률 입문*
+
+[start=1]
+. *link:01-discrete-probability-spaces/[이산 확률공간]*
+. *link:02-discrete-random-variables/[이산 확률변수와 기댓값]*
+. *link:03-discrete-independence/[이산적 독립성]*
+
+*2부: 일반 확률공간*
+
+[start=4]
+. *link:04-probability-measures-and-events/[확률측도와 사건]*
+. *link:05-random-variables-as-measurable-functions/[가측함수로서의 확률변수]*
+. *link:06-distributions/[분포: 밀어내기측도]*
+
+*3부: 기댓값과 구조*
+
+[start=7]
+. *link:07-expectation-as-integral/[기댓값을 적분으로 다시 보기]*
+. *link:08-variance-and-moments/[분산과 모멘트]*
+. *link:09-independence/[독립성]*
+. *link:10-conditional-probability-and-expectation/[조건부 확률과 조건부 기댓값]*
+
+*4부: 극한정리*
+
+[start=11]
+. *link:11-borel-cantelli-lemmas/[보렐-칸텔리 보조정리]*
+. *link:12-the-strong-law-of-large-numbers/[큰 수의 법칙]*
+. *link:13-central-limit-theorem/[중심극한정리]*
+
+*맺음말*
+
+[start=14]
+. *link:14-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-discrete-probability-spaces.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-discrete-random-variables.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-discrete-independence.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-probability-measures-and-events.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-random-variables-as-measurable-functions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-distributions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-expectation-as-integral.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-variance-and-moments.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-independence.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-conditional-probability-and-expectation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-borel-cantelli-lemmas.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-the-strong-law-of-large-numbers.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-central-limit-theorem.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-afterword.adoc[tag=body,leveloffset=+1]
