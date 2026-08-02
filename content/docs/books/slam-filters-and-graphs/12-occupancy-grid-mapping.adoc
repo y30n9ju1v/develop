@@ -1,0 +1,171 @@
+---
+title: "12장: 점유 격자 지도(Occupancy Grid Mapping)"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["slam", "robotics", "occupancy-grid", "book"]
+categories: ["books"]
+description: "레이캐스팅으로 라이다 빔이 지나간 빈 셀과 부딪힌 벽 셀을 로그 오즈로 누적하는 점유 격자 지도를 구현해, 100% 셀 분류 정확도를 달성하고 반복 관측이 로그 오즈를 정확히 선형으로 쌓는다는 것을 확인하며 5부를 여는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-graph-optimization/[11장: 그래프 최적화: 비선형 최소제곱으로 전체 궤적을 풀기] · 다음: link:../13-loop-closure-detection/[13장: 루프 클로저 탐지: 어디를 다시 왔는지 알아내기]_
+
+'''
+
+2~11장은 모두 "포즈와 랜드마크(점)"라는 성긴 표현으로 지도를 만들었습니다. 하지만 자율주행이나 실내 로봇 내비게이션에는 "여기는 지나갈 수 있는 빈 공간인가, 벽인가"를 촘촘한 격자로 표현한 지도가 더 유용할 때가 많습니다. 이 장에서는 로봇의 궤적(11장까지 다진 SLAM으로 이미 안다고 가정)이 주어졌을 때, 라이다 스캔들로부터 이런 점유 격자 지도를 만드는 표준 방법을 다룹니다.
+
+== 격자와 로그 오즈
+
+각 격자 셀은 "점유되어 있을 확률"을 갖습니다. 확률을 직접 갱신하는 대신, **로그 오즈**(log-odds, `log(p/(1-p))`)로 표현하면 베이즈 갱신이 단순한 덧셈이 됩니다.
+
+[source,python]
+----
+l_occ = np.log(0.7 / 0.3)    # "점유" 관측 하나가 로그 오즈에 더하는 양
+l_free = np.log(0.3 / 0.7)   # "비어있음" 관측 하나가 로그 오즈에서 빼는 양
+log_odds = np.full((grid_size, grid_size), 0.0)   # 사전 확률 0.5 -> 로그 오즈 0
+----
+
+여러 번의 독립적인 관측을 반영하는 게 확률 공간에서는 복잡한 곱셈·정규화지만, 로그 오즈 공간에서는 그냥 `l_occ`나 `l_free`를 계속 더하기만 하면 됩니다 — 1장의 베이즈 정리(사후확률 ∝ 사전확률 × 우도)가 로그를 취하면 덧셈이 된다는 사실을 그대로 이용한 것입니다.
+
+== 레이캐스팅: 빔 하나가 지나간 길
+
+라이다 빔 하나는 로봇에서 어떤 각도로 쭉 나가다가 벽에 부딪히며 끝납니다. 그 경로 위의 모든 셀은 "빔이 지나갔다 = 비어있다"는 정보를, 부딪힌 지점의 셀은 "여기서 반사됐다 = 점유되어 있다"는 정보를 줍니다.
+
+[source,python]
+----
+def bresenham_line(x0, y0, x1, y1):
+    """두 격자점을 잇는 직선이 지나가는 모든 셀을 순서대로 반환"""
+    points = []
+    dx, dy = abs(x1-x0), abs(y1-y0)
+    sx, sy = (1 if x0<x1 else -1), (1 if y0<y1 else -1)
+    err = dx - dy
+    x, y = x0, y0
+    while True:
+        points.append((x, y))
+        if x == x1 and y == y1: break
+        e2 = 2*err
+        if e2 > -dy: err -= dy; x += sx
+        if e2 < dx: err += dx; y += sy
+    return points
+----
+
+브레젠험 알고리즘(정수 연산만으로 직선이 지나가는 격자 셀을 정확히 찾아내는 고전적인 컴퓨터 그래픽스 알고리즘)으로, 로봇 위치부터 빔이 부딪힌 지점까지 지나간 모든 셀을 구합니다.
+
+[source,python]
+----
+def raycast_and_update(log_odds, robot_xy, beam_angle, true_map, max_range=20):
+    # ... 실제 빔이 벽에 맞는 지점을 시뮬레이션으로 찾고 ...
+    cells = bresenham_line(gx0, gy0, hit[0], hit[1])
+    for (cx, cy) in cells[:-1]:       # 부딪힌 지점 전까지는 모두 "비어있음"
+        log_odds[cx, cy] += l_free
+    cx, cy = cells[-1]                 # 마지막 셀(부딪힌 지점)은 "점유"
+    log_odds[cx, cy] += l_occ
+----
+
+== 여러 위치에서 360도 스캔하며 지도 채우기
+
+[source,python]
+----
+robot_positions = [(0,0), (3,3), (-3,3), (-3,-3), (3,-3), (0,4), (0,-4)]
+for rx, ry in robot_positions:
+    for angle in np.linspace(0, 2*np.pi, 72, endpoint=False):   # 5도 간격 360도 스캔
+        raycast_and_update(log_odds, (rx, ry), angle, true_map)
+
+prob_map = 1 / (1 + np.exp(-log_odds))   # 로그 오즈를 다시 확률로
+----
+
+image::https://y30n9ju1v.github.io/develop/images/books/slam-filters-and-graphs/occupancy_grid_map.png[점유 격자 지도: 실제 지도(왼쪽)와 추정된 확률 지도(오른쪽)]
+
+== 검증 1: 셀 분류 정확도
+
+[source,python]
+----
+predicted_occupied = prob_map > 0.5
+observed_mask = np.abs(log_odds) > 1e-9   # 한 번도 못 본 셀은 "모름"으로 제외
+accuracy = (predicted_occupied[observed_mask] == true_map[observed_mask]).mean()
+print(accuracy, observed_mask.mean())
+----
+
+[source]
+----
+cell classification accuracy (observed cells only): 1.0
+fraction of grid observed: 0.746
+----
+
+`7`곳의 스캔 위치에서 관측된 전체 셀(격자의 `74.6%`)에 대해, 점유/비점유 분류가 **100%** 정확했습니다. 나머지 `25.4%`는 어느 스캔에서도 시야에 들어오지 않은 영역(로그 오즈가 사전값 `0` 그대로)이라, 정확도 계산에서 공정하게 제외했습니다 — "모른다"를 "틀렸다"로 세지 않는 게 중요합니다.
+
+== 검증 2: 벽과 빈 공간의 확률이 뚜렷이 갈리는가
+
+[source,python]
+----
+wall_cells_prob = prob_map[true_map & observed_mask]
+free_cells_prob = prob_map[(~true_map) & observed_mask]
+print(wall_cells_prob.mean(), free_cells_prob.mean())
+----
+
+[source]
+----
+mean probability - wall cells: 0.954
+mean probability - free cells: 0.019
+----
+
+벽 셀의 평균 추정 확률은 `0.95`(거의 확신), 빈 공간 셀은 `0.02`(거의 확신하고 비어있음)로 뚜렷이 갈립니다 — 애매하게 `0.5` 근처에 몰려있지 않고, 각자의 진짜 상태 쪽으로 확실하게 수렴했습니다.
+
+== 검증 3: 로그 오즈가 정말로 "선형으로" 누적되는가
+
+[source,python]
+----
+# 딱 한 번만 관측
+raycast_and_update(log_odds_single, (0,0), 0.0, true_map)
+lo_after_1 = log_odds_single[test_cell]     # 벽 바로 앞의 빈 셀
+
+# 같은 관측을 5번 반복
+for _ in range(5):
+    raycast_and_update(log_odds_multi, (0,0), 0.0, true_map)
+lo_after_5 = log_odds_multi[test_cell]
+print(lo_after_1, lo_after_5)
+----
+
+[source]
+----
+log-odds after 1 observation: -0.847
+log-odds after 5 observations: -4.236   (정확히 -0.847 x 5 = -4.236)
+----
+
+`5`번 반복한 로그 오즈가 `1`번 관측한 값의 정확히 `5`배입니다 — 로그 오즈 공간에서 독립적인 관측을 반영하는 게 정말로 단순한 덧셈이라는 걸(그리고 매번 같은 크기의 증분 `l_free`가 더해진다는 걸) 숫자로 확인했습니다. 확률로 환산하면 `1`번 관측 후 `p≈0.30`, `5`번 관측 후 `p≈0.014`로, 반복 관측할수록 "비어있다"는 확신이 계속 강해지는 걸 알 수 있습니다.
+
+== 왜 점유 격자 지도가 유용한가
+
+포즈·랜드마크 기반 지도(4장의 EKF-SLAM, 11장의 그래프 최적화)는 "여기 랜드마크가 있다"는 성긴 정보만 담지만, 점유 격자 지도는 "이 위치가 지나갈 수 있는지"를 촘촘하게 담아서 경로 계획(planning)에 직접 쓸 수 있습니다 — 자율주행차가 "이 셀은 벽이니 피해가야 한다"고 판단하려면, 정확히 이런 형태의 지도가 필요합니다. 반대로 이 지도는 로봇의 정확한 궤적을 이미 안다고 가정하고 만든 것이라, 궤적 자체가 부정확하면(예: 6장에서 본 EKF-SLAM의 과신) 지도도 그만큼 흐려지거나 왜곡됩니다 — 좋은 지도는 좋은 궤적 추정 위에서만 만들어질 수 있습니다.
+
+== 직접 해보기
+
+* 라이다 빔의 각도 간격을 `5°`(`72`개 빔)에서 `30°`(`12`개 빔)로 성기게 만들면, 관측된 영역의 비율과 분류 정확도가 어떻게 달라지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+log_odds_sparse = np.full((grid_size, grid_size), 0.0)
+for rx, ry in robot_positions:
+    for angle in np.linspace(0, 2*np.pi, 12, endpoint=False):   # 30도 간격
+        raycast_and_update(log_odds_sparse, (rx, ry), angle, true_map)
+prob_map_sparse = 1 / (1 + np.exp(-log_odds_sparse))
+observed_sparse = np.abs(log_odds_sparse) > 1e-9
+print(observed_sparse.mean())
+----
+
+빔 개수가 `72`개에서 `12`개로 줄면, 각 스캔 위치에서 "본" 방향의 수가 줄어드니 관측된 영역의 비율도 함께 줄어듭니다 — 특히 빔과 빔 사이의 좁은 틈(멀리 떨어진 작은 장애물처럼)은 아예 관측되지 않고 지나칠 수 있습니다. 관측된 영역 안에서의 분류 정확도 자체는 크게 나빠지지 않을 수 있지만(각 빔이 여전히 정확한 정보를 주므로), "지도의 완성도"(전체 공간 중 실제로 알고 있는 비율)는 확실히 떨어집니다 — 센서의 각해상도가 지도의 완성도에 직접 영향을 준다는 실전적인 트레이드오프입니다.
+====
+
+== 요약
+
+* 점유 격자 지도는 각 셀의 점유 확률을 로그 오즈로 표현해, 여러 관측을 단순한 덧셈으로 누적합니다.
+* 레이캐스팅(브레젠험 알고리즘)으로 라이다 빔이 지나간 셀은 "비어있음", 부딪힌 셀은 "점유"로 갱신합니다.
+* `7`곳에서의 360도 스캔만으로 관측된 영역 전체에서 100% 정확한 셀 분류를 달성했고, 벽/빈공간 셀의 확률이 각각 `0.95`/`0.02`로 뚜렷이 갈렸습니다.
+* 로그 오즈가 반복 관측 횟수에 정확히 비례해서 누적된다는 걸 확인했습니다(`5`번 관측 = `1`번의 정확히 `5`배).
+* 이 지도의 품질은 입력으로 쓰인 로봇 궤적의 정확도에 직접 의존합니다 — 좋은 지도는 좋은 SLAM 위에서만 가능합니다.
+
+다음 장에서는 이 시리즈의 1권에서 맛보기로만 다뤘던 루프 클로저를, 그래프 기반 SLAM의 관점에서 — "어디를 다시 왔는지"를 실제로 어떻게 자동으로 탐지하는지 — 제대로 다룹니다.
+// end::body[]

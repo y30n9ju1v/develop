@@ -1,0 +1,142 @@
+---
+title: "8장: FastSLAM: Rao-Blackwellized 파티클 필터"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["slam", "robotics", "fastslam", "particle-filter", "book"]
+categories: ["books"]
+description: "로봇 경로가 정해지면 랜드마크들이 서로 독립이 된다는 SLAM의 구조를 이용해, 파티클마다 독립적인 2x2 EKF로 랜드마크를 추정하는 FastSLAM을 구현하고, 지도를 30배 키워도 갱신 시간이 3% 늘어나는 데 그친다는 것을 확인하며 3부를 마무리하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-particle-filter/[7장: 파티클 필터: 비선형/비가우시안 분포 다루기] · 다음: link:../09-scan-matching-and-icp/[9장: 스캔 매칭과 ICP: 두 스캔을 정렬하기]_
+
+'''
+
+7장의 파티클 필터는 로봇 위치만 추정했습니다. 이걸 그대로 SLAM에 적용하면(파티클마다 로봇 포즈 **+ 모든 랜드마크 위치**까지 담으면), 6장에서 본 `O(n²)` 문제가 파티클마다 반복돼서 오히려 더 나빠집니다. FastSLAM은 SLAM 문제의 구조를 이용한 영리한 분해로 이 문제를 피합니다 — 이 장의 핵심 아이디어와 그 계산상의 이득을 직접 확인합니다.
+
+== 핵심 통찰: 경로가 정해지면 랜드마크들은 서로 독립이다
+
+로봇이 지나온 **정확한 경로**를 안다고 가정해봅시다. 그러면 랜드마크 A의 위치 추정은 오직 "로봇이 A를 봤을 때 어디 있었는가"에만 의존하고, 랜드마크 B의 추정은 "로봇이 B를 봤을 때 어디 있었는가"에만 의존합니다 — 경로가 고정되면 두 랜드마크의 추정은 서로 완전히 독립입니다. 4장의 EKF-SLAM에서 랜드마크들 사이에 상관관계가 생겼던 이유는 정확히 **로봇 경로 자체가 불확실했기 때문**이었습니다 — 로봇이 어디 있었는지 모르니, 한 랜드마크의 관측이 "로봇이 어디 있었을까"에 대한 정보를 주고, 그 정보가 다시 다른 랜드마크의 추정에 영향을 미친 것입니다.
+
+FastSLAM은 이 관찰을 뒤집어 씁니다 — 파티클 하나하나가 "로봇 경로에 대한 하나의 구체적인 가설"을 표현합니다. **그 파티클 안에서는** 경로가 (그 파티클의 가정하에) 확정된 것이므로, 랜드마크들은 진짜로 독립이 되고, 각 랜드마크를 크기 `2×2`짜리 독립적인 미니 EKF로 따로 추적할 수 있습니다. 6장의 `11×11`(또는 `403×403`) 짜리 하나의 거대한 결합 공분산 대신, 파티클마다 작은 `2×2` 행렬을 랜드마크 개수만큼 갖는 셈입니다.
+
+== 파티클의 새로운 형태
+
+[source,python]
+----
+class Particle:
+    __slots__ = ['pose', 'landmark_mu', 'landmark_cov', 'initialized']
+    def __init__(self, pose, n_landmarks):
+        self.pose = pose.copy()
+        self.landmark_mu = np.zeros((n_landmarks, 2))     # 랜드마크마다 2차원 평균
+        self.landmark_cov = np.zeros((n_landmarks, 2, 2))  # 랜드마크마다 2x2 공분산
+        self.initialized = np.zeros(n_landmarks, dtype=bool)
+----
+
+각 파티클은 자기만의 포즈뿐 아니라, 자기만의 "미니 지도"(모든 랜드마크 각각의 `2`차원 평균과 `2×2` 공분산)를 통째로 갖고 다닙니다.
+
+== 랜드마크 갱신: 파티클마다 독립적인 작은 EKF
+
+[source,python]
+----
+for li, z in observations:
+    for i, p in enumerate(particles):
+        if not p.initialized[li]:
+            # 4장과 같은 방식으로 초기화 (단, 이 파티클의 포즈 가설 기준으로)
+            ...
+        else:
+            landmark = p.landmark_mu[li]
+            z_pred = measurement_model(p.pose, landmark)
+            y_innov = z - z_pred; y_innov[1] = wrap_angle(y_innov[1])
+            H = measurement_jacobian_landmark(p.pose, landmark)   # 2x2, 랜드마크에 대해서만
+            Qc = H @ p.landmark_cov[li] @ H.T + R_meas
+            K = p.landmark_cov[li] @ H.T @ np.linalg.inv(Qc)
+            p.landmark_mu[li] = landmark + K @ y_innov
+            p.landmark_cov[li] = (np.eye(2) - K @ H) @ p.landmark_cov[li]
+            # 이 관측이 이 파티클(포즈 가설)에서 얼마나 그럴듯했는지로 가중치 갱신
+            likelihood = np.exp(-0.5 * y_innov @ Qinv @ y_innov) / (2*np.pi*np.sqrt(np.linalg.det(Qc)))
+            weights[i] *= likelihood
+----
+
+4장의 EKF-SLAM 갱신과 수학적으로 매우 비슷하지만, 결정적인 차이가 있습니다 — 여기서 다루는 `H`, `Qc`, `K`는 모두 `2×2`(또는 `2×N`) 크기입니다. `11`차원(또는 `403`차원) 결합 상태 전체가 아니라, **관측된 랜드마크 하나만** 갱신하면 됩니다. 대신 "이 관측이 이 파티클의 포즈 가설과 얼마나 잘 맞는가"를 가중치에 반영해서, 포즈에 대한 불확실성은 파티클 집합 자체(7장에서 배운 그 방식)로 표현합니다.
+
+== 검증: 정확도가 EKF-SLAM과 비슷한가
+
+4장과 똑같은 시뮬레이션(로봇이 원을 그리며 `4`개 랜드마크를 관측)에 FastSLAM(`200`개 파티클)을 적용합니다.
+
+[source,python]
+----
+mean_pose = np.average([p.pose for p in particles], axis=0, weights=weights)
+----
+
+[source]
+----
+mean pose error (first 20 steps): 0.088
+mean pose error (last 20 steps):  0.066
+
+landmark 0 final error: 0.193
+landmark 1 final error: 0.316
+landmark 2 final error: 0.046
+landmark 3 final error: 0.298
+----
+
+4장의 EKF-SLAM(포즈 오차 `0.35` 근처, 랜드마크 오차 `0.3~0.5`)과 비슷하거나 더 나은 정확도를 냅니다 — 표현 방식은 완전히 다르지만(파티클 집합 vs. 하나의 큰 가우시안), 최종 정확도는 대등합니다.
+
+== 검증: 계산 복잡도가 정말로 개선되는가
+
+이 장의 핵심 주장을 직접 재봅니다 — 지도에 있는 **전체** 랜드마크 수를 늘려도(대부분은 지금 안 보이는 상태), 매 스텝 실제로 갱신에 걸리는 시간이 거의 그대로인가?
+
+[source,python]
+----
+def time_fastslam_step(n_total_landmarks, n_observed=4, N_particles=200):
+    # n_total_landmarks개짜리 지도를 이미 갖고 있다고 하고,
+    # 이번 스텝엔 그중 4개만 실제로 관측했다고 가정, 그 4개의 갱신 시간만 측정
+    ...
+
+for n_total in [10, 50, 100, 300]:
+    print(n_total, time_fastslam_step(n_total))
+----
+
+[source]
+----
+total landmarks in map=  10  step update time=6.787 ms  (only 4 observed this step)
+total landmarks in map=  50  step update time=6.856 ms
+total landmarks in map= 100  step update time=6.867 ms
+total landmarks in map= 300  step update time=6.960 ms
+
+map size ratio: 30.0x, step time ratio: 1.03x
+----
+
+지도의 전체 랜드마크 수를 `10`개에서 `300`개로 `30`배 늘렸는데도, 매 스텝 걸리는 시간은 `3%`밖에 안 늘었습니다 — 6장에서 EKF-SLAM이 랜드마크를 `4`배 늘렸을 때 시간이 정확히 `16`배(`O(n²)`) 늘었던 것과 극명하게 대조됩니다. FastSLAM에서는 매 스텝 비용이 (파티클 수) × (**실제로 관측된** 랜드마크 수)에만 비례하고, 지도에 등록된 전체 랜드마크 수와는 거의 무관합니다 — 이게 FastSLAM이 대규모 지도(수만 개의 랜드마크)에서도 실시간으로 동작할 수 있는 이유입니다.
+
+== 이 이득이 공짜가 아닌 이유
+
+물론 공짜는 없습니다 — FastSLAM은 파티클 수(`N_particles`)에 정비례하는 비용을 치릅니다. 파티클이 `200`개면 로봇 경로 가설을 `200`개 유지하는 셈이고, 각 가설마다 독립적인 미니 지도 전체를 들고 다닙니다(메모리도 파티클 수에 비례해 늘어납니다). 7장에서 봤듯 다봉 분포나 강한 비선형성이 있는 상황에서는 파티클 수를 충분히 크게 잡아야 하는데, 로봇의 자세(포즈) 차원이 커질수록(3D 회전을 포함하는 실제 로봇처럼) 필요한 파티클 수도 늘어나는 경향이 있습니다 — EKF-SLAM의 `O(n²)`(랜드마크 수)를 FastSLAM의 `O(N × M)`(파티클 수 × 관측 랜드마크 수)으로 바꾼 것이지, 계산량이 사라진 게 아닙니다.
+
+== 직접 해보기
+
+* `N_particles`를 `200`에서 `50`으로 줄이면, 최종 포즈·랜드마크 오차가 어떻게 나빠지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+N_particles_small = 50
+particles_small = [Particle(np.array([0.0,0.0,0.0]), n_landmarks) for _ in range(N_particles_small)]
+weights_small = np.ones(N_particles_small) / N_particles_small
+# ... 같은 시뮬레이션 루프를 파티클 수만 바꿔서 실행
+----
+
+파티클이 적을수록 로봇의 진짜 경로 근처에 우연히도 파티클이 하나도 없을 위험이 커지고(특히 초반, 아직 관측으로 잘못된 가설들을 걸러내기 전), 그러면 리샘플링을 아무리 반복해도 "진짜 근처의 좋은 가설"이 애초에 존재하지 않아 성능이 나빠집니다(입자 고갈, particle depletion). 파티클 수와 정확도, 계산 비용 사이의 이 트레이드오프가 FastSLAM을 실전에 배치할 때 가장 먼저 튜닝해야 하는 손잡이입니다.
+====
+
+== 요약
+
+* FastSLAM은 "로봇 경로가 정해지면 랜드마크들은 서로 독립"이라는 SLAM의 구조를 이용해, 파티클마다 독립적인 작은(`2×2`) EKF로 각 랜드마크를 추적합니다.
+* 이 분해 덕분에 매 스텝 갱신 비용이 지도의 전체 랜드마크 수가 아니라 파티클 수 × 실제 관측된 랜드마크 수에 비례하게 되어, 지도를 `30`배 키워도 갱신 시간은 `3%`밖에 늘지 않는다는 걸 실측으로 확인했습니다.
+* 정확도는 4장의 EKF-SLAM과 대등하면서도, 6장에서 확인한 `O(n²)` 문제를 근본적으로 피합니다.
+* 이 이득은 파티클 수에 비례하는 비용을 대가로 치르며, 파티클이 너무 적으면 입자 고갈로 정확도가 나빠질 수 있습니다.
+
+3부에서 필터/샘플링 기반 SLAM의 두 축(EKF-SLAM, FastSLAM)을 모두 다졌습니다. 4부에서는 완전히 다른 패러다임 — 매 스텝 실시간으로 상태를 갱신하는 대신, 전체 궤적을 하나의 큰 최적화 문제로 놓고 한꺼번에 푸는 그래프 기반 SLAM으로 넘어갑니다.
+// end::body[]

@@ -1,0 +1,190 @@
+---
+title: "10장: 팩터 그래프로 표현하는 SLAM"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["slam", "robotics", "factor-graph", "book"]
+categories: ["books"]
+description: "포즈와 랜드마크를 노드로, 오도메트리·관측·사전 제약을 팩터로 표현하는 팩터 그래프를 구현해, 참값에서 잔차가 노이즈 수준으로 작다는 것과 각 팩터의 야코비안이 관여하는 노드 바깥에서는 정확히 0이라는 것, 그리고 전체 야코비안이 79%가 0인 희소 행렬이라는 것을 직접 확인하는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-scan-matching-and-icp/[9장: 스캔 매칭과 ICP: 두 스캔을 정렬하기] · 다음: link:../11-graph-optimization/[11장: 그래프 최적화: 비선형 최소제곱으로 전체 궤적을 풀기]_
+
+'''
+
+2~8장의 필터들은 모두 "지금까지의 정보를 요약(평균+공분산, 또는 파티클 집합)해두고, 새 정보가 오면 그 요약을 갱신"하는 방식이었습니다 — 한번 지나간 과거의 관측은 버려집니다. 그래프 기반 SLAM은 다릅니다 — **모든 관측을 하나도 버리지 않고** 그래프 형태로 계속 쌓아두었다가, 필요할 때 전체를 한꺼번에 풀어서 가장 잘 맞는 전체 궤적과 지도를 구합니다. 이 장에서는 이 그래프 — 팩터 그래프 — 를 어떻게 조립하는지 다룹니다.
+
+== 노드: 모르는 것들
+
+팩터 그래프의 노드는 우리가 알아내고 싶은 값들입니다 — 각 시점의 로봇 포즈, 그리고 각 랜드마크의 위치입니다. 이 시리즈의 1권 9장(번들 조정)에서 카메라 포즈와 3D 점을 하나의 큰 상태 벡터로 다뤘던 것과 원리가 같습니다.
+
+[source,python]
+----
+class Graph:
+    def __init__(self):
+        self.pose_offsets = {}      # pose_id -> 상태벡터 내 시작 인덱스
+        self.landmark_offsets = {}
+        self.dim = 0
+        self.factors = []
+
+    def add_pose(self, pose_id):
+        self.pose_offsets[pose_id] = self.dim
+        self.dim += 3
+
+    def add_landmark(self, landmark_id):
+        self.landmark_offsets[landmark_id] = self.dim
+        self.dim += 2
+----
+
+== 팩터: 아는 것들 (제약 조건)
+
+팩터는 "이 노드들 사이에 이런 관계가 있어야 한다"는 제약입니다. 이 장에서는 세 종류를 씁니다.
+
+**오도메트리 팩터** — 연속된 두 포즈 사이의 상대 이동(3장의 운동 모델과 사실상 같은 관계)입니다.
+
+[source,python]
+----
+class OdometryFactor:
+    def __init__(self, pose_i, pose_j, delta_measured, info):
+        self.pose_i, self.pose_j = pose_i, pose_j
+        self.delta_measured = delta_measured
+        self.info = info   # 정밀도 행렬 (공분산의 역) -- 이 관측을 얼마나 신뢰하는가
+
+    def residual(self, graph, x):
+        xi, yi, ti = x[graph.pose_offsets[self.pose_i]:...]
+        xj, yj, tj = x[graph.pose_offsets[self.pose_j]:...]
+        c, s = np.cos(ti), np.sin(ti)
+        dx_pred = c*(xj-xi) + s*(yj-yi)     # pose_i 좌표계 기준 상대 이동 예측
+        dy_pred = -s*(xj-xi) + c*(yj-yi)
+        dt_pred = wrap_angle(tj - ti)
+        r = self.delta_measured - np.array([dx_pred, dy_pred, dt_pred])
+        r[2] = wrap_angle(r[2])
+        return r
+----
+
+**랜드마크 팩터** — 어떤 포즈에서 어떤 랜드마크를 관측한 제약(3~4장의 range-bearing 관측 모델 그대로)입니다.
+
+[source,python]
+----
+class LandmarkFactor:
+    def residual(self, graph, x):
+        px, py, pt = x[...]  # 포즈
+        lx, ly = x[...]      # 랜드마크
+        dx, dy = lx-px, ly-py
+        r_pred = np.sqrt(dx**2+dy**2)
+        b_pred = wrap_angle(np.arctan2(dy,dx) - pt)
+        r = self.z - np.array([r_pred, b_pred])
+        r[1] = wrap_angle(r[1])
+        return r
+----
+
+**사전 팩터** — 그래프 전체의 원점(게이지)을 고정합니다. 1권 9장에서 번들 조정을 처음 시도했을 때, 카메라 하나의 위치를 고정하지 않으면 전체가 임의의 방향으로 미끄러질 수 있다는 걸 이미 겪어봤습니다 — 여기서도 같은 이유로 첫 포즈를 고정하는 팩터가 필요합니다.
+
+각 팩터의 공통점은, `residual()`이 "실제 관측된 값 - 현재 상태로 예측한 값"을 돌려준다는 것입니다. 모든 팩터의 잔차가 정확히 `0`이 되는 상태가, 모든 관측과 완벽하게 들어맞는 이상적인 궤적·지도입니다(물론 노이즈 때문에 실전에서는 정확히 `0`이 되지는 않습니다).
+
+== 작은 그래프 조립하기
+
+로봇이 사각형 경로(`4`개 포즈)를 돌면서 `2`개의 랜드마크를 여러 번 관측하는 시나리오를 만듭니다.
+
+[source,python]
+----
+for i in range(4):
+    graph.add_pose(f"x{i}")
+graph.add_landmark("l0"); graph.add_landmark("l1")
+
+for i in range(3):   # 오도메트리: 연속된 포즈마다
+    graph.add_factor(OdometryFactor(f"x{i}", f"x{i+1}", delta_meas, info_odom))
+
+for pid in pose_ids:   # 관측: 각 포즈에서 보이는 랜드마크마다
+    for lid in ["l0", "l1"]:
+        if 관측_가능:
+            graph.add_factor(LandmarkFactor(pid, lid, z, info_obs))
+
+graph.add_factor(PriorFactor("x0", true_poses["x0"], np.eye(3)*1e6))
+----
+
+[source]
+----
+total nodes: poses=4  landmarks=2
+total factors: 12
+state dimension: 16
+----
+
+== 검증 1: 참값에서 잔차가 작은가
+
+[source,python]
+----
+r_true_state = full_residual(graph, x_true)
+print(np.linalg.norm(r_true_state))   # 0.251
+----
+
+실제 참값(로봇의 진짜 궤적, 랜드마크의 진짜 위치)을 그대로 상태 벡터에 넣으면, 잔차는 정확히 `0`이 아니라 관측에 섞인 노이즈 수준(`0.25`)만큼만 남습니다 — 팩터 자체(residual 함수)가 관계를 올바르게 표현하고 있다는 검증입니다. 만약 여기서 잔차가 크게 나왔다면, 팩터의 잔차 공식 자체가 잘못됐다는 뜻이었을 것입니다.
+
+== 검증 2: 각 팩터의 야코비안이 정말로 "관여하는 노드"에만 값이 있는가
+
+[source,python]
+----
+for f in graph.factors[:5]:
+    J = numeric_jacobian_of_factor(graph, f, x_perturbed)
+    nonzero_cols = 이_팩터가_관여하는_노드들의_열_인덱스
+    zero_cols = 나머지_열들
+    print(np.abs(J[:, zero_cols]).max())
+----
+
+[source]
+----
+factor OdometryFactor: nonzero blocks=2, max |J| outside blocks=0.00e+00
+factor OdometryFactor: nonzero blocks=2, max |J| outside blocks=0.00e+00
+factor LandmarkFactor: nonzero blocks=2, max |J| outside blocks=0.00e+00
+----
+
+오도메트리 팩터는 딱 두 포즈(`pose_i`, `pose_j`)에만, 랜드마크 팩터는 딱 하나의 포즈와 하나의 랜드마크에만 관여합니다 — 그 외 모든 노드(예: `12`개 팩터가 있는 이 그래프에서, 한 랜드마크 팩터는 다른 `3`개 포즈와 다른 `1`개 랜드마크, 총 `11`차원과는 전혀 무관합니다)에 대한 야코비안은 수치적으로 정확히 `0`입니다. 이게 4장에서 EKF-SLAM의 관측 야코비안이 "희소했다"고 말한 것과 정확히 같은 현상인데, 여기서는 애초에 그래프 구조 자체가 "누가 누구와 관련 있는지"를 명시적으로 표현합니다.
+
+== 검증 3: 전체 야코비안이 진짜로 희소한가
+
+[source,python]
+----
+full_J = np.zeros((total_residual_dim, graph.dim))
+# ... 모든 팩터의 야코비안을 해당 행에 채워 넣음
+nonzero_fraction = np.mean(np.abs(full_J) > 1e-8)
+print(full_J.shape, nonzero_fraction)
+----
+
+[source]
+----
+full Jacobian shape: (28, 16), nonzero fraction: 0.214
+----
+
+`28×16=448`개의 원소 중 `78.6%`가 정확히 `0`입니다 — 겨우 `4`개 포즈, `2`개 랜드마크짜리 작은 그래프에서도 이 정도인데, 실전 SLAM처럼 수천 개의 포즈와 수만 개의 랜드마크로 이루어진 그래프에서는 이 희소성이 `99%`를 훌쩍 넘습니다. 각 팩터가 전체 상태 중 아주 일부(포즈 한둘, 랜드마크 하나)에만 관여하기 때문에, 그래프가 아무리 커져도 개별 팩터의 계산량은 늘지 않습니다 — 다음 장에서 다룰 그래프 최적화가 이 희소성을 명시적으로 활용해서, 전체 상태가 수만 차원이어도 감당할 수 있는 이유입니다.
+
+== 필터와 그래프, 근본적으로 다른 철학
+
+필터 기반 SLAM(2~8장)은 "지금 이 순간의 최선의 추정"만 유지하고 과거 관측은 요약된 형태로만 남습니다 — 메모리는 적게 쓰지만, 한번 필터에 반영된 정보는 되돌릴 수 없습니다(6장에서 본 과신 문제가 스스로 고쳐지지 않는 이유입니다). 그래프 기반 SLAM은 모든 원본 관측(팩터)을 그대로 보존합니다 — 메모리는 더 쓰지만, 언제든 그래프 전체를 다시 풀어서(다음 장) 과거의 추정까지 한꺼번에 재조정할 수 있고, 이게 루프 클로저(13장)처럼 뒤늦게 들어온 정보로 오래된 추정까지 고쳐야 하는 상황에서 특히 강력합니다.
+
+== 직접 해보기
+
+* `PriorFactor`를 그래프에서 완전히 제거하면(`graph.add_factor(PriorFactor(...))` 줄을 지우면), 참값에서의 잔차 노름이 어떻게 달라지는지 확인해보고, 왜 그런지 1권 9장의 게이지 자유도 논의와 연결지어 생각해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+graph_no_prior = Graph()
+# ... 사전 팩터만 빼고 나머지는 동일하게 구성
+r = full_residual(graph_no_prior, x_true)
+print(np.linalg.norm(r))
+----
+
+`PriorFactor`를 빼도 참값 자체에서의 잔차 노름은 거의 그대로입니다 — 참값은 여전히 오도메트리·관측 팩터들을 노이즈 수준으로 만족하기 때문입니다. 하지만 문제는 다음 장에서 이 그래프를 **최적화**할 때 드러납니다 — 사전 팩터 없이는, 전체 궤적과 지도를 통째로 평행이동·회전시켜도(1권 9장에서 본 것과 똑같은 "게이지 자유도") 모든 오도메트리·관측 팩터의 잔차가 똑같이 유지됩니다. 즉 최적화 문제에 유일한 해가 없어져서(무한히 많은 동등하게 좋은 해가 존재), 최적화 알고리즘이 어느 방향으로도 안정적으로 수렴하지 못하거나, 수치적으로 불안정해질 수 있습니다. `PriorFactor`(또는 이와 동등한 게이지 고정 방법)가 이 자유도를 없애 문제를 유일하게 풀리도록 만드는 역할을 합니다.
+====
+
+== 요약
+
+* 팩터 그래프는 알아내고 싶은 값(포즈, 랜드마크)을 노드로, 그 사이의 관계(오도메트리, 관측, 사전 정보)를 팩터로 표현합니다.
+* 각 팩터는 "관측값 - 현재 상태로 예측한 값"이라는 잔차 함수로 정의되고, 참값에서는 이 잔차가 노이즈 수준으로만 남습니다.
+* 각 팩터의 야코비안은 그 팩터가 관여하는 소수의 노드에만 값이 있고, 나머지 모든 노드에 대해서는 정확히 `0`입니다 — 이 희소성이 대규모 그래프도 효율적으로 다룰 수 있게 하는 핵심 성질입니다.
+* 필터가 정보를 요약하고 버리는 반면, 그래프는 모든 원본 관측을 보존해 나중에 통째로 재조정할 수 있게 합니다.
+
+다음 장에서는 이 그래프를 실제로 "푸는" 방법 — 모든 팩터의 잔차 제곱합을 최소화하는 비선형 최소제곱 최적화 — 를 다룹니다.
+// end::body[]

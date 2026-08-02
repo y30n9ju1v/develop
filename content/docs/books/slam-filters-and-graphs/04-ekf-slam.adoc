@@ -1,0 +1,174 @@
+---
+title: "4장: EKF-SLAM: 로봇과 랜드마크를 함께 추정하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["slam", "robotics", "ekf-slam", "book"]
+categories: ["books"]
+description: "로봇 포즈와 여러 랜드마크 위치를 하나의 결합 상태 벡터로 묶어 EKF-SLAM을 구현하고, 랜드마크 초기화 시 공분산 행렬의 일부를 잘못된 순서로 덮어써 양의 정부호가 깨지는 실제 버그를 발견·수정하며 2부를 여는 4장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-extended-kalman-filter/[3장: 확장 칼만 필터(EKF): 비선형계로 확장] · 다음: link:../05-data-association/[5장: 데이터 연관: 어느 관측이 어느 랜드마크인가]_
+
+'''
+
+3장의 EKF는 로봇의 위치만 추정했습니다 — 랜드마크의 위치는 미리 알고 있다고 가정했습니다. SLAM은 그 가정을 없앱니다. 랜드마크 위치도 로봇 위치와 **함께**, 하나의 결합된 상태 벡터로 추정합니다. 이렇게 하면 로봇이 한 랜드마크를 정확히 잰 정보가 (상태들 사이의 상관관계를 통해) 다른 랜드마크의 추정까지 개선하고, 나아가 로봇 자신의 위치 추정도 개선하는 연쇄 효과가 생깁니다 — 이게 SLAM의 "동시에"라는 이름이 뜻하는 바입니다.
+
+== 결합 상태 벡터
+
+[source,python]
+----
+# 상태: [xr, yr, thetar, lx1, ly1, lx2, ly2, ...]
+n_landmarks = 4
+dim = 3 + 2 * n_landmarks
+----
+
+로봇 포즈(`3`차원)와 `4`개 랜드마크의 위치(각 `2`차원)를 이어붙여 `11`차원 상태 벡터 하나로 표현합니다. 공분산 행렬 `Sigma`도 `11×11`이 되는데, 대각 블록(로봇-로봇, 랜드마크1-랜드마크1, ...)뿐 아니라 비대각 블록(로봇-랜드마크1, 랜드마크1-랜드마크2, ...)까지 담습니다 — 바로 이 비대각 블록이 "한 부분의 정보가 다른 부분의 추정에 영향을 준다"는 상관관계를 표현합니다.
+
+== 예측: 랜드마크는 그대로, 로봇만 움직인다
+
+[source,python]
+----
+def slam_predict(mu, Sigma, u, dt, Q_robot):
+    F_pose = motion_jacobian_pose(mu[:3], u, dt)   # 3장의 야코비안 그대로 재사용
+    G = np.eye(dim)
+    G[:3, :3] = F_pose                               # 랜드마크 부분은 항등행렬(안 움직이므로)
+    mu_pred = mu.copy()
+    mu_pred[:3] = motion_model(mu[:3], u, dt)
+    Q_full = np.zeros((dim, dim))
+    Q_full[:3, :3] = Q_robot                          # 프로세스 노이즈도 로봇 부분에만
+    Sigma_pred = G @ Sigma @ G.T + Q_full
+    return mu_pred, Sigma_pred
+----
+
+랜드마크는 정지해 있다고 가정하므로(정적 지도), 상태전이 함수에서 랜드마크 부분은 항등함수입니다 — 야코비안 `G`도 랜드마크 부분은 항등행렬로 남습니다. 이동에 따른 불확실성(`Q_robot`)도 로봇 부분에만 더해집니다.
+
+== 갱신: 랜드마크 하나를 관측하면 희소한 야코비안
+
+[source,python]
+----
+def measurement_jacobian_full(mu, landmark_idx):
+    x, y, theta = mu[:3]
+    lx, ly = mu[3+2*landmark_idx], mu[3+2*landmark_idx+1]
+    dx, dy = lx - x, ly - y
+    q = dx**2 + dy**2
+    r = np.sqrt(q)
+    H = np.zeros((2, dim))
+    H[:, :3] = [[-dx/r, -dy/r, 0], [dy/q, -dx/q, -1]]      # 로봇 포즈 부분 (3장과 동일)
+    H[0, 3+2*landmark_idx]   = dx/r;  H[0, 3+2*landmark_idx+1] = dy/r
+    H[1, 3+2*landmark_idx]   = -dy/q; H[1, 3+2*landmark_idx+1] = dx/q
+    return H
+----
+
+`H`는 `2×11` 행렬이지만, 실제로 값이 있는 열은 로봇 포즈 `3`개와 관측된 랜드마크 `2`개, 총 `5`개뿐입니다 — 나머지 열(관측 안 된 다른 랜드마크들)은 `0`입니다. 그런데도 갱신 공식(`Sigma_new = (I-KH)@Sigma`)을 거치면, 이 `0`이 아닌 부분과 비대각 상관관계를 통해 **관측 안 된 랜드마크들의 추정치까지 함께 갱신됩니다** — 이게 EKF-SLAM에서 "간접적으로 정보가 퍼지는" 메커니즘입니다.
+
+== 새 랜드마크 초기화
+
+로봇이 처음 보는 랜드마크는, 현재 로봇 위치 추정치와 관측값(거리·방위각)으로부터 역산해서 초기 위치를 정합니다.
+
+[source,python]
+----
+def initialize_landmark(mu, Sigma, z, landmark_idx, R):
+    x, y, theta = mu[:3]
+    r, bearing = z
+    lx = x + r * np.cos(theta + bearing)
+    ly = y + r * np.sin(theta + bearing)
+    ...
+----
+
+이 초기화 함수도 비선형(삼각함수)이므로, 초기 공분산 역시 야코비안(`Gx`: 로봇 포즈에 대한 미분, `Gz`: 측정값에 대한 미분)으로 전파해야 합니다 — 이 두 야코비안도 유한차분으로 검증했습니다(`assert np.allclose(...)` 통과).
+
+== 실제로 발견한 버그: 공분산 행렬을 잘못된 순서로 덮어쓰기
+
+처음 구현했을 때, `4`개 랜드마크를 초기화하자마자 몇 스텝 만에 로봇 위치 추정이 걷잡을 수 없이 발산했습니다(`20`스텝 만에 오차가 `13`을 넘었습니다). 원인을 추적하기 위해 매 갱신 후 공분산 행렬의 고윳값을 확인해봤습니다.
+
+[source,python]
+----
+eigvals = np.linalg.eigvalsh(Sigma)
+print(eigvals.min())
+----
+
+[source]
+----
+step 1 landmark 0: NEGATIVE eigenvalue detected! min=-0.069515
+step 1 landmark 1: NEGATIVE eigenvalue detected! min=-0.499653
+----
+
+공분산 행렬에 **음수 고윳값**이 나왔습니다 — 공분산은 수학적으로 항상 양의 준정부호(고윳값이 모두 `0` 이상)여야 하는데, 이건 명백히 잘못된 상태입니다. 처음에는 갱신 공식 `(I-KH)@Sigma`가 수치적으로 불안정하다고 의심해서, 항상 양의 준정부호를 보장하는 Joseph 형태(`(I-KH)Σ(I-KH)ᵀ + KRKᵀ`)로 바꿔봤지만 — 똑같은 음수 고윳값이 그대로 나왔습니다. 수치 오차가 아니라 **로직 자체의 버그**라는 뜻이었습니다.
+
+원래 초기화 코드는 이랬습니다:
+
+[source,python]
+----
+idx = slice(3+2*landmark_idx, 3+2*landmark_idx+2)
+Sigma_new[idx, idx] = landmark_cov          # (1) 새 랜드마크의 자기 공분산을 먼저 설정
+cross = Gx @ Sigma[:3, :]                    # (2) 로봇-전체 상태의 교차공분산을 계산
+Sigma_new[idx, :] = cross                    # (3) 새 랜드마크 행 전체를 이 교차공분산으로 덮어씀
+Sigma_new[:, idx] = cross.T
+----
+
+문제는 (3)번째 줄입니다 — `cross`는 `(2, dim)` 크기라 `idx`에 해당하는 열도 포함하는데, `Sigma[:3, idx]`(초기화 직전이라 아직 `0`)로 계산된 그 부분이 **(1)에서 방금 정확히 계산해둔 `landmark_cov`를 그대로 덮어써버립니다.** 결과적으로 랜드마크의 자기 분산은 (거의 `0`에 가까운) 잘못된 값이 되고, 비대각(교차) 성분은 정상적인 크기로 남으면서 — 대각선은 작고 비대각선은 상대적으로 큰, 전형적인 "양의 정부호가 깨진" 행렬이 만들어진 것입니다.
+
+== 수정: 자기 자신을 교차공분산 갱신에서 제외
+
+[source,python]
+----
+idx0 = 3 + 2*landmark_idx
+other = [i for i in range(dim) if not (idx0 <= i < idx0+2)]   # 새 랜드마크 자신은 제외
+cross_other = Gx @ Sigma[:3, other]
+Sigma_new[idx0:idx0+2, idx0:idx0+2] = landmark_cov              # 자기 공분산은 그대로 유지
+for c, o in enumerate(other):
+    Sigma_new[idx0:idx0+2, o] = cross_other[:, c]
+    Sigma_new[o, idx0:idx0+2] = cross_other[:, c]
+----
+
+"그 외" 상태(로봇 포즈와 다른 랜드마크들)에 대해서만 교차공분산을 갱신하고, 새 랜드마크 자신의 대각 블록은 손대지 않도록 인덱스를 명시적으로 분리했습니다.
+
+== 수정 후: 발산이 사라지고 안정적으로 수렴
+
+[source]
+----
+mean pose error (first 20 steps): 0.120
+mean pose error (last 20 steps):  0.347
+
+landmark 0 final error: 0.534   final covariance trace: 0.207
+landmark 1 final error: 0.447   final covariance trace: 0.223
+landmark 2 final error: 0.324   final covariance trace: 0.248
+landmark 3 final error: 0.307   final covariance trace: 0.223
+----
+
+`400`스텝(로봇이 원을 여러 바퀴 도는 궤적) 동안 발산 없이, 모든 랜드마크가 실제 위치에서 `0.6m` 이내로 정확히 수렴했고, 공분산도 여러 번 관측할수록 계속 작아졌습니다(초기 `1,000,000`에서 `0.2` 근처까지).
+
+== 이 버그에서 배울 점
+
+이 실수는 단순한 오타가 아니라, **다차원 배열 슬라이싱으로 행렬 일부를 갱신할 때 겹치는 인덱스를 놓치기 쉽다**는 일반적인 함정을 보여줍니다. 특히 EKF-SLAM처럼 상태 벡터가 크고(로봇 + 여러 랜드마크), 갱신마다 그 일부만 건드리는 코드에서는 이런 실수가 매우 흔합니다. 이번처럼 공분산 행렬의 고윳값을 주기적으로 확인하는 것(`np.linalg.eigvalsh(Sigma).min() >= 0`)이, 이런 버그를 "필터가 이상하게 발산한다"는 애매한 증상이 아니라 "공분산이 수학적으로 불가능한 상태에 빠졌다"는 명확한 신호로 훨씬 빨리 잡아낼 수 있는 실전적인 디버깅 습관입니다.
+
+== 직접 해보기
+
+* 고윳값 확인 코드를 이 장의 최종(수정된) 구현에 다시 걸어두고, `400`스텝 전체에서 최소 고윳값이 항상 `0` 이상(약간의 부동소수점 오차 허용)인지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+min_eig_over_time = []
+# ... 시뮬레이션 루프 안에서 매 스텝 ...
+min_eig_over_time.append(np.linalg.eigvalsh(Sigma).min())
+
+print(min(min_eig_over_time))
+assert min(min_eig_over_time) > -1e-8   # 부동소수점 오차 수준만 허용
+----
+
+수정된 구현에서는 `400`스텝 내내 최소 고윳값이 `0`에 아주 가깝거나 양수로 유지됩니다(아주 미세한 음수가 나오더라도, 이번 버그처럼 `-0.5` 같은 뚜렷한 값이 아니라 `-1e-10` 수준의 부동소수점 반올림 오차뿐이어야 합니다). 이 검증을 필터 구현의 "회귀 테스트"로 남겨두면, 나중에 코드를 수정하다가 비슷한 인덱싱 버그를 다시 만들어도 곧바로 잡아낼 수 있습니다.
+====
+
+== 요약
+
+* EKF-SLAM은 로봇 포즈와 여러 랜드마크 위치를 하나의 결합 상태 벡터·공분산 행렬로 묶어, 비대각 블록(상관관계)을 통해 한 부분의 정보가 다른 부분의 추정을 개선하도록 만듭니다.
+* 예측 단계는 랜드마크를 정적으로 취급하고, 갱신 단계의 관측 야코비안은 로봇 포즈와 관측된 랜드마크에만 값이 있는 희소 행렬입니다.
+* 새 랜드마크 초기화 코드에서 공분산 행렬을 잘못된 순서로 덮어써 양의 정부호가 깨지는 실제 버그를 발견했고, 공분산의 고윳값을 확인하는 것이 이런 버그를 빠르게 잡아내는 실전적인 디버깅 습관이라는 걸 확인했습니다.
+* 수정 후에는 `400`스텝 동안 발산 없이 로봇과 모든 랜드마크 위치가 안정적으로 수렴했습니다.
+
+다음 장에서는 지금까지 당연하게 가정해온 것 — "이 관측이 몇 번 랜드마크에 대한 것인지 이미 안다" — 을 걷어내고, 관측을 올바른 랜드마크에 연결하는 데이터 연관 문제를 다룹니다.
+// end::body[]

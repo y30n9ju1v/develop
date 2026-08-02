@@ -1,0 +1,195 @@
+---
+title: "3장: 확장 칼만 필터(EKF): 비선형계로 확장"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["slam", "robotics", "ekf", "book"]
+categories: ["books"]
+description: "회전을 포함한 유니사이클 로봇의 운동 모델과 range-bearing 관측 모델의 야코비안을 유한차분으로 검증하고, EKF가 순수 추측항법보다 위치 오차를 거의 절반으로 줄인다는 것을 확인하며 1부를 마무리하는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-kalman-filter/[2장: 칼만 필터: 선형 가우시안 상태 추정] · 다음: link:../04-ekf-slam/[4장: EKF-SLAM: 로봇과 랜드마크를 함께 추정하기]_
+
+'''
+
+2장 끝에서 예고한 문제 — 실제 로봇은 회전합니다. 회전이 들어간 운동 모델과, "랜드마크까지의 거리·방위각"처럼 삼각함수가 낀 관측 모델은 더 이상 선형이 아닙니다. 확장 칼만 필터(EKF)는 이 비선형 함수들을 현재 추정치 근처에서 **국소적으로 선형화**(1차 테일러 전개, 즉 야코비안)해서, 2장의 칼만 필터 공식을 거의 그대로 재사용합니다. 이 시리즈의 다른 책들(1권의 번들 조정, 2권의 EWA 스플래팅)에서도 반복해서 나온 "비선형 함수를 야코비안으로 국소 근사한다"는 아이디어가, 여기서도 그대로 등장합니다.
+
+== 비선형 운동 모델: 유니사이클 로봇
+
+[source,python]
+----
+def motion_model(state, u, dt):
+    x, y, theta = state
+    v, w = u  # 선속도, 각속도
+    if abs(w) < 1e-6:
+        x_new = x + v * dt * np.cos(theta)
+        y_new = y + v * dt * np.sin(theta)
+        theta_new = theta
+    else:
+        x_new = x + (v / w) * (np.sin(theta + w * dt) - np.sin(theta))
+        y_new = y + (v / w) * (-np.cos(theta + w * dt) + np.cos(theta))
+        theta_new = theta + w * dt
+    return np.array([x_new, y_new, theta_new])
+----
+
+로봇이 선속도 `v`와 각속도 `w`로 움직입니다 — `w`가 `0`이 아니면 로봇은 원호를 그리며 이동합니다. `sin`, `cos`가 상태 `theta`에 들어 있으므로, 이 함수는 명백히 비선형입니다.
+
+== 운동 모델의 야코비안
+
+[source,python]
+----
+def motion_jacobian(state, u, dt):
+    x, y, theta = state
+    v, w = u
+    F = np.eye(3)
+    if abs(w) < 1e-6:
+        F[0, 2] = -v * dt * np.sin(theta)
+        F[1, 2] = v * dt * np.cos(theta)
+    else:
+        F[0, 2] = (v / w) * (np.cos(theta + w * dt) - np.cos(theta))
+        F[1, 2] = (v / w) * (np.sin(theta + w * dt) - np.sin(theta))
+    return F
+----
+
+2장의 `F`(상태전이행렬)가 상수 행렬이었다면, 여기서는 **현재 상태에 따라 달라지는** `3×3` 행렬입니다 — `motion_model`을 상태 `[x, y, theta]`로 편미분한 것입니다.
+
+== 검증: 해석적 야코비안 vs 유한차분
+
+이 시리즈에서 계속 써온 검증 방법을 그대로 적용합니다.
+
+[source,python]
+----
+F_analytic = motion_jacobian(state0, u0, dt)
+
+F_numeric = np.zeros((3, 3))
+for j in range(3):
+    dstate = np.zeros(3); dstate[j] = eps
+    F_numeric[:, j] = (motion_model(state0 + dstate, u0, dt)
+                        - motion_model(state0 - dstate, u0, dt)) / (2 * eps)
+
+assert np.allclose(F_analytic, F_numeric, atol=1e-5)
+----
+
+[source]
+----
+F analytic:
+[[ 1.      0.     -0.904]
+ [ 0.      1.      1.190]
+ [ 0.      0.      1.   ]]
+F numeric:  (완전히 동일)
+----
+
+== 관측 모델: 거리와 방위각(Range-Bearing)
+
+로봇이 알려진 위치의 랜드마크 하나를 향해, 거리(`range`)와 상대 방위각(`bearing`)을 재는 센서(라이다나 카메라에서 흔한 관측 형태)를 갖고 있다고 합시다.
+
+[source,python]
+----
+def measurement_model(state, landmark):
+    x, y, theta = state
+    dx, dy = landmark[0] - x, landmark[1] - y
+    r = np.sqrt(dx**2 + dy**2)
+    bearing = np.arctan2(dy, dx) - theta
+    return np.array([r, bearing])
+
+def measurement_jacobian(state, landmark):
+    x, y, theta = state
+    dx, dy = landmark[0] - x, landmark[1] - y
+    q = dx**2 + dy**2
+    r = np.sqrt(q)
+    return np.array([
+        [-dx / r, -dy / r, 0],
+        [dy / q, -dx / q, -1],
+    ])
+----
+
+`arctan2`와 제곱근이 들어간 명백한 비선형 함수입니다. 이 야코비안도 유한차분으로 검증하면 정확히 일치합니다(`assert np.allclose(...)` 통과) — 자세한 유도는 생략하지만, 검증 과정 자체는 운동 모델 야코비안과 완전히 같은 패턴입니다.
+
+== EKF 루프: 예측과 갱신에 야코비안을 끼워넣기
+
+[source,python]
+----
+for k in range(1, n_steps):
+    F = motion_jacobian(x_est, u, dt)
+    x_pred = motion_model(x_est, u, dt)         # 평균은 비선형 함수 그대로 전파
+    P_pred = F @ P_est @ F.T + Q                 # 공분산은 선형화된 F로 전파
+
+    H = measurement_jacobian(x_pred, landmark)
+    z_pred = measurement_model(x_pred, landmark)  # 평균은 역시 비선형 함수 그대로
+    y = z - z_pred
+    y[1] = (y[1] + np.pi) % (2 * np.pi) - np.pi   # 각도 차이는 -pi~pi로 감쌈
+
+    S = H @ P_pred @ H.T + R
+    K = P_pred @ H.T @ np.linalg.inv(S)
+    x_est = x_pred + K @ y
+    P_est = (np.eye(3) - K @ H) @ P_pred
+----
+
+핵심 아이디어가 이 루프에 그대로 드러납니다 — **평균(`x_pred`, `z_pred`)은 원래의 비선형 함수로 정확하게 전파**하고, **불확실성(공분산)만 그 지점에서의 선형 근사(야코비안)로 전파**합니다. 한 가지 실전 디테일이 있습니다 — 방위각 차이(`y[1]`)는 `179°`와 `-179°`처럼 실제로는 `2°`밖에 안 떨어진 각도가 산술적으로는 `358°` 차이로 계산될 수 있으므로, 항상 `-π~π` 범위로 감싸줘야 합니다.
+
+== 시뮬레이션: 원을 그리며 도는 로봇
+
+[source,python]
+----
+process_noise_std = np.array([0.05, 0.05, 0.03])  # 로봇이 명령대로 정확히 안 움직임(바퀴 미끄러짐 등)
+true_state = np.array([0.0, 0.0, 0.0])
+for k in range(1, n_steps):
+    true_state = motion_model(true_state, u, dt) + rng.normal(0, process_noise_std)
+    true_states.append(true_state.copy())
+----
+
+로봇이 일정한 `(v, w)`로 원을 그리며 이동하되, 매 스텝 약간의 무작위 오차(바퀴 미끄러짐 같은 실제 로봇의 불완전함)가 섞입니다.
+
+== 검증: EKF가 순수 추측항법(dead reckoning)보다 나은가
+
+[source,python]
+----
+pos_rmse = np.sqrt(np.mean(np.sum((estimates[:, :2] - true_states[:, :2]) ** 2, axis=1)))
+print(pos_rmse)   # 0.555
+
+# 비교군: 관측을 전혀 쓰지 않고 운동 모델만으로 추정 (추측항법)
+x_dr = np.array([0.3, -0.3, 0.1])   # EKF와 똑같이 부정확한 초기 추정에서 시작
+for k in range(1, n_steps):
+    x_dr = motion_model(x_dr, u, dt)
+    dr_estimates.append(x_dr.copy())
+dr_rmse = np.sqrt(np.mean(np.sum((dr_estimates[:, :2] - true_states[:, :2]) ** 2, axis=1)))
+print(dr_rmse)   # 0.958
+----
+
+[source]
+----
+EKF position RMSE:              0.555
+dead-reckoning-only RMSE:       0.958
+----
+
+EKF가 순수 추측항법보다 위치 오차를 거의 `42%` 줄였습니다. 추측항법은 초기 추정 오차와 매 스텝의 프로세스 노이즈가 그대로 누적되기만 하는 반면(1권에서 다룬 SLAM 없는 오도메트리의 드리프트와 같은 현상입니다), EKF는 랜드마크 관측을 통해 매 스텝 오차를 보정합니다 — 관측이 있는 것과 없는 것의 차이를 숫자로 확인했습니다.
+
+== 왜 "확장"이고, 왜 근사인가
+
+EKF라는 이름의 "확장"은 칼만 필터를 비선형계로 확장했다는 뜻입니다. 하지만 이건 **근사**입니다 — 2장의 순수 칼만 필터와 달리, 야코비안으로 국소 선형화하는 순간 정확도를 일부 잃습니다. 로봇의 불확실성이 크거나(공분산 타원이 크거나) 비선형성이 강한 구간에서는, 이 국소 선형화가 실제 분포를 제대로 못 담아낼 수 있습니다 — 2권에서 EWA 스플래팅이 가우시안이 카메라에 비해 작을 때만 정확했던 것과 정확히 같은 종류의 근사 오차입니다. 다음 장에서 이 근사를 로봇 위치뿐 아니라 랜드마크 위치까지 동시에 추정하는 EKF-SLAM으로 확장하면서, 이 근사 오차가 어떤 새로운 문제를 낳는지도 함께 살펴봅니다.
+
+== 직접 해보기
+
+* `process_noise_std`를 `[0.05, 0.05, 0.03]`에서 `[0.2, 0.2, 0.1]`로 훨씬 크게(로봇이 명령을 훨씬 못 따르게) 만들면, EKF와 추측항법의 RMSE 격차가 더 벌어지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+process_noise_std_big = np.array([0.2, 0.2, 0.1])
+# ... 같은 시뮬레이션을 이 노이즈로 다시 돌리고 pos_rmse, dr_rmse 비교
+----
+
+프로세스 노이즈가 커질수록 추측항법의 오차는 거의 그대로 비례해서 커지지만(보정이 전혀 없으니 노이즈가 그대로 누적됩니다), EKF는 관측으로 계속 보정하기 때문에 오차가 그만큼 크게 늘어나지 않습니다 — 그 결과 두 방법의 격차가 더 벌어집니다. 이건 로봇의 오도메트리가 부정확할수록(바퀴가 잘 미끄러지는 바닥, 저렴한 센서) 외부 관측(랜드마크, 카메라, 라이다)에 기반한 보정이 더더욱 중요해진다는 실전적인 교훈과 일치합니다.
+====
+
+== 요약
+
+* EKF는 비선형 운동·관측 모델의 평균은 원래 함수 그대로 전파하고, 공분산만 그 지점의 야코비안으로 선형화해서 전파합니다.
+* 운동 모델과 관측 모델의 야코비안을 유한차분으로 검증하는 것이, 이 근사가 정확하게 구현됐는지 확인하는 표준적인 방법입니다.
+* 각도 차이는 항상 `-π~π` 범위로 wrap해야 한다는 실전적인 디테일을 확인했습니다.
+* EKF가 순수 추측항법보다 위치 오차를 `42%` 줄인다는 걸 시뮬레이션으로 검증했고, 프로세스 노이즈가 클수록 관측 기반 보정의 가치가 더 커진다는 것도 확인했습니다.
+
+1부에서 상태 추정의 기본 도구(베이지안 필터링, 칼만 필터, EKF)를 모두 다졌습니다. 2부에서는 이 EKF를 로봇 위치 하나가 아니라, 로봇과 지도(여러 랜드마크의 위치)를 **동시에** 추정하는 EKF-SLAM으로 확장합니다.
+// end::body[]
