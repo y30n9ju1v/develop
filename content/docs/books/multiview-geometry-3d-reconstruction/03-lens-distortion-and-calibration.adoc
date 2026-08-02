@@ -1,0 +1,132 @@
+---
+title: "3장: 렌즈 왜곡과 보정"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["computer-vision", "multiview-geometry", "book"]
+categories: ["books"]
+description: "실제 렌즈가 만드는 반경 왜곡을 정규화 좌표에 적용해 재현하고, 뉴턴 방법의 반복 대입으로 왜곡을 되돌리는 계산을 NumPy로 구현하며 1부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-extrinsics-and-rigid-transforms/[2장: 카메라 외부 파라미터와 강체 변환] · 다음: link:../04-epipolar-geometry-and-fundamental-matrix/[4장: 에피폴라 기하학과 기본행렬]_
+
+'''
+
+1~2장에서는 완벽한 핀홀 카메라를 가정했습니다. 실제 렌즈는 완벽하지 않습니다 — 특히 저렴하거나 화각이 넓은 렌즈일수록, 직선이 사진에서 곡선으로 휘어 찍히는 **왜곡(distortion)**이 두드러집니다. 이 장에서는 이 왜곡을 모델링하고 되돌리는 법을 다룹니다.
+
+== 반경 왜곡: 중심에서 멀수록 더 휜다
+
+가장 흔한 왜곡은 **반경 왜곡(radial distortion)**입니다 — 이미지 중심(주점)에서 멀어질수록 왜곡이 심해집니다. 정규화된 이미지 좌표(주점을 원점으로 하고 초점거리로 나눈 좌표, `x_norm = X/Z`, `y_norm = Y/Z`)에 이 왜곡을 적용합니다.
+
+[source,python]
+----
+import numpy as np
+
+def distort(x_norm, y_norm, k1, k2):
+    """정규화된 이미지 좌표에 반경 왜곡을 적용한다."""
+    r2 = x_norm**2 + y_norm**2
+    factor = 1 + k1 * r2 + k2 * r2**2
+    return x_norm * factor, y_norm * factor
+----
+
+`r2 = x²+y²`는 주점으로부터의 거리의 제곱이고, `factor`가 그 거리에 따라 좌표를 늘리거나 줄입니다. `k1`이 음수면 중심에서 멀어질수록 오히려 안쪽으로 당겨지는 **배럴 왜곡(barrel distortion)**(광각 렌즈에서 흔합니다)이 되고, 양수면 바깥으로 밀려나는 **핀쿠션 왜곡(pincushion distortion)**이 됩니다.
+
+== 왜곡을 포함한 전체 투영
+
+[source,python]
+----
+fx, fy, cx, cy = 800.0, 800.0, 320.0, 240.0
+k1, k2 = -0.2, 0.05  # 배럴 왜곡 계수
+
+def project_distorted(X_cam, fx, fy, cx, cy, k1, k2):
+    x_norm = X_cam[0] / X_cam[2]
+    y_norm = X_cam[1] / X_cam[2]
+    xd, yd = distort(x_norm, y_norm, k1, k2)
+    u = fx * xd + cx
+    v = fy * yd + cy
+    return np.array([u, v])
+----
+
+1장의 `project`와 순서가 다르다는 걸 눈여겨보세요 — **왜곡은 정규화된 좌표(아직 픽셀 단위가 아닌, 초점거리로 나눈 좌표)에 적용한 뒤에 픽셀 단위로 바꿔야** 합니다. 순서를 바꿔 픽셀 좌표에 직접 왜곡을 적용하면 틀린 결과가 나옵니다.
+
+== 광축 위의 점과 배럴 왜곡 확인하기
+
+[source,python]
+----
+p_axis = project_distorted(np.array([0.0, 0.0, 2.0]), fx, fy, cx, cy, k1, k2)
+assert np.allclose(p_axis, [cx, cy])
+
+X = np.array([0.5, 0.0, 1.0])
+undistorted = np.array([fx * 0.5 + cx, cy])       # [720. 240.]
+distorted = project_distorted(X, fx, fy, cx, cy, k1, k2)  # [701.25 240.]
+assert distorted[0] < undistorted[0]
+
+no_distort = project_distorted(X, fx, fy, cx, cy, 0.0, 0.0)
+assert np.allclose(no_distort, undistorted)
+----
+
+`r=0`인 광축 위의 점은 1장과 마찬가지로 왜곡의 영향을 받지 않습니다(`r2=0`이면 `factor=1`이니까요). 광축에서 벗어난 점(`X=0.5`)은 왜곡이 없을 때 픽셀 `720`에 찍혀야 하지만, 배럴 왜곡 때문에 `701.25`로 주점 쪽에 더 가깝게 당겨져서 찍힙니다 — `k1<0`이면 항상 주점 쪽으로 당겨진다는 걸 부등식으로 직접 확인했습니다. 왜곡 계수를 `0`으로 끄면 정확히 1장의 왜곡 없는 결과와 일치한다는 것도 확인했습니다 — 왜곡 모델이 "왜곡 없음"을 특수한 경우로 포함하는 일반화라는 뜻입니다.
+
+== 왜곡 되돌리기: 반복 대입
+
+실전에서는 반대 방향, 즉 **찍힌(왜곡된) 이미지에서 왜곡 없는 좌표를 복원**해야 하는 경우가 훨씬 많습니다 — 이 책 다음 장들의 에피폴라 기하학·삼각측량은 전부 왜곡이 없는 좌표를 전제하기 때문입니다. 문제는 `distort` 함수의 역함수를 대수적으로 깔끔하게 구할 수 없다는 것입니다(`factor` 자체가 `x, y`에 의존하는 다항식이라 방정식이 바로 안 풀립니다). 대신 **반복 대입(fixed-point iteration)**으로 근사합니다.
+
+[source,python]
+----
+def undistort_normalized(xd, yd, k1, k2, iters=20):
+    x, y = xd, yd  # 초기값: 왜곡이 작다고 가정하고 시작
+    for _ in range(iters):
+        r2 = x**2 + y**2
+        factor = 1 + k1 * r2 + k2 * r2**2
+        x = xd / factor
+        y = yd / factor
+    return x, y
+----
+
+아이디어는 이렇습니다 — `xd = x·factor(x,y)`라는 식에서, 만약 `factor`를 안다면 `x = xd / factor`로 바로 구할 수 있습니다. 물론 `factor`가 `x, y`에 의존하니 순환적이지만, 왜곡된 좌표 `(xd, yd)` 자체를 `factor`의 초기 추정치로 쓰고, 매 반복마다 더 나은 `x, y`로 `factor`를 다시 계산하는 걸 반복하면 값이 수렴합니다.
+
+== 왕복 검증: 왜곡 → 복원이 원래 값으로 돌아오는가
+
+[source,python]
+----
+xn, yn = X[0] / X[2], X[1] / X[2]
+xd_val, yd_val = distort(xn, yn, k1, k2)
+x_rec, y_rec = undistort_normalized(xd_val, yd_val, k1, k2)
+print("original:", xn, yn, "recovered:", x_rec, y_rec)
+assert np.isclose(x_rec, xn, atol=1e-8)
+assert np.isclose(y_rec, yn, atol=1e-8)
+----
+
+정규화 좌표 `(0.5, 0.0)`을 왜곡시킨 뒤 다시 복원하면, `20`번의 반복만으로 소수점 8자리까지 정확하게 원래 값 `(0.5, 0.0)`으로 돌아옵니다 — 왜곡과 복원이 서로 왕복 가능한(반올림 오차 수준까지) 연산이라는 걸 직접 검증했습니다.
+
+== 왜 이게 SfM/3DGS와 관련 있는가
+
+실전 3D 재구성 파이프라인(다음 부에서 다룰 SfM)의 첫 단계는 거의 항상 이 장의 역과정 — 원본 사진에서 렌즈 왜곡을 제거하는 것 — 입니다. 왜곡이 남아 있으면, 다음 장부터 배울 에피폴라 기하학(직선이 직선으로 대응된다는 가정에 의존합니다)이 깨집니다 — 왜곡된 사진에서는 실제 직선이 곡선으로 찍히기 때문입니다. 3DGS 학습 파이프라인이 카메라 캘리브레이션(내부 파라미터와 왜곡 계수를 구하는 과정)을 항상 전처리 단계로 요구하는 이유가 여기 있습니다.
+
+== 직접 해보기
+
+* `k1=0.15`(양수, 핀쿠션 왜곡)일 때 `X=(0.5, 0, 1.0)`을 왜곡시킨 픽셀이 왜곡 없는 픽셀(`720`)보다 큰지 작은지 예상해보고, 코드로 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+k1_pin, k2_pin = 0.15, 0.0
+distorted_pin = project_distorted(X, fx, fy, cx, cy, k1_pin, k2_pin)
+print(distorted_pin)  # [735. 240.]
+assert distorted_pin[0] > 720.0
+----
+
+`k1>0`이면 `factor>1`이 되어 좌표가 주점에서 더 멀리 밀려납니다 — 배럴 왜곡과 정반대 방향입니다.
+====
+
+== 요약
+
+* 렌즈 왜곡은 정규화된 이미지 좌표에 반경 방향 계수(`k1, k2, ...`)를 곱하는 형태로 모델링하고, 픽셀 변환보다 먼저 적용해야 합니다.
+* `k1<0`은 배럴 왜곡(중심으로 당겨짐), `k1>0`은 핀쿠션 왜곡(중심에서 밀려남)입니다.
+* 왜곡의 역함수는 대수적으로 풀리지 않아 반복 대입으로 근사하고, 왜곡→복원 왕복이 원래 값으로 돌아온다는 걸 직접 검증했습니다.
+* SfM과 3DGS 파이프라인은 이 장의 왜곡 보정을 항상 전처리 단계로 요구합니다 — 이후 장의 에피폴라 기하학이 왜곡 없는 좌표를 전제하기 때문입니다.
+
+1부가 여기서 끝났습니다. 2부에서는 카메라 한 대가 아니라, 서로 다른 위치에서 찍은 두 장의 사진 사이의 기하학을 다룹니다.
+// end::body[]

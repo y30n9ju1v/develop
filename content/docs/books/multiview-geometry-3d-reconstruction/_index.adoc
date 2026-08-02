@@ -1,0 +1,120 @@
+---
+title: "사진에서 세계로"
+draft: false
+---
+
+카메라 모델부터 SLAM, 그리고 3D Gaussian Splatting의 입력이 되는 재구성까지, 여러 장의 사진에서 3차원 세계를 되짚는 멀티뷰 기하학을 코드로 직접 검증하며 배우는 독립적인 입문서입니다. 카메라 모델(1부) → 두 장 사진의 기하학(2부) → Structure-from-Motion(3부) → SLAM(4부) → 3DGS를 향하여(5부) 순서로 쌓아 올립니다.
+
+이 책은 3DGS 기반 자율주행 E2E 검증에 필요한 대학 과목들을 시리즈로 다루는 계획의 첫 번째 책입니다 — 멀티뷰 기하학과 3D 재구성이라는, 이 시리즈 전체의 기초가 되는 축을 담당합니다.
+
+이 책의 모든 핵심 계산(카메라 투영, 에피폴라 제약, 삼각측량, 번들 조정, 포즈 그래프 최적화 등)은 이 책을 위해 새로 지은 예제이며, NumPy/SciPy로 실제 실행해 숫자로 검증했습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 사진에서 세계로]*
+
+*1부: 카메라라는 사영 장치*
+
+[start=1]
+. *link:01-pinhole-camera-model/[핀홀 카메라 모델과 내부 파라미터]*
+. *link:02-extrinsics-and-rigid-transforms/[카메라 외부 파라미터와 강체 변환]*
+. *link:03-lens-distortion-and-calibration/[렌즈 왜곡과 보정]*
+
+*2부: 두 장의 사진 사이의 기하학*
+
+[start=4]
+. *link:04-epipolar-geometry-and-fundamental-matrix/[에피폴라 기하학과 기본행렬]*
+. *link:05-essential-matrix-and-pose-recovery/[본질행렬과 자세 복원]*
+. *link:06-triangulation/[삼각측량으로 3D 점 복원하기]*
+
+*3부: 여러 장으로 확장하기*
+
+[start=7]
+. *link:07-feature-detection-and-matching/[특징점 검출과 매칭]*
+. *link:08-structure-from-motion-pipeline/[Structure-from-Motion 파이프라인]*
+. *link:09-bundle-adjustment/[번들 조정(Bundle Adjustment)]*
+
+*4부: 실시간으로 확장하기 — SLAM*
+
+[start=10]
+. *link:10-what-is-slam/[SLAM이란 무엇인가]*
+. *link:11-pose-graph-optimization/[포즈 그래프 최적화]*
+. *link:12-loop-closure-and-map-consistency/[루프 클로저와 지도 일관성]*
+
+*5부: 3DGS를 향하여*
+
+[start=13]
+. *link:13-from-point-clouds-to-scene-representations/[점군에서 장면 표현으로]*
+. *link:14-measuring-reconstruction-quality/[재구성 품질을 재는 법]*
+
+*맺음말*
+
+[start=15]
+. *link:15-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-pinhole-camera-model.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-extrinsics-and-rigid-transforms.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-lens-distortion-and-calibration.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-epipolar-geometry-and-fundamental-matrix.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-essential-matrix-and-pose-recovery.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-triangulation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-feature-detection-and-matching.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-structure-from-motion-pipeline.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-bundle-adjustment.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-what-is-slam.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-pose-graph-optimization.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-loop-closure-and-map-consistency.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-from-point-clouds-to-scene-representations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-measuring-reconstruction-quality.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::15-afterword.adoc[tag=body,leveloffset=+1]

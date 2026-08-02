@@ -1,0 +1,153 @@
+---
+title: "8장: Structure-from-Motion 파이프라인"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["computer-vision", "multiview-geometry", "book"]
+categories: ["books"]
+description: "두 장의 사진으로 초기 점군을 만든 뒤, 이미 복원된 3D 점을 이용해 카메라 리셋션(PnP)으로 세 번째 카메라를 등록하는 점진적 SfM 절차를 NumPy로 구현하고 재투영 오차로 검증하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-feature-detection-and-matching/[7장: 특징점 검출과 매칭] · 다음: link:../09-bundle-adjustment/[9장: 번들 조정(Bundle Adjustment)]_
+
+'''
+
+지금까지는 카메라 두 대만 다뤘습니다. 실전의 3D 재구성(그리고 3DGS의 입력)은 보통 수십에서 수백 장의 사진을 씁니다. 이 장에서는 사진을 한 장씩 추가하며 재구성을 넓혀가는 **점진적 Structure-from-Motion(incremental SfM)**의 핵심 절차를 구현합니다.
+
+== 점진적 SfM의 전체 그림
+
+점진적 SfM은 대략 이런 순서로 진행됩니다.
+
+. 두 장의 사진으로 **초기 재구성**을 만든다(4~6장에서 다룬 것 — 본질행렬로 상대 자세를 구하고, 삼각측량으로 초기 점군을 만든다).
+. 세 번째 사진을 추가한다 — 이 사진에서 이미 재구성된 3D 점들이 어디에 찍혔는지(7장의 매칭으로) 알아내고, 그 대응으로부터 세 번째 카메라의 자세를 구한다.
+. 새로 등록된 카메라와 기존 카메라 사이에서 **새로운** 점들을 추가로 삼각측량해서 점군을 넓힌다.
+. 사진이 남아있는 한 2~3을 반복한다.
+
+이 장에서는 2번 단계, 즉 **이미 아는 3D 점들로부터 새 카메라의 자세를 구하는 법**을 다룹니다 — 이 문제를 **PnP(Perspective-n-Point)**라고 부르고, 여기서는 그중 가장 단순한 선형 방법인 **카메라 리셋션(camera resectioning) DLT**를 구현합니다.
+
+== 세 대의 카메라와 장면 준비
+
+[source,python]
+----
+import numpy as np
+
+K = np.array([[800.0, 0, 320.0], [0, 800.0, 240.0], [0, 0, 1]])
+R1, t1 = np.eye(3), np.zeros(3)
+R2, C2 = rotation_y(np.radians(10)), np.array([0.5, 0.0, 0.0])
+t2 = -R2 @ C2
+R3, C3 = rotation_y(np.radians(-8)) @ rotation_x(np.radians(3)), np.array([-0.4, 0.1, -0.2])
+t3 = -R3 @ C3
+
+X_world = rng.uniform(low=[-1, -1, 3], high=[1, 1, 6], size=(30, 3))
+----
+
+카메라1(원점), 카메라2(4~6장과 같은 설정), 그리고 새로 추가할 카메라3(두 축으로 회전 + 다른 위치)을 준비하고, 장면에 무작위 3D 점 30개를 흩뿌립니다. 세 카메라 모두에서 이 점들을 투영해 픽셀 좌표(`x1_all, x2_all, x3_all`)를 얻습니다 — 실전에서는 이 좌표들을 7장의 검출·매칭으로 얻지만, 여기서는 파이프라인 자체에 집중하기 위해 진짜 3D 점을 그대로 투영해서 만듭니다.
+
+== 1단계: 초기 재구성 (카메라 1-2)
+
+[source,python]
+----
+P1, P2 = proj_matrix(K, R1, t1), proj_matrix(K, R2, t2)
+point_cloud = np.array([triangulate_linear(P1, P2, x1, x2) for x1, x2 in zip(x1_all, x2_all)])
+
+err_cloud = np.linalg.norm(point_cloud - X_world, axis=1)
+assert err_cloud.max() < 1e-6
+----
+
+여기서는 `R2, t2`를 이미 안다고 가정합니다(5장에서 본질행렬로 이 자세를 실제로 복원하는 법을 이미 다뤘습니다). 6장의 삼각측량 함수를 그대로 재사용해서 30개 점을 전부 복원하면, 원래 점과의 오차가 `10⁻⁶` 미만입니다 — 잡음 없는 이상적인 상황에서 이 장의 파이프라인이 정확히 작동한다는 걸 먼저 확인했습니다.
+
+== 2단계: 카메라 리셋션 (DLT로 PnP 풀기)
+
+핵심 아이디어는 4~6장과 똑같습니다 — **미지수에 대해 선형인 방정식을 세우고 SVD로 푼다**는 패턴입니다. 이번엔 미지수가 3D 점이 아니라 **카메라의 투영 행렬** 자체입니다.
+
+[source,python]
+----
+def resection_dlt(X_world_pts, x_pixels, K):
+    """이미 알려진 3D 점들과 그 2D 투영으로부터 카메라의 R, t를 복원한다 (선형 DLT)."""
+    Kinv = np.linalg.inv(K)
+    A_rows = []
+    for X, x in zip(X_world_pts, x_pixels):
+        xn = Kinv @ np.array([x[0], x[1], 1.0])  # 정규화 좌표
+        Xh = np.array([X[0], X[1], X[2], 1.0])
+        A_rows.append(np.hstack([Xh, np.zeros(4), -xn[0] * Xh]))
+        A_rows.append(np.hstack([np.zeros(4), Xh, -xn[1] * Xh]))
+    A = np.array(A_rows)
+    _, _, Vt = np.linalg.svd(A)
+    P_norm = Vt[-1].reshape(3, 4)
+
+    R_raw = P_norm[:, :3]
+    t_raw = P_norm[:, 3]
+    # R_raw는 스케일까지 섞인 회전 근사치 -> SVD로 가장 가까운 진짜 회전행렬로 투영
+    U, S, Vt2 = np.linalg.svd(R_raw)
+    scale = np.mean(S)
+    R_est = U @ Vt2
+    if np.linalg.det(R_est) < 0:
+        R_est = -R_est
+        scale = -scale
+    t_est = t_raw / scale
+    return R_est, t_est
+----
+
+각 3D-2D 대응 쌍마다, "이 3D 점을 미지의 `[R|t]`로 투영한 결과가 실제 관측된 픽셀과 같아야 한다"는 조건에서 선형 방정식 2개가 나옵니다(6점 이상이면 미지수 12개를 풀기에 충분합니다). SVD로 얻은 해(`P_norm`)는 아직 정확한 회전행렬이 아닐 수 있어서(잡음이나 수치 오차 때문에 `R_raw`가 직교하지 않을 수 있습니다), **가장 가까운 진짜 회전행렬로 투영**하는 절차(`R_raw`를 다시 SVD해서 `U·Vt`로 바꾸는 것)가 필요합니다 — 2장에서 강조한 "회전행렬은 직교해야 한다"는 조건을 여기서 다시 강제하는 것입니다.
+
+== 세 번째 카메라를 실제로 등록해보기
+
+[source,python]
+----
+R3_est, t3_est = resection_dlt(point_cloud, x3_all, K)
+print("R3 true:\n", R3)
+print("R3 est:\n", R3_est)
+print("t3 true:", t3, "t3 est:", t3_est)
+assert np.allclose(R3_est, R3, atol=1e-6)
+assert np.allclose(t3_est, t3, atol=1e-6)
+----
+
+복원된 `R3_est`, `t3_est`가 진짜 `R3`, `t3`와 소수점 6자리까지 정확히 일치합니다. 5장에서 두 카메라의 상대 자세를 복원했을 때는 **이동의 절대 크기를 알 수 없었다**는 한계가 있었는데, 여기서는 그 한계가 사라졌다는 걸 눈여겨보세요 — `point_cloud`가 이미 (1단계에서 삼각측량한) 절대 크기를 가진 3D 좌표이기 때문에, 그 좌표에 맞춰 세 번째 카메라의 위치까지 정확한 크기로 복원됩니다. 이게 점진적 SfM이 "재구성을 사진 한 장씩 확장한다"고 표현되는 이유입니다 — 처음 두 장으로 정한 좌표계와 스케일이, 이후 추가되는 모든 카메라와 점의 기준이 됩니다.
+
+== 검증: 재투영 오차로 확인하기
+
+[source,python]
+----
+x3_reproj = np.array([project(K, R3_est, t3_est, X) for X in point_cloud])
+reproj_err = np.linalg.norm(x3_reproj - x3_all, axis=1)
+print("reprojection error (max):", reproj_err.max())  # 1.67e-12
+assert reproj_err.max() < 1e-4
+----
+
+복원된 카메라3의 자세로 점군을 다시 투영하면, 실제 관측된 픽셀과 거의 완벽하게(`10⁻¹²` 수준) 일치합니다. 이 **재투영 오차(reprojection error)**가 SfM과 이후 3DGS 파이프라인 전체에서 재구성 품질을 재는 가장 표준적인 척도입니다 — 14장에서 이 지표를 다시 다룹니다.
+
+== 왜 여러 카메라를 한 번에 풀지 않는가
+
+"카메라 세 대와 점 30개를 전부 동시에 최적화하면 안 되나?"라는 의문이 들 수 있습니다 — 실제로 그게 다음 장의 주제인 **번들 조정**입니다. 점진적 SfM이 굳이 두 대→세 대로 순차적으로 늘려가는 이유는, 카메라가 아주 많아지면 전부를 한꺼번에 초기화해서 최적화하는 게 수치적으로 불안정하기 때문입니다 — 이 장의 방식처럼 "이미 신뢰할 만한 부분 재구성"을 발판 삼아 한 대씩 추가하면, 각 단계가 이전 단계의 정확한 결과에 기대어 훨씬 안정적으로 수렴합니다. 다음 장에서 이렇게 쌓아온 재구성 전체를 마지막으로 한 번에 다듬는 번들 조정을 다룹니다.
+
+== 직접 해보기
+
+* 카메라3의 픽셀 좌표(`x3_all`)에 표준편차 `1.0`픽셀의 잡음을 섞으면, 복원된 `R3_est`, `t3_est`가 진짜 값에서 얼마나 벗어나는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+noise_rng = np.random.default_rng(2)
+x3_noisy = x3_all + noise_rng.normal(scale=1.0, size=x3_all.shape)
+R3_est_n, t3_est_n = resection_dlt(point_cloud, x3_noisy, K)
+
+rot_err = np.linalg.norm(R3_est_n - R3)
+trans_err = np.linalg.norm(t3_est_n - t3)
+print("rotation error:", rot_err, "translation error:", trans_err)
+assert rot_err > 1e-6  # 잡음이 없을 때보다 명백히 커야 한다
+----
+
+잡음이 섞이면 더 이상 완벽하게 복원되지 않고, 그 오차가 이후 단계(추가 삼각측량, 다음 장의 번들 조정)로 전파됩니다 — 왜 재구성 파이프라인 전체에 걸쳐 오차를 최소화하려는 노력(번들 조정)이 필요한지를 보여주는 실험입니다.
+====
+
+== 요약
+
+* 점진적 SfM은 두 장으로 초기 재구성을 만든 뒤, 카메라를 한 대씩 추가하며 점군과 카메라 자세를 넓혀갑니다.
+* 카메라 리셋션(PnP)은 이미 아는 3D 점과 그 2D 투영으로부터 새 카메라의 자세를 선형 방정식(DLT)으로 복원합니다.
+* 초기 재구성이 이미 절대 크기를 가지므로, 이후 추가되는 카메라들은 5장의 스케일 모호성 없이 정확한 크기로 복원됩니다.
+* 재투영 오차(복원된 자세로 다시 투영한 픽셀과 실제 관측치의 차이)가 재구성 품질을 재는 표준 척도입니다.
+
+다음 장에서는 이렇게 순차적으로 쌓아온 재구성 전체를 한꺼번에 최적화해서 오차를 최소화하는 번들 조정을 다룹니다.
+// end::body[]

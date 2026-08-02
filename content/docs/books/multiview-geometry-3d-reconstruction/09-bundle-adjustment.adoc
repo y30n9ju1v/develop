@@ -1,0 +1,168 @@
+---
+title: "9장: 번들 조정(Bundle Adjustment)"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["computer-vision", "multiview-geometry", "book"]
+categories: ["books"]
+description: "여러 카메라와 점을 한꺼번에 비선형 최적화로 다듬는 번들 조정을 scipy로 구현하고, 최적화가 엉뚱한 스케일로 발산하는 실패를 직접 겪어본 뒤 게이지 고정으로 바로잡으며 3부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-structure-from-motion-pipeline/[8장: Structure-from-Motion 파이프라인] · 다음: link:../10-what-is-slam/[10장: SLAM이란 무엇인가]_
+
+'''
+
+8장까지는 카메라를 한 대씩 순서대로 추가했습니다. 각 단계는 이전 단계의 결과를 고정된 사실로 취급했지만, 실제로는 이전 단계에도 잡음에서 온 오차가 섞여 있습니다. **번들 조정(bundle adjustment, BA)**은 지금까지 쌓아온 모든 카메라 자세와 3D 점을 **한꺼번에** 다시 최적화해서, 전체 재투영 오차를 최소로 만드는 마지막 다듬질입니다.
+
+== 번들 조정이 푸는 문제
+
+번들 조정은 카메라들의 자세(`R_i, t_i`)와 3D 점들(`X_j`)을 동시에 미지수로 두고, 모든 카메라·점 쌍에서 관측된 실제 픽셀과 예측된 투영 사이의 오차 제곱합을 최소화합니다.
+
+[source,python]
+----
+import numpy as np
+from scipy.optimize import least_squares
+
+def rodrigues(rvec):
+    """축-각(axis-angle) 3벡터를 회전행렬로 변환한다 (Rodrigues 공식)."""
+    theta = np.linalg.norm(rvec)
+    if theta < 1e-12:
+        return np.eye(3)
+    axis = rvec / theta
+    K = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+----
+
+1~8장에서는 회전을 3×3 행렬 `R`로 다뤘지만, 최적화는 **미지수 벡터**를 다루므로 회전을 3개의 숫자(축-각 표현, axis-angle)로 압축해야 합니다. `rodrigues`는 이 3벡터를 다시 회전행렬로 복원하는 공식입니다 — 이 표현을 쓰면 최적화 도중 회전행렬이 항상 자동으로 직교 조건(2장에서 강조한 `RᵀR=I`)을 만족합니다. 별도로 강제할 필요가 없다는 게 이 표현의 장점입니다.
+
+== 문제 설정: 카메라 3대, 점 20개, 관측 잡음
+
+[source,python]
+----
+X_world = rng.uniform(low=[-1, -1, 3], high=[1, 1, 6], size=(20, 3))
+observations = []
+for ci, (R, t) in enumerate(zip(Rs_true, ts_true)):
+    for pi, X in enumerate(X_world):
+        px = project(K_mat, R, t, X)
+        px_noisy = px + rng.normal(scale=0.3, size=2)  # 0.3픽셀 관측 잡음
+        observations.append((ci, pi, px_noisy))
+----
+
+8장과 같은 카메라 3대 설정에, 이번엔 모든 관측 픽셀에 `0.3`픽셀 표준편차의 잡음을 섞습니다 — 실제 특징점 검출(7장)이 완벽하지 않다는 걸 반영합니다. 초기 추정치(`rvecs_init, tvecs_init, points_init`)에도 진짜 값에서 살짝 벗어난 오차를 인위적으로 섞어, 지금까지의 점진적 SfM이 쌓아온 누적 오차를 흉내냅니다.
+
+== 잔차 함수와 최적화
+
+[source,python]
+----
+def residuals(params):
+    Rs, ts, pts = unpack(params)
+    res = []
+    for ci, pi, px_obs in observations:
+        px_pred = project(K_mat, Rs[ci], ts[ci], pts[pi])
+        res.append(px_pred - px_obs)
+    return np.concatenate(res)
+
+x0 = pack(rvecs_init, tvecs_init, points_init)
+result = least_squares(residuals, x0, method="lm")
+----
+
+`least_squares`(Levenberg-Marquardt 방법)가 모든 카메라 자세와 모든 3D 점을 동시에 조금씩 조정해가며, 전체 재투영 오차 제곱합을 최소화합니다. 카메라1은 좌표계의 기준점으로 삼아 최적화 대상에서 제외합니다(원점·무회전으로 고정) — 이렇게 하지 않으면 "카메라와 점 전체를 통째로 평행이동/회전시켜도 재투영 오차는 똑같다"는 자유도(2장에서 다룬 강체 변환 자체의 모호성)가 남아 최적화가 정의되지 않습니다.
+
+== 실패해보기: 스케일이 통째로 날아간다
+
+처음 이 최적화를 그대로 돌리면 이렇게 됩니다.
+
+[source]
+----
+RMSE before BA: 4.16
+RMSE after BA:  0.19
+t2 true: [-0.492  0.     0.087]
+t2 opt:  [410.3   5.68 -62.68]     # 완전히 엉뚱한 값!
+----
+
+재투영 오차(RMSE)는 `4.16`에서 `0.19`로 훌륭하게 줄었는데, 복원된 카메라2의 위치는 진짜 값과 전혀 다른 엉뚱한 숫자입니다. 무슨 일이 일어난 걸까요?
+
+**카메라1을 원점에 고정했는데도, 스케일이라는 자유도가 하나 더 남아 있었습니다.** 모든 3D 점의 좌표와 카메라2·3의 이동 `t`를 동시에 같은 배수 `λ`로 늘리면(`X → λX`, `t → λt`, 회전은 그대로), 카메라1의 투영(`X/Z`는 배수를 약분하니 그대로)도, 다른 카메라들의 투영(`(R·λX + λt)/(...)`도 `λ`가 약분되어 그대로)도 **전혀 바뀌지 않습니다** — 5장에서 "단안 카메라는 절대 크기를 알 수 없다"고 했던 바로 그 스케일 모호성이, 카메라가 여러 대로 늘어나도 사라지지 않고 여전히 통째로 남아 있는 것입니다. 최적화 입장에서는 이 방향으로 아무리 미끄러져도 재투영 오차가 전혀 줄지도 늘지도 않으니, 잡음이 아주 살짝만 이 방향으로 떠밀어도 최적화가 정처 없이 이 방향으로 표류합니다.
+
+== 게이지 고정: 기준선 길이를 고정해서 스케일을 정하기
+
+이 스케일 자유도를 없애려면, 어딘가에 "이 거리만큼은 절대적으로 안다"는 기준이 하나 필요합니다 — 이걸 **게이지 고정(gauge fixing)**이라고 부릅니다. 자율주행차라면 바퀴 오도메트리나 IMU로 카메라1-2 사이의 실제 이동 거리를 대략 안다고 볼 수 있으니, 이 정보를 추가 제약으로 넣습니다.
+
+[source,python]
+----
+baseline_true = np.linalg.norm(t2)  # 카메라1-2 사이의 실제 거리(예: 차량 오도메트리로 안다고 가정)
+
+def residuals(params):
+    Rs, ts, pts = unpack(params)
+    res = [project(K_mat, Rs[ci], ts[ci], pts[pi]) - px_obs
+           for ci, pi, px_obs in observations]
+    scale_residual = 50.0 * (np.linalg.norm(ts[1]) - baseline_true)
+    res.append(np.array([scale_residual]))
+    return np.concatenate(res)
+----
+
+카메라1-2 사이 거리(`‖t2‖`)가 알려진 값에서 벗어나면 그만큼 벌점을 주는 잔차 하나를 추가했습니다(가중치 `50`은 이 제약을 픽셀 오차들과 비슷한 크기로 맞추기 위한 값입니다). 이 잔차 하나가, 앞서 본 "스케일 방향으로 자유롭게 미끄러지는" 골짜기에 바닥을 만들어줍니다.
+
+== 다시 최적화: 이번엔 제대로 수렴한다
+
+[source,python]
+----
+result = least_squares(residuals, x0, method="lm", xtol=1e-14, ftol=1e-14)
+Rs_opt, ts_opt, pts_opt = unpack(result.x)
+
+rot_err_after = np.linalg.norm(Rs_opt[1] - R2)
+t_err_after = np.linalg.norm(ts_opt[1] - t2)
+print(rot_err_after, t_err_after)
+assert rot_err_after < 0.02
+assert t_err_after < 0.02
+----
+
+이번엔 `t2_opt`가 `[-0.494, -0.007, 0.076]`으로, 진짜 값 `[-0.492, 0, 0.087]`에 훨씬 가깝게 복원됩니다. 회전과 이동 모두 오차가 `0.02` 미만입니다 — 게이지를 고정하자 최적화가 엉뚱한 방향으로 표류하지 않고 진짜 해 근처로 정확히 수렴했습니다.
+
+[source,python]
+----
+pt_err_after_mean = np.mean(np.linalg.norm(pts_opt - X_world, axis=1))
+print(pt_err_after_mean)  # 0.185
+assert pt_err_after_mean < 0.3
+----
+
+3D 점들의 평균 복원 오차는 `0.185`입니다 — 완벽한 `0`은 아닙니다. `0.3`픽셀의 관측 잡음이 실제로 섞여 있었으니, 이 정도 오차는 6장에서 확인한 "잡음이 있으면 삼각측량에도 그만큼 오차가 남는다"는 사실과 정확히 일치하는 결과입니다. 번들 조정은 마법이 아니라, **주어진 잡음 수준에서 통계적으로 가장 그럴듯한 해**를 찾아주는 도구입니다.
+
+== 왜 이 실패 경험이 중요한가
+
+이 장에서 일부러 실패를 먼저 보여준 이유가 있습니다 — 실전 SfM/3DGS 파이프라인에서 "재투영 오차는 낮은데 결과가 이상하다"는 문제의 상당수가 바로 이 **게이지 모호성**에서 옵니다. COLMAP 같은 실제 도구들도 내부적으로 좌표계와 스케일을 고정하는 절차를 갖고 있고, GPS나 오도메트리 같은 외부 스케일 정보가 있으면 그걸 반드시 반영합니다 — 그렇지 않으면 이 장에서 본 것처럼 기하학적으로는 "완벽하게 맞아떨어지는"(재투영 오차가 낮은) 결과가, 실제 크기와는 전혀 다른 엉뚱한 스케일로 나올 수 있습니다.
+
+== 직접 해보기
+
+* 게이지 고정 잔차의 가중치를 `50.0`에서 `0.001`로 낮추면 최적화 결과가 다시 불안정해지는지(t2_opt가 진짜 값에서 크게 벗어나는지) 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def residuals_weak_gauge(params):
+    Rs, ts, pts = unpack(params)
+    res = [project(K_mat, Rs[ci], ts[ci], pts[pi]) - px_obs
+           for ci, pi, px_obs in observations]
+    scale_residual = 0.001 * (np.linalg.norm(ts[1]) - baseline_true)  # 가중치를 크게 축소
+    res.append(np.array([scale_residual]))
+    return np.concatenate(res)
+
+result_weak = least_squares(residuals_weak_gauge, x0, method="lm", xtol=1e-14, ftol=1e-14)
+_, ts_weak, _ = unpack(result_weak.x)
+print(np.linalg.norm(ts_weak[1] - t2))  # 1.80 -- 가중치 50일 때(0.013)보다 100배 넘게 큰 오차
+----
+
+가중치를 너무 약하게 주면 게이지 고정이 픽셀 잔차들에 묻혀서 사실상 무시되고, 스케일이 다시 불안정해지는 걸 오차 크기로 직접 확인할 수 있습니다(`0.013` → `1.80`) — 완전히 `0`으로 끄면 본문에서 본 것처럼 오차가 `38`까지 치솟습니다. 게이지 고정 잔차의 크기를 다른 잔차들과 비슷한 스케일로 맞추는 게 실전에서도 중요한 튜닝 포인트입니다.
+====
+
+== 요약
+
+* 번들 조정은 모든 카메라 자세와 3D 점을 동시에 비선형 최적화해서 전체 재투영 오차를 최소화하는 마지막 다듬질입니다.
+* 회전을 축-각(3벡터)으로 표현하면 최적화 도중에도 직교 조건이 자동으로 유지됩니다.
+* 카메라를 하나 고정해도 **전역 스케일**이라는 자유도가 남아 있고, 이를 고정하지 않으면 재투영 오차는 낮지만 스케일이 완전히 틀린 결과로 발산할 수 있습니다 — 직접 겪어본 실패입니다.
+* 기준선 길이 같은 외부 정보로 게이지를 고정하면, 회전·이동·점 위치 모두 진짜 값 근처로 정확히 수렴합니다.
+
+3부가 여기서 끝났습니다. 4부에서는 이 모든 과정을 오프라인 일괄 처리가 아니라 실시간으로 돌리는 SLAM을 다룹니다.
+// end::body[]

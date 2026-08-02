@@ -1,0 +1,139 @@
+---
+title: "6장: 삼각측량으로 3D 점 복원하기"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["computer-vision", "multiview-geometry", "book"]
+categories: ["books"]
+description: "두 카메라의 투영 방정식을 SVD로 동시에 풀어 3D 점을 복원하는 선형 삼각측량(DLT)을 구현하고, 픽셀 잡음이 섞였을 때 깊이가 클수록 오차가 커진다는 것을 몬테카를로 실험으로 확인하며 2부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-essential-matrix-and-pose-recovery/[5장: 본질행렬과 자세 복원] · 다음: link:../07-feature-detection-and-matching/[7장: 특징점 검출과 매칭]_
+
+'''
+
+5장에서 두 카메라의 자세를 복원했습니다(카이랄리티 조건을 확인할 때 삼각측량 함수를 이미 살짝 썼습니다). 이 장에서는 이 삼각측량 자체를 정면으로 다루고, 잡음이 있을 때 무슨 일이 생기는지 확인합니다.
+
+== 두 광선의 교점을 찾는 문제
+
+카메라1과 카메라2가 같은 3D 점을 각각 `x1`, `x2`로 찍었다면, 3D 점은 "카메라1 중심에서 `x1` 방향으로 뻗은 광선"과 "카메라2 중심에서 `x2` 방향으로 뻗은 광선"이 만나는 교점입니다. 잡음이 없다면 이 두 광선은 정확히 한 점에서 만나야 하지만, 실전에서는 픽셀 좌표에 항상 약간의 오차가 있어서 두 광선이 정확히 만나지 못하는 경우가 많습니다 — 그래서 "교점을 찾는다"기보다 "두 투영 방정식을 최대한 잘 만족하는 점을 찾는다"는 최적화 문제로 풀어야 합니다.
+
+== 선형 삼각측량 (DLT)
+
+가장 널리 쓰이는 방법은 **DLT(Direct Linear Transform)**입니다 — 두 카메라의 투영 방정식을 하나의 선형 시스템으로 합쳐서 SVD로 풉니다.
+
+[source,python]
+----
+import numpy as np
+
+def proj_matrix(K, R, t):
+    return K @ np.hstack([R, t.reshape(3, 1)])
+
+def triangulate_linear(P1, P2, x1, x2):
+    """선형(DLT) 삼각측량: 두 투영 방정식을 동시에 만족하는 X를 SVD로 구한다."""
+    A = np.array([
+        x1[0] * P1[2] - P1[0],
+        x1[1] * P1[2] - P1[1],
+        x2[0] * P2[2] - P2[0],
+        x2[1] * P2[2] - P2[1],
+    ])
+    _, _, Vt = np.linalg.svd(A)
+    X_h = Vt[-1]
+    return X_h[:3] / X_h[3]
+----
+
+`P = K[R|t]`는 3D 점(동차좌표)을 픽셀(동차좌표)로 바로 옮기는 3×4 **투영 행렬**입니다. 투영 방정식 `x ≅ P·X`(≅는 "동차좌표로 스케일까지 같다"는 뜻)를 `x`와 `P·X`의 외적이 `0`이라는 조건으로 다시 쓰면, `X`에 대한 선형 방정식 4개(카메라마다 2개씩)가 나옵니다. 이 방정식을 정확히 만족하는 `X`가 없을 수도 있으니(잡음 때문에), **가장 잘 만족하는** `X`를 SVD의 마지막 특이벡터로 찾습니다 — 6장의 이 방식이, 4~5장에서 계속 봐온 "SVD로 대수적 제약을 푼다"는 패턴의 또 다른 사례입니다.
+
+== 잡음 없이 정확히 복원되는지 확인
+
+[source,python]
+----
+X_true = np.array([0.3, 0.2, 3.0])
+x1 = project(K, R1, t1, X_true)
+x2 = project(K, R2, t2, X_true)
+X_rec = triangulate_linear(P1, P2, x1, x2)
+print("no noise:", X_rec, "true:", X_true)  # [0.3 0.2 3.] [0.3 0.2 3.]
+assert np.allclose(X_rec, X_true, atol=1e-6)
+----
+
+잡음이 전혀 없는 이상적인 상황에서는, 임의로 뽑은 20개의 점 모두에 대해 복원 오차가 `10⁻⁶` 미만으로 나옵니다(사실상 부동소수점 오차 수준입니다) — DLT가 잡음 없는 경우 정확한 해를 준다는 걸 확인했습니다.
+
+== 픽셀 잡음을 섞으면 무슨 일이 생기는가
+
+실제 특징점 검출·매칭(다음 장의 주제)은 항상 몇 분의 1픽셀 수준의 오차를 갖습니다. 이 잡음이 삼각측량 정확도에 어떤 영향을 주는지 몬테카를로 실험으로 확인해봅시다.
+
+[source,python]
+----
+def with_pixel_noise(x, sigma, rng):
+    return x + rng.normal(scale=sigma, size=2)
+
+near = np.array([0.1, 0.1, 2.0])   # 카메라에 가까운 점
+far  = np.array([0.1, 0.1, 8.0])   # 카메라에서 먼 점
+sigma = 0.5  # 픽셀 단위 잡음 표준편차
+
+near_errs, far_errs = [], []
+for _ in range(500):
+    x1n, x2n = project(K, R1, t1, near), project(K, R2, t2, near)
+    x1n, x2n = with_pixel_noise(x1n, sigma, rng), with_pixel_noise(x2n, sigma, rng)
+    near_errs.append(np.linalg.norm(triangulate_linear(P1, P2, x1n, x2n) - near))
+
+    x1f, x2f = project(K, R1, t1, far), project(K, R2, t2, far)
+    x1f, x2f = with_pixel_noise(x1f, sigma, rng), with_pixel_noise(x2f, sigma, rng)
+    far_errs.append(np.linalg.norm(triangulate_linear(P1, P2, x1f, x2f) - far))
+----
+
+같은 크기(표준편차 `0.5`픽셀)의 잡음을 픽셀 좌표에 500번 반복해서 섞고, 매번 삼각측량한 결과가 진짜 3D 점에서 얼마나 벗어나는지 잽니다.
+
+== 결과: 먼 점일수록 오차가 커진다
+
+[source,python]
+----
+near_rmse = np.sqrt(np.mean(np.array(near_errs) ** 2))
+far_rmse = np.sqrt(np.mean(np.array(far_errs) ** 2))
+print("near RMSE:", near_rmse, "far RMSE:", far_rmse)
+# near RMSE: 0.0075   far RMSE: 0.108
+assert far_rmse > near_rmse
+----
+
+`Z=2m`인 가까운 점의 복원 오차(RMSE, 제곱평균제곱근)는 `0.0075m`(약 7.5mm)인데, `Z=8m`인 먼 점은 `0.108m`(약 11cm)로 **14배 넘게** 커집니다. 두 카메라 사이의 거리(기준선, baseline)는 고정된 `0.5m`인데 점이 멀어질수록, 같은 크기의 픽셀 오차가 만들어내는 광선의 각도 차이(시차, parallax)가 작아지기 때문입니다 — 두 광선이 거의 나란해지면, 아주 작은 방향 오차가 교점의 위치를 크게 흔듭니다. 이 현상을 **깊이-시차 트레이드오프**라고 부르고, 실전에서 "먼 배경일수록 재구성이 부정확해진다"는 경험칙의 정확한 수학적 근거입니다.
+
+== 왜 이게 3DGS와 관련 있는가
+
+3D Gaussian Splatting은 SfM(3부의 주제)이 만들어낸 이 삼각측량 점들을 **초기 위치**로 삼아 가우시안들을 배치하고 최적화를 시작합니다. 이 장에서 확인한 "먼 점일수록 삼각측량 오차가 크다"는 성질이, 3DGS 재구성에서 왜 카메라에서 멀리 떨어진 배경(하늘, 먼 건물)이 종종 뭉개지거나 흐릿하게 나오는지의 근본 원인 중 하나입니다 — 최적화가 아무리 잘 되어도, 애초에 시작점(초기 점군)의 불확실성이 큰 영역은 정확한 재구성이 어렵습니다.
+
+== 직접 해보기
+
+* 카메라 사이의 기준선을 `0.5m`에서 `2.0m`로 늘리면(`C2 = (2.0, 0, 0)`), `far` 점의 삼각측량 RMSE가 어떻게 바뀌는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+C2_wide = np.array([2.0, 0.0, 0.0])
+t2_wide = -R2 @ C2_wide
+P2_wide = proj_matrix(K, R2, t2_wide)
+
+far_errs_wide = []
+for _ in range(500):
+    x1f, x2f = project(K, R1, t1, far), project(K, R2, t2_wide, far)
+    x1f, x2f = with_pixel_noise(x1f, sigma, rng), with_pixel_noise(x2f, sigma, rng)
+    far_errs_wide.append(np.linalg.norm(triangulate_linear(P1, P2_wide, x1f, x2f) - far))
+
+far_rmse_wide = np.sqrt(np.mean(np.array(far_errs_wide) ** 2))
+print(far_rmse_wide)  # far_rmse보다 훨씬 작아짐
+assert far_rmse_wide < far_rmse
+----
+
+기준선을 넓히면 같은 거리의 점이라도 두 카메라에서 보는 각도 차이(시차)가 커져서, 같은 픽셀 잡음에도 삼각측량이 훨씬 안정적입니다 — 스테레오 카메라를 설계할 때 기준선을 넓히면 원거리 정확도가 좋아지지만, 대신 가까운 물체는 두 카메라의 시야가 겹치는 영역이 줄어드는 트레이드오프가 있습니다.
+====
+
+== 요약
+
+* DLT는 두 카메라의 투영 방정식을 하나의 선형 시스템으로 합쳐 SVD로 푸는 삼각측량 방법입니다.
+* 잡음이 없으면 정확한 해를, 픽셀 잡음이 섞이면 근사해를 줍니다.
+* 같은 크기의 픽셀 잡음이라도, 카메라에서 먼 점일수록(시차가 작을수록) 삼각측량 오차가 훨씬 커집니다 — 몬테카를로 실험으로 14배 이상의 차이를 확인했습니다.
+* 이 오차 특성이 3DGS 같은 재구성 기법에서 먼 배경이 부정확하게 재구성되는 근본 원인 중 하나입니다.
+
+2부가 여기서 끝났습니다. 3부에서는 두 장을 넘어 여러 장의 사진으로 전체 장면을 재구성하는 Structure-from-Motion을 다룹니다.
+// end::body[]
