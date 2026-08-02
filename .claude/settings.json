@@ -3,6 +3,7 @@
     "allow": [
       "Read(//Users/yeongjun/Develops/develop/**)",
       "Read(//private/tmp/**)",
+      "Read(//Users/yeongjun/Develops/mathlib4/**)",
       "Edit(//Users/yeongjun/Develops/develop/content/docs/**)",
       "Write(//Users/yeongjun/Develops/develop/content/docs/**)",
       "Edit(//private/tmp/**)",
@@ -35,7 +36,16 @@
       "Bash(rm /private/tmp/*)",
       "Bash(cp *)",
       "Bash(cd *)",
-      "Bash(which *)"
+      "Bash(which *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(diff *)",
+      "Bash(du *)",
+      "Bash(find *)",
+      "Bash(echo *)",
+      "Bash(true)",
+      "Bash(export *)",
+      "Bash(lake env *)"
     ]
   }
 }
