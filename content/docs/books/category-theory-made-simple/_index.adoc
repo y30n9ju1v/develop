@@ -1,0 +1,109 @@
+---
+title: "화살표로 생각하기"
+draft: false
+---
+
+코드 한 줄 없이, 일상적인 비유와 그림만으로 범주론의 핵심 개념을 쉽게 풀어 설명하는 독립적인 입문서입니다. 기초(1부: 범주·함수자·자연변환) → 구조(2부: 곱과 합·보편성질·원소 없이 구조 비교하기) → 응용(3부: 모나드·프로그래밍이 사실 범주다·범주론이 연결하는 세계들) → 심화(4부: 극한과 쌍대극한·요네다 렘마·수반) 순서로, "왜 이 개념이 필요했는가"부터 이야기합니다.
+
+이 책은 이 사이트의 *Category Theory for Programmers*(Bartosz Milewski 번역본)와 다른 자리를 채웁니다 — 코드와 수식을 최소화하고, 직관 자체에 집중하는 독립적인 입문서입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 화살표로 생각하기]*
+
+*1부: 기초*
+
+[start=1]
+. *link:01-why-category-theory/[왜 범주론에서 시작하는가]*
+. *link:02-categories-a-world-of-arrows/[범주 — 화살표의 세계]*
+. *link:03-functors-translators-between-worlds/[함수자 — 세계 사이를 잇는 번역기]*
+. *link:04-natural-transformations/[자연변환]*
+
+*2부: 구조*
+
+[start=5]
+. *link:05-products-and-coproducts/[곱과 합]*
+. *link:06-universal-property/[보편성질 — "가장 좋은 답"을 정의하는 법]*
+. *link:07-reasoning-without-elements/[원소 없이 구조 비교하기]*
+
+*3부: 응용*
+
+[start=8]
+. *link:08-monads-values-with-context/[모나드 — 맥락을 가진 값]*
+. *link:09-programming-is-category-theory/[프로그래밍이 사실 범주다]*
+. *link:10-worlds-that-category-theory-connects/[범주론이 연결하는 세계들]*
+
+*4부: 심화*
+
+[start=11]
+. *link:11-limits-and-colimits/[극한과 쌍대극한]*
+. *link:12-the-yoneda-lemma/[요네다 렘마]*
+. *link:13-adjunctions/[수반]*
+
+*맺음말*
+
+[start=14]
+. *link:14-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-why-category-theory.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-categories-a-world-of-arrows.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-functors-translators-between-worlds.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-natural-transformations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-products-and-coproducts.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-universal-property.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-reasoning-without-elements.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-monads-values-with-context.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-programming-is-category-theory.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-worlds-that-category-theory-connects.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-limits-and-colimits.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-the-yoneda-lemma.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-adjunctions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-afterword.adoc[tag=body,leveloffset=+1]
