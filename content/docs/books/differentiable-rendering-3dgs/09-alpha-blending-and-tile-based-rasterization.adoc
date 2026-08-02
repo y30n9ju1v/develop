@@ -1,0 +1,141 @@
+---
+title: "9장: 알파 블렌딩과 타일 기반 래스터화"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["differentiable-rendering", "3d-gaussian-splatting", "book"]
+categories: ["books"]
+description: "8장의 2D 가우시안들을 깊이 순으로 정렬해 4장의 알파 합성으로 픽셀마다 실제로 렌더링하는 전체 래스터라이저를 완성하고, 타일 기반으로 불필요한 계산을 걸러내도 결과가 거의 동일하다는 것을 확인하며 3부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-projecting-gaussians-to-2d/[8장: 3D에서 2D로: 가우시안 투영과 EWA 스플래팅] · 다음: link:../10-loss-functions-and-color-gradients/[10장: 손실 함수와 색상 그라디언트]_
+
+'''
+
+7장에서 3D 가우시안을 정의하고, 8장에서 그걸 2D 타원으로 투영했습니다. 이 장에서는 이 모든 걸 하나로 모아 — 여러 개의 2D 가우시안을 실제 픽셀로 렌더링하는 **완전한 래스터라이저**를 완성합니다.
+
+== 픽셀 하나의 색 = 그 픽셀을 덮는 모든 가우시안의 알파 합성
+
+한 픽셀 위치에서 각 가우시안이 얼마나 "불투명하게 보이는지"는, 그 가우시안의 2D 밀도(8장에서 만든 `Sigma_2d`로 계산)에 가우시안 고유의 불투명도(`opacity`)를 곱한 것입니다.
+
+[source,python]
+----
+import numpy as np
+
+def gaussian_2d_density(px, py, mu, Sigma_inv):
+    dx, dy = px - mu[0], py - mu[1]
+    return np.exp(-0.5 * (dx*dx*Sigma_inv[0,0] + 2*dx*dy*Sigma_inv[0,1] + dy*dy*Sigma_inv[1,1]))
+
+class SplatGaussian:
+    def __init__(self, mu2d, Sigma2d, depth, color, opacity):
+        self.mu2d = mu2d
+        self.Sigma2d = Sigma2d
+        self.Sigma2d_inv = np.linalg.inv(Sigma2d)
+        self.depth = depth
+        self.color = color
+        self.opacity = opacity
+----
+
+`depth`는 카메라로부터의 거리(1권 2장의 카메라 좌표계에서 `Z`값)입니다 — 4장에서 배운 "앞에서 뒤로 알파 합성"을 하려면 이 순서가 필요합니다.
+
+== 무식하지만 정확한 래스터라이저
+
+[source,python]
+----
+def rasterize_full(gaussians, H, W):
+    """모든 가우시안 x 모든 픽셀을 전부 계산하는 무식한(brute-force) 래스터라이저."""
+    ordered = sorted(gaussians, key=lambda g: g.depth)  # 가까운 것부터
+    img = np.zeros((H, W, 3))
+    T = np.ones((H, W))
+    for g in ordered:
+        density = gaussian_2d_density(xx, yy, g.mu2d, g.Sigma2d_inv)
+        alpha = g.opacity * density
+        img += (T * alpha)[..., None] * g.color[None, None, :]
+        T *= (1 - alpha)
+    return img, T
+----
+
+가우시안들을 깊이 순으로 정렬하고, 각 가우시안이 **이미지 전체**에 대해 알파값을 계산한 뒤(`gaussian_2d_density`가 `xx, yy` 격자 전체에 대해 한 번에 계산됩니다), 4장에서 만든 것과 정확히 같은 형태의 알파 합성(`img += T*alpha*color`, `T *= (1-alpha)`)을 픽셀마다 동시에 적용합니다. 4장에서는 광선 하나를 따라가는 "1차원" 합성이었다면, 이번엔 이미지 전체(`H×W`픽셀)에서 **동시에** 일어나는 "2차원" 합성이라는 게 차이입니다.
+
+== 이 방식의 문제: 계산량이 너무 크다
+
+[source,python]
+----
+gaussians = [random_gaussian(rng, depth=d) for d in [5.0, 2.0, 8.0, 1.0, 6.0]]
+img_full, T_full = rasterize_full(gaussians, H, W)
+----
+
+`64×64` 이미지에 가우시안 `5`개인 이 장난감 예제에서도, 각 가우시안이 이미지의 **모든** 픽셀에 대해 밀도를 계산합니다(`5 × 64 × 64 = 20480`번). 실전 3DGS는 이미지가 수백만 픽셀, 가우시안이 수십만~수백만 개입니다 — 모든 가우시안을 모든 픽셀에 대해 계산하는 건 감당할 수 없습니다. 하지만 7~8장에서 이미 확인했듯, **가우시안은 자기 중심에서 멀어지면 밀도가 기하급수적으로 0에 가까워집니다** — 화면 저 반대편에 있는 가우시안이 여기 이 픽셀에 미치는 영향은 사실상 무시해도 됩니다.
+
+== 타일 기반 가속: 영향이 없는 곳은 계산하지 않는다
+
+[source,python]
+----
+def bounding_box(g, n_sigma=3.0):
+    eigvals, eigvecs = np.linalg.eigh(g.Sigma2d)
+    radius = n_sigma * np.sqrt(eigvals.max())
+    return g.mu2d - radius, g.mu2d + radius
+
+def rasterize_tiled(gaussians, H, W, tile=16):
+    ordered = sorted(gaussians, key=lambda g: g.depth)
+    img, T, touched_pairs = np.zeros((H, W, 3)), np.ones((H, W)), 0
+    for ty in range(0, H, tile):
+        for tx in range(0, W, tile):
+            tile_slice = (slice(ty, min(ty+tile, H)), slice(tx, min(tx+tile, W)))
+            for g in ordered:
+                lo, hi = bounding_box(g)
+                if hi[0] < tx or lo[0] > tx+tile or hi[1] < ty or lo[1] > ty+tile:
+                    continue  # 이 가우시안은 이 타일에 영향이 없으니 건너뛴다
+                # ... (겹치는 경우에만 density/alpha 계산 후 합성)
+    return img, T, touched_pairs
+----
+
+이미지를 `16×16` 타일로 나누고, 각 타일마다 "이 타일과 영향 범위(경계 상자, `3`시그마)가 겹치는 가우시안"만 골라서 계산합니다. 실전 3DGS의 CUDA 구현이 병렬로 처리하는 게 정확히 이 구조입니다 — 타일마다 독립적으로 "이 타일에 영향을 주는 가우시안 목록"을 만들고, 그 목록만 훑습니다.
+
+== 정확성 검증: 타일 방식이 무식한 방식과 (거의) 같은 결과를 내는가
+
+[source,python]
+----
+img_tiled, T_tiled, touched = rasterize_tiled(gaussians, H, W, tile=16)
+
+diff = np.abs(img_full - img_tiled).max()
+print(diff)  # 0.000326
+assert diff < 1e-3
+
+full_pairs = len(gaussians) * H * W       # 20480
+print(full_pairs, touched)                 # 20480  12800
+assert touched < full_pairs
+----
+
+두 방식의 최대 픽셀 차이가 `0.0003`으로 사실상 무시할 만한 수준이면서, 실제로 계산한 (가우시안, 픽셀) 쌍의 개수는 `20480`에서 `12800`으로 `37%` 줄었습니다 — 가우시안이 훨씬 많고 화면이 훨씬 클수록 이 절감 효과는 기하급수적으로 커집니다(멀리 떨어진 대부분의 가우시안-타일 쌍이 애초에 계산할 필요조차 없어지니까요).
+
+== 왜 완전히 0이 아니라 미세한 차이가 남는가
+
+`3`시그마 경계 상자 바깥에도 가우시안의 밀도는 **정확히 0이 아니라 아주 작을 뿐**입니다(`exp(-0.5·9) ≈ 0.011`, 그리고 더 멀어질수록 지수적으로 더 작아지지만 수학적으로는 절대 완전히 0이 되지 않습니다). 타일 컬링은 이 "아주 작지만 0은 아닌" 기여를 의도적으로 잘라내는 근사입니다 — 완벽한 정확성 대신 계산량을 크게 줄이는 실용적인 타협입니다. 오차가 `0.0003`(픽셀 값이 보통 `0~1` 범위인 걸 감안하면 `0.03%` 수준)에 불과하다는 걸 확인했으니, 이 타협이 실제로 남는 이미지 품질에는 거의 영향을 주지 않으면서 계산량만 크게 줄여준다는 걸 실증한 것입니다.
+
+== 직접 해보기
+
+* 경계 상자의 여유(`n_sigma`)를 `3.0`에서 `2.0`으로 줄이면, 컬링되는 (가우시안, 픽셀) 쌍이 더 많아지지만 정확도는 어떻게 나빠지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+img_tiled2, T_tiled2, touched2 = rasterize_tiled(gaussians, H, W, tile=16)  # bounding_box의 n_sigma를 2.0으로 바꿔서
+diff2 = np.abs(img_full - img_tiled2).max()
+print(diff2, touched2)  # diff는 커지고, touched는 더 작아짐
+----
+
+`n_sigma`를 줄이면 계산량은 더 줄어들지만(`exp(-0.5·4)≈0.135`가 잘려나가니 `3`시그마 때보다 훨씬 많이 버려집니다), 그만큼 잘려나가는 기여도 커져서 정확도가 나빠집니다 — 속도와 정확도 사이의 트레이드오프를 조절하는 손잡이가 바로 이 `n_sigma`입니다.
+====
+
+== 요약
+
+* 픽셀 하나의 최종 색은, 그 픽셀을 덮는 모든 가우시안을 깊이 순으로 정렬해 4장의 알파 합성을 적용한 결과입니다.
+* 모든 가우시안을 모든 픽셀에 대해 계산하는 건 비용이 너무 크고, 가우시안의 밀도가 중심에서 멀어지면 기하급수적으로 작아진다는 사실을 이용해 타일 기반으로 계산을 걸러낼 수 있습니다.
+* 타일 컬링은 완벽하게 정확하지는 않지만(꼬리 부분을 잘라내는 근사), 이미지 품질에는 거의 영향을 주지 않으면서 계산량을 크게 줄인다는 걸 직접 확인했습니다.
+* `n_sigma`(경계 상자의 여유)가 속도와 정확도 사이의 트레이드오프를 조절하는 손잡이입니다.
+
+3부가 여기서 끝났습니다. 4부에서는 이 래스터라이저를 실제로 미분해서, 목표 사진에 맞게 가우시안들을 학습시키는 전체 최적화 루프를 완성합니다.
+// end::body[]

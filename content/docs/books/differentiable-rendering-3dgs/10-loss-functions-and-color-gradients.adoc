@@ -1,0 +1,162 @@
+---
+title: "10장: 손실 함수와 색상 그라디언트"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["differentiable-rendering", "3d-gaussian-splatting", "book"]
+categories: ["books"]
+description: "9장에서 완성한 래스터라이저를 목표 사진과 비교하는 손실 함수를 정의하고, 그 손실을 각 가우시안의 색상까지 역전파하는 해석적 그래디언트를 유도·검증한 뒤, 색상만 경사하강법으로 최적화해 목표 사진을 복원하는 4부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-alpha-blending-and-tile-based-rasterization/[9장: 알파 블렌딩과 타일 기반 래스터화] · 다음: link:../11-backprop-through-gaussian-parameters/[11장: 가우시안 파라미터에 대한 역전파]_
+
+'''
+
+3부에서 여러 개의 2D 가우시안을 사진으로 렌더링하는 방법을 완성했습니다. 이제 방향을 뒤집습니다 — **목표 사진이 주어졌을 때, 그 사진을 재현하는 가우시안들의 파라미터를 어떻게 찾을까요?** 이게 이 책 전체가 향해온 "역그래픽스"(1장) 문제의 3DGS 버전입니다. 이 장에서는 그 첫 단계로, 렌더링된 이미지와 목표 이미지를 비교하는 **손실 함수**를 정의하고, 그 손실을 가장 단순한 파라미터인 **색상**까지 역전파하는 방법을 유도하고 검증합니다.
+
+== 손실 함수: 렌더링과 목표의 차이
+
+2장에서 이미 다룬 것과 같은 형태입니다 — 픽셀별 오차 제곱의 평균(MSE/L2 손실)을 씁니다.
+
+[source,python]
+----
+def l2_loss(img, target):
+    return np.mean((img - target) ** 2)
+----
+
+`img`와 `target`은 둘 다 `(H, W, 3)` 모양이므로, 이 평균은 픽셀 수(`H*W`)뿐 아니라 색상 채널 수(`3`)까지 포함한 `H*W*3`개의 원소 전체에 대한 평균입니다 — 이 사실이 나중에 그래디언트 공식에서 중요한 역할을 합니다.
+
+== 목표 이미지 만들기
+
+실전에서는 목표 이미지가 실제 카메라로 찍은 사진이지만, 검증을 위해 여기서는 "정답" 가우시안 2개로 직접 렌더링한 이미지를 목표로 사용합니다 — 이렇게 하면 최적화가 정답에 정확히 도달하는지 확인할 수 있습니다.
+
+[source,python]
+----
+true_gaussians = [
+    make_gaussian([12, 10], 4.0, 2.5, 30, 2.0, [0.9, 0.2, 0.2], 0.9),
+    make_gaussian([20, 20], 3.0, 3.0, 0, 4.0, [0.2, 0.3, 0.9], 0.8),
+]
+target_img, _ = rasterize_full(true_gaussians, H, W)
+----
+
+`make_gaussian`은 회전각·스케일 두 개(`s1, s2`)·깊이·색·불투명도로 9장의 `SplatGaussian`을 만드는 헬퍼입니다.
+
+== 손실을 색상까지 역전파하기
+
+9장의 알파 합성 공식을 다시 보면, 픽셀의 최종 색은 `img = Σᵢ Tᵢ·αᵢ·colorᵢ` 형태였습니다. 이건 각 가우시안의 색상 `colorᵢ`에 대해 **선형**입니다 — 그러니 미분이 아주 간단합니다.
+
+[source,python]
+----
+def render_with_alphas(gaussians, H, W):
+    ordered = sorted(gaussians, key=lambda g: g.depth)
+    img = np.zeros((H, W, 3))
+    T = np.ones((H, W))
+    alphas, Ts = [], []
+    for g in ordered:
+        density = gaussian_2d_density(xx, yy, g.mu2d, g.Sigma2d_inv)
+        alpha = g.opacity * density
+        Ts.append(T.copy())
+        alphas.append(alpha)
+        img += (T * alpha)[..., None] * g.color[None, None, :]
+        T *= (1 - alpha)
+    return img, alphas, Ts, ordered
+----
+
+체인룰을 적용하면 됩니다. `dL/dimg = 2*(img-target)/(H*W*3)`(손실 함수를 그대로 미분한 것)이고, `d(img)/d(color_i) = T_i * alpha_i`(합성 공식에서 `color_i`의 계수)이므로:
+
+[source,python]
+----
+img, alphas, Ts, ordered = render_with_alphas(guess_gaussians, H, W)
+diff = img - target_img
+N = H * W * 3  # l2_loss가 (H,W,3) 전체 원소에 대한 평균이므로 채널 수도 나눠야 함
+analytic_grad_color0 = np.array([
+    np.sum(2 * diff[:, :, c] / N * Ts[0] * alphas[0]) for c in range(3)
+])
+----
+
+이 화면 전체에 대한 합이 필요한 이유는, 색상 하나(`color_i`)가 그 가우시안이 영향을 미치는 **모든** 픽셀의 색에 동시에 기여하기 때문입니다 — 체인룰로 각 픽셀의 기여를 다 더해야 합니다.
+
+== 검증: 유한차분과 비교
+
+[source,python]
+----
+eps = 1e-4
+numeric_grad = np.zeros(3)
+for k in range(3):
+    cp = c0.copy(); cp[k] += eps
+    cm = c0.copy(); cm[k] -= eps
+    lp = loss_wrt_color(guess_gaussians, idx, cp, target_img)
+    lm = loss_wrt_color(guess_gaussians, idx, cm, target_img)
+    numeric_grad[k] = (lp - lm) / (2 * eps)
+----
+
+[source]
+----
+numeric grad wrt color[0]:  [-0.0065262   0.00503715  0.00483597]
+analytic grad wrt color[0]: [-0.0065262   0.00503715  0.00483597]
+----
+
+정확히 일치합니다. 처음 시도했을 때는 `N`을 `H*W`로만 나눠서 정확히 `3`배 차이가 났었는데 — `l2_loss`가 색상 채널까지 포함한 `H*W*3`개 원소의 평균이라는 걸 놓쳤기 때문입니다. 이런 종류의 "정확히 정수배로 어긋나는" 오차는 거의 항상 정규화 상수(평균을 몇 개로 나누는지)를 놓친 신호이고, 유한차분 검증이 아니었다면 눈치채기 어려웠을 실수입니다.
+
+== 색상만 최적화해서 목표 사진 복원하기
+
+이제 위치·모양·불투명도는 정답과 똑같이 고정하고, 색상만 회색(`[0.5,0.5,0.5]`)에서 시작해 경사하강법으로 학습시켜 봅니다.
+
+[source,python]
+----
+opt_gaussians = [
+    make_gaussian([12, 10], 4.0, 2.5, 30, 2.0, [0.5, 0.5, 0.5], 0.9),
+    make_gaussian([20, 20], 3.0, 3.0, 0, 4.0, [0.5, 0.5, 0.5], 0.8),
+]
+lr = 0.5
+for step in range(600):
+    img, alphas, Ts, ordered = render_with_alphas(opt_gaussians, H, W)
+    loss = l2_loss(img, target_img)
+    diff = img - target_img
+    grads = compute_color_grads(opt_gaussians, ordered, alphas, Ts, diff, H * W * 3)
+    for g, grad in zip(ordered, grads):
+        g.color = np.clip(g.color - lr * grad, 0.0, 1.0)
+----
+
+[source]
+----
+loss[0]:  0.004441383922237976
+loss[-1]: 1.8369271930234603e-06     (약 2400배 감소)
+
+recovered: [0.897 0.202 0.203]   true: [0.9 0.2 0.2]
+recovered: [0.210 0.306 0.887]   true: [0.2 0.3 0.9]
+----
+
+600스텝 만에 손실이 `2400`배 줄어들고, 회색에서 시작한 두 가우시안의 색이 정답(`[0.9,0.2,0.2]`, `[0.2,0.3,0.9]`)에 소수점 둘째 자리까지 정확히 수렴했습니다.
+
+== 직접 해보기
+
+* 불투명도(`opacity`)가 `0`인 가우시안의 색상 그래디언트는 어떤 값이어야 할지 먼저 예상해보고, 실제로 계산해서 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+zero_op_gaussians = [
+    make_gaussian([12, 10], 4.0, 2.5, 30, 2.0, [0.5, 0.5, 0.5], 0.0),  # opacity=0
+    make_gaussian([20, 20], 3.0, 3.0, 0, 4.0, [0.5, 0.5, 0.5], 0.8),
+]
+img_z, alphas_z, Ts_z, ordered_z = render_with_alphas(zero_op_gaussians, H, W)
+diff_z = img_z - target_img
+grads_z = compute_color_grads(zero_op_gaussians, ordered_z, alphas_z, Ts_z, diff_z, H * W * 3)
+print(grads_z[0])  # [0. 0. 0.]
+----
+
+그래디언트 공식이 `T_i * alpha_i`를 곱하는데, `alpha_i = opacity_i * density`이므로 `opacity_i=0`이면 `alpha_i`도 항상 `0`이고, 그래디언트도 정확히 `0`이 됩니다 — 직관적으로도 맞습니다. 완전히 투명한 가우시안은 어떤 색이든 렌더링 결과에 전혀 영향을 주지 않으니, 손실도 그 색에 대해 전혀 민감하지 않은 게 당연합니다. 이건 실전 3DGS 최적화에서도 중요한 함의를 가집니다 — 불투명도가 0에 가까운 가우시안은 색상 그래디언트도 사실상 0이 되어 학습이 멈추는데, 이게 바로 12장에서 다룰 "가지치기(pruning)"로 이런 가우시안들을 솎아내는 이유입니다.
+====
+
+== 요약
+
+* 손실 함수는 렌더링된 이미지와 목표 이미지의 픽셀별 오차 제곱 평균(L2)이며, 평균을 낼 때 색상 채널 수까지 포함한다는 점을 정규화 상수에 정확히 반영해야 합니다.
+* 알파 합성 공식이 색상에 대해 선형이라는 사실 덕분에, 손실을 색상까지 역전파하는 그래디언트는 `d(img)/d(color_i) = T_i·alpha_i`로 간단히 유도되고, 유한차분으로 정확히 검증됩니다.
+* 이 그래디언트만으로 경사하강법을 돌려서, 색상을 회색에서 시작해 목표 사진의 실제 색을 정확히 복원할 수 있었습니다.
+* 불투명도가 0인 가우시안은 색상 그래디언트도 항상 0이라는 사실을 확인했는데, 이는 나중에 "가지치기"가 필요한 이유와 직결됩니다.
+
+색상은 렌더링 공식에 선형으로 들어가서 미분이 쉬웠습니다. 다음 장에서는 훨씬 더 얽혀있는 파라미터들 — 위치, 스케일, 회전 — 로 그래디언트를 확장합니다.
+// end::body[]

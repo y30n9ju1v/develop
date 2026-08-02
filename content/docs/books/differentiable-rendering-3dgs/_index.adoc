@@ -1,0 +1,120 @@
+---
+title: "미분가능 렌더링과 3D Gaussian Splatting"
+draft: false
+---
+
+자동미분의 기초에서 시작해서, 볼륨 렌더링과 NeRF의 수학, 3D 가우시안이라는 표현 방식, 그리고 이 모든 걸 하나로 묶는 최적화 루프까지, "렌더링을 거꾸로 돌려 사진에서 장면을 복원한다"는 역그래픽스의 원리를 코드로 직접 검증하며 배우는 독립적인 입문서입니다. PyTorch 없이 NumPy만으로 순전파와 역전파를 손으로 구현하며, 왜 미분해야 하는가(1부) → 볼륨 렌더링/NeRF(2부) → 3DGS 표현(3부) → 최적화로 학습(4부) → 품질과 다음 단계(5부) 순서로 쌓아 올립니다.
+
+이 책은 3DGS 기반 자율주행 E2E 검증에 필요한 대학 과목들을 시리즈로 다루는 계획의 두 번째 책입니다 — link:../multiview-geometry-3d-reconstruction/[1권 "사진에서 세계로"]가 재구성한 카메라 포즈와 점군을 이어받아, 그것을 실제로 학습 가능한 3D 장면으로 다듬는 과정을 담당합니다.
+
+이 책의 모든 핵심 계산(자동미분, 알파 합성, 볼륨 렌더링, 3D 가우시안 투영, 래스터화, 역전파, 적응적 밀도 제어 등)은 이 책을 위해 새로 지은 예제이며, NumPy/SciPy로 실제 실행해 숫자로 검증했습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 그림을 거꾸로 돌리기]*
+
+*1부: 왜 미분해야 하는가*
+
+[start=1]
+. *link:01-inverse-graphics-problem/[역그래픽스라는 문제]*
+. *link:02-automatic-differentiation-basics/[자동미분 맛보기]*
+. *link:03-simplest-differentiable-renderer/[가장 단순한 미분가능 렌더러]*
+
+*2부: 볼륨 렌더링과 NeRF*
+
+[start=4]
+. *link:04-alpha-compositing-and-volume-rendering/[알파 합성과 볼륨 렌더링 적분]*
+. *link:05-sampling-along-rays/[광선을 따라 샘플링하기]*
+. *link:06-nerf-mapping-coordinates-to-color-and-density/[NeRF — 좌표를 색과 밀도로 바꾸는 함수]*
+
+*3부: 3D 가우시안이라는 표현*
+
+[start=7]
+. *link:07-3d-gaussians-as-primitives/[3D 가우시안이라는 원시 도형]*
+. *link:08-projecting-gaussians-to-2d/[3D에서 2D로: 가우시안 투영과 EWA 스플래팅]*
+. *link:09-alpha-blending-and-tile-based-rasterization/[알파 블렌딩과 타일 기반 래스터화]*
+
+*4부: 최적화로 학습하기*
+
+[start=10]
+. *link:10-loss-functions-and-color-gradients/[손실 함수와 색상 그라디언트]*
+. *link:11-backprop-through-gaussian-parameters/[가우시안 파라미터에 대한 역전파]*
+. *link:12-adaptive-density-control/[적응적 밀도 제어: 나누고 쳐내기]*
+
+*5부: 품질과 다음 단계*
+
+[start=13]
+. *link:13-measuring-render-quality/[렌더링 품질을 재는 법]*
+. *link:14-connecting-to-book-one/[1권의 재구성이 3DGS 학습에 미치는 영향]*
+
+*맺음말*
+
+[start=15]
+. *link:15-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-inverse-graphics-problem.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-automatic-differentiation-basics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-simplest-differentiable-renderer.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-alpha-compositing-and-volume-rendering.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-sampling-along-rays.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-nerf-mapping-coordinates-to-color-and-density.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-3d-gaussians-as-primitives.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-projecting-gaussians-to-2d.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-alpha-blending-and-tile-based-rasterization.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-loss-functions-and-color-gradients.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-backprop-through-gaussian-parameters.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-adaptive-density-control.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-measuring-render-quality.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-connecting-to-book-one.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::15-afterword.adoc[tag=body,leveloffset=+1]

@@ -1,0 +1,162 @@
+---
+title: "5장: 광선을 따라 샘플링하기"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["differentiable-rendering", "volume-rendering", "book"]
+categories: ["books"]
+description: "카메라 픽셀마다 광선을 만들고 그 위에 층화 샘플링으로 점들을 흩뿌린 뒤, 4장의 알파 합성을 밀도-알파 변환식으로 이어 붙여 변하는 밀도장을 촘촘한 샘플링으로 정확히 적분하는 것을 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-alpha-compositing-and-volume-rendering/[4장: 알파 합성과 볼륨 렌더링 적분] · 다음: link:../06-nerf-mapping-coordinates-to-color-and-density/[6장: NeRF — 좌표를 색과 밀도로 바꾸는 함수]_
+
+'''
+
+4장에서는 이미 놓여있는 몇 개의 도형을 합성했습니다. 이 장에서는 그 재료(색, 알파)가 어디서 오는지 — **카메라 픽셀마다 뻗어나가는 광선을 따라 3차원 공간을 직접 샘플링**하는 법 — 을 다룹니다. 이게 NeRF와 3DGS가 "장면"을 실제로 이미지로 바꾸는 첫 단계입니다.
+
+== 픽셀에서 광선으로
+
+1권 1~2장에서 배운 카메라 모델을 거꾸로 씁니다 — 픽셀 좌표를 알 때, 그 픽셀에 찍혔을 3D 점은 "카메라 중심에서 특정 방향으로 뻗어나가는 광선" 위 어딘가에 있었습니다.
+
+[source,python]
+----
+import numpy as np
+
+def pixel_to_ray(u, v, K, C2W):
+    """픽셀 좌표 (u,v)에서 카메라를 지나 세계 좌표계로 뻗어나가는 광선의 원점과 방향을 구한다."""
+    dir_cam = np.linalg.inv(K) @ np.array([u, v, 1.0])  # 정규화 이미지 평면 상의 방향(카메라 좌표계)
+    dir_cam = dir_cam / np.linalg.norm(dir_cam)
+    R_c2w = C2W[:3, :3]
+    origin = C2W[:3, 3]
+    direction = R_c2w @ dir_cam
+    return origin, direction
+----
+
+1권 13장에서 만든 Camera-to-World(C2W) 행렬을 그대로 재사용합니다 — 카메라의 내부 파라미터 `K`의 역행렬로 픽셀을 카메라 좌표계의 방향으로 되돌리고, C2W의 회전 부분으로 그 방향을 세계 좌표계로 옮깁니다.
+
+[source,python]
+----
+C2W = np.eye(4)  # 카메라가 원점에, 회전 없이 있는 가장 단순한 경우
+origin, direction = pixel_to_ray(320, 240, K, C2W)
+print(direction)  # [0. 0. 1.]
+assert np.allclose(direction, [0, 0, 1])
+----
+
+이미지 중앙 픽셀(`320, 240`, 이 카메라의 주점과 정확히 일치합니다)에서 나가는 광선의 방향이 정확히 `[0,0,1]`(광축 방향)입니다 — 1권 1장에서 "광축 위의 점은 주점으로 투영된다"고 했던 걸 거꾸로 확인한 것입니다.
+
+== 광선 위에 샘플 점 흩뿌리기: 층화 샘플링
+
+이 광선을 따라 `near`부터 `far`까지 밀도(장면이 있을 법한 곳)를 확인해야 합니다. 등간격으로 딱 떨어지게 샘플링하면 규칙적인 무늬(에일리어싱) 문제가 생길 수 있어서, 구간을 나눈 뒤 각 칸 안에서 무작위로 하나씩 뽑는 **층화 샘플링(stratified sampling)**을 씁니다.
+
+[source,python]
+----
+def stratified_samples(near, far, n_samples, rng):
+    edges = np.linspace(near, far, n_samples + 1)
+    lo, hi = edges[:-1], edges[1:]
+    return lo + rng.uniform(size=n_samples) * (hi - lo)
+
+ts = stratified_samples(0.0, 10.0, 8, rng)
+print(ts)
+assert np.all(np.diff(ts) > 0)  # 칸 순서대로라 자동으로 정렬됨
+----
+
+각 칸 안에서 무작위 위치를 뽑기 때문에 전체적으로는 여전히 고르게 퍼져 있으면서도, 매번 살짝 다른 지점을 보게 되어 규칙적인 패턴에서 오는 편향을 줄여줍니다.
+
+== 밀도를 알파로: 4장과 이어붙이기
+
+4장의 알파 합성은 "각 지점의 알파(불투명도)"를 입력으로 받았습니다. 하지만 물리적으로 자연스러운 양은 **밀도**(density, `sigma`, 단위 길이당 빛이 흡수될 확률)입니다. 이 둘을 잇는 공식은 다음과 같습니다.
+
+[source,python]
+----
+def density_to_alpha(sigmas, deltas):
+    return 1.0 - np.exp(-sigmas * deltas)
+
+def render_ray(ts, sigmas, colors):
+    """샘플들을 알파로 바꾸고, 4장의 알파 합성으로 색과 최종 투과율을 계산한다."""
+    deltas = np.diff(ts, append=ts[-1] + (ts[-1]-ts[-2] if len(ts)>1 else 1.0))
+    alphas = density_to_alpha(sigmas, deltas)
+    T = 1.0
+    C = np.zeros(colors.shape[1])
+    for i in range(len(ts)):
+        C += T * alphas[i] * colors[i]
+        T *= (1 - alphas[i])
+    return C, T
+----
+
+`alpha = 1 - exp(-sigma·delta)`가 "이 구간(길이 `delta`)을 지나며 흡수될 확률"입니다 — `sigma`가 크거나 구간이 길수록 `alpha`가 `1`에 가까워집니다(거의 확실히 흡수·불투명).
+
+== 놀라운 사실: 밀도가 일정하면 샘플 개수가 상관없다
+
+가장 먼저 시도해본 건 "안개 밀도가 일정한 매질"이었습니다 — 해석적으로 정확한 답(`exp(-sigma·L)`)을 알고 있으니 검증하기 좋을 거라 생각했습니다. 그런데 샘플 개수를 `2`에서 `512`까지 바꿔봐도 오차가 **정확히 0**이었습니다. 왜일까요?
+
+`alpha_i = 1 - exp(-sigma·delta_i)`라는 공식 자체가, **밀도가 그 구간 안에서 일정하기만 하다면 근사가 아니라 정확한 공식**이기 때문입니다 — 각 구간의 투과율 `(1-alpha_i) = exp(-sigma·delta_i)`을 전부 곱하면, 지수법칙(`exp(a)·exp(b) = exp(a+b)`)에 의해 그냥 `exp(-sigma·(delta_1+delta_2+...)) = exp(-sigma·L)`이 되어, 구간을 몇 개로 쪼갰는지와 무관하게 항상 정확한 답이 나옵니다. 근사 오차가 생기는 지점은 **밀도가 구간 안에서 변할 때**, 그 변화를 "구간 대표값 하나"로 뭉뚱그리는 데서 옵니다.
+
+== 다시 검증하기: 변하는 밀도장
+
+[source,python]
+----
+from scipy.integrate import quad
+
+def sigma_fn(t):
+    return 0.3 + 0.25 * np.sin(1.5 * t)  # 위치에 따라 변하는 밀도
+
+L = 5.0
+integral_true, _ = quad(sigma_fn, 0, L)
+T_analytic = np.exp(-integral_true)
+
+def final_transmittance(n_samples):
+    ts_local = np.linspace(0, L, n_samples, endpoint=False) + (L / n_samples) / 2
+    sigmas = sigma_fn(ts_local)
+    _, T_final = render_ray(ts_local, sigmas, np.zeros((n_samples, 3)))
+    return T_final
+----
+
+이번엔 밀도가 위치에 따라 사인 곡선으로 변합니다. `scipy.integrate.quad`로 구한 정확한 해석적분과 비교해봅니다.
+
+[source]
+----
+n=   2  T=0.180143  |err|=0.019965
+n=   8  T=0.199292  |err|=0.000817
+n=  32  T=0.200059  |err|=0.000050
+n= 128  T=0.200106  |err|=0.000003
+n= 512  T=0.200109  |err|=0.000000
+----
+
+이번엔 진짜 수렴 곡선이 보입니다 — 샘플 개수를 4배씩 늘릴 때마다 오차가 대략 16~25배씩 줄어듭니다(2차 수렴에 가까운 속도입니다). 이게 바로 "구간을 촘촘하게 나눌수록 리만 합이 진짜 적분에 가까워진다"는, 미적분학 첫 시간에 배우는 바로 그 원리가 볼륨 렌더링에서 실제로 작동하는 모습입니다.
+
+== NeRF와 3DGS가 이 지점에서 갈라지는 이유
+
+NeRF(6장)는 정확히 이 장의 방식 — 광선마다 수십~수백 개의 점을 샘플링하고, 각 점에서 밀도와 색을 계산해서 적분 — 을 씁니다. 문제는 이게 **픽셀 하나마다** 이만큼의 샘플링과 신경망 평가가 필요하다는 것입니다. 3DGS(3부)가 훨씬 빠른 이유는 이 "광선을 따라가며 촘촘히 샘플링한다"는 접근 자체를 버리고, 미리 정해둔 개수의 3D 가우시안들을 화면에 직접 투영해 합성하는 방식으로 바꾸기 때문입니다 — 이 장에서 다진 "밀도를 알파로, 알파를 4장의 합성으로"라는 뼈대는 그대로 재사용되지만, "광선마다 새로 샘플링한다"는 비싼 부분이 사라집니다.
+
+== 직접 해보기
+
+* `sigma_fn`을 더 빠르게 진동하는 함수(`np.sin(1.5*t)` 대신 `np.sin(6*t)`)로 바꾸면, 같은 샘플 개수(`n=8`)에서 오차가 어떻게 달라지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def sigma_fn_fast(t):
+    return 0.3 + 0.25 * np.sin(6 * t)
+
+integral_fast, _ = quad(sigma_fn_fast, 0, L)
+T_analytic_fast = np.exp(-integral_fast)
+
+ts8 = np.linspace(0, L, 8, endpoint=False) + (L/8)/2
+_, T8_fast = render_ray(ts8, sigma_fn_fast(ts8), np.zeros((8,3)))
+print(abs(T8_fast - T_analytic_fast))  # sigma_fn(원래 함수)의 n=8 오차보다 훨씬 큼
+----
+
+밀도가 더 빠르게 진동할수록, 같은 개수의 샘플로는 그 진동을 제대로 포착하지 못해 오차가 커집니다 — 실전 NeRF/3DGS에서 "세밀한 디테일이 있는 영역일수록 더 촘촘한 샘플링(또는 더 많은 가우시안)이 필요하다"는 경험칙의 수학적 근거가 여기 있습니다.
+====
+
+== 요약
+
+* 카메라 픽셀은 1권의 카메라 모델을 거꾸로 써서 3차원 광선으로 바꿀 수 있습니다.
+* 층화 샘플링은 광선을 구간으로 나누고 각 구간에서 무작위로 하나씩 뽑아, 규칙적인 패턴에서 오는 편향을 줄입니다.
+* `alpha = 1 - exp(-sigma·delta)`가 밀도를 4장의 알파 합성과 잇는 다리이고, 밀도가 구간 안에서 일정하면 이 공식은 근사가 아니라 정확합니다.
+* 밀도가 변할 때는 샘플을 촘촘히 할수록 진짜 적분에 수렴하고, 이 수렴 속도가 진동이 빠른(디테일이 많은) 영역일수록 느려집니다.
+
+다음 장에서는 이 "밀도와 색"을 손으로 정하는 대신, 신경망이 좌표를 입력받아 자동으로 내놓도록 하는 NeRF를 다룹니다.
+// end::body[]

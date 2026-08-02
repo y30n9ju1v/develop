@@ -1,0 +1,138 @@
+---
+title: "7장: 3D 가우시안이라는 원시 도형"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["differentiable-rendering", "3d-gaussian-splatting", "book"]
+categories: ["books"]
+description: "3DGS의 기본 단위인 3차원 가우시안을 스케일과 회전으로 구성한 공분산 행렬로 정의하고, 이 파라미터화가 왜 필요한지 공분산을 제약 없이 직접 최적화했을 때 실제로 깨지는 모습을 보이며 3부를 여는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-nerf-mapping-coordinates-to-color-and-density/[6장: NeRF — 좌표를 색과 밀도로 바꾸는 함수] · 다음: link:../08-projecting-gaussians-to-2d/[8장: 3D에서 2D로: 가우시안 투영과 EWA 스플래팅]_
+
+'''
+
+6장에서 NeRF가 신경망으로 장면을 표현한다는 걸 봤습니다. 3D Gaussian Splatting(3DGS)은 전혀 다른 길을 갑니다 — 신경망도, 광선을 따라가는 샘플링도 없이, 장면을 **수십만 개의 3차원 가우시안 덩어리**로 직접 표현합니다. 이 장에서는 그 기본 단위, 3D 가우시안 하나를 정의합니다.
+
+== 3D 가우시안의 재료
+
+3D 가우시안 하나는 다음을 가집니다 — 중심 위치(`mu`, 3D), 퍼짐의 모양과 크기를 나타내는 공분산 행렬(`Sigma`, 3×3), 그리고(이 장에서는 다루지 않지만) 색과 불투명도. 이 장은 `Sigma`를 만드는 법에 집중합니다.
+
+[source,python]
+----
+import numpy as np
+
+def covariance_from_scale_rotation(scale, R):
+    """3DGS의 핵심 파라미터화: Sigma = R S S^T R^T, S = diag(scale)."""
+    S = np.diag(scale)
+    return R @ S @ S.T @ R.T
+----
+
+가우시안은 각 축 방향으로 얼마나 퍼져 있는지(`scale`, 세 방향의 표준편차)와, 그 축들이 어느 방향을 가리키는지(`R`, 회전행렬 — 1권 2장에서 배운 바로 그 회전행렬입니다)로 정의됩니다. `Sigma = R·S·Sᵀ·Rᵀ`가 이 둘을 하나의 공분산 행렬로 합칩니다.
+
+== 왜 공분산을 직접 최적화하지 않고 이렇게 돌아가는가
+
+`Sigma`는 대칭 행렬(`3×3`이니 독립적인 원소가 `6`개)이라, "그냥 이 `6`개 숫자를 직접 최적화하면 되지 않나?"라고 생각할 수 있습니다. 문제는 **공분산 행렬이 아무 대칭 행렬이나 될 수 없다는 것**입니다 — 진짜 공분산이려면 **양의 정부호(positive definite)**여야 합니다(직관적으로: 어느 방향으로 재도 "퍼짐"이 음수일 수는 없습니다). 이 조건을 최적화 도중 계속 지키도록 강제하는 게 까다롭습니다.
+
+== 실패해보기: 제약 없이 최적화하면 깨진다
+
+[source,python]
+----
+def unconstrained_covariance_breaks():
+    Sigma_direct = np.eye(3) * 1.0
+    grad_direction = np.array([[3.0, 0, 0], [0, 3.0, 0], [0, 0, -5.0]])  # 대칭
+    for step in range(3):
+        Sigma_direct = Sigma_direct - 0.4 * grad_direction
+    return Sigma_direct
+
+Sigma_broken = unconstrained_covariance_breaks()
+eigvals_broken = np.linalg.eigvalsh(Sigma_broken)
+print(eigvals_broken)  # [-2.6 -2.6  7. ]
+assert np.any(eigvals_broken <= 0)
+----
+
+항등행렬에서 시작해서, "그래디언트가 이런 방향으로 계속 밀고 있다"고 가정하고 몇 걸음 갱신했더니, 고유값 두 개가 음수(`-2.6`)가 되어버렸습니다 — 더 이상 유효한 공분산 행렬이 아닙니다(어떤 방향으로는 "음의 퍼짐"이라는, 물리적으로 말이 안 되는 상태입니다). 실전 최적화에서는 그래디언트가 항상 이렇게 극단적이지는 않지만, 수백만 개의 가우시안을 수천 스텝 최적화하다 보면 이런 붕괴가 실제로 일어날 수 있습니다.
+
+== 스케일-회전 파라미터화가 이 문제를 원천 차단한다
+
+`Sigma = R·S·Sᵀ·Rᵀ`라는 형태로 만들면, `S`가 대각 행렬(각 성분이 스케일의 제곱)이고 `R`이 회전행렬(1권 2장에서 다룬 직교 조건)인 이상, **결과로 나오는 `Sigma`는 항상 자동으로 양의 정부호입니다** — 아무리 `scale`이나 `R`을 극단적으로 바꿔도, 이 형태로 조립하는 한 붕괴가 원천적으로 불가능합니다. 최적화 도중 지켜야 할 제약을, 애초에 "제약을 어길 수 없는 방식으로 조립"해서 해결한 것입니다 — 9장에서 회전을 최적화 가능한 형태(쿼터니언)로 다룰 때 이 원칙을 다시 만납니다.
+
+== 실제로 SPD인지, 그리고 스케일이 고유값이 되는지 확인
+
+[source,python]
+----
+scale = np.array([2.0, 0.5, 1.0])
+R = rotation_from_axis_angle(np.array([0.3, 0.7, 0.2]), np.radians(40))
+Sigma = covariance_from_scale_rotation(scale, R)
+
+assert np.allclose(Sigma, Sigma.T)
+eigvals = np.linalg.eigvalsh(Sigma)
+print(eigvals)  # [0.25 1.   4.  ]
+assert np.all(eigvals > 0)
+assert np.allclose(np.sort(eigvals), np.sort(scale ** 2), atol=1e-10)
+----
+
+구성한 `Sigma`가 대칭이고, 모든 고유값이 양수이며, 그 고유값들이 정확히 `scale`의 제곱(`4, 0.25, 1`)과 일치합니다 — 회전행렬은 도형을 회전시킬 뿐 "퍼짐의 정도" 자체는 바꾸지 않는다는 선형대수의 사실이 그대로 확인됩니다.
+
+== 밀도 함수와 등방/비등방 모양
+
+[source,python]
+----
+def gaussian_density(x, mu, Sigma):
+    d = x - mu
+    Sigma_inv = np.linalg.inv(Sigma)
+    return np.exp(-0.5 * d @ Sigma_inv @ d)
+
+mu = np.array([1.0, 2.0, 3.0])
+print(gaussian_density(mu, mu, Sigma))  # 1.0 (중심에서는 항상 최댓값)
+
+for i in range(3):
+    direction = R[:, i]
+    x = mu + direction * scale[i]
+    print(gaussian_density(x, mu, Sigma))  # 세 축 모두 exp(-0.5) = 0.6065
+----
+
+중심에서는 밀도가 항상 `1`이고, "그 축의 표준편차만큼" 떨어진 지점에서는 축이 무엇이든 항상 `exp(-0.5) ≈ 0.6065`입니다 — 이게 `scale`을 "표준편차"라고 부르는 이유입니다.
+
+[source,python]
+----
+far_along_long_axis = mu + R[:, 0] * scale[0] * 3   # 긴 축(scale=2.0) 방향으로 3배
+far_along_short_axis = mu + R[:, 1] * scale[0] * 3  # 짧은 축 방향으로 "같은 물리적 거리"
+d_long = gaussian_density(far_along_long_axis, mu, Sigma)
+d_short = gaussian_density(far_along_short_axis, mu, Sigma)
+print(d_long, d_short)  # 0.0111  5.38e-32
+assert d_long > d_short
+----
+
+똑같은 물리적 거리만큼 떨어져도, 그 방향이 가우시안의 "긴 축"인지 "짧은 축"인지에 따라 밀도가 하늘과 땅 차이입니다(`0.011` vs `5×10⁻³²`, 사실상 `0`) — 이게 3D 가우시안이 공, 원반, 바늘처럼 다양한 모양으로 장면의 표면을 표현할 수 있는 이유입니다. 얇고 평평한 벽 같은 표면은 한 축으로만 짧은 납작한 가우시안으로, 가느다란 전선은 두 축으로 짧은 바늘 모양 가우시안으로 자연스럽게 표현됩니다.
+
+== 직접 해보기
+
+* `scale = [3.0, 3.0, 3.0]`(세 축이 전부 같은, 등방(isotropic) 가우시안)일 때는 `R`을 어떻게 바꿔도 `Sigma`가 똑같다는 걸 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+scale_iso = np.array([3.0, 3.0, 3.0])
+R1 = rotation_from_axis_angle(np.array([1,0,0]), np.radians(30))
+R2 = rotation_from_axis_angle(np.array([0,1,0]), np.radians(70))
+Sigma1 = covariance_from_scale_rotation(scale_iso, R1)
+Sigma2 = covariance_from_scale_rotation(scale_iso, R2)
+print(np.allclose(Sigma1, Sigma2))  # True
+assert np.allclose(Sigma1, Sigma2)
+----
+
+세 축의 퍼짐이 모두 같으면 구(sphere)가 되고, 구는 어느 방향으로 회전시켜도 똑같은 모양입니다 — `R`이 `Sigma`에 미치는 영향이 사라지는 특수한 경우입니다. 실전 3DGS 최적화 초기에 가우시안들을 등방으로(공 모양으로) 초기화하는 경우가 많은데, 그 이유가 여기 있습니다 — 회전을 처음부터 잘못 추측할 위험이 없기 때문입니다.
+====
+
+== 요약
+
+* 3D 가우시안은 중심(`mu`)과 공분산(`Sigma`)으로 정의되고, `Sigma = R·S·Sᵀ·Rᵀ`(스케일 `S`와 회전 `R`의 조합)로 구성합니다.
+* 공분산 행렬을 제약 없이 직접 최적화하면 양의 정부호 조건이 깨질 수 있다는 걸 실제로 확인했고, 스케일-회전 파라미터화가 이 문제를 애초에 원천 차단한다는 걸 봤습니다.
+* 가우시안의 밀도는 중심에서 최대이고, 각 축의 표준편차만큼 떨어지면 항상 `exp(-0.5)`가 됩니다.
+* 비등방(각 축의 스케일이 다른) 가우시안은 방향에 따라 극적으로 다른 밀도 감쇠를 보여, 다양한 모양의 표면을 표현할 수 있습니다.
+
+다음 장에서는 이 3D 가우시안을 카메라로 찍은 2D 이미지 평면에 투영하는 법 — 3DGS라는 이름의 "스플래팅(splatting)"이 실제로 무엇을 하는지 — 를 다룹니다.
+// end::body[]

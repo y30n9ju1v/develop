@@ -1,0 +1,131 @@
+---
+title: "11장: 가우시안 파라미터에 대한 역전파"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["differentiable-rendering", "3d-gaussian-splatting", "book"]
+categories: ["books"]
+description: "10장의 색상 그래디언트를 위치(mu)로 확장해, 알파가 위치에 비선형으로 의존할 때 발생하는 결합된 그래디언트를 유한차분으로 검증하고, 위치만 경사하강법으로 학습시켜 목표 사진 속 가우시안의 실제 위치를 복원하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-loss-functions-and-color-gradients/[10장: 손실 함수와 색상 그라디언트] · 다음: link:../12-adaptive-density-control/[12장: 적응적 밀도 제어: 나누고 쳐내기]_
+
+'''
+
+10장에서는 색상에 대한 그래디언트를 유도했습니다 — 알파 합성 공식이 색상에 대해 **선형**이었기 때문에 비교적 간단했습니다. 이 장에서는 위치(`mu`)로 넘어갑니다. 위치는 색상과 달리 **밀도 함수 자체를 통해 비선형적으로** 알파에 영향을 주므로, 그래디언트 유도가 한 단계 더 복잡해집니다 — 하지만 검증 방법은 똑같습니다: 유한차분과 비교합니다.
+
+== 위치가 알파에 미치는 영향
+
+가우시안의 2D 밀도는 `density = exp(-0.5·dᵀ·Sinv·d)`이고, 여기서 `d = p - mu`(픽셀 위치에서 가우시안 중심을 뺀 것)입니다. `mu`가 조금 움직이면 `d`가 움직이고, `d`가 움직이면 `density`(따라서 `alpha = opacity·density`)가 지수함수를 통해 비선형적으로 바뀝니다.
+
+`-0.5·dᵀ·Sinv·d`를 `mu`로 미분하면(`d = p - mu`이므로 `∂d/∂mu = -I`), 연쇄법칙으로:
+
+[source,python]
+----
+def render_with_alphas(gaussians, H, W):
+    ordered = sorted(gaussians, key=lambda g: g.depth)
+    img, T = np.zeros((H, W, 3)), np.ones((H, W))
+    alphas, Ts, densities = [], [], []
+    for g in ordered:
+        density = gaussian_2d_density(xx, yy, g.mu2d, g.Sigma2d_inv)
+        alpha = g.opacity * density
+        Ts.append(T.copy()); alphas.append(alpha); densities.append(density)
+        img += (T * alpha)[..., None] * g.color[None, None, :]
+        T *= (1 - alpha)
+    return img, alphas, Ts, densities, ordered
+----
+
+[source,python]
+----
+dx = xx - g.mu2d[0]
+dy = yy - g.mu2d[1]
+Sinv = g.Sigma2d_inv
+ddens_dmux = density * (Sinv[0,0]*dx + Sinv[0,1]*dy)   # d(density)/d(mu_x)
+ddens_dmuy = density * (Sinv[1,0]*dx + Sinv[1,1]*dy)   # d(density)/d(mu_y)
+dalpha_dmux = g.opacity * ddens_dmux
+dalpha_dmuy = g.opacity * ddens_dmuy
+----
+
+== 알파에서 손실까지: 4장의 결합된 그래디언트가 다시 등장한다
+
+여기서부터가 색상 때와 다른 지점입니다. 위치는 **알파 자체**를 바꾸는데, 4장에서 이미 유도했듯 알파 합성에서 `∂C/∂α_i`는 직접 항과 뒤따르는(`j > i`) 모든 가우시안의 투과율을 통한 간접 항으로 이루어진 **결합된** 그래디언트였습니다.
+
+[source,python]
+----
+dimg_dalpha = Ts[idx][..., None] * g.color[None, None, :]        # 직접 항
+for j in range(idx+1, len(ordered)):
+    denom = np.clip(1 - alphas[idx], 1e-8, None)
+    dimg_dalpha -= (Ts[j] * alphas[j])[..., None] * ordered[j].color[None, None, :] / denom[..., None]  # 간접 항
+
+dL_dalpha = np.sum(2 * diff / N * dimg_dalpha, axis=2)
+grad_x = np.sum(dL_dalpha * dalpha_dmux)
+grad_y = np.sum(dL_dalpha * dalpha_dmuy)
+----
+
+즉 위치에 대한 최종 그래디언트는 "위치→밀도→알파"(이 장에서 새로 유도한 부분)와 "알파→최종 색"(4장에서 이미 검증한 부분)을 체인룰로 이어붙인 것입니다 — 렌더링 파이프라인을 단계별로 미분해서 이어붙이는 역전파의 전형적인 모습입니다.
+
+== 검증: 유한차분과 비교
+
+[source,python]
+----
+numeric grad wrt mu[0]:  [0.00031987 0.00064834]
+analytic grad wrt mu[0]: [0.00031987 0.00064834]
+----
+
+정확히 일치합니다. 색상 때와 달리 위치는 밀도 함수의 지수함수를 거치는 비선형 경로인데도, 체인룰을 정확히 적용하면 여전히 정확한 그래디언트를 얻을 수 있다는 걸 확인했습니다.
+
+== 위치만 최적화해서 목표 사진 복원하기
+
+색·모양·불투명도는 정답과 동일하게 고정하고, 위치만 정답에서 살짝 어긋난 상태(`[13,11]` vs 참값 `[12,10]`, `[19,18]` vs 참값 `[20,20]`)에서 시작해 경사하강법으로 학습시킵니다.
+
+[source,python]
+----
+lr = 5.0
+for step in range(1500):
+    img, alphas, Ts, densities, ordered = render_with_alphas(opt_gaussians, H, W)
+    diff = img - target_img
+    # (mu_x, mu_y) 각각에 대해 위에서 유도한 그래디언트를 계산
+    for g, grad in zip(ordered, grads):
+        g.mu2d -= lr * grad
+----
+
+[source]
+----
+loss[0]:  0.0018449605821178265
+loss[-1]: 5.87493856006765e-07      (약 3140배 감소)
+
+recovered mu: [12.03 10.02]   true mu: [12 10]
+recovered mu: [19.99 19.98]   true mu: [20 20]
+----
+
+1500스텝 만에 손실이 `3000`배 이상 줄고, 위치가 참값에 `0.05`픽셀 이내로 정확히 수렴했습니다. 색상 최적화(10장, 600스텝으로 충분)보다 위치 최적화가 훨씬 더 많은 스텝을 필요로 한 이유도 자연스럽습니다 — 그래디언트가 지수함수를 거치는 비선형 경로라서, 가우시안이 목표에서 멀리 떨어져 있을수록 그래디언트 크기 자체가 작아지기 때문입니다(6장에서 본 것과 비슷한, "멀면 신호가 약해지는" 현상입니다).
+
+== 직접 해보기
+
+* 서로 다른 색을 가진 두 가우시안을 정확히 같은 위치(`mu`)에서 시작시키면, 그래디언트가 `0`이 되어 학습이 멈출지 예상해보고 실제로 계산해서 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+sym_gaussians = [
+    make_gaussian([16, 15], 4.0, 2.5, 30, 2.0, [0.9, 0.2, 0.2], 0.9),
+    make_gaussian([16, 15], 3.0, 3.0, 0, 4.0, [0.2, 0.3, 0.9], 0.8),  # 완전히 같은 위치에서 시작
+]
+# ... (첫 번째 가우시안의 위치 그래디언트 계산)
+print(grad_x0)  # 0.00025773688280232994 -- 0이 아님
+----
+
+색상 최적화(10장 연습문제)에서는 `opacity=0`이면 그 가우시안이 렌더링에 전혀 기여하지 못해 그래디언트가 정확히 `0`이었습니다. 하지만 위치는 다릅니다 — 두 가우시안이 정확히 같은 위치에서 시작해도, 목표 이미지가 그 지점에서 대칭이 아닌 한(색이 다르고, 모양(`s1,s2`,각도)도 다르므로) 손실은 위치를 한쪽으로든 다른 쪽으로든 옮기면 줄어들 여지가 있습니다. 그래서 완전히 겹친 초기화에서도 그래디언트는 `0`이 아니고 학습은 정상적으로 진행됩니다. 이 차이는 실전에서도 중요합니다 — 3DGS를 초기화할 때 여러 가우시안을 (거의) 같은 위치에 몰아넣어도 학습이 완전히 멈추지는 않지만, 다음 장에서 다룰 "분열(split)"이 이런 겹친 가우시안들을 자연스럽게 서로 떨어뜨리는 역할을 합니다.
+====
+
+== 요약
+
+* 위치(`mu`)는 색상과 달리 밀도 함수의 지수 항을 통해 알파에 비선형적으로 영향을 주므로, 그래디언트는 "위치→밀도→알파"와 "알파→최종 색"(4장의 결합된 그래디언트) 두 단계를 체인룰로 이어붙여 유도됩니다.
+* 이렇게 유도한 그래디언트를 유한차분으로 검증했고, 정확히 일치했습니다.
+* 위치만 경사하강법으로 학습시켜, 어긋난 초기 위치에서 목표 사진 속 가우시안의 실제 위치를 정확히 복원했습니다 — 다만 색상보다 훨씬 많은 스텝이 필요했는데, 이는 그래디언트가 거리가 멀수록 지수적으로 약해지기 때문입니다.
+* 두 가우시안이 완전히 같은 위치에서 시작해도(색·모양이 다르면) 그래디언트는 `0`이 아니라는 걸 확인했습니다.
+
+스케일과 회전에 대한 그래디언트도 원리는 똑같습니다(밀도 함수를 통해 알파로, 알파를 통해 손실로) — 이 책에서는 위치·색상까지의 역전파를 실제 코드로 완성했으니, 다음 장에서는 학습 도중 가우시안의 **개수 자체**를 조절하는 적응적 밀도 제어로 넘어갑니다.
+// end::body[]

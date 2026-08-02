@@ -1,0 +1,152 @@
+---
+title: "6장: NeRF — 좌표를 색과 밀도로 바꾸는 함수"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["differentiable-rendering", "nerf", "book"]
+categories: ["books"]
+description: "5장의 밀도·색을 손으로 정하는 대신 작은 신경망이 좌표로부터 자동으로 내놓게 하는 NeRF의 핵심 아이디어를, 직접 구현한 MLP와 위치 인코딩으로 고주파 신호를 피팅하며 2부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-sampling-along-rays/[5장: 광선을 따라 샘플링하기] · 다음: link:../07-3d-gaussians-as-primitives/[7장: 3D 가우시안이라는 원시 도형]_
+
+'''
+
+5장에서는 광선 위 각 점의 밀도(`sigma`)와 색을 우리가 직접 정했습니다. NeRF(Neural Radiance Fields)의 핵심 아이디어는, 이 값들을 손으로 정하는 대신 **작은 신경망이 좌표를 입력받아 자동으로 내놓게** 하는 것입니다 — `F(x, y, z) → (sigma, color)`라는 함수를, "이 함수로 렌더링한 이미지가 실제 사진과 비슷해지도록" 학습시킵니다.
+
+== 가장 작은 신경망: MLP를 처음부터 구현하기
+
+[source,python]
+----
+import numpy as np
+
+class TinyMLP:
+    def __init__(self, in_dim, hidden_dim, rng):
+        self.W1 = rng.normal(scale=0.5, size=(in_dim, hidden_dim))
+        self.b1 = np.zeros(hidden_dim)
+        self.W2 = rng.normal(scale=0.5, size=(hidden_dim,))
+        self.b2 = 0.0
+
+    def forward(self, X):
+        self.X = X
+        self.Z1 = X @ self.W1 + self.b1
+        self.H = np.tanh(self.Z1)
+        self.out = self.H @ self.W2 + self.b2
+        return self.out
+
+    def backward(self, dL_dout):
+        dW2 = self.H.T @ dL_dout
+        db2 = np.sum(dL_dout)
+        dH = np.outer(dL_dout, self.W2)
+        dZ1 = dH * (1 - self.H ** 2)  # tanh'(z) = 1 - tanh(z)^2
+        dW1 = self.X.T @ dZ1
+        db1 = np.sum(dZ1, axis=0)
+        return dW1, db1, dW2, db2
+----
+
+입력 → 은닉층(`tanh` 활성화) → 출력(선형)이라는, 가장 작은 형태의 다층 퍼셉트론(MLP)입니다. `backward`는 2장의 자동미분과 정확히 같은 발상 — 연쇄법칙을 뒤에서부터 적용 — 을 이번엔 신경망의 각 층에 대해 손으로 유도한 것입니다. `tanh`의 미분 공식(`1 - tanh(z)²`)이 자연스럽게 등장하는 게 눈에 띕니다.
+
+== 그래디언트 검증
+
+[source,python]
+----
+mlp_check = TinyMLP(1, 8, rng)
+pred = mlp_check.forward(X_test)
+dL_dout = 2 * (pred - y_test) / len(y_test)
+dW1, db1, dW2, db2 = mlp_check.backward(dL_dout)
+
+eps = 1e-5
+mlp_check.W1[0, 0] += eps
+loss_plus = loss_of(mlp_check, X_test, y_test)
+mlp_check.W1[0, 0] -= 2 * eps
+loss_minus = loss_of(mlp_check, X_test, y_test)
+grad_numeric = (loss_plus - loss_minus) / (2 * eps)
+print(dW1[0, 0], grad_numeric)  # -0.4755005081749  -0.4755005081680
+assert np.isclose(dW1[0, 0], grad_numeric, atol=1e-3)
+----
+
+첫 번째 층의 가중치 하나에 대한 그래디언트가 유한차분과 정확히 일치합니다 — 이 책 전체에서 반복해온 검증 습관이, 신경망이라는 새로운 도구에도 똑같이 적용됩니다.
+
+== 문제 상황: MLP가 고주파 신호를 잘 못 배운다
+
+이제 이 MLP로 `sin(20x)`처럼 빠르게 진동하는(고주파) 신호를 피팅해봅니다 — NeRF의 장면이 "벽돌 무늬", "나뭇잎 디테일" 같은 미세한 패턴을 표현해야 하는 상황과 같은 문제입니다.
+
+[source,python]
+----
+def target_fn(x):
+    return np.sin(20 * x)
+
+X_raw = rng.uniform(-1, 1, size=(200, 1))
+y = target_fn(X_raw[:, 0])
+
+mlp_raw = TinyMLP(1, 32, np.random.default_rng(10))
+losses_raw = train(mlp_raw, X_raw, y, steps=3000, lr=0.05)
+print(losses_raw[-1])  # 0.491 -- 전혀 못 맞춤!
+----
+
+`3000`번이나 학습시켰는데도 손실이 `0.491`에서 거의 안 내려갑니다 — `tanh` 기반의 평범한 MLP는 입력 좌표를 아주 매끄러운(저주파) 함수로만 다루는 경향이 있어서, 이렇게 빠르게 진동하는 목표를 도저히 따라가지 못합니다. 이 현상을 신경망의 **스펙트럴 편향(spectral bias)**이라고 부릅니다 — 신경망은 본능적으로 저주파(매끄러운) 함수를 먼저, 훨씬 쉽게 학습합니다.
+
+== 해법: 위치 인코딩
+
+NeRF 논문이 찾아낸 해법은 좌표를 신경망에 그대로 넣지 않고, 먼저 여러 주파수의 사인·코사인으로 "부풀려서" 넣는 것입니다.
+
+[source,python]
+----
+def positional_encoding(x, L):
+    """x: (N,) -> (N, 2L) [sin(2^0 pi x), cos(2^0 pi x), ..., sin(2^{L-1} pi x), cos(2^{L-1} pi x)]"""
+    freqs = 2.0 ** np.arange(L) * np.pi
+    args = x[:, None] * freqs[None, :]
+    return np.concatenate([np.sin(args), np.cos(args)], axis=1)
+----
+
+원래 좌표 하나(`x`)를, 서로 다른 주파수(`2⁰π, 2¹π, ..., 2^(L-1)π`)로 변조한 사인·코사인 값 `2L`개로 바꿉니다 — 신경망 입장에서는 이제 "이미 고주파 성분이 준비되어 있는" 입력을 받으므로, 그 고주파들을 적절히 섞기만 하면 되어 훨씬 쉬운 문제가 됩니다.
+
+== 다시 학습: 위치 인코딩을 거친 경우
+
+[source,python]
+----
+L_enc = 6
+X_pe = positional_encoding(X_raw[:, 0], L_enc)
+mlp_pe = TinyMLP(2 * L_enc, 32, np.random.default_rng(10))
+losses_pe = train(mlp_pe, X_pe, y, steps=3000, lr=0.05)
+print(losses_pe[-1])  # 0.0067
+assert losses_pe[-1] < losses_raw[-1] * 0.5
+----
+
+똑같은 신경망 구조, 똑같은 학습 스텝 수, 똑같은 초기화 시드로 시작했는데도, 위치 인코딩을 거친 입력을 쓴 쪽의 최종 손실이 `0.0067`로, 원래 좌표를 그대로 쓴 쪽(`0.491`)보다 **73배** 더 작습니다 — 정성적인 결과만 보면 원래 쪽은 여전히 `sin(20x)`를 거의 흉내조차 못 내는 수준이고, 위치 인코딩을 쓴 쪽은 거의 완벽하게 따라갑니다. 신경망 구조는 전혀 바꾸지 않고, **입력을 바꾼 것만으로** 이런 차이가 났다는 게 중요합니다.
+
+== NeRF 전체 그림 완성하기
+
+NeRF는 이 장의 MLP(입력은 3D 좌표 `+` 위치 인코딩, 필요하면 시야 방향도 추가)를 5장에서 만든 광선 샘플링·밀도-알파 변환·알파 합성과 이어붙입니다 — 광선마다 여러 점을 뽑고, 각 점을 이 MLP에 통과시켜 `(sigma, color)`를 얻고, 4~5장의 볼륨 렌더링으로 합성해서 픽셀 하나를 만듭니다. 이 전체 파이프라인이 미분 가능하다는 게 핵심입니다 — 렌더링된 픽셀과 실제 사진의 차이(1장의 손실 함수)를, 광선의 샘플들을 거쳐, 최종적으로 이 장의 MLP 가중치까지 거꾸로 역전파할 수 있습니다. "장면"이라는 개념 자체가 신경망의 가중치 속에 암묵적으로 저장되는 것입니다.
+
+== 3DGS는 왜 이 MLP를 버리는가
+
+3부에서 다룰 3DGS는 이 장의 신경망을 아예 쓰지 않습니다 — 대신 색과 밀도(불투명도)를 각 가우시안이 직접 들고 있는 파라미터로 저장합니다. 신경망 평가(광선마다, 샘플마다 MLP를 통과시켜야 하는 이 장의 방식)가 3DGS가 NeRF보다 압도적으로 빠른 렌더링 속도를 내는 핵심 이유 중 하나입니다 — "장면을 저장하는 방식"이 "신경망의 가중치"에서 "명시적인 가우시안 파라미터들"로 바뀌는 것, 이게 다음 장부터 다룰 전환입니다.
+
+== 직접 해보기
+
+* 위치 인코딩의 주파수 개수(`L_enc`)를 `6`에서 `2`로 줄이면 최종 손실이 어떻게 달라지는지 확인해보세요 — 목표 신호(`sin(20x)`)를 표현하려면 `2^(L-1)π`가 `20` 근처는 되어야 한다는 감이 맞는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+X_pe_small = positional_encoding(X_raw[:, 0], 2)
+mlp_pe_small = TinyMLP(4, 32, np.random.default_rng(10))
+losses_pe_small = train(mlp_pe_small, X_pe_small, y, steps=3000, lr=0.05)
+print(losses_pe_small[-1])  # L_enc=6일 때보다 훨씬 나쁨
+----
+
+`L_enc=2`면 가장 높은 주파수가 `2¹π≈6.3`으로, 목표 신호의 주파수(`20`)에 한참 못 미칩니다 — 위치 인코딩이 표현할 수 있는 최고 주파수보다 더 빠르게 진동하는 신호는 여전히 잘 배우지 못합니다. 인코딩의 주파수 범위를 목표로 삼는 디테일의 크기에 맞춰 골라야 한다는 실전 원칙이 여기서 나옵니다.
+====
+
+== 요약
+
+* NeRF는 밀도·색을 손으로 정의하지 않고, 좌표를 입력받아 자동으로 내놓는 작은 신경망(MLP)으로 대체합니다.
+* MLP의 역전파도 결국 연쇄법칙이고, 유한차분으로 똑같이 검증할 수 있습니다.
+* 평범한 MLP는 스펙트럴 편향 때문에 고주파(디테일이 많은) 신호를 잘 배우지 못하고, 위치 인코딩으로 입력을 여러 주파수의 사인·코사인으로 부풀리면 이 문제가 극적으로 개선됩니다.
+* 3DGS는 이 신경망 평가 자체를 없애고 명시적인 가우시안 파라미터로 대체해서 속도를 얻습니다 — 다음 부의 주제입니다.
+
+2부가 여기서 끝났습니다. 3부에서는 신경망도, 광선을 따라가는 샘플링도 없이 장면을 표현하는 3D Gaussian Splatting을 다룹니다.
+// end::body[]

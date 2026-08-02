@@ -1,0 +1,144 @@
+---
+title: "13장: 렌더링 품질을 재는 법"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["differentiable-rendering", "3d-gaussian-splatting", "book"]
+categories: ["books"]
+description: "학습을 이끄는 손실 함수(MSE)와 학습 결과를 사람이 평가하는 지표(PSNR, SSIM)가 왜 다를 수밖에 없는지, 지역 구조를 반영하는 SSIM이 무작위 노이즈와 픽셀 이동이라는 서로 다른 왜곡을 얼마나 다르게 평가하는지 직접 계산해 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-adaptive-density-control/[12장: 적응적 밀도 제어: 나누고 쳐내기] · 다음: link:../14-connecting-to-book-one/[14장: 1권의 재구성이 3DGS 학습에 미치는 영향]_
+
+'''
+
+10장부터 손실 함수(L2/MSE)로 가우시안을 학습시켜 왔습니다. 하지만 "손실이 낮다"는 것과 "사람이 보기에 사진과 비슷하다"는 것이 항상 같은 말은 아닙니다. 이 장에서는 3DGS를 포함한 렌더링 연구에서 표준적으로 쓰이는 두 가지 평가 지표 — **PSNR**과 **SSIM** — 을 직접 구현하고, 이 둘이 서로 다른 종류의 왜곡을 얼마나 다르게 평가하는지 확인합니다.
+
+== PSNR: MSE를 사람이 읽기 편한 스케일로
+
+PSNR(Peak Signal-to-Noise Ratio)은 MSE를 로그(dB) 스케일로 바꾼 것뿐입니다.
+
+[source,python]
+----
+def psnr(img, target, max_val=1.0):
+    mse = np.mean((img - target) ** 2)
+    if mse == 0:
+        return np.inf
+    return 10 * np.log10(max_val ** 2 / mse)
+----
+
+완전히 같은 이미지면 `MSE=0`이므로 `PSNR=∞`이고, 노이즈를 점점 더 섞을수록 PSNR은 단조 감소합니다.
+
+[source]
+----
+PSNR by noise level [0, 0.01, 0.05, 0.1, 0.2]:
+inf, 42.04, 28.63, 22.68, 16.66
+----
+
+`10장`에서 손실을 직접 최소화한 이유가 여기서도 그대로 성립합니다 — PSNR은 MSE의 단조 변환이므로, MSE를 낮추는 학습은 PSNR도 그대로 높입니다.
+
+== PSNR의 한계: 어디가 다른지는 신경 쓰지 않는다
+
+PSNR(즉 MSE)은 픽셀 하나하나의 차이를 독립적으로 제곱해서 더한 것이라, **오차가 이미지의 어디에, 어떤 패턴으로 퍼져 있는지는 전혀 신경 쓰지 않습니다.** 이걸 확인하기 위해 서로 다른 두 종류의 왜곡을 비교해봅니다.
+
+[source,python]
+----
+distortion_random = rng.normal(0, 0.05, target_img.shape)
+img_random = np.clip(target_img + distortion_random, 0, 1)   # 왜곡1: 픽셀마다 독립적인 무작위 노이즈
+
+img_shifted = np.roll(target_img, 1, axis=1)                  # 왜곡2: 이미지 전체를 1픽셀 이동
+----
+
+[source]
+----
+mse_random:  0.001407    psnr_random:  28.52
+mse_shifted: 0.000633    psnr_shifted: 31.98
+----
+
+PSNR만 보면 "1픽셀 밀린 이미지(`31.98dB`)가 무작위 노이즈(`28.52dB`)보다 낫다"는 결론이 나옵니다. `~3.5dB` 차이인데, PSNR 숫자만으로는 이 차이가 실제로 얼마나 심각한 차이인지 감을 잡기 어렵습니다 — dB 스케일은 압축되어 있어서, 서로 다른 종류의 왜곡을 나란히 놓았을 때 그 차이가 실제 지각적 차이에 비해 얼마나 크거나 작은지 알려주지 않습니다.
+
+== SSIM: 밝기·대비·구조를 따로 비교하기
+
+SSIM(Structural Similarity Index)은 두 이미지를 비교할 때 밝기(luminance), 대비(contrast), 구조(structure) 세 요소를 분리해서 봅니다. 단순화하면(윈도우 전체를 하나로 보는 전역 버전):
+
+[source,python]
+----
+def ssim_simple(img, target, C1=0.01**2, C2=0.03**2):
+    x, y = to_gray(img).ravel(), to_gray(target).ravel()
+    mu_x, mu_y = x.mean(), y.mean()
+    var_x, var_y = x.var(), y.var()
+    cov_xy = np.mean((x - mu_x) * (y - mu_y))
+    luminance = (2 * mu_x * mu_y + C1) / (mu_x**2 + mu_y**2 + C1)
+    contrast_structure = (2 * cov_xy + C2) / (var_x + var_y + C2)
+    return luminance * contrast_structure
+----
+
+`luminance` 항은 두 이미지의 평균 밝기가 얼마나 비슷한지, `contrast_structure` 항은 공분산(두 이미지가 같은 방향으로 밝고 어두워지는 패턴을 공유하는 정도)을 재는데, 이게 바로 "구조"를 포착하는 부분입니다. 완전히 같은 이미지면 정확히 `1.0`이 나옵니다.
+
+[source]
+----
+global SSIM random:  0.812
+global SSIM shifted: 0.960
+----
+
+이미지 전체를 하나의 윈도우로 취급한 이 단순 버전은 아직 PSNR과 비슷한 순위(shifted가 더 높음)를 매깁니다 — 전역 통계(평균, 분산, 공분산을 이미지 전체에서 한 번만 계산)만으로는 "어디가 다른지"라는 지역적 정보를 충분히 살리지 못하기 때문입니다.
+
+== 지역 윈도우로 SSIM 지도 만들기
+
+진짜 SSIM은 이미지를 작은 윈도우(보통 `11×11`)로 슬라이딩하며 각 지역에서 위 공식을 계산하고, 그 지역별 값들을 평균 냅니다 — 이렇게 하면 "이미지 전체 평균은 비슷한데 특정 부분만 완전히 망가진" 왜곡도 잡아낼 수 있습니다.
+
+[source,python]
+----
+def ssim_map(img, target, win=8, C1=0.01**2, C2=0.03**2):
+    gx, gy = to_gray(img), to_gray(target)
+    out = np.zeros((H - win, W - win))
+    for i in range(H - win):
+        for j in range(W - win):
+            px, py = gx[i:i+win, j:j+win].ravel(), gy[i:i+win, j:j+win].ravel()
+            mu_x, mu_y = px.mean(), py.mean()
+            var_x, var_y = px.var(), py.var()
+            cov_xy = np.mean((px - mu_x) * (py - mu_y))
+            lum = (2*mu_x*mu_y + C1) / (mu_x**2 + mu_y**2 + C1)
+            cs = (2*cov_xy + C2) / (var_x + var_y + C2)
+            out[i, j] = lum * cs
+    return out
+----
+
+[source]
+----
+mean local SSIM random:  0.557
+mean local SSIM shifted: 0.949
+----
+
+지역 윈도우로 보니 차이가 훨씬 더 뚜렷해집니다. `PSNR`은 두 왜곡의 차이를 `~3.5dB`(상대적으로 좁은 차이)로 압축해 보여줬지만, 지역 SSIM은 `0.557`과 `0.949`로 거의 두 배 가까운 차이를 보여줍니다 — 왜냐하면 픽셀마다 독립적인 무작위 노이즈는 각 `8×8` 윈도우 안에서 목표와의 공분산(구조적 상관관계)을 거의 완전히 파괴하는 반면, 이미지 전체를 `1`픽셀 미는 것은 매끄러운 이미지의 지역 구조를 대부분 그대로 보존하기 때문입니다(윈도우 안 픽셀들이 목표와 여전히 거의 같은 패턴으로 밝고 어둡습니다). 두 지표 모두 "같은 방향"으로 순위를 매겼지만, **SSIM이 그 차이를 훨씬 더 민감하게(더 넓은 동적 범위로) 드러낸다**는 게 이 실험의 핵심입니다 — 지역 구조를 명시적으로 비교하기 때문입니다.
+
+== 왜 학습은 MSE로, 평가는 PSNR/SSIM로 하는가
+
+10~12장에서 계속 MSE(L2 손실)로 학습해온 이유는 순전히 실용적입니다 — MSE는 미분하기 쉽고(10~11장에서 직접 유도했듯 그래디언트가 간단합니다), 매끄러운 손실 지형을 만들어 경사하강법이 잘 작동합니다. 반면 SSIM처럼 지역 구조를 명시적으로 비교하는 지표는 (미분 자체는 가능하지만) 계산이 더 무겁고 손실 지형이 덜 매끄러워, 직접 학습에 쓰기보다는 **학습이 끝난 뒤 결과를 사람의 지각에 더 가깝게 평가하는 용도**로 주로 씁니다. 실전 3DGS 논문들이 보고하는 정량 지표가 거의 항상 PSNR과 SSIM(그리고 종종 LPIPS라는 신경망 기반 지표)을 함께 나열하는 이유가 여기 있습니다 — 학습에 쓴 손실과 최종 품질을 사람에게 설명하는 지표가 다르기 때문입니다.
+
+== 직접 해보기
+
+* 윈도우 크기(`win`)를 `8`에서 `4`(더 작게)로 바꾸면, `random`과 `shifted` 사이의 SSIM 차이가 더 벌어질지 좁아질지 예상해보고 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+smap_random_small = ssim_map(img_random, target_img, win=4)
+smap_shifted_small = ssim_map(img_shifted, target_img, win=4)
+print(smap_random_small.mean(), smap_shifted_small.mean())
+----
+
+윈도우가 작아질수록 각 윈도우 안의 표본 수가 줄어들어(`4×4=16`개, `8×8=64`개보다 훨씬 적음) 분산·공분산 추정이 노이즈에 더 민감해집니다. 무작위 노이즈가 낀 이미지는 작은 윈도우 안에서 공분산이 더 불안정하게(때로는 우연히 더 낮게) 추정되는 경향이 있어, `random`과 `shifted` 사이의 차이가 대체로 더 벌어지는 방향으로 나타납니다 — 실전 SSIM 구현이 `11×11` 같은 적당한 크기와 가우시안 가중치를 쓰는 것도 이런 추정 안정성과 지역 민감도 사이의 균형을 맞추기 위해서입니다.
+====
+
+== 요약
+
+* PSNR은 MSE를 dB 스케일로 바꾼 것뿐이라, 학습에 쓰는 손실과 방향이 항상 일치하지만 "오차가 어디에 어떻게 퍼져 있는지"는 구별하지 못합니다.
+* SSIM은 밝기·대비·구조(공분산)를 나눠서 비교하며, 특히 이미지를 작은 윈도우로 슬라이딩하며 지역적으로 계산할 때 PSNR보다 훨씬 넓은 동적 범위로 왜곡의 종류를 구별해냅니다.
+* 무작위 노이즈(지역 구조를 파괴)와 픽셀 이동(지역 구조를 대체로 보존)이라는 두 왜곡을 직접 비교해서, 두 지표가 같은 방향으로 순위를 매기면서도 SSIM이 그 차이를 훨씬 더 민감하게 드러낸다는 걸 확인했습니다.
+* 학습에는 미분하기 쉬운 MSE를 쓰고, 최종 품질 보고에는 PSNR/SSIM(과 종종 LPIPS)을 함께 쓰는 게 실전 3DGS 연구의 표준입니다.
+
+마지막 장에서는 이 책 전체를 1권("사진에서 세계로")과 다시 연결합니다 — 1권이 만든 카메라 포즈와 점군이, 지금까지 다룬 렌더링·최적화 파이프라인의 입력으로 어떻게 이어지는지 정리합니다.
+// end::body[]
