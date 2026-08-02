@@ -1,0 +1,128 @@
+---
+title: "10장: 태그와 include"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["asciidoc", "documentation", "book"]
+categories: ["books"]
+description: "소스 파일의 일부만 태그로 뽑아 코드 블록에 끌어오는 법과, 다른 AsciiDoc 문서를 통째로 끌어와 조립하는 include 문법을 확인하며 이 사이트의 모든 책이 실제로 쓰는 문서 조립 방식을 다루는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-source-code-blocks/[9장: 소스 코드 블록] · 다음: link:../11-attributes-and-variables/[11장: 속성과 변수]_
+
+'''
+
+이 장이 이 책에서 가장 중요한 장입니다 — 이 사이트의 모든 책이 여러 개의 `.adoc` 파일(장마다 하나씩)로 나뉘어 있으면서도, 하나의 페이지로 이어 붙여서 볼 수 있는 이유가 바로 이 장에서 다루는 `include` 문법 때문입니다.
+
+== 소스 파일의 일부만 태그로 뽑기
+
+먼저 `lib.py`라는 소스 파일이 있다고 합시다.
+
+[source,python]
+----
+def helper():
+    pass
+
+# tag::core[]
+def add(a, b):
+    return a + b
+# end::core[]
+
+def unrelated():
+    pass
+----
+
+`# tag::이름[]`과 `# end::이름[]`(주석 문법은 언어에 맞게 바뀝니다) 사이의 코드에 `core`라는 이름표를 붙였습니다. 이제 다른 문서에서 이 조각만 뽑아올 수 있습니다.
+
+[source,asciidoc]
+----
+[source,python]
+----
+\include::lib.py[tag=core]
+----
+----
+
+변환하면 `helper`나 `unrelated` 함수는 빠지고, `add` 함수만 코드 블록에 나타납니다.
+
+[source,html]
+----
+<pre class="highlight"><code class="language-python" data-lang="python">def add(a, b):
+    return a + b</code></pre>
+----
+
+실제 동작하는 전체 소스 파일을 저장소에 그대로 두고, 문서에는 설명하려는 부분만 정확히 뽑아 보여줄 수 있다는 게 핵심입니다 — 소스가 바뀌면 태그 안의 코드도 자동으로 최신 상태를 유지합니다(직접 복사-붙여넣기 한 코드와 달리, 원본과 어긋날 걱정이 없습니다).
+
+== 다른 AsciiDoc 문서 통째로 끌어오기
+
+같은 `tag::이름[]`/`end::이름[]` 문법을 AsciiDoc 문서 자체에도 쓸 수 있습니다. `child.adoc`이라는 파일이 있다고 합시다.
+
+[source,asciidoc]
+----
+== 자식 문서
+
+// tag::body[]
+자식 문서의 본문입니다.
+// end::body[]
+----
+
+이제 `main.adoc`에서 이 문서의 본문만 가져와, 자연스럽게 자기 자신의 섹션 레벨에 맞춰 끼워 넣을 수 있습니다.
+
+[source,asciidoc]
+----
+\include::child.adoc[tag=body,leveloffset=+1]
+----
+
+이 사이트의 각 장 파일들이 전부 `// tag::body[]` ~ `// end::body[]`로 본문을 감싸고 있는 이유가 이겁니다 — 개별 장 페이지로는 `tag::body[]` 안쪽 내용만 보여주고, 전체를 한 페이지로 이어 붙인 `_index.adoc`에서는 각 장의 `tag::body[]` 부분만 `leveloffset=+1`(섹션 레벨을 한 단계 낮춰서, 장의 `==`가 책 전체에서는 `===`처럼 되도록)과 함께 순서대로 끌어옵니다. `leveloffset`을 쓰는 이유는, 개별 장 파일 안에서는 `==`가 "이 장의 첫 섹션"이지만, 전체 목차에 이어 붙일 때는 그 앞에 이미 `== N장: 제목`이라는 상위 제목이 있어야 계층이 맞기 때문입니다.
+
+== include의 다른 옵션들
+
+`tag`가 가장 흔히 쓰이지만, `lines`로 줄 번호를 직접 지정해서 끌어올 수도 있습니다.
+
+[source,asciidoc]
+----
+\include::child.adoc[lines=1]
+----
+
+이건 `child.adoc`의 1번째 줄(`== 자식 문서`)만 가져옵니다. `lines=1..3`처럼 범위를, `lines=1,3..5`처럼 여러 구간을 조합할 수도 있습니다 — 다만 `tag`가 이름으로 의도를 표현하는 것과 달리, `lines`는 소스 파일이 바뀌면 줄 번호가 어긋날 수 있어서 웬만하면 `tag`를 쓰는 게 더 안전합니다.
+
+== 직접 해보기
+
+* `data.txt`라는 파일에 `# tag::sample[]`과 `# end::sample[]`로 감싼 세 줄을 만들고, 다른 `.adoc` 파일에서 `include::data.txt[tag=sample]`로 그 세 줄만 가져와보세요.
+
+.해답 보기
+[%collapsible]
+====
+`data.txt`:
+
+[source]
+----
+머리말
+# tag::sample[]
+본문 1
+본문 2
+본문 3
+# end::sample[]
+꼬리말
+----
+
+가져오는 문서:
+
+[source,asciidoc]
+-----
+----
+\include::data.txt[tag=sample]
+----
+-----
+
+변환하면 "본문 1", "본문 2", "본문 3" 세 줄만 나타나고, "머리말"과 "꼬리말"은 제외됩니다.
+====
+
+== 요약
+
+* `# tag::이름[]` ~ `# end::이름[]`로 소스 파일의 일부에 이름을 붙이고, `include::파일[tag=이름]`로 그 부분만 끌어옵니다.
+* AsciiDoc 문서에도 같은 태그 문법을 써서, 장별로 나뉜 파일들을 하나의 전체 목차 페이지로 조립할 수 있습니다 — 이 사이트의 모든 책이 이 방식을 씁니다.
+* `leveloffset`은 끌어온 내용의 섹션 레벨을 조정해서, 조립된 문서의 계층 구조를 맞춰줍니다.
+* `lines`로 줄 번호 범위를 직접 지정할 수도 있지만, 이름으로 의도를 표현하는 `tag` 쪽이 더 안전합니다.
+
+다음 장에서는 문서 속성과 변수를 다룹니다.
+// end::body[]

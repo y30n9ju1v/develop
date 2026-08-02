@@ -1,0 +1,93 @@
+---
+title: "3장: 텍스트 강조와 인라인 서식"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["asciidoc", "documentation", "book"]
+categories: ["books"]
+description: "굵게·기울임·모노스페이스 같은 기본 강조부터 하이라이트·밑줄·위첨자·아래첨자, 그리고 단어 중간에 서식을 넣을 때 필요한 이중 문자 문법까지 실제 변환 결과로 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-titles-and-paragraphs/[2장: 제목과 문단] · 다음: link:../04-lists/[4장: 목록]_
+
+'''
+
+== 기본 강조: 굵게, 기울임, 모노스페이스
+
+[source,asciidoc]
+----
+*굵게* _기울임_ `모노스페이스`
+----
+
+변환하면 각각 `<strong>`, `<em>`, `<code>` 태그가 됩니다. 1장에서 짚었듯, AsciiDoc은 별표 하나가 굵게이고 밑줄이 기울임이라는 점이 Markdown과 다릅니다. 이 셋을 조합할 수도 있습니다 — `*_굵고 기울인_*`처럼 겹쳐 쓰면 `<strong><em>...</em></strong>`이 됩니다.
+
+== 하이라이트, 밑줄, 취소선
+
+[source,asciidoc]
+----
+#하이라이트# 텍스트입니다.
+
+[.underline]#밑줄# 텍스트입니다.
+
+[.line-through]#취소선# 텍스트입니다.
+----
+
+`#...#`은 기본적으로 하이라이트(`<mark>`)를 뜻합니다. 밑줄이나 취소선처럼 `<mark>`가 아닌 다른 효과를 내고 싶다면, 2장에서 배운 `[.클래스명]` 문법을 `#...#` 바로 앞에 붙여서 CSS 클래스를 지정합니다 — `[.underline]#...#`는 `<span class="underline">`으로, `[.line-through]#...#`는 `<span class="line-through">`로 변환됩니다. `[.클래스명]` 다음에 오는 마크업 문자(여기서는 `#`)가 그 클래스를 어디까지 적용할지 범위를 정한다는 게 핵심입니다.
+
+== 아래첨자와 위첨자
+
+[source,asciidoc]
+----
+H~2~O 와 3^rd^ place.
+----
+
+`~아래첨자~`와 `^위첨자^`는 각각 `<sub>`, `<sup>`로 변환됩니다 — 화학식(`H~2~O`)이나 서수(`3^rd^`)를 쓸 때 유용합니다.
+
+== 단어 중간에 서식을 넣고 싶을 때
+
+지금까지 본 `*`, `_`, `#` 같은 문법은 **constrained**(제약된) 형식입니다 — 앞뒤로 단어 경계(공백이나 문장 부호)가 있어야 인식됩니다. 그래서 `pre*bold*post`처럼 단어 중간에 붙이면 서식으로 인식되지 않고 별표가 그대로 문자로 남습니다.
+
+단어 중간에 강조를 넣고 싶다면 문자를 두 번 겹쳐 쓰는 **unconstrained**(제약 없는) 형식을 씁니다.
+
+[source,asciidoc]
+----
+pre*bold*post word needs **bold**word form to merge into a word.
+
+pre_italic_post word needs __italic__word form too.
+----
+
+[source,html]
+----
+<p>pre*bold*post word needs <strong>bold</strong>word form to merge into a word.</p>
+<p>pre_italic_post word needs <em>italic</em>word form too.</p>
+----
+
+첫 줄에서 `pre*bold*post`는 단어 중간이라 무시되고 별표가 그대로 남지만, `**bold**word`는 별표 두 개짜리 형식이라 `<strong>bold</strong>word`로 정상적으로 변환됩니다. 굵게(`*`↔`**`)와 기울임(`_`↔`__`) 모두 같은 원리입니다.
+
+== 직접 해보기
+
+* `아래 문장을 AsciiDoc으로 작성해 변환해보세요: "이 기능은 *실험적*이며, H~2~O처럼 화학식도 표현할 수 있습니다."`
+
+.해답 보기
+[%collapsible]
+====
+[source,asciidoc]
+----
+이 기능은 *실험적*이며, H~2~O처럼 화학식도 표현할 수 있습니다.
+----
+
+[source,html]
+----
+<p>이 기능은 <strong>실험적</strong>이며, H<sub>2</sub>O처럼 화학식도 표현할 수 있습니다.</p>
+----
+====
+
+== 요약
+
+* 기본 강조는 굵게(`*`), 기울임(`_`), 모노스페이스(`` ` ``)이고 각각 `<strong>`, `<em>`, `<code>`로 변환됩니다.
+* `#...#`은 하이라이트이고, `[.클래스명]#...#` 형식으로 밑줄·취소선 같은 다른 효과를 낼 수 있습니다.
+* `~아래첨자~`와 `^위첨자^`가 있습니다.
+* 단어 경계 없이 단어 중간에 서식을 넣으려면 문자를 두 번 겹치는 unconstrained 형식(`**`, `__`)을 씁니다.
+
+다음 장에서는 순서 있는/없는 목록과 설명 목록을 다룹니다.
+// end::body[]

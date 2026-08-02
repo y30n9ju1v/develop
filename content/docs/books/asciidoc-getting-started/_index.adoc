@@ -1,0 +1,114 @@
+---
+title: "AsciiDoc 제대로 배우기"
+draft: false
+---
+
+Markdown보다 표현력 있는 문서 작성 언어 AsciiDoc의 문법을 기초부터 실전 활용까지 다루는 입문서입니다. 기초 문법(1부) → 문서 구조화(2부) → 코드와 재사용(3부) → 실전 활용(4부)까지, 이 사이트의 모든 책이 실제로 쓰고 있는 문서 조립 방식을 직접 뜯어보며 배웁니다.
+
+이 책의 모든 예제는 실제로 `asciidoctor`(2.0.26)와 `asciidoctor-pdf`로 변환해 결과를 확인한 것들입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: AsciiDoc 제대로 배우기]*
+
+*1부: 기초 문법*
+
+[start=1]
+. *link:01-what-is-asciidoc/[AsciiDoc이란 무엇인가]*
+. *link:02-titles-and-paragraphs/[제목과 문단]*
+. *link:03-text-formatting-and-inline/[텍스트 강조와 인라인 서식]*
+. *link:04-lists/[목록]*
+
+*2부: 구조화하기*
+
+[start=5]
+. *link:05-sections-and-document-structure/[섹션과 문서 구조]*
+. *link:06-tables/[표]*
+. *link:07-images-and-links/[이미지와 링크]*
+. *link:08-admonitions-and-quotes/[Admonition과 인용]*
+
+*3부: 코드와 재사용*
+
+[start=9]
+. *link:09-source-code-blocks/[소스 코드 블록]*
+. *link:10-tags-and-include/[태그와 include]*
+. *link:11-attributes-and-variables/[속성과 변수]*
+. *link:12-conditional-and-reuse-patterns/[재사용 패턴]*
+
+*4부: 실전 활용*
+
+[start=13]
+. *link:13-converting-to-html-pdf/[HTML/PDF로 변환하기]*
+. *link:14-building-your-own-book/[나만의 책 만들기]*
+
+*맺음말*
+
+[start=15]
+. *link:15-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-what-is-asciidoc.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-titles-and-paragraphs.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-text-formatting-and-inline.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-lists.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-sections-and-document-structure.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-tables.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-images-and-links.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-admonitions-and-quotes.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-source-code-blocks.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-tags-and-include.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-attributes-and-variables.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-conditional-and-reuse-patterns.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-converting-to-html-pdf.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-building-your-own-book.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::15-afterword.adoc[tag=body,leveloffset=+1]

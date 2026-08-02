@@ -1,0 +1,108 @@
+---
+title: "12장: 재사용 패턴"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["asciidoc", "documentation", "book"]
+categories: ["books"]
+description: "속성으로 경로를 지정해 재사용 조각을 여러 문서에서 include하는 패턴과, 이 사이트의 각 장이 실제로 쓰는 nav 줄·include 체인 구조를 뜯어보며 3부를 마무리하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-attributes-and-variables/[11장: 속성과 변수] · 다음: link:../13-converting-to-html-pdf/[13장: HTML/PDF로 변환하기]_
+
+'''
+
+9~11장에서 배운 태그, include, 속성을 조합하면, 여러 문서에서 반복되는 내용을 한 곳에서만 관리하는 패턴을 만들 수 있습니다.
+
+== 반복되는 조각을 한 곳에서 관리하기
+
+같은 경고 문구를 여러 장에서 반복해야 한다고 합시다. 조각 파일을 하나 만들어둡니다.
+
+[source,asciidoc]
+----
+// snippet.adoc
+NOTE: 이 경고는 여러 장에서 재사용됩니다.
+----
+
+그리고 이 조각이 필요한 문서마다 include로 끌어옵니다.
+
+[source,asciidoc]
+----
+첫 번째 사용:
+
+\include::snippet.adoc[]
+
+두 번째 사용:
+
+\include::snippet.adoc[]
+----
+
+두 번 다 같은 조각이 그대로 복제되어 나타납니다 — 나중에 경고 문구를 고쳐야 한다면 `snippet.adoc` 하나만 고치면, 그걸 참조하는 모든 문서에 자동으로 반영됩니다. 이건 10장에서 본 "소스 코드는 한 곳에 있고, 문서는 필요한 부분만 뽑아 쓴다"는 원칙을, 코드가 아니라 반복되는 산문 조각에 적용한 것입니다.
+
+== 속성으로 경로를 관리하기
+
+[source,asciidoc]
+----
+:partialsdir: .
+
+\include::{partialsdir}/snippet.adoc[]
+----
+
+`include`의 경로 부분에도 11장에서 배운 `{속성}` 치환이 그대로 작동합니다 — 재사용할 조각들을 `partials/` 같은 폴더에 모아두고 `:partialsdir: partials`처럼 정의해두면, 이후 모든 include 문에서 실제 경로 대신 `{partialsdir}`을 쓸 수 있습니다. 나중에 조각 파일들을 다른 폴더로 옮기게 되더라도, 속성 정의 한 줄만 고치면 모든 include 경로가 따라 바뀝니다.
+
+== 이 사이트가 실제로 쓰는 패턴 뜯어보기
+
+지금 읽고 있는 이 문장이 있는 파일(`12-conditional-and-reuse-patterns.adoc`)의 맨 위를 보면, 태그 주석 바로 다음 줄에 이런 nav 줄이 있습니다.
+
+[source,asciidoc]
+----
+_link:../[전체 목차] · 이전: link:../11-attributes-and-variables/[11장: 속성과 변수] · 다음: link:../13-converting-to-html-pdf/[13장: HTML/PDF로 변환하기]_
+----
+
+이 nav 줄 바로 위에는 본문 시작을 알리는 태그 주석이, 파일 맨 끝에는 그 태그를 닫는 주석이 있습니다. 10장에서 배운 태그 문법 그대로입니다 — 각 장을 **독립된 페이지로도, 전체 목차의 일부로도** 동시에 쓸 수 있게 하는 장치입니다.
+
+* 개별 장 페이지로 열리면(예: 이 페이지), nav 줄이 "이전 장 / 다음 장"을 가리키는 링크로 보여서 그 장 하나만 봐도 앞뒤로 이동할 수 있습니다.
+* 이 책 전체를 이어붙인 `_index.adoc`에서는 `include::12-conditional-and-reuse-patterns.adoc[tag=body,leveloffset=+1]`로 이 파일의 `tag::body[]` 부분(즉 nav 줄 포함 본문 전체)을 끌어오는데, `leveloffset=+1`이 이 장의 `==` 제목들을 한 단계 낮춰서 전체 문서의 계층에 자연스럽게 맞춥니다.
+
+각 장이 스스로 "이전 장은 무엇이고 다음 장은 무엇인지"를 nav 줄에 하드코딩하고 있다는 점도 눈여겨볼 만합니다 — 자동으로 계산하는 대신 직접 써두는 이유는, 장의 순서를 바꾸거나 장을 추가/삭제할 때 그 장과 앞뒤로 맞닿은 장들의 nav 줄만 손으로 확인하고 고치면 되기 때문입니다(이 책의 저자가 매 책을 완성할 때마다 실제로 하는 마지막 점검이 이 nav 줄들이 서로 어긋나지 않는지 확인하는 것입니다).
+
+== 직접 해보기
+
+* 책 소개 문구를 담은 `intro-snippet.adoc` 조각 파일을 만들고, 두 개의 서로 다른 장 파일에서 이 조각을 include해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,asciidoc]
+----
+// intro-snippet.adoc
+이 책은 AsciiDoc 문법을 처음부터 다룹니다.
+----
+
+[source,asciidoc]
+----
+// chapter-a.adoc
+\include::intro-snippet.adoc[]
+
+이 장에서는 A를 다룹니다.
+----
+
+[source,asciidoc]
+----
+// chapter-b.adoc
+\include::intro-snippet.adoc[]
+
+이 장에서는 B를 다룹니다.
+----
+
+두 장 모두 같은 소개 문구로 시작하지만, 그 문구는 `intro-snippet.adoc` 한 곳에만 존재합니다.
+====
+
+== 요약
+
+* 반복되는 산문 조각도 태그 없이 `include::파일[]`만으로 통째로 재사용할 수 있습니다.
+* include 경로에도 `{속성}` 치환이 적용되어, 조각 파일들의 위치를 한 속성 정의로 관리할 수 있습니다.
+* 이 사이트의 모든 책이 `tag::body[]`/`end::body[]`와 `leveloffset`을 조합해, 장을 독립 페이지이자 전체 목차의 일부로 동시에 취급합니다.
+
+3부가 여기서 끝났습니다. 4부에서는 문서를 실제로 HTML/PDF로 변환하고, 직접 자신만의 문서를 설계하는 법을 다룹니다.
+// end::body[]

@@ -1,0 +1,125 @@
+---
+title: "1장: AsciiDoc이란 무엇인가"
+date: 2026-08-02T00:00:00+09:00
+draft: false
+tags: ["asciidoc", "documentation", "book"]
+categories: ["books"]
+description: "AsciiDoc이 Markdown과 무엇이 다른지, 어떤 문제를 풀기 위해 설계됐는지, 그리고 AsciiDoc 문서를 실제로 변환해보는 첫걸음"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../02-titles-and-paragraphs/[2장: 제목과 문단]_
+
+'''
+
+== AsciiDoc은 무엇을 위한 언어인가
+
+AsciiDoc은 일반 텍스트 파일을 HTML, PDF, EPUB 같은 형식으로 변환하기 위한 마크업 언어입니다. Markdown과 목적은 같지만, 애초에 "짧은 메모"가 아니라 **여러 장으로 나뉜 긴 문서**(기술 문서, 책, 매뉴얼)를 염두에 두고 설계됐습니다. 그래서 Markdown에는 없거나 확장 문법으로 억지로 흉내 내야 하는 기능들 — 표, 소스 코드 문법 강조, 주의/참고 박스(admonition), 문서 조각을 다른 문서에 끼워 넣는 include — 이 AsciiDoc에는 기본 문법으로 들어 있습니다.
+
+이 책 전체가, 그리고 이 사이트의 다른 모든 책이 AsciiDoc으로 쓰였습니다 — 여러분이 지금 읽고 있는 이 문단도 AsciiDoc 문법으로 작성된 겁니다.
+
+== 변환기: Asciidoctor
+
+AsciiDoc 문서를 실제로 HTML이나 PDF로 바꿔주는 프로그램을 **Asciidoctor**라고 부릅니다(Markdown의 여러 "구현체" 중 하나를 쓰듯, AsciiDoc도 Asciidoctor가 사실상 표준 구현체입니다). 명령줄에서 이렇게 씁니다.
+
+[source,bash]
+----
+asciidoctor my-document.adoc
+----
+
+이 명령은 `my-document.adoc`을 읽어 같은 폴더에 `my-document.html`을 만들어줍니다. 결과를 표준 출력으로 바로 보고 싶다면 `-o -` 옵션을 씁니다.
+
+[source,bash]
+----
+asciidoctor -o - my-document.adoc
+----
+
+이 책의 모든 예제는 실제로 이 명령으로 변환해 결과를 확인한 것들입니다.
+
+== 첫 문서 만들어보기
+
+파일 하나를 직접 만들어보겠습니다.
+
+[source,asciidoc]
+----
+= 나의 첫 AsciiDoc 문서
+y30n9ju1v
+
+안녕하세요, AsciiDoc으로 쓴 첫 문단입니다.
+----
+
+`= 나의 첫 AsciiDoc 문서`가 문서 제목이고, 그 바로 다음 줄의 `y30n9ju1v`는 저자 정보입니다(생략해도 됩니다). 그 아래 빈 줄을 하나 두고 나면 본문이 시작됩니다. 이걸 `asciidoctor -e -o -`(본문 조각만 뽑아 보여주는 옵션)로 변환하면 다음과 같은 HTML이 나옵니다.
+
+[source,html]
+----
+<div class="paragraph">
+<p>안녕하세요, AsciiDoc으로 쓴 첫 문단입니다.</p>
+</div>
+----
+
+== Markdown과 무엇이 다른가
+
+익숙한 Markdown 문법 몇 가지와 나란히 놓아보면 감이 빨리 옵니다.
+
+[cols="1,1,1"]
+|===
+|하려는 것 |Markdown |AsciiDoc
+
+|굵게
+|`**굵게**`
+|`*굵게*`
+
+|기울임
+|`*기울임*` 또는 `_기울임_`
+|`_기울임_`
+
+|제목(레벨 1)
+|`# 제목`
+|`= 제목`
+
+|제목(레벨 2)
+|`## 제목`
+|`== 제목`
+
+|코드 블록
+|<code>&#96;&#96;&#96;lang</code>
+|`[source,lang]` + `----`
+|===
+
+가장 눈에 띄는 차이는 **굵게가 별표 하나**라는 점입니다 — Markdown에서 별표 하나는 기울임이지만, AsciiDoc에서는 별표 하나가 굵게이고 밑줄이 기울임입니다. 이 차이는 2~3장에서 실제 예제로 다시 다룹니다.
+
+== 직접 해보기
+
+* 아래 내용을 `hello.adoc` 파일로 저장하고, `asciidoctor -e -o - hello.adoc` 명령으로 변환해서 어떤 HTML이 나오는지 직접 확인해보세요.
++
+[source,asciidoc]
+----
+= 인사말
+
+안녕, AsciiDoc!
+----
+
+.해답 보기
+[%collapsible]
+====
+다음과 같은 HTML이 출력됩니다.
+
+[source,html]
+----
+<div class="paragraph">
+<p>안녕, AsciiDoc!</p>
+</div>
+----
+
+문서 제목(`= 인사말`)은 본문 조각(`-e` 옵션)에는 포함되지 않는다는 것도 확인할 수 있습니다 — 제목은 `-e` 없이 전체 HTML로 변환할 때 `<h1>`로 나타납니다.
+====
+
+== 요약
+
+* AsciiDoc은 긴 문서(책, 기술 문서, 매뉴얼)를 염두에 두고 설계된 마크업 언어입니다.
+* `asciidoctor` 명령으로 `.adoc` 파일을 HTML(또는 다른 형식)로 변환합니다.
+* 문서는 `= 제목`으로 시작하고, 빈 줄로 문단을 구분합니다.
+* Markdown과 문법이 비슷하지만 굵게(`*`)와 기울임(`_`)이 서로 반대라는 점이 가장 눈에 띄는 차이입니다.
+
+다음 장에서는 제목과 문단을 더 자세히 다룹니다.
+// end::body[]
