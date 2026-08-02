@@ -1,0 +1,147 @@
+---
+title: "6장: 분류: 로지스틱회귀와 트리 기반 모델"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "scikit-learn", "book"]
+categories: ["books"]
+description: "고객 이탈(churn)을 예측하는 분류 문제에서 정확도만으로는 클래스 불균형을 놓칠 수 있다는 것을 재현율로 확인하고, 로지스틱회귀·결정트리·랜덤포레스트를 비교한 뒤 특성 중요도의 알려진 편향까지 직접 확인하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-linear-regression-and-overfitting/[5장: 회귀: 선형회귀와 과적합] · 다음: link:../07-first-neural-network/[7장: 신경망 하나로 시작하기]_
+
+'''
+
+`churn`(이탈 여부, `0` 또는 `1`)을 예측하는 건 **분류** 문제입니다. 이 장에서는 분류 모델 세 가지(로지스틱회귀, 결정트리, 랜덤포레스트)를 만들어보고, 그 전에 먼저 "정확도"라는 지표 하나만 보면 얼마나 쉽게 속을 수 있는지부터 확인합니다.
+
+== 클래스 불균형 확인하기
+
+[source,python]
+----
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+print(y_train.mean(), y_test.mean())  # 0.246  0.245
+----
+
+`stratify=y`를 주면 train/test 각각에서 이탈 비율이 원본과 비슷하게 유지됩니다(둘 다 `~24.5%`). 이탈 고객이 전체의 `4`분의 `1`밖에 안 된다는 것 — 이런 상황을 클래스 불균형이라고 부르는데, 이게 다음 함정의 원인입니다.
+
+== 함정: "항상 0으로 예측"해도 정확도가 높다
+
+[source,python]
+----
+baseline_acc = (y_test == 0).mean()
+print(baseline_acc)  # 0.755
+----
+
+아무것도 학습하지 않고 모든 고객을 "이탈 안 함"으로 예측하는 바보 같은 모델도 정확도 `75.5%`가 나옵니다 — 애초에 실제 이탈 고객이 `24.5%`뿐이니, 나머지 `75.5%`를 자동으로 맞히는 셈이기 때문입니다. 정확도만 보고서는 이 베이스라인과 진짜 학습된 모델을 구분하기 어렵습니다.
+
+== 정밀도, 재현율, F1: 정확도가 숨기는 것을 드러내는 지표
+
+[source,python]
+----
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
+
+baseline_pred = np.zeros_like(y_test)
+baseline_recall = recall_score(y_test, baseline_pred, zero_division=0)
+print(baseline_recall)  # 0.0
+----
+
+재현율(recall, 실제 이탈 고객 중 모델이 맞게 잡아낸 비율)을 보면 이 베이스라인의 정체가 바로 드러납니다 — `0.0`입니다. 이탈 고객을 단 한 명도 잡아내지 못했으면서 정확도만 `75.5%`인, 실전에서는 전혀 쓸모없는 모델이라는 게 재현율로만 보입니다.
+
+== 로지스틱 회귀로 실제 학습시켜보기
+
+[source,python]
+----
+from sklearn.linear_model import LogisticRegression
+
+logreg = LogisticRegression(max_iter=1000)
+logreg.fit(X_train, y_train)
+pred_lr = logreg.predict(X_test)
+print(accuracy_score(y_test, pred_lr))  # 0.78 (베이스라인 0.755보다 나음)
+
+prec, rec, f1 = precision_score(y_test, pred_lr), recall_score(y_test, pred_lr), f1_score(y_test, pred_lr)
+print(prec, rec, f1)  # 0.69, 0.18, 0.29
+----
+
+[source]
+----
+confusion matrix:
+[[147   4]
+ [ 40   9]]
+----
+
+정확도는 베이스라인보다 나아졌지만(`78%`), 재현율은 `0.18`밖에 안 됩니다 — 혼동행렬을 보면 실제 이탈 고객 `49`명(`40+9`) 중 겨우 `9`명만 맞혔습니다. 정밀도(`0.69`)는 "이탈이라고 예측한 것 중 실제로 맞은 비율"이라 나쁘지 않아 보이지만, 애초에 이탈이라고 예측한 건수 자체가 적어서(`4+9=13`건) 전체 이탈 고객 대부분을 놓치고 있다는 게 재현율에서 드러납니다. 클래스가 불균형한 문제에서는 정확도 하나만 보고할 게 아니라, 정밀도·재현율·F1을 함께 봐야 하는 이유가 여기 있습니다 — 실전에서 "이탈 위험 고객을 놓치지 않는 것"이 목표라면, 재현율이 훨씬 더 중요한 지표일 수 있습니다.
+
+== 트리 기반 모델과 비교
+
+[source,python]
+----
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+
+tree = DecisionTreeClassifier(max_depth=4, random_state=42)
+tree.fit(X_train, y_train)
+print(accuracy_score(y_test, tree.predict(X_test)))  # 0.75
+
+rf = RandomForestClassifier(n_estimators=100, max_depth=6, random_state=42)
+rf.fit(X_train, y_train)
+print(accuracy_score(y_test, rf.predict(X_test)))     # 0.785
+----
+
+단일 결정트리(`0.75`)는 베이스라인과 비슷한 수준이고, 여러 트리를 모아 평균 내는 랜덤포레스트(`0.785`)가 이 셋 중 가장 좋은 정확도를 냅니다 — 여러 개의 (서로 다른 데이터 부분집합으로 학습한) 트리를 앙상블하면, 트리 하나가 특정 패턴에 과도하게 맞춰지는(과적합) 경향을 서로 상쇄시켜 더 안정적인 예측을 만들어냅니다.
+
+== 특성 중요도의 함정
+
+랜덤포레스트는 각 특성이 예측에 얼마나 기여했는지를 `feature_importances_`로 알려줍니다.
+
+[source,python]
+----
+importances = pd.Series(rf.feature_importances_, index=features).sort_values(ascending=False)
+print(importances)
+----
+
+[source]
+----
+tenure_months        0.31
+monthly_charges       0.23
+age                    0.21
+support_calls         0.12
+contract_One year     0.04
+contract_Two year     0.04
+gender_encoded         0.03
+----
+
+여기서 뜻밖의 결과가 나옵니다 — `age`가 `3`위(`0.21`)로, `support_calls`(`0.12`)보다도 더 "중요하다"고 나왔습니다. 하지만 4장에서 이미 확인했듯 `age`는 `churn`과 상관계수가 사실상 `0`이었고, 애초에 이 데이터를 설계할 때 `age`는 `churn_logit` 계산에 전혀 들어가지 않았습니다 — **실제로는 아무 관계가 없는 특성인데 중요도 순위에서는 꽤 높게 나온 것**입니다.
+
+이건 버그가 아니라, 트리 기반 모델의 기본 특성 중요도(Gini 중요도) 계산 방식이 가진 잘 알려진 편향입니다 — 트리는 분할할 때마다 가장 좋은 기준값을 고르는데, `age`처럼 값이 연속적이고 고유값이 많은 특성은 `support_calls`(대부분 `0~4` 사이의 정수)나 원-핫 인코딩된 컬럼(`0` 또는 `1`뿐)보다 시도해볼 수 있는 분할 기준점이 훨씬 많습니다. 분할 기준점이 많을수록 우연히 훈련 데이터 일부를 잘 나누는 기준을 찾아낼 확률도 높아지고, 그 결과 실제로는 무관한 특성인데도 중요도가 부풀려질 수 있습니다.
+
+== 왜 이게 중요한가
+
+특성 중요도를 그대로 믿고 "`age`가 이탈 예측에 중요한 요인"이라고 결론 내리면, 4장에서 시각화와 상관계수로 이미 확인한 사실과 정면으로 모순됩니다. 이럴 때는 트리 모델의 기본 중요도만 보지 말고, 로지스틱회귀의 계수(해석이 더 직접적입니다)나, 특정 특성을 무작위로 섞었을 때 성능이 얼마나 떨어지는지를 재는 순열 중요도(permutation importance) 같은 대안과 교차 검증하는 게 안전합니다 — 이 책에서는 다루지 않지만, 실전에서 "이 특성이 정말 중요한가"를 판단할 때 한 가지 지표만 맹신하면 안 된다는 걸 이 사례가 잘 보여줍니다.
+
+== 직접 해보기
+
+* `support_calls`를 원-핫 인코딩(범주형처럼)해서 랜덤포레스트를 다시 학습시키면, `age`와의 중요도 격차가 더 벌어지는지 좁혀지는지 예상해보고 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+calls_onehot = pd.get_dummies(df["support_calls"], prefix="calls").astype(int)
+features2 = ["age", "tenure_months", "monthly_charges", "gender_encoded"] + list(onehot.columns) + list(calls_onehot.columns)
+X2 = pd.concat([df[features2[:4] + list(onehot.columns)], calls_onehot], axis=1)
+# ... 다시 학습 후 importances 확인
+----
+
+`support_calls`를 원-핫 인코딩하면 각 값(`0`,`1`,`2`,...)이 이진 컬럼으로 쪼개져서, 트리가 시도해볼 수 있는 분할 기준점이 오히려 `age`보다 더 제한적으로 바뀝니다 — 본문에서 설명한 "연속형·고유값 많은 특성이 유리해지는 편향"이 `support_calls`에는 더 불리하게 작용하게 되는 셈입니다. 이런 식으로 인코딩 방식 하나를 바꾸는 것만으로도 트리 기반 모델의 특성 중요도 순위가 흔들릴 수 있다는 걸 확인할 수 있는데, 이게 바로 이 지표를 곧이곧대로 믿으면 안 되는 이유입니다.
+====
+
+== 요약
+
+* 클래스가 불균형한 분류 문제에서는 정확도만으로 모델을 평가하면 "아무것도 안 하는 모델"에게 속을 수 있습니다 — 재현율·정밀도·F1을 함께 봐야 합니다.
+* 로지스틱회귀는 정확도는 개선했지만 재현율이 낮아, 실제 이탈 고객 대부분을 놓쳤다는 게 혼동행렬로 드러났습니다.
+* 여러 트리를 앙상블하는 랜덤포레스트가 단일 결정트리보다 안정적으로 더 나은 성능을 보였습니다.
+* 랜덤포레스트의 기본 특성 중요도(Gini 중요도)는 연속형·고유값이 많은 특성을 실제보다 과대평가하는 알려진 편향이 있다는 것을, 무관하게 설계된 `age`가 예상외로 높은 중요도를 받는 것으로 직접 확인했습니다.
+
+2부에서 전통적인 머신러닝으로 회귀와 분류를 모두 다뤄봤습니다. 3부에서는 같은 문제들을 Keras로 신경망을 지어 다시 풀어봅니다.
+// end::body[]

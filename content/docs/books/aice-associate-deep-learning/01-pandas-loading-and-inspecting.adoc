@@ -1,0 +1,185 @@
+---
+title: "1장: Pandas로 데이터 불러오고 들여다보기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "pandas", "book"]
+categories: ["books"]
+description: "이 책 전체에서 쓸 고객 이탈 데이터셋을 CSV로 저장하고 pd.read_csv로 불러온 뒤, head/dtypes/describe/groupby로 데이터의 첫인상을 파악하는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../02-missing-values-and-outliers/[2장: 결측치와 이상치 처리]_
+
+'''
+
+AICE 시험은 항상 CSV 파일 하나를 던져주는 것으로 시작합니다. 이 장에서는 이 책 전체에서 쓸 가상의 통신사 고객 데이터셋을 준비하고, 그 데이터를 처음 마주쳤을 때 순서대로 확인해야 할 것들을 정리합니다.
+
+== 데이터셋 준비
+
+실제 시험처럼 CSV 파일에서 시작하기 위해, 먼저 가상 데이터를 만들어 파일로 저장합니다.
+
+[source,python]
+----
+import numpy as np
+import pandas as pd
+
+rng = np.random.default_rng(42)
+n = 1000
+age = rng.integers(18, 75, size=n)
+gender = rng.choice(["M", "F"], size=n)
+tenure_months = rng.integers(0, 72, size=n)
+contract_type = rng.choice(["Month-to-month", "One year", "Two year"], size=n, p=[0.5, 0.3, 0.2])
+monthly_charges = rng.normal(70, 25, size=n).clip(20, 150)
+support_calls = rng.poisson(1.5, size=n)
+
+# 만족도(satisfaction_score)와 이탈 여부(churn)는 다른 컬럼들과 실제로 상관관계를 갖도록 설계
+contract_bonus = np.where(contract_type == "Two year", 25, np.where(contract_type == "One year", 12, 0))
+satisfaction = (
+    50 + 0.3 * tenure_months + contract_bonus - 3 * support_calls
+    - 0.1 * (monthly_charges - 70) + rng.normal(0, 8, size=n)
+).clip(0, 100)
+
+churn_logit = (
+    -2.0 - 0.03 * tenure_months + 0.02 * monthly_charges + 0.4 * support_calls
+    - contract_bonus * 0.05 + rng.normal(0, 1.0, size=n)
+)
+churn = (rng.uniform(size=n) < 1 / (1 + np.exp(-churn_logit))).astype(int)
+
+df = pd.DataFrame({
+    "customer_id": np.arange(1, n + 1), "age": age, "gender": gender,
+    "tenure_months": tenure_months, "contract_type": contract_type,
+    "monthly_charges": monthly_charges.round(2), "support_calls": support_calls,
+    "satisfaction_score": satisfaction.round(1), "churn": churn,
+})
+
+# 결측치를 일부러 섞어넣는다 (실전 데이터는 항상 지저분하다)
+missing_idx = rng.choice(n, size=int(n * 0.05), replace=False)
+df.loc[missing_idx, "monthly_charges"] = np.nan
+missing_idx2 = rng.choice(n, size=int(n * 0.03), replace=False)
+df.loc[missing_idx2, "age"] = np.nan
+
+df.to_csv("customers.csv", index=False)
+----
+
+`satisfaction_score`(만족도, 회귀 문제의 목표)는 가입 기간이 길고 장기 계약일수록 높게, `churn`(이탈 여부, 분류 문제의 목표)은 상담 전화가 많고 요금이 비쌀수록 확률이 높게 설계했습니다 — 뒤에 나오는 회귀/분류 모델이 실제로 뭔가 의미 있는 패턴을 학습할 수 있어야 하기 때문입니다.
+
+== CSV 읽어오기
+
+[source,python]
+----
+df = pd.read_csv("customers.csv")
+print(df.shape)
+----
+
+[source]
+----
+(1000, 9)
+----
+
+== 첫인상 파악하기: head, dtypes, isna
+
+[source,python]
+----
+print(df.head(3))
+----
+
+[source]
+----
+   customer_id   age gender  tenure_months  contract_type  monthly_charges  support_calls  satisfaction_score  churn
+0            1  23.0      F             41  Month-to-month            58.20              2                60.7      0
+1            2  62.0      F             35       One year            79.87              0                81.4      0
+2            3  55.0      F             15  Month-to-month            89.16              1                61.2      0
+----
+
+[source,python]
+----
+print(df.dtypes)
+print(df.isna().sum())
+----
+
+[source]
+----
+customer_id             int64
+age                   float64
+gender                    str
+tenure_months           int64
+contract_type             str
+monthly_charges       float64
+support_calls           int64
+satisfaction_score    float64
+churn                   int64
+
+age                30
+monthly_charges    50
+(나머지 컬럼은 모두 0)
+----
+
+`age`가 정수로 채워 넣었는데도 `float64`로 나온 이유는, 결측치(`NaN`)를 섞어 넣었기 때문입니다 — Pandas는 정수 컬럼에 `NaN`이 하나라도 있으면 그 컬럼 전체를 실수형으로 바꿉니다(`NaN` 자체가 부동소수점 개념이라 정수 dtype에는 담을 수 없기 때문입니다). `dtypes` 출력에서 문자열 컬럼(`gender`, `contract_type`)이 `str`로 표시된 것도 눈여겨볼 만합니다 — Pandas 버전에 따라 이 문자열 dtype이 `object`로 표시되기도 합니다(이 책은 Pandas `3.0.5`를 기준으로 실행한 결과입니다). 여러분의 환경에서 `object`로 나오더라도 당황할 필요 없습니다, 같은 의미입니다.
+
+== 요약 통계: describe
+
+[source,python]
+----
+print(df.describe().loc[["mean", "std", "min", "max"], "monthly_charges"])
+----
+
+[source]
+----
+mean     71.257674
+std      24.270910
+min      20.000000
+max     147.210000
+----
+
+`describe()`의 `count` 행은 `950`(전체 `1000`에서 결측치 `50`개를 뺀 값)이 나옵니다 — Pandas의 통계 함수들은 기본적으로 결측치를 무시하고 계산합니다.
+
+== 조건 필터링과 groupby
+
+[source,python]
+----
+churned = df[df["churn"] == 1]
+print(len(churned), len(churned) / len(df))          # 246, 0.246
+
+high_value = df[(df["monthly_charges"] > 100) & (df["tenure_months"] > 24)]
+print(len(high_value))                                 # 78
+
+grouped = df.groupby("contract_type")["satisfaction_score"].mean().sort_values(ascending=False)
+print(grouped)
+----
+
+[source]
+----
+contract_type
+Two year          81.85
+One year          67.62
+Month-to-month    57.09
+----
+
+`groupby`로 계약 유형별 평균 만족도를 보니, 데이터를 설계할 때 심어둔 패턴(장기 계약일수록 만족도가 높다)이 실제로 그대로 나타납니다 — 이런 식으로 "설계한 패턴이 데이터에 실제로 보이는지" 확인하는 습관은, 나중에 모델이 이상한 결과를 낼 때 "데이터가 문제인지 모델이 문제인지"를 가르는 데 도움이 됩니다.
+
+== 직접 해보기
+
+* `support_calls`(상담 전화 횟수)가 3회 이상인 고객의 이탈률(`churn`의 평균)이, 전체 고객의 이탈률보다 높은지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+overall_churn_rate = df["churn"].mean()
+high_calls_churn_rate = df[df["support_calls"] >= 3]["churn"].mean()
+print(overall_churn_rate, high_calls_churn_rate)
+----
+
+전체 이탈률은 `0.246`인데, 상담 전화가 `3`회 이상인 고객군의 이탈률은 이보다 뚜렷하게 높게 나옵니다 — 데이터를 만들 때 `support_calls`가 `churn_logit`에 양의 계수로 들어가도록 설계했으니 당연한 결과입니다. `groupby`나 조건 필터링으로 이렇게 "특정 조건에서 목표 변수가 어떻게 달라지는가"를 미리 살펴보는 게, 나중에 5~6장에서 만들 모델이 어떤 컬럼을 중요하게 쓸지 미리 짐작하는 데 도움이 됩니다.
+====
+
+== 요약
+
+* `pd.read_csv`로 데이터를 불러온 뒤 가장 먼저 할 일은 `shape`, `head()`, `dtypes`, `isna().sum()`으로 데이터의 크기·형태·결측치를 파악하는 것입니다.
+* 정수로 보이는 컬럼도 결측치가 섞여 있으면 `float64`로 바뀝니다 — dtype만 봐도 결측치 존재를 짐작할 수 있는 단서가 됩니다.
+* `describe()`의 통계는 기본적으로 결측치를 무시하고 계산됩니다.
+* 조건 필터링과 `groupby`로 "설계된(또는 실제 존재하는) 패턴이 데이터에 보이는지"를 미리 확인하는 습관이 이후 모델링 단계의 나침반이 됩니다.
+
+다음 장에서는 방금 확인한 결측치를 실제로 어떻게 처리하는지, 그리고 아직 다루지 않은 이상치를 어떻게 찾아내는지 다룹니다.
+// end::body[]

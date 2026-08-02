@@ -1,0 +1,141 @@
+---
+title: "3장: 범주형 데이터 인코딩(Label/One-Hot)"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "pandas", "scikit-learn", "book"]
+categories: ["books"]
+description: "문자열 컬럼을 모델이 쓸 수 있는 숫자로 바꾸는 Label Encoding과 One-Hot Encoding을 직접 적용하고, 순서 없는 명목형 데이터에 Label Encoding을 쓰면 의미 없는 숫자 간격이 생긴다는 것을 상관계수로 확인하는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-missing-values-and-outliers/[2장: 결측치와 이상치 처리] · 다음: link:../04-visualizing-data-relationships/[4장: 시각화로 데이터 관계 파악하기]_
+
+'''
+
+지금까지 결측치와 이상치를 처리했지만, `gender`와 `contract_type` 같은 문자열 컬럼은 아직 그대로 남아 있습니다. 신경망이든 전통적인 머신러닝 모델이든, 입력은 결국 숫자여야 합니다 — 이 장에서는 문자열을 숫자로 바꾸는 두 가지 표준 방법과, 그 둘을 잘못 골랐을 때 생기는 문제를 다룹니다.
+
+== Label Encoding: 문자열마다 정수 하나씩
+
+가장 단순한 방법은 각 범주에 정수를 하나씩 매기는 것입니다.
+
+[source,python]
+----
+from sklearn.preprocessing import LabelEncoder
+
+le = LabelEncoder()
+df["gender_encoded"] = le.fit_transform(df["gender"])
+print(dict(zip(le.classes_, le.transform(le.classes_))))
+----
+
+[source]
+----
+{'F': 0, 'M': 1}
+----
+
+`gender`처럼 범주가 두 개뿐인 경우(이진 범주)는 Label Encoding으로 아무 문제가 없습니다 — `0`과 `1`이라는 숫자에 "순서"나 "거리"라는 의미를 억지로 부여하지 않아도 되기 때문입니다.
+
+== 범주가 셋 이상이고 순서가 없을 때: 문제가 생기는 지점
+
+`payment_method`(결제 수단)처럼 범주가 여러 개이고, 그 범주들 사이에 자연스러운 순서가 전혀 없는 컬럼에 같은 방법을 써봅니다.
+
+[source,python]
+----
+le3 = LabelEncoder()
+df["payment_encoded"] = le3.fit_transform(df["payment_method"])
+print(dict(zip(le3.classes_, le3.transform(le3.classes_))))
+----
+
+[source]
+----
+{'Bank transfer': 0, 'Credit card': 1, 'Electronic check': 2, 'Mailed check': 3}
+----
+
+`LabelEncoder`는 그냥 알파벳 순서대로 `0, 1, 2, 3`을 매겼을 뿐입니다. 하지만 이 숫자를 그대로 모델에 넣으면, 모델 입장에서는 `"Bank transfer"`(0)와 `"Credit card"`(1) 사이의 거리가 `"Credit card"`(1)와 `"Electronic check"`(2) 사이의 거리와 **똑같다**고 가정하게 됩니다 — 실제로는 결제 수단들 사이에 그런 "거리" 개념 자체가 없는데도 말입니다.
+
+== 검증: 알파벳 순서로 매긴 숫자는 실제 패턴과 무관하다
+
+이 데이터셋을 설계할 때 `payment_method`는 `churn`(이탈 여부) 계산에 전혀 관여하지 않도록 만들었습니다 — 즉 둘 사이에는 진짜 관계가 없어야 정상입니다. Label Encoding한 숫자와 `churn`의 상관계수를 확인해봅니다.
+
+[source,python]
+----
+corr = df["payment_encoded"].corr(df["churn"])
+print(corr)
+----
+
+[source]
+----
+-0.0022
+----
+
+상관계수가 `0`에 아주 가깝게 나옵니다 — 예상대로 진짜 관계가 없다는 뜻입니다. 그런데 이건 오히려 문제를 숨깁니다: 만약 `LabelEncoder`가 매긴 알파벳 순서가 **우연히** 어떤 실제 패턴과 방향이 겹쳤다면, 모델은 "결제 수단 번호가 클수록 이탈 확률이 높다"는 식의, 알파벳 순서라는 우연에서 비롯된 가짜 패턴을 학습해버릴 수 있습니다. 데이터를 다시 만들 때마다(또는 `LabelEncoder`가 다른 순서로 학습되었다면) 이 숫자들의 순서 자체가 바뀔 수 있다는 게 이 문제의 핵심입니다 — **숫자의 크기 자체에 의미를 부여하면 안 되는 데이터에, 크기가 있는 숫자를 매겨버린 것**이기 때문입니다.
+
+== One-Hot Encoding: 순서를 아예 없애기
+
+이 문제를 근본적으로 피하는 방법은, 범주 하나당 컬럼을 하나씩 만들고 해당하는 컬럼만 `1`(또는 `True`), 나머지는 `0`(`False`)으로 표시하는 것입니다.
+
+[source,python]
+----
+onehot = pd.get_dummies(df["contract_type"], prefix="contract")
+print(onehot.columns.tolist())
+print(onehot.head(3))
+----
+
+[source]
+----
+['contract_Month-to-month', 'contract_One year', 'contract_Two year']
+
+   contract_Month-to-month  contract_One year  contract_Two year
+0                     False               True              False
+1                     False              False               True
+2                      True              False              False
+----
+
+이제 각 행에서 정확히 하나의 컬럼만 `True`이고, 세 컬럼 사이에는 어떤 순서나 거리도 존재하지 않습니다 — `"Two year"`가 `"Month-to-month"`보다 "크다"는 식의 암묵적 가정이 사라졌습니다.
+
+[source,python]
+----
+df_final = pd.concat([df, onehot], axis=1)
+print(df_final.shape)  # (1000, 16)
+----
+
+== drop_first로 다중공선성 피하기
+
+[source,python]
+----
+onehot_drop = pd.get_dummies(df["contract_type"], prefix="contract", drop_first=True)
+print(onehot_drop.columns.tolist())  # ['contract_One year', 'contract_Two year']
+----
+
+`drop_first=True`를 쓰면 컬럼이 하나 줄어듭니다(`3`개 범주에 `2`개 컬럼). `contract_One year`와 `contract_Two year`가 둘 다 `False`이면 자동으로 `"Month-to-month"`라는 뜻이 되므로, 굳이 세 번째 컬럼을 따로 둘 필요가 없기 때문입니다 — 이렇게 하면 세 컬럼을 모두 남겨뒀을 때 생기는 다중공선성(한 컬럼이 나머지 컬럼들의 값으로 완전히 결정되는 상황)을 피할 수 있습니다. 선형회귀 계열 모델에서는 이 다중공선성이 계수 추정을 불안정하게 만들 수 있어 특히 신경 쓰이는 문제입니다.
+
+== 그럼 Label Encoding은 언제 써야 하는가
+
+`gender`처럼 범주가 정확히 둘뿐이거나, `contract_type`(`Month-to-month < One year < Two year`)처럼 범주 사이에 **실제로 순서가 있는** 경우(순서형/ordinal 데이터)라면 Label Encoding이 오히려 자연스러울 수 있습니다 — 다만 이 경우에도 `LabelEncoder`가 알파벳 순서로 매기는 게 아니라, 의도한 순서대로 직접 숫자를 매핑해줘야 합니다(`{"Month-to-month": 0, "One year": 1, "Two year": 2}`처럼). 반면 `payment_method`처럼 순서 개념이 아예 없는 명목형(nominal) 데이터에는 One-Hot Encoding이 안전한 기본값입니다.
+
+== 직접 해보기
+
+* `contract_type`을 의도한 순서(`Month-to-month=0, One year=1, Two year=2`)대로 직접 매핑한 컬럼을 만들고, 이 숫자와 `satisfaction_score`의 상관계수가 `payment_encoded`-`churn` 상관계수보다 훨씬 크게 나오는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+order_map = {"Month-to-month": 0, "One year": 1, "Two year": 2}
+df["contract_ordinal"] = df["contract_type"].map(order_map)
+corr_ordinal = df["contract_ordinal"].corr(df["satisfaction_score"])
+print(corr_ordinal)  # 훨씬 큰 양의 상관관계 (payment_encoded-churn의 -0.002와 대조적)
+----
+
+`contract_type`은 애초에 데이터를 설계할 때 만족도와 실제로 관계있게 만들었으므로(`contract_bonus`가 `satisfaction` 계산에 들어감), 의도한 순서로 인코딩한 숫자는 만족도와 뚜렷한 양의 상관관계를 보입니다. 이게 바로 순서형 데이터를 Label Encoding(또는 순서를 직접 지정한 매핑)으로 다뤄도 괜찮은 이유입니다 — 숫자의 크기 순서가 실제 데이터의 의미와 일치하기 때문입니다. `payment_method`(순서 없음)와 `contract_type`(순서 있음)을 나란히 놓고 비교하면, "이 컬럼에 순서 개념이 있는가"라는 질문이 인코딩 방법을 결정하는 기준이라는 게 명확해집니다.
+====
+
+== 요약
+
+* 문자열 컬럼은 모델에 넣기 전에 숫자로 바꿔야 하며, 대표적인 방법이 Label Encoding과 One-Hot Encoding입니다.
+* Label Encoding은 범주에 정수를 매기는데, 순서 개념이 없는 명목형 데이터에 쓰면 알파벳 순서라는 우연이 "크기"라는 암묵적 의미를 만들어내는 문제가 생깁니다.
+* One-Hot Encoding(`pd.get_dummies`)은 범주마다 별도 컬럼을 만들어 이 문제를 없애지만, 컬럼 수가 범주 개수만큼 늘어납니다. `drop_first=True`로 다중공선성을 피할 수 있습니다.
+* 범주가 이진이거나(`gender`) 실제로 순서가 있는(`contract_type`) 경우에는 Label Encoding(또는 의도한 순서의 매핑)이 자연스러운 선택입니다.
+
+1부에서 데이터를 정리하는 법을 다졌으니, 2부에서는 이 데이터를 시각화로 살펴보고 전통적인 머신러닝 모델로 첫 예측을 만들어봅니다.
+// end::body[]

@@ -1,0 +1,132 @@
+---
+title: "2장: 결측치와 이상치 처리"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "pandas", "book"]
+categories: ["books"]
+description: "1장에서 발견한 결측치를 중앙값/최빈값으로 채우고, 평균이 이상치에 얼마나 흔들리는지 직접 확인한 뒤 IQR 방식으로 이상치를 탐지하고 클리핑으로 처리하는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-pandas-loading-and-inspecting/[1장: Pandas로 데이터 불러오고 들여다보기] · 다음: link:../03-categorical-encoding/[3장: 범주형 데이터 인코딩]_
+
+'''
+
+1장에서 `age`에 `30`개, `monthly_charges`에 `50`개의 결측치가 있다는 걸 확인했습니다. 결측치가 있는 행을 신경망에 그대로 넣으면 `NaN`이 계산 전체를 오염시키므로, 학습 전에 반드시 처리해야 합니다. 이 장에서는 결측치를 채우는 방법과, 그 방법을 고를 때 왜 이상치까지 함께 고려해야 하는지를 다룹니다.
+
+== 결측치 채우기: fillna
+
+가장 흔한 방법은 수치형 컬럼은 중앙값(또는 평균)으로, 범주형 컬럼은 최빈값으로 채우는 것입니다.
+
+[source,python]
+----
+age_median = df["age"].median()
+charges_median = df["monthly_charges"].median()
+df["age"] = df["age"].fillna(age_median)
+df["monthly_charges"] = df["monthly_charges"].fillna(charges_median)
+
+print(df["age"].isna().sum(), df["monthly_charges"].isna().sum())  # 0 0
+print(age_median, charges_median)                                    # 46.0  70.555
+----
+
+== 왜 평균이 아니라 중앙값을 흔히 쓰는가
+
+평균과 중앙값 중 무엇으로 채울지는 임의로 정하는 게 아니라, 그 컬럼에 이상치가 있는지에 달려 있습니다. 직접 확인해봅니다.
+
+[source,python]
+----
+df_outlier_demo = make_customer_data()
+df_outlier_demo.loc[0, "monthly_charges"] = 50000.0  # 극단적인 이상치 하나를 주입
+
+mean_with_outlier = df_outlier_demo["monthly_charges"].mean()
+median_with_outlier = df_outlier_demo["monthly_charges"].median()
+print(mean_with_outlier, median_with_outlier)
+----
+
+[source]
+----
+mean with outlier:   123.83   (이상치 없을 때 평균은 71.26 -- 52 이상 벌어짐)
+median with outlier: 70.66    (이상치 없을 때 중앙값은 70.56 -- 거의 그대로)
+----
+
+`950`개의 정상적인 값 사이에 극단값 딱 하나를 끼워 넣었을 뿐인데, 평균은 `71.26`에서 `123.83`으로 크게 뛰었지만 중앙값은 `70.56`에서 `70.66`으로 거의 움직이지 않았습니다. 평균은 모든 값을 더해서 나누기 때문에 극단값 하나가 전체를 끌고 가지만, 중앙값은 "가운데 순서"만 보기 때문에 극단값이 아무리 커도 순서상 맨 끝에 위치할 뿐 다른 값에 영향을 주지 않습니다. 그래서 이상치가 섞여 있을 가능성이 있는 실전 데이터에서는 중앙값으로 채우는 게 더 안전한 선택입니다.
+
+== IQR(사분위 범위)로 이상치 찾아내기
+
+이상치를 "느낌"이 아니라 규칙으로 찾아내는 표준적인 방법이 IQR 방식입니다. 1사분위(`Q1`, 하위 `25%` 지점)와 3사분위(`Q3`, 하위 `75%` 지점) 사이의 폭을 `IQR = Q3 - Q1`이라 하고, 이 범위를 `1.5`배 벗어난 값을 이상치로 봅니다.
+
+[source,python]
+----
+q1 = df2["monthly_charges"].quantile(0.25)
+q3 = df2["monthly_charges"].quantile(0.75)
+iqr = q3 - q1
+lower = q1 - 1.5 * iqr
+upper = q3 + 1.5 * iqr
+print(q1, q3, iqr, lower, upper)
+----
+
+[source]
+----
+Q1: 55.36   Q3: 87.23   IQR: 31.86   lower: 7.57   upper: 135.02
+----
+
+이 데이터셋 자체는 `clip(20, 150)`으로 이미 극단값을 어느 정도 눌러뒀는데도, `1.5×IQR` 기준으로는 `6`개의 값이 이미 "이상치" 판정을 받습니다 — IQR 기준이 꽤 엄격하다는 뜻이고, 실전에서는 이 `1.5`라는 배수를 데이터 특성에 맞게 조정하기도 합니다.
+
+== 검증: 진짜 이상치를 주입하면 실제로 잡히는가
+
+[source,python]
+----
+df2.loc[0, "monthly_charges"] = 500.0
+df2.loc[1, "monthly_charges"] = -50.0
+outliers2 = df2[(df2["monthly_charges"] < lower) | (df2["monthly_charges"] > upper)]
+print(len(outliers2))  # 8 (기존 6개 + 새로 주입한 2개)
+----
+
+`500`(너무 비쌈)과 `-50`(요금이 음수라는 것 자체가 데이터 오류를 의심할 만한 값)을 일부러 끼워 넣으니, 정확히 이 두 행이 이상치 목록에 새로 추가됩니다.
+
+== 이상치 처리: 클리핑(Capping)
+
+이상치를 발견했을 때 무조건 그 행을 지울 필요는 없습니다 — 특히 행 전체를 지우면 다른 컬럼의 멀쩡한 정보까지 함께 버리게 됩니다. 대신 값 자체를 경계값으로 눌러버리는 클리핑을 흔히 씁니다.
+
+[source,python]
+----
+df2["monthly_charges_clipped"] = df2["monthly_charges"].clip(lower, upper)
+print(df2["monthly_charges_clipped"].max(), df2["monthly_charges_clipped"].min())
+----
+
+[source]
+----
+max: 135.02   min: 7.57
+----
+
+`500`이었던 값은 `135.02`로, `-50`이었던 값은 `7.57`로 눌려서, 더 이상 IQR 경계를 벗어나지 않습니다 — 그 행의 다른 컬럼(나이, 계약 유형 등)은 그대로 보존한 채, 문제가 되는 값만 안전한 범위로 조정한 것입니다.
+
+== 직접 해보기
+
+* `support_calls`(상담 전화 횟수, 포아송 분포로 생성했으므로 대부분 작은 값)에 IQR 방식을 적용하면 이상치가 몇 개나 잡히는지 확인해보고, 그 결과가 `monthly_charges`(정규분포 기반)의 경우와 비교해 많은지 적은지 생각해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+q1_calls = df2["support_calls"].quantile(0.25)
+q3_calls = df2["support_calls"].quantile(0.75)
+iqr_calls = q3_calls - q1_calls
+upper_calls = q3_calls + 1.5 * iqr_calls
+outliers_calls = df2[df2["support_calls"] > upper_calls]
+print(len(outliers_calls), upper_calls)
+----
+
+포아송 분포는 정규분포보다 오른쪽 꼬리가 더 두껍고(드물게 상담 전화를 아주 많이 하는 고객이 실제로 존재), `Q1`과 `Q3` 자체가 작은 정수값(`0`, `2`처럼)에 몰려 있어 `IQR`도 작습니다. 그 결과 `1.5×IQR`을 조금만 넘어도 "이상치"로 잡히는 값이 상대적으로 많아지는 경향이 있습니다 — IQR 방식이 모든 분포에 똑같이 잘 맞는 만능 규칙은 아니라는 뜻이고, 컬럼의 분포 형태를 먼저 살펴보는 게 중요한 이유입니다.
+====
+
+== 요약
+
+* 결측치는 `fillna()`로 채우는데, 수치형은 흔히 중앙값(또는 평균), 범주형은 최빈값을 씁니다.
+* 평균은 이상치 하나에도 크게 흔들리지만 중앙값은 거의 흔들리지 않는다는 걸 직접 확인했습니다 — 이상치 가능성이 있으면 중앙값이 더 안전한 선택입니다.
+* IQR(`Q3-Q1`) 기준으로 `Q1-1.5×IQR` ~ `Q3+1.5×IQR` 범위를 벗어난 값을 이상치로 판정하는 게 표준적인 방법입니다.
+* 이상치를 발견했다고 행 전체를 지우기보다, `clip()`으로 값을 경계 안으로 눌러(capping) 다른 컬럼의 정보를 보존하는 방법도 있습니다.
+
+다음 장에서는 아직 손대지 않은 문자열 컬럼(`gender`, `contract_type`)을 모델이 이해할 수 있는 숫자로 바꾸는 인코딩을 다룹니다.
+// end::body[]

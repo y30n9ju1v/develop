@@ -1,0 +1,149 @@
+---
+title: "5장: 회귀: 선형회귀와 과적합"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "scikit-learn", "book"]
+categories: ["books"]
+description: "scikit-learn의 LinearRegression으로 만족도 점수를 예측하는 첫 회귀 모델을 학습·평가하고, 다항 특성으로 모델의 자유도를 늘려 train 성능은 좋아지지만 test 성능은 오히려 나빠지는 과적합을 직접 재현하는 5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-visualizing-data-relationships/[4장: 시각화로 데이터 관계 파악하기] · 다음: link:../06-classification-logistic-and-tree/[6장: 분류: 로지스틱회귀와 트리 기반 모델]_
+
+'''
+
+지금까지 데이터를 정리하고 살펴봤으니, 이제 첫 예측 모델을 만들 차례입니다. `satisfaction_score`(만족도, `0~100` 사이의 연속값)를 예측하는 건 **회귀** 문제입니다. 이 장에서는 가장 단순한 회귀 모델인 선형회귀로 시작해서, 모델의 표현력을 무리하게 늘렸을 때 생기는 과적합을 직접 만들어봅니다.
+
+== 학습/테스트 분할
+
+[source,python]
+----
+from sklearn.model_selection import train_test_split
+
+features = ["age", "tenure_months", "monthly_charges", "support_calls", "gender_encoded",
+            "contract_One year", "contract_Two year"]
+X = df[features]
+y = df["satisfaction_score"]
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+print(len(X_train), len(X_test))  # 800 200
+----
+
+`test_size=0.2`로 전체 데이터의 `20%`를 떼어 테스트용으로 남겨둡니다 — 모델이 학습에 쓰지 않은 데이터에서도 잘 맞는지 확인하려면, 학습 때부터 이 데이터를 절대 보여주면 안 됩니다.
+
+== 선형회귀 학습과 평가
+
+[source,python]
+----
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
+
+lr = LinearRegression()
+lr.fit(X_train, y_train)
+
+pred_train, pred_test = lr.predict(X_train), lr.predict(X_test)
+rmse_train = np.sqrt(mean_squared_error(y_train, pred_train))
+rmse_test = np.sqrt(mean_squared_error(y_test, pred_test))
+print(rmse_train, r2_score(y_train, pred_train))
+print(rmse_test, r2_score(y_test, pred_test))
+----
+
+[source]
+----
+train RMSE: 8.08   R2: 0.67
+test  RMSE: 8.35   R2: 0.72
+----
+
+RMSE(Root Mean Squared Error, 예측 오차 제곱평균의 제곱근)는 낮을수록, `R²`(결정계수, `1`에 가까울수록 설명력이 높음)는 높을수록 좋은 모델입니다. train과 test의 RMSE가 `8.08`과 `8.35`로 비슷한 수준이라는 게 중요합니다 — 학습에 쓰지 않은 데이터에서도 비슷하게 잘 맞는다는 뜻이고, 아직 과적합이 없다는 신호입니다.
+
+== 계수 해석: 모델이 무엇을 배웠는가
+
+[source,python]
+----
+coef_df = pd.Series(lr.coef_, index=features).sort_values()
+print(coef_df)
+----
+
+[source]
+----
+support_calls        -2.58
+monthly_charges      -0.10
+age                    0.002
+tenure_months          0.27
+gender_encoded         0.99
+contract_One year     10.70
+contract_Two year     23.81
+----
+
+계수의 부호가 4장에서 히트맵으로 확인한 관계와 정확히 일치합니다 — `support_calls`는 음수(상담전화가 많을수록 만족도가 낮아짐), `tenure_months`는 양수(가입기간이 길수록 만족도가 높아짐), `contract_Two year`의 계수(`23.81`)가 `contract_One year`(`10.70`)보다 훨씬 커서 장기 계약일수록 만족도가 큰 폭으로 높아진다는 것도(1장에서 `groupby`로 봤던 패턴 그대로) 확인됩니다. `age`의 계수는 `0.002`로 거의 `0`인데, 이 역시 4장에서 `age`가 다른 변수와 상관관계가 거의 없었던 것과 일치합니다.
+
+== 과적합 만들어보기: 다항 특성으로 자유도 늘리기
+
+이제 일부러 모델을 필요 이상으로 복잡하게 만들어봅니다. `PolynomialFeatures`는 기존 특성들의 거듭제곱과 곱셈 조합(`age²`, `age×tenure_months` 등)을 새로운 특성으로 추가해줍니다.
+
+[source,python]
+----
+from sklearn.preprocessing import PolynomialFeatures
+
+poly = PolynomialFeatures(degree=4, include_bias=False)
+X_train_poly = poly.fit_transform(X_train)
+X_test_poly = poly.transform(X_test)
+print(X_train_poly.shape[1])  # 329 (원래 7개 특성에서 329개로 폭증)
+----
+
+원래 특성 `7`개가 `4`차 다항 조합을 거치면서 `329`개로 폭증합니다 — 모델이 학습할 수 있는 파라미터(자유도)가 그만큼 늘어났다는 뜻입니다.
+
+[source,python]
+----
+lr_poly = LinearRegression()
+lr_poly.fit(X_train_poly, y_train)
+rmse_train_poly = np.sqrt(mean_squared_error(y_train, lr_poly.predict(X_train_poly)))
+rmse_test_poly = np.sqrt(mean_squared_error(y_test, lr_poly.predict(X_test_poly)))
+print(rmse_train_poly, rmse_test_poly)
+----
+
+[source]
+----
+poly train RMSE: 7.64   (기본 모델의 8.08보다 개선)
+poly test  RMSE: 9.29   (기본 모델의 8.35보다 악화)
+----
+
+이게 과적합의 전형적인 신호입니다 — **train 성능은 좋아졌는데 test 성능은 오히려 나빠졌습니다.** `329`개의 자유도를 가진 모델은 훈련 데이터의 세세한 노이즈(각 고객의 만족도 계산에 섞인 무작위 항)까지 "외워버릴" 만큼 표현력이 넘쳐서, 훈련 데이터에는 더 잘 맞지만 정작 처음 보는 데이터에는 오히려 더 못 맞추게 됩니다.
+
+== 왜 이게 중요한가
+
+AICE 시험에서 흔히 나오는 실수가 바로 이겁니다 — train 정확도(또는 RMSE)만 보고 "모델이 좋아졌다"고 착각하는 것입니다. 항상 train과 test 성능을 **함께** 보고해야 하고, 둘 사이의 격차가 벌어지기 시작하면 그건 모델이 개선된 게 아니라 과적합되고 있다는 경고입니다. 9장에서는 신경망에서 이 문제를 `Dropout`과 `EarlyStopping`으로 어떻게 막는지 다룹니다.
+
+== 직접 해보기
+
+* `degree`를 `4`가 아니라 `2`로 낮추면, train/test RMSE의 격차가 `degree=4`일 때보다 작아지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+poly2 = PolynomialFeatures(degree=2, include_bias=False)
+X_train_poly2 = poly2.fit_transform(X_train)
+X_test_poly2 = poly2.transform(X_test)
+print(X_train_poly2.shape[1])  # degree=4보다 훨씬 적은 특성 수
+
+lr_poly2 = LinearRegression()
+lr_poly2.fit(X_train_poly2, y_train)
+rmse_train2 = np.sqrt(mean_squared_error(y_train, lr_poly2.predict(X_train_poly2)))
+rmse_test2 = np.sqrt(mean_squared_error(y_test, lr_poly2.predict(X_test_poly2)))
+print(rmse_train2, rmse_test2)
+----
+
+`degree=2`는 특성 개수가 `329`개보다 훨씬 적어서(원래 `7`개 특성의 2차 조합이므로 `35`개 안팎), 모델의 자유도가 `degree=4`보다 훨씬 제한적입니다. train/test RMSE 격차도 `degree=4`일 때보다 작게 나옵니다 — 모델의 복잡도(자유도)와 과적합 정도가 비례한다는 걸 다시 한번 확인할 수 있습니다. 모델 복잡도를 데이터 양과 패턴의 복잡도에 맞게 조절하는 것, 이게 과적합을 막는 가장 근본적인 방법입니다.
+====
+
+== 요약
+
+* 회귀는 연속값을 예측하는 문제이며, `LinearRegression`으로 학습한 뒤 RMSE와 `R²`로 성능을 평가합니다.
+* 선형회귀의 계수는 각 특성이 목표 변수에 미치는 영향의 방향과 크기를 그대로 보여주며, 이 부호는 4장의 상관관계 분석과 일치해야 합니다.
+* 다항 특성으로 모델의 자유도를 무리하게 늘리면 train 성능은 좋아지지만 test 성능은 오히려 나빠지는 과적합이 생긴다는 걸 직접 확인했습니다.
+* train 성능만 보고 모델을 평가하면 안 되고, 항상 test(또는 검증) 성능과 함께 봐야 과적합을 알아챌 수 있습니다.
+
+다음 장에서는 연속값이 아니라 범주(이탈/비이탈)를 예측하는 분류 문제로 넘어가, 로지스틱회귀와 트리 기반 모델을 다룹니다.
+// end::body[]

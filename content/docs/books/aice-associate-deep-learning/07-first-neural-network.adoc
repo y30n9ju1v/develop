@@ -1,0 +1,142 @@
+---
+title: "7장: 신경망 하나로 시작하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "keras", "book"]
+categories: ["books"]
+description: "Keras Sequential API로 첫 신경망을 짜고 compile/fit/evaluate의 흐름을 익힌 뒤, StandardScaler로 입력 스케일을 맞추는 것이 학습 속도에 실제로 얼마나 차이를 만드는지 손실 곡선으로 직접 확인하는 3부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-classification-logistic-and-tree/[6장: 분류: 로지스틱회귀와 트리 기반 모델] · 다음: link:../08-building-classification-models/[8장: 분류 모델 만들기]_
+
+'''
+
+2부에서 scikit-learn으로 회귀와 분류를 다뤘습니다. 이 장부터는 같은 문제를 신경망으로 풀어봅니다 — AICE 시험의 핵심은 결국 Keras로 모델을 짜고 학습시키는 능력이므로, 이 장에서는 가장 단순한 신경망 하나를 처음부터 끝까지(설계 → 컴파일 → 학습 → 평가) 완성하는 데 집중합니다.
+
+== Keras Sequential API
+
+[source,python]
+----
+from tensorflow import keras
+
+model = keras.Sequential([
+    keras.Input(shape=(X_train.shape[1],)),
+    keras.layers.Dense(8, activation="relu"),
+    keras.layers.Dense(1, activation="sigmoid"),
+])
+----
+
+`Sequential`은 층을 순서대로 쌓는 가장 단순한 모델 구성 방식입니다. `Input(shape=(7,))`은 입력 특성이 `7`개(2장·6장에서 준비한 `age`, `tenure_months` 등)라는 걸 알려주고, `Dense(8, activation="relu")`는 `8`개의 뉴런을 가진 완전연결층(각 뉴런이 입력 전체의 가중합을 계산한 뒤 `ReLU` 활성화 함수를 통과시킴), 마지막 `Dense(1, activation="sigmoid")`는 출력을 `0~1` 사이 확률로 눌러주는 층입니다 — `sigmoid`는 이진 분류(이탈/비이탈)의 표준적인 출력 활성화 함수입니다.
+
+== compile: 학습 방식 정하기
+
+[source,python]
+----
+model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+----
+
+`optimizer="adam"`은 경사하강법을 개선한 최적화 알고리즘(이 시리즈의 다른 책에서 손으로 구현했던 기본 경사하강법보다 훨씬 빠르고 안정적으로 수렴합니다), `loss="binary_crossentropy"`는 이진 분류에서 표준적으로 쓰는 손실 함수(모델이 낸 확률이 실제 정답에서 얼마나 벗어났는지를 잽니다), `metrics=["accuracy"]`는 학습 중 함께 보고할 지표입니다.
+
+== fit: 실제로 학습시키기
+
+[source,python]
+----
+history = model.fit(X_train, y_train, epochs=20, batch_size=32, verbose=0,
+                     validation_data=(X_test, y_test))
+----
+
+`epochs=20`은 전체 데이터를 `20`번 반복해서 학습한다는 뜻이고, `batch_size=32`는 한 번에 `32`개 샘플씩 묶어서 가중치를 갱신한다는 뜻입니다. `validation_data`를 주면, 매 에폭이 끝날 때마다 (학습에는 쓰지 않은) 테스트 데이터로도 성능을 재서 `history` 객체에 기록해줍니다.
+
+== 스케일링 없이 학습시키면 무슨 일이 생기는가
+
+특성들을 그대로(스케일 조정 없이) 넣어서 학습시켜봅니다. `monthly_charges`(대략 `20~150`)와 `gender_encoded`(`0` 또는 `1`)처럼 값의 범위가 극단적으로 다른 특성들이 섞여 있습니다.
+
+[source,python]
+----
+history_noscale = model_noscale.fit(X_train, y_train, epochs=20, batch_size=32, verbose=0,
+                                      validation_data=(X_test, y_test))
+print(history_noscale.history["loss"][:5])
+print(history_noscale.history["loss"][-5:])
+----
+
+[source]
+----
+first 5 epochs: [8.99, 2.84, 1.65, 1.61, 1.55]
+last 5 epochs:  [0.86, 0.81, 0.77, 0.74, 0.71]
+----
+
+손실이 첫 에폭에 `8.99`라는 큰 값에서 시작해서, `20`에폭이 지나도록 `0.71`까지밖에 못 내려갑니다. 학습이 안 되는 건 아니지만 굼뜨게 진행됩니다.
+
+== StandardScaler로 입력 스케일 맞추기
+
+[source,python]
+----
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+print(X_train[:, 2].min(), X_train[:, 2].max())          # monthly_charges: 20.0 147.21 (스케일링 전)
+print(X_train_scaled[:, 2].min(), X_train_scaled[:, 2].max())  # -2.18 3.18 (스케일링 후)
+----
+
+`StandardScaler`는 각 특성을 평균 `0`, 표준편차 `1`이 되도록 변환합니다(`(x - 평균) / 표준편차`). 이제 `monthly_charges`도, `gender_encoded`도, 그 밖의 모든 특성도 대략 비슷한 범위(대체로 `-3~3`)에 놓이게 됩니다. 여기서 중요한 실수 하나 — `scaler.fit_transform`은 **훈련 데이터에서만** 평균·표준편차를 계산하고(`fit`), 테스트 데이터에는 그 값을 그대로 적용만 합니다(`transform`, `fit` 하지 않음). 테스트 데이터로 다시 `fit`하면, 모델이 학습 때 전혀 보지 못한 테스트 데이터의 통계 정보가 슬쩍 새어 들어가는(data leakage) 문제가 생깁니다.
+
+== 검증: 스케일링이 학습 속도에 미치는 실제 영향
+
+[source,python]
+----
+history_scaled = model_scaled.fit(X_train_scaled, y_train, epochs=20, batch_size=32, verbose=0,
+                                    validation_data=(X_test_scaled, y_test))
+print(history_scaled.history["loss"][:5])
+print(history_scaled.history["loss"][-5:])
+----
+
+[source]
+----
+first 5 epochs: [0.615, 0.604, 0.594, 0.584, 0.575]
+last 5 epochs:  [0.518, 0.516, 0.514, 0.513, 0.512]
+----
+
+스케일링한 모델은 첫 에폭부터 손실이 `0.615`로 시작해서 훨씬 안정적이고 완만하게 내려갑니다 — 스케일링 없는 모델의 다섯 번째 에폭 손실(`1.55`)보다, 스케일링한 모델의 다섯 번째 에폭 손실(`0.575`)이 훨씬 낮습니다.
+
+왜 이런 차이가 생길까요? `Dense` 층의 계산은 각 입력에 가중치를 곱해서 더하는 것인데, 스케일이 큰 특성(`monthly_charges`, `~20~150`)은 초기 가중치가 작아도 출력에 큰 영향을 주고, 스케일이 작은 특성(`gender_encoded`, `0` 또는 `1`)은 가중치가 커야 비슷한 영향력을 갖습니다. 이렇게 특성마다 "적절한 가중치의 크기"가 서로 다르면, 경사하강법이 어느 방향으로 내려가야 할지 헷갈려하며 지그재그로 움직이게 되고, 결과적으로 수렴이 느려집니다. 모든 특성을 비슷한 범위로 맞춰두면 이 문제가 크게 줄어듭니다.
+
+== 왜 이게 중요한가
+
+AICE 시험에서 신경망을 만들 때 스케일링을 빼먹는 건 흔한 실수입니다 — 코드는 에러 없이 돌아가고 학습도 "되긴" 하니까 놓치기 쉽지만, 같은 에폭 수 안에서 훨씬 낮은 성능에 머무를 수 있습니다. 이 장에서 확인했듯, `fit()` 전에 `StandardScaler`(또는 `MinMaxScaler`)를 거치는 걸 습관으로 만들어두는 게 안전합니다.
+
+== 직접 해보기
+
+* `batch_size`를 `32`에서 `8`로 줄이면(한 번에 갱신하는 샘플 수가 줄어듦), 스케일링된 모델의 손실 곡선이 `20`에폭 안에서 더 빠르게 내려가는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+model_small_batch = keras.Sequential([
+    keras.Input(shape=(X_train.shape[1],)),
+    keras.layers.Dense(8, activation="relu"),
+    keras.layers.Dense(1, activation="sigmoid"),
+])
+model_small_batch.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+hist_small = model_small_batch.fit(X_train_scaled, y_train, epochs=20, batch_size=8, verbose=0,
+                                     validation_data=(X_test_scaled, y_test))
+print(hist_small.history["loss"][:5])
+----
+
+`batch_size`가 작을수록 한 에폭 안에서 가중치를 갱신하는 횟수가 늘어납니다(`800`개 훈련 샘플 기준, `batch_size=32`면 에폭당 `25`번 갱신, `batch_size=8`이면 `100`번 갱신). 갱신 횟수가 많아지니 보통 같은 에폭 수 안에서는 더 빠르게 손실이 내려가는 경향이 있지만, 매번 더 적은 샘플만 보고 갱신하다 보니 개별 갱신의 방향이 더 노이즈에 취약해지기도 합니다 — `batch_size`도 스케일링처럼 학습 속도와 안정성 사이의 균형을 조절하는 손잡이 중 하나입니다.
+====
+
+== 요약
+
+* Keras `Sequential` 모델은 `Input` → `Dense` 층들을 순서대로 쌓고, `compile()`로 옵티마이저·손실 함수를 정한 뒤, `fit()`으로 학습시킵니다.
+* `validation_data`를 주면 매 에폭마다 테스트 성능도 함께 기록해, 5장에서 다룬 것처럼 train/test 성능을 나란히 볼 수 있습니다.
+* `StandardScaler`로 입력 특성의 스케일을 맞추는 것이 신경망 학습 속도에 실제로 큰 영향을 준다는 걸 손실 곡선으로 직접 확인했습니다 — 같은 에폭 수 안에서 스케일링한 모델이 훨씬 낮은 손실에 도달했습니다.
+* 스케일러는 훈련 데이터에서만 `fit`하고 테스트 데이터에는 `transform`만 적용해야, 테스트 데이터의 정보가 학습 과정에 새어 들어가지 않습니다.
+
+다음 장에서는 이진 분류를 넘어 다중 분류까지, 실제 시험에 나올 법한 형태로 분류 모델을 더 다듬어봅니다.
+// end::body[]

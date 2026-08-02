@@ -1,0 +1,211 @@
+---
+title: "12장: 종합 실전: 처음부터 끝까지 파이프라인 하나로"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "keras", "pandas", "scikit-learn", "book"]
+categories: ["books"]
+description: "1~11장에서 배운 모든 것 -- CSV 로딩, 결측치·이상치 처리, 인코딩, 분할, 스케일링, 베이스라인, Dropout/EarlyStopping을 갖춘 신경망 학습, 평가, 저장, 새 데이터 예측 -- 을 12단계 파이프라인 하나로 처음부터 끝까지 통째로 실행하는 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-model-evaluation-and-persistence/[11장: 모델 평가와 저장(save/load, confusion matrix)] · 다음: link:../13-afterword/[맺음말]_
+
+'''
+
+이제 지금까지 배운 모든 것을 하나로 묶을 차례입니다. AICE 시험은 보통 "이 CSV로 이런 목표의 모델을 만들어라"는 한 문장으로 시작해서, 그 사이의 모든 단계(정리, 인코딩, 학습, 평가, 저장)를 스스로 순서대로 판단해서 채워야 합니다. 이 장에서는 그 전체 흐름을 `12`단계로 나눠 처음부터 끝까지 실행합니다 — 새로운 개념은 없습니다, 1~11장에서 배운 것을 순서대로 이어 붙일 뿐입니다.
+
+== 1~4단계: 데이터 준비 (1부의 내용)
+
+[source,python]
+----
+# 1. 불러오기
+df = pd.read_csv("customers_final.csv")
+print(df.shape)   # (1000, 9)
+
+# 2. 결측치 처리
+df["age"] = df["age"].fillna(df["age"].median())
+df["monthly_charges"] = df["monthly_charges"].fillna(df["monthly_charges"].median())
+print(df.isna().sum().sum())   # 0
+
+# 3. 이상치 클리핑
+q1, q3 = df["monthly_charges"].quantile([0.25, 0.75])
+iqr = q3 - q1
+lower, upper = q1 - 1.5 * iqr, q3 + 1.5 * iqr
+n_outliers = ((df["monthly_charges"] < lower) | (df["monthly_charges"] > upper)).sum()
+df["monthly_charges"] = df["monthly_charges"].clip(lower, upper)
+print(n_outliers)   # 6
+
+# 4. 인코딩
+df["gender_encoded"] = (df["gender"] == "M").astype(int)
+onehot = pd.get_dummies(df["contract_type"], prefix="contract", drop_first=True).astype(int)
+df = pd.concat([df, onehot], axis=1)
+----
+
+1장의 로딩, 2장의 결측치·이상치 처리, 3장의 인코딩이 순서대로 이어집니다 — 이 순서(결측치 처리 → 이상치 처리 → 인코딩)가 중요합니다. 결측치가 남아 있으면 이상치 계산(사분위수)이 왜곡될 수 있고, 인코딩은 수치형 컬럼이 이미 깨끗해진 뒤에 하는 게 자연스럽습니다.
+
+== 5~7단계: 분할, 스케일링, 베이스라인 (2부·7장의 내용)
+
+[source,python]
+----
+# 5. 분할
+features = ["age", "tenure_months", "monthly_charges", "support_calls", "gender_encoded",
+            "contract_One year", "contract_Two year"]
+X = df[features].values.astype(np.float32)
+y = df["churn"].values.astype(np.float32)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+
+# 6. 스케일링 (train으로만 fit)
+scaler = StandardScaler()
+X_train_s = scaler.fit_transform(X_train)
+X_test_s = scaler.transform(X_test)
+
+# 7. 베이스라인
+baseline_acc = (y_test == 0).mean()
+print(baseline_acc)   # 0.755
+----
+
+6장에서 강조했듯, 모델을 학습시키기 전에 베이스라인부터 계산해둡니다 — 나중에 모델의 정확도가 이 숫자(`0.755`)보다 낮으면, 그 모델은 아무것도 배우지 못한 것과 다름없다는 걸 바로 알아챌 수 있습니다.
+
+== 8~9단계: 모델 구성과 학습 (3부의 내용)
+
+[source,python]
+----
+# 8. 모델 구성 (Dropout 포함)
+model = keras.Sequential([
+    keras.Input(shape=(X_train.shape[1],)),
+    keras.layers.Dense(32, activation="relu"),
+    keras.layers.Dropout(0.3),
+    keras.layers.Dense(16, activation="relu"),
+    keras.layers.Dropout(0.2),
+    keras.layers.Dense(1, activation="sigmoid"),
+])
+model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+print(model.count_params())   # 801
+
+# 9. EarlyStopping과 함께 학습
+early_stop = keras.callbacks.EarlyStopping(monitor="val_loss", patience=15, restore_best_weights=True)
+history = model.fit(X_train_s, y_train, epochs=150, batch_size=32, verbose=0,
+                     validation_data=(X_test_s, y_test), callbacks=[early_stop])
+print(len(history.history["loss"]))   # 41 (150에폭 채우지 않고 조기 종료)
+----
+
+7~9장의 스케일링, 이진 분류 출력층, `Dropout`, `EarlyStopping`이 모두 이 한 모델에 들어갑니다 — `150`에폭을 최대로 뒀지만 `41`에폭 만에 스스로 멈췄습니다.
+
+== 10~11단계: 평가와 저장 (6장·11장의 내용)
+
+[source,python]
+----
+# 10. 평가
+test_loss, test_acc = model.evaluate(X_test_s, y_test, verbose=0)
+print(test_acc, baseline_acc)   # 0.770  0.755
+assert test_acc > baseline_acc
+
+y_pred = (model.predict(X_test_s, verbose=0).ravel() > 0.5).astype(int)
+print(confusion_matrix(y_test, y_pred))
+print(classification_report(y_test, y_pred, digits=3))
+
+# 11. 저장
+model.save("churn_model_final.keras")
+----
+
+[source]
+----
+test accuracy: 0.770  (baseline: 0.755)
+
+confusion matrix:
+[[149   2]
+ [ 44   5]]
+
+              precision    recall  f1-score
+         0.0      0.772     0.987     0.866
+         1.0      0.714     0.102     0.179
+    accuracy                          0.770
+----
+
+베이스라인(`0.755`)을 넘기긴 했지만, 6장에서 이미 겪어본 것과 같은 패턴이 또 보입니다 — 이탈 클래스(`1.0`)의 재현율이 `0.102`로 낮습니다. 실전이라면 이 시점에서 "정확도는 베이스라인을 넘었지만, 실제로 이탈 위험 고객을 잡아내는 능력은 아직 부족하다"는 걸 보고서에 함께 적어야 합니다 — 이런 진단 능력이 이 책 전체가 목표로 삼은 것입니다.
+
+== 12단계: 저장된 모델로 새 고객 예측하기
+
+마지막으로, 저장한 모델이 실전에서 실제로 쓰이는 모습을 재현합니다 — 완전히 새로운 두 고객 프로필을 만들어 이탈 확률을 예측해봅니다.
+
+[source,python]
+----
+loaded = keras.models.load_model("churn_model_final.keras")
+
+# 위험 프로필: 가입한 지 얼마 안 됐고 상담 전화가 많음
+risky = pd.DataFrame([{"age": 30, "tenure_months": 2, "monthly_charges": 95.0,
+                        "support_calls": 4, "gender_encoded": 1,
+                        "contract_One year": 0, "contract_Two year": 0}])
+risky_s = scaler.transform(risky[features].values.astype(np.float32))
+print(loaded.predict(risky_s, verbose=0)[0, 0])   # 0.618
+
+# 충성 프로필: 오래 가입했고 2년 계약, 상담 전화 없음
+loyal = pd.DataFrame([{"age": 45, "tenure_months": 60, "monthly_charges": 60.0,
+                        "support_calls": 0, "gender_encoded": 0,
+                        "contract_One year": 0, "contract_Two year": 1}])
+loyal_s = scaler.transform(loyal[features].values.astype(np.float32))
+print(loaded.predict(loyal_s, verbose=0)[0, 0])   # 0.066
+----
+
+위험 프로필(신규 가입, 상담 전화 많음)의 이탈 확률은 `61.8%`, 충성 프로필(장기 가입, 2년 계약)의 이탈 확률은 `6.6%`로, 방향이 명확하게 갈립니다 — 4장에서 산점도로, 6장에서 상관계수로 확인했던 패턴(가입 기간이 짧고 상담 전화가 많을수록 이탈 위험이 높다)을, 모델이 저장된 상태에서 완전히 새로운 두 입력에 대해서도 일관되게 재현했다는 뜻입니다. 이게 바로 모델이 단순히 훈련 데이터를 암기한 게 아니라, 실제로 일반화 가능한 패턴을 배웠다는 증거입니다.
+
+== 전체 파이프라인을 되짚어보며
+
+[cols="1,3", options="header"]
+|===
+| 단계 | 이 책에서 배운 곳
+| 1. CSV 로딩 | 1장
+| 2. 결측치 처리 | 2장
+| 3. 이상치 클리핑 | 2장
+| 4. 인코딩 | 3장
+| 5. train/test 분할 | 5장
+| 6. 스케일링 | 7장
+| 7. 베이스라인 계산 | 6장
+| 8. 모델 구성(Dropout 포함) | 7·9장
+| 9. EarlyStopping 학습 | 9장
+| 10. 평가(혼동행렬 등) | 6·11장
+| 11. 저장 | 11장
+| 12. 새 데이터 예측 | 11장
+|===
+
+이 `12`단계 중 어느 하나라도 빠뜨리면 문제가 생깁니다 — 결측치 처리를 빼먹으면 학습 자체가 `NaN`으로 실패하고, 스케일링을 빼먹으면 학습이 굼떠지고(7장), 베이스라인을 확인하지 않으면 나쁜 모델을 좋은 모델로 착각하고(6장), 과적합 방지를 빼먹으면 test 성능이 무너집니다(9장). AICE 시험을 준비한다는 건 결국 이 `12`단계를 몸에 익혀서, 어떤 새로운 CSV가 주어지든 이 순서를 자연스럽게 따라갈 수 있게 되는 것입니다.
+
+== 직접 해보기
+
+* 이 파이프라인을 그대로 가져다가, 목표를 `churn`(분류) 대신 `satisfaction_score`(회귀)로 바꿔서 처음부터 끝까지 다시 돌려보세요. 어느 단계가 그대로 재사용되고, 어느 단계가 바뀌어야 하는지 정리해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+y_reg = df["satisfaction_score"].values.astype(np.float32)
+X_train_r, X_test_r, y_train_r, y_test_r = train_test_split(X, y_reg, test_size=0.2, random_state=42)
+scaler_r = StandardScaler()
+X_train_r_s = scaler_r.fit_transform(X_train_r)
+X_test_r_s = scaler_r.transform(X_test_r)
+
+model_r = keras.Sequential([
+    keras.Input(shape=(X_train_r.shape[1],)),
+    keras.layers.Dense(32, activation="relu"),
+    keras.layers.Dropout(0.3),
+    keras.layers.Dense(16, activation="relu"),
+    keras.layers.Dense(1),   # 활성화 함수 없음 (9장)
+])
+model_r.compile(optimizer="adam", loss="mse", metrics=["mae"])
+early_stop_r = keras.callbacks.EarlyStopping(monitor="val_loss", patience=15, restore_best_weights=True)
+model_r.fit(X_train_r_s, y_train_r, epochs=150, batch_size=32, verbose=0,
+            validation_data=(X_test_r_s, y_test_r), callbacks=[early_stop_r])
+----
+
+`1~7`단계(로딩, 결측치·이상치 처리, 인코딩, 분할, 스케일링)는 회귀든 분류든 완전히 동일합니다 — `stratify=y`만 회귀에서는 뺍니다(연속값에는 층화추출 개념이 없습니다). 베이스라인은 "다수 클래스 예측"이 아니라 "평균값으로만 예측했을 때의 RMSE"로 바뀝니다. `8`단계(모델 구성)에서는 출력층이 `sigmoid` 없는 `Dense(1)`로, 손실 함수가 `mse`로 바뀝니다(9장). `10`단계(평가)에서는 혼동행렬 대신 RMSE와 `R²`를 봅니다(5장). 결국 데이터 정리 파이프라인(`1~7`단계)은 문제 종류와 무관하게 재사용되고, 모델의 출력층·손실 함수·평가 지표(`8`, `10`단계)만 문제 종류에 맞게 바뀐다는 걸 알 수 있습니다 — 이 구조를 이해하고 있으면, 시험에서 어떤 문제가 나오든 "이건 회귀인가 분류인가"만 먼저 판단하고 나머지는 거의 같은 틀로 풀어갈 수 있습니다.
+====
+
+== 요약
+
+* 실전 문제는 결국 이 책의 `1~11`장에서 배운 개별 기법들을 정해진 순서로 이어 붙이는 것입니다 — 로딩 → 결측치·이상치 처리 → 인코딩 → 분할 → 스케일링 → 베이스라인 → 모델 구성 → 학습(과적합 방지 포함) → 평가 → 저장 → 새 데이터 예측.
+* 각 단계를 건너뛰면 구체적으로 어떤 문제가 생기는지(과적합, 학습 속도 저하, 잘못된 성능 판단)를 이 책 전체에서 하나씩 직접 겪어봤습니다.
+* 저장된 모델이 완전히 새로운 입력(위험 프로필 vs 충성 프로필)에 대해서도 일관된, 설명 가능한 예측을 낸다는 걸 확인하며 파이프라인 전체를 마무리했습니다.
+
+이것으로 데이터 다루기(1부)부터 종합 실전(4부)까지, AICE Associate 시험에 필요한 실기 감각을 처음부터 끝까지 다졌습니다. 이제 남은 건 실제 기출 유형의 데이터로 이 파이프라인을 몇 번이고 반복해서, 손이 저절로 움직이게 만드는 연습뿐입니다.
+// end::body[]

@@ -1,0 +1,142 @@
+---
+title: "4장: 시각화로 데이터 관계 파악하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "pandas", "matplotlib", "book"]
+categories: ["books"]
+description: "히스토그램, 박스플롯, 산점도, 상관관계 히트맵을 matplotlib으로 직접 그려보고, 그 안에서 눈으로 확인한 패턴이 실제 상관계수 수치와 일치하는지 검증하며 2부를 여는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-categorical-encoding/[3장: 범주형 데이터 인코딩(Label/One-Hot)] · 다음: link:../05-linear-regression-and-overfitting/[5장: 회귀: 선형회귀와 과적합]_
+
+'''
+
+1부에서 데이터를 정리했으니, 이제 모델을 만들기 전에 데이터를 눈으로 봐야 합니다. `describe()`나 상관계수 같은 숫자만으로는 놓치기 쉬운 패턴(분포의 모양, 이상치의 위치, 두 변수의 관계가 선형인지 아닌지)이 그래프 하나로 훨씬 잘 보이는 경우가 많습니다. 이 장에서는 matplotlib으로 그래프를 그리고, 그 그래프에서 본 것을 실제 숫자(상관계수)로 다시 확인합니다.
+
+== 히스토그램: 분포의 모양 보기
+
+[source,python]
+----
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.hist(df["satisfaction_score"], bins=30, color="#4c72b0", edgecolor="white")
+ax.set_xlabel("satisfaction_score")
+ax.set_ylabel("count")
+fig.savefig("satisfaction_hist.png", dpi=110)
+----
+
+image::https://y30n9ju1v.github.io/develop/images/books/aice-associate-deep-learning/satisfaction_hist.png[만족도 점수 히스토그램]
+
+`satisfaction_score`는 대략 종 모양(정규분포에 가까운 형태)으로 퍼져 있습니다 — 데이터를 만들 때 여러 항을 더하고 정규분포 노이즈를 섞었으니 자연스러운 결과입니다. 이런 모양을 미리 알아두면, 나중에 회귀 모델의 잔차(예측값과 실제값의 차이)가 이 분포와 비슷한 모양인지 비교하는 기준이 됩니다.
+
+== 박스플롯: 그룹별 분포 비교
+
+[source,python]
+----
+groups = [df[df["contract_type"] == c]["satisfaction_score"].values
+          for c in ["Month-to-month", "One year", "Two year"]]
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.boxplot(groups, tick_labels=["Month-to-month", "One year", "Two year"])
+fig.savefig("satisfaction_by_contract_box.png", dpi=110)
+----
+
+image::https://y30n9ju1v.github.io/develop/images/books/aice-associate-deep-learning/satisfaction_by_contract_box.png[계약 유형별 만족도 박스플롯]
+
+1장에서 `groupby`로 이미 확인했던 "장기 계약일수록 만족도가 높다"는 패턴이, 여기서는 세 상자의 위치가 뚜렷하게 계단식으로 올라가는 모습으로 한눈에 보입니다. 박스플롯은 평균만 보여주는 막대그래프와 달리 중앙값, 사분위 범위(2장에서 다룬 IQR), 그리고 이상치(상자 밖 점들)까지 한 번에 보여줍니다.
+
+== 산점도: 두 수치형 변수의 관계 + 범주 정보 겹치기
+
+[source,python]
+----
+colors = df["churn"].map({0: "#4c72b0", 1: "#c44e52"})
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.scatter(df["tenure_months"], df["satisfaction_score"], c=colors, s=10, alpha=0.5)
+ax.set_xlabel("tenure_months")
+ax.set_ylabel("satisfaction_score")
+fig.savefig("tenure_vs_satisfaction_scatter.png", dpi=110)
+----
+
+image::https://y30n9ju1v.github.io/develop/images/books/aice-associate-deep-learning/tenure_vs_satisfaction_scatter.png[가입기간 대 만족도 산점도, 빨간 점이 이탈 고객]
+
+점의 색으로 `churn`(이탈 여부)까지 함께 표현했습니다. 가입 기간이 짧고 만족도가 낮은 왼쪽 아래 영역에 빨간 점(이탈 고객)이 상대적으로 몰려 있는 게 보입니다 — 두 개의 수치형 관계(가입기간-만족도)와 하나의 범주형 정보(이탈 여부)를 그래프 하나로 동시에 볼 수 있다는 게 산점도의 장점입니다.
+
+== 상관관계 히트맵: 모든 변수 쌍을 한 번에
+
+[source,python]
+----
+num_cols = ["age", "tenure_months", "monthly_charges", "support_calls", "satisfaction_score", "churn"]
+corr = df[num_cols].corr()
+
+fig, ax = plt.subplots(figsize=(6, 5))
+im = ax.imshow(corr.values, cmap="coolwarm", vmin=-1, vmax=1)
+ax.set_xticks(range(len(num_cols))); ax.set_xticklabels(num_cols, rotation=45, ha="right")
+ax.set_yticks(range(len(num_cols))); ax.set_yticklabels(num_cols)
+for i in range(len(num_cols)):
+    for j in range(len(num_cols)):
+        ax.text(j, i, f"{corr.values[i,j]:.2f}", ha="center", va="center", fontsize=8)
+fig.colorbar(im)
+fig.savefig("correlation_heatmap.png", dpi=110)
+----
+
+image::https://y30n9ju1v.github.io/develop/images/books/aice-associate-deep-learning/correlation_heatmap.png[수치형 변수 상관관계 히트맵]
+
+[source]
+----
+                     age  tenure_months  monthly_charges  support_calls  satisfaction_score  churn
+age                 1.00          -0.01            -0.03           0.01                0.02   0.00
+tenure_months      -0.01           1.00            -0.00          -0.05                0.45  -0.22
+monthly_charges    -0.03          -0.00             1.00            ...               -0.16   0.12
+support_calls       0.01          -0.05              ...            1.00               -0.24   0.15
+satisfaction_score  0.02           0.45            -0.16          -0.24                1.00  -0.22
+churn               0.00          -0.22             0.12            0.15               -0.22   1.00
+----
+
+== 검증: 그래프에서 본 방향이 실제 상관계수와 일치하는가
+
+[source,python]
+----
+assert corr.loc["tenure_months", "satisfaction_score"] > 0.1   # 가입기간 길수록 만족도 높음
+assert corr.loc["support_calls", "satisfaction_score"] < -0.1  # 상담전화 많을수록 만족도 낮음
+assert corr.loc["support_calls", "churn"] > 0.05                # 상담전화 많을수록 이탈 확률 높음
+assert corr.loc["tenure_months", "churn"] < -0.05                # 가입기간 길수록 이탈 확률 낮음
+----
+
+네 개의 부호가 모두 예상대로 나옵니다. `age`는 어느 변수와도 상관계수가 `±0.03` 이내로, 사실상 아무 관계가 없습니다 — 데이터를 설계할 때 나이는 `satisfaction`이나 `churn_logit` 계산에 전혀 넣지 않았으니 당연한 결과입니다. 히트맵에서 `age` 행(또는 열)이 전체적으로 흐린 색(0에 가까운 색)으로 나온 것도 이 사실과 일치합니다.
+
+== 왜 시각화가 모델링 전에 필요한가
+
+이 장에서 확인한 네 가지 그래프는 전부 5~6장에서 만들 모델이 "무엇을 배워야 하는지"에 대한 힌트입니다 — `tenure_months`와 `support_calls`는 `satisfaction_score`·`churn` 둘 다와 뚜렷한 관계가 있으니 모델이 이 컬럼들에 크게 의존할 가능성이 높고, `age`는 거의 아무 관계가 없으니 모델이 이 컬럼을 별로 안 쓰거나 심지어 노이즈로 작용할 수도 있습니다. 모델을 학습시키기 전에 이런 기대치를 먼저 세워두면, 나중에 모델의 예측이나 특성 중요도가 이 기대와 얼마나 어긋나는지를 판단할 기준이 생깁니다.
+
+== 직접 해보기
+
+* `monthly_charges`와 `churn`의 산점도를 `churn` 색으로 구분해서 그려보고, 요금이 비쌀수록 이탈 고객(빨간 점)의 비율이 실제로 높아 보이는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+colors = df["churn"].map({0: "#4c72b0", 1: "#c44e52"})
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.scatter(df["monthly_charges"], df["age"], c=colors, s=10, alpha=0.5)  # age는 비교용 축
+fig.savefig("charges_scatter.png", dpi=110)
+
+# 수치로도 확인
+high_charge_churn = df[df["monthly_charges"] > df["monthly_charges"].quantile(0.75)]["churn"].mean()
+low_charge_churn = df[df["monthly_charges"] <= df["monthly_charges"].quantile(0.25)]["churn"].mean()
+print(high_charge_churn, low_charge_churn)
+----
+
+상위 `25%` 요금 구간의 이탈률이 하위 `25%` 요금 구간보다 뚜렷하게 높게 나옵니다 — 위 히트맵에서 확인한 `monthly_charges`-`churn` 상관계수(`0.12`, 약한 양의 상관)와 방향이 일치합니다. 상관계수가 `0.12`로 크지 않은 수치인데도 상위/하위 `25%` 그룹을 나눠서 비교하면 차이가 꽤 뚜렷하게 보이는 이유는, 상관계수는 전체 데이터의 "평균적인 선형 관계 강도"를 재는 것이라 극단적인 두 그룹만 떼어 비교했을 때보다 항상 더 완만하게 나타나기 때문입니다.
+====
+
+== 요약
+
+* 히스토그램은 하나의 변수의 분포 모양을, 박스플롯은 그룹별 분포 비교를, 산점도는 두 변수의 관계(그리고 색으로 세 번째 범주 정보까지)를, 히트맵은 여러 변수 쌍의 관계를 한 번에 보여줍니다.
+* 그래프에서 본 패턴(장기 계약일수록 만족도 높음, 가입기간 짧고 만족도 낮은 고객이 이탈 몰림)은 실제 상관계수의 부호와 정확히 일치했습니다.
+* `age`처럼 다른 변수와 상관관계가 거의 없는 컬럼도 히트맵에서 한눈에 드러납니다 — 모델링 전에 이런 컬럼을 미리 파악해두면 이후 결과 해석에 도움이 됩니다.
+
+다음 장에서는 이렇게 파악한 관계를 실제로 예측 모델(선형회귀)로 만들어, `satisfaction_score`를 예측해봅니다.
+// end::body[]

@@ -22,3 +22,4 @@ title: "Books"
 - **[화살표로 생각하기](category-theory-made-simple/)** — 코드 없이 일상적인 비유와 그림만으로 범주론을 쉽게 푸는 독립적인 입문서. 기초(1부: 범주·함수자·자연변환) → 구조(2부: 곱과 합·보편성질) → 응용(3부: 모나드·프로그래밍이 사실 범주다·범주론이 잇는 세계들) → 심화(4부: 극한과 쌍대극한·요네다 렘마·수반)
 - **[사진에서 세계로](multiview-geometry-3d-reconstruction/)** — 3DGS 기반 자율주행 E2E 검증 시리즈의 첫 책. 카메라 모델(1부) → 두 장 사진의 기하학(2부) → Structure-from-Motion(3부) → SLAM(4부) → 3DGS를 향하여(5부)까지, 멀티뷰 기하학의 핵심 계산을 NumPy/SciPy로 직접 구현하고 검증하며 배우는 입문서
 - **[미분가능 렌더링과 3D Gaussian Splatting](differentiable-rendering-3dgs/)** — 3DGS 기반 자율주행 E2E 검증 시리즈의 두 번째 책. 1권이 재구성한 카메라와 점군을 이어받아, 왜 미분해야 하는가(1부) → 볼륨 렌더링/NeRF(2부) → 3DGS 표현(3부) → 최적화로 학습(4부) → 품질과 다음 단계(5부)까지 PyTorch 없이 NumPy만으로 순전파·역전파를 손으로 구현하며 배우는 입문서
+- **[AICE Associate 실전 대비: 데이터에서 모델까지](aice-associate-deep-learning/)** — Pandas 데이터 다루기(1부) → EDA와 머신러닝 기초(2부) → Keras 딥러닝(3부) → 시험형 문제 실전(4부) 순서로, AICE Associate 자격증 실기 범위를 실제 Pandas·scikit-learn·TensorFlow/Keras를 실행해 검증하며 배우는 독립적인 입문서

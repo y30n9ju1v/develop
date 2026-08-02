@@ -1,0 +1,170 @@
+---
+title: "8장: 분류 모델 만들기 (이진/다중 분류)"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "keras", "book"]
+categories: ["books"]
+description: "층을 더 쌓아 이진 분류 모델을 깊게 만들고, 만족도 점수를 3개 등급으로 나눈 다중 분류 문제를 원-핫 레이블과 softmax·categorical_crossentropy로 풀며, 소프트맥스 출력이 실제로 확률분포를 이루는지 직접 확인하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-first-neural-network/[7장: 신경망 하나로 시작하기] · 다음: link:../09-regression-and-preventing-overfitting/[9장: 회귀 모델과 과적합 방지]_
+
+'''
+
+7장에서 층 두 개짜리 최소한의 신경망을 만들었습니다. 이 장에서는 층을 더 쌓아 이진 분류를 다듬고, 범주가 셋 이상인 **다중 분류**로 넘어갑니다 — AICE 시험에서는 이진 분류(이탈 예측)와 다중 분류(등급·유형 예측)가 둘 다 나올 수 있으므로, 이 둘의 차이(출력층 활성화 함수, 손실 함수, 레이블 형태)를 명확히 짚습니다.
+
+== 이진 분류 모델을 조금 더 깊게
+
+[source,python]
+----
+model_bin = keras.Sequential([
+    keras.Input(shape=(X_train.shape[1],)),
+    keras.layers.Dense(16, activation="relu"),
+    keras.layers.Dense(8, activation="relu"),
+    keras.layers.Dense(1, activation="sigmoid"),
+])
+model_bin.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+hist_bin = model_bin.fit(X_train_s, y_train, epochs=30, batch_size=32, verbose=0,
+                          validation_data=(X_test_s, y_test))
+----
+
+[source]
+----
+test accuracy: 0.76
+confusion matrix:
+[[144   7]
+ [ 41   8]]
+----
+
+7장의 얕은 모델(정확도 `0.755`)과 큰 차이는 없습니다 — 6장에서 scikit-learn 모델들로도 확인했듯, 이 데이터셋 자체의 패턴 복잡도가 크지 않아서 층을 더 쌓는다고 무조건 좋아지지는 않습니다. 층의 개수와 뉴런 수는 데이터의 복잡도에 맞춰 정해야지, 무작정 깊게 쌓는다고 능사가 아니라는 걸 기억해둘 만합니다.
+
+== 다중 분류 문제 만들기: 만족도를 3개 등급으로
+
+`satisfaction_score`(연속값)를 등급(낮음/보통/높음)으로 나누면 다중 분류 문제가 됩니다.
+
+[source,python]
+----
+def to_level(s):
+    if s < 55: return 0    # low
+    elif s < 75: return 1  # medium
+    else: return 2         # high
+
+df["satisfaction_level"] = df["satisfaction_score"].apply(to_level)
+print(df["satisfaction_level"].value_counts().sort_index())
+----
+
+[source]
+----
+0(low)     263
+1(medium)  478
+2(high)    259
+----
+
+== 레이블을 원-핫으로 바꾸기
+
+이진 분류에서는 레이블이 `0` 또는 `1` 스칼라 하나였지만, 다중 분류에서 `categorical_crossentropy` 손실을 쓰려면 레이블도 3장에서 배운 원-핫 인코딩 형태여야 합니다.
+
+[source,python]
+----
+y_train_oh = keras.utils.to_categorical(y_train_m, num_classes=3)
+print(y_train_oh[0], y_train_m[0])
+----
+
+[source]
+----
+one-hot: [0. 1. 0.]   original: 1
+----
+
+원래 레이블이 `1`(medium)이었던 샘플이, `[0, 1, 0]`(두 번째 자리만 `1`)으로 바뀌었습니다 — 3장에서 `contract_type`을 원-핫 인코딩했던 것과 똑같은 원리를, 이번엔 입력 특성이 아니라 목표 레이블에 적용한 것입니다.
+
+== 다중 분류 모델: softmax + categorical_crossentropy
+
+[source,python]
+----
+model_multi = keras.Sequential([
+    keras.Input(shape=(X_train_m.shape[1],)),
+    keras.layers.Dense(16, activation="relu"),
+    keras.layers.Dense(8, activation="relu"),
+    keras.layers.Dense(3, activation="softmax"),
+])
+model_multi.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["accuracy"])
+----
+
+출력층이 `Dense(3, activation="softmax")`로 바뀌었습니다 — 이진 분류의 `sigmoid`(뉴런 하나, `0~1` 확률 하나)와 달리, `softmax`는 뉴런 `3`개(클래스 수만큼)의 출력을 만들고 그 `3`개 값의 합이 항상 `1`이 되도록(확률분포가 되도록) 정규화합니다. 손실 함수도 `categorical_crossentropy`로 바뀌었는데, 이건 원-핫 인코딩된 레이블과 짝을 이루는 손실 함수입니다.
+
+== 검증: softmax 출력이 실제로 확률분포를 이루는가
+
+[source,python]
+----
+pred_proba = model_multi.predict(X_test_m_s[:5], verbose=0)
+print(pred_proba.sum(axis=1))
+----
+
+[source]
+----
+[1.0000001  1.         1.         0.99999994 1.        ]
+----
+
+`5`개 샘플 모두 세 클래스에 대한 확률의 합이 (부동소수점 오차 이내로) `1`입니다 — `softmax` 함수 자체가 `exp(x_i) / Σexp(x_j)` 형태로 정의되어, 어떤 입력이 들어오든 출력의 합이 항상 `1`이 되도록 수학적으로 보장하기 때문입니다.
+
+== 예측 클래스 뽑아내기와 성능 확인
+
+[source,python]
+----
+pred_classes = pred_proba.argmax(axis=1)
+print(pred_classes, y_test_m[:5])   # [1 1 2 1 2]  [1 1 2 0 2]
+
+acc_multi = model_multi.evaluate(X_test_m_s, y_test_m_oh, verbose=0)[1]
+baseline = df["satisfaction_level"].value_counts(normalize=True).max()
+print(acc_multi, baseline)  # 0.715  0.478
+----
+
+`softmax`가 낸 확률 `3`개 중 가장 큰 값의 인덱스(`argmax`)가 모델의 최종 예측 클래스입니다. `5`개 중 `4`개가 실제 클래스와 일치했고, 전체 테스트셋 정확도(`0.715`)도 항상 최빈 등급(`medium`, 전체의 `47.8%`)으로만 찍는 베이스라인(`0.478`)을 뚜렷하게 웃돕니다 — 6장에서 이진 분류 베이스라인을 확인했던 것과 같은 검증을, 다중 분류에서도 똑같이 해야 한다는 걸 보여줍니다.
+
+== 이진 분류와 다중 분류, 무엇이 다른가 정리
+
+[cols="1,1,1", options="header"]
+|===
+| | 이진 분류 | 다중 분류(3개 이상)
+| 출력층 뉴런 수 | 1 | 클래스 개수
+| 출력층 활성화 | sigmoid | softmax
+| 손실 함수 | binary_crossentropy | categorical_crossentropy
+| 레이블 형태 | 0 또는 1 스칼라 | 원-핫 벡터
+|===
+
+이 표를 기계적으로 외우기보다, "왜 그런가"를 기억하는 게 낫습니다 — `sigmoid`는 "이것이다/아니다"라는 확률 하나만 표현하면 되지만, `softmax`는 "여러 클래스 중 어느 것일 확률이 각각 얼마인가"를 표현해야 하므로 클래스 수만큼의 출력과, 그 출력들이 서로 경쟁하며 합이 `1`이 되도록 만드는 정규화가 필요합니다.
+
+== 직접 해보기
+
+* 레이블을 원-핫으로 바꾸지 않고 정수 그대로(`y_train_m`, 원-핫이 아닌 `[0,1,2]` 형태) 쓰면서, 손실 함수를 `sparse_categorical_crossentropy`로 바꿔서 학습시켜보고 결과가 `categorical_crossentropy` + 원-핫 방식과 같은지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+model_sparse = keras.Sequential([
+    keras.Input(shape=(X_train_m.shape[1],)),
+    keras.layers.Dense(16, activation="relu"),
+    keras.layers.Dense(8, activation="relu"),
+    keras.layers.Dense(3, activation="softmax"),
+])
+model_sparse.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+hist_sparse = model_sparse.fit(X_train_m_s, y_train_m, epochs=40, batch_size=32, verbose=0,
+                                 validation_data=(X_test_m_s, y_test_m))
+print(model_sparse.evaluate(X_test_m_s, y_test_m, verbose=0))
+----
+
+`sparse_categorical_crossentropy`는 `categorical_crossentropy`와 수학적으로 완전히 동일한 손실을 계산하지만, 레이블을 원-핫으로 미리 바꿀 필요 없이 정수(`0`, `1`, `2`) 그대로 받아들입니다 — 클래스 수가 많을 때(예: `100`개 클래스) 원-핫 벡터를 굳이 메모리에 만들지 않아도 되니 실용적인 이점이 있습니다. 두 방식으로 학습한 모델의 최종 정확도는 (초기화 난수 차이로 인한 미세한 차이는 있을 수 있지만) 대체로 비슷한 수준으로 나옵니다 — 결국 같은 손실을 다른 레이블 형태로 표현한 것뿐이기 때문입니다.
+====
+
+== 요약
+
+* 이진 분류는 `sigmoid` 출력 + `binary_crossentropy`, 다중 분류는 `softmax` 출력 + `categorical_crossentropy`(레이블은 원-핫)를 씁니다.
+* `softmax`의 출력은 항상 합이 `1`인 확률분포를 이룬다는 걸 직접 확인했고, `argmax`로 최종 예측 클래스를 뽑아냅니다.
+* 다중 분류에서도 베이스라인(최빈 클래스로만 예측)과 비교해야, 모델이 실제로 뭔가를 배웠다는 걸 확인할 수 있습니다.
+* `sparse_categorical_crossentropy`를 쓰면 레이블을 원-핫으로 바꾸는 과정을 생략할 수 있습니다.
+
+다음 장에서는 다시 회귀 문제로 돌아가 신경망으로 만족도 점수를 직접 예측하고, 5장에서 다룬 과적합을 신경망에서는 `Dropout`과 `EarlyStopping`으로 어떻게 막는지 다룹니다.
+// end::body[]

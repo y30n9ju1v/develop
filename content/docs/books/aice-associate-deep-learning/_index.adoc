@@ -1,0 +1,104 @@
+---
+title: "AICE Associate 실전 대비: 데이터에서 모델까지"
+draft: false
+---
+
+Pandas로 데이터를 정리하고, 전통적인 머신러닝으로 먼저 풀어본 뒤, 같은 문제를 Keras 신경망으로 다시 풀고, 마지막으로 시험형 문제를 처음부터 끝까지 통째로 실습하는 AICE(AI Certificate for Everyone) Associate 실전 대비서입니다. 이 시리즈의 다른 책들과 달리 수식을 손으로 구현하는 대신, 실제 시험에서 그대로 쓰는 Pandas·scikit-learn·TensorFlow/Keras를 실제로 설치하고 실행해서 나온 결과를 그대로 싣습니다. Pandas로 데이터 다루기(1부) → EDA와 머신러닝 기초(2부) → Keras로 딥러닝(3부) → 시험형 문제 실전(4부) 순서로 쌓아 올립니다.
+
+이 책 전반에 걸쳐 가상의 통신사 고객 데이터셋(나이·성별·가입기간·요금제·만족도·이탈 여부)을 계속 사용하며, 10장의 이미지 데이터만 scikit-learn에 내장된 손글씨 숫자 데이터셋을 씁니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 데이터에서 모델까지, 손으로 확인하며]*
+
+*1부: Pandas로 데이터 다루기*
+
+[start=1]
+. *link:01-pandas-loading-and-inspecting/[Pandas로 데이터 불러오고 들여다보기]*
+. *link:02-missing-values-and-outliers/[결측치와 이상치 처리]*
+. *link:03-categorical-encoding/[범주형 데이터 인코딩(Label/One-Hot)]*
+
+*2부: EDA와 머신러닝 기초*
+
+[start=4]
+. *link:04-visualizing-data-relationships/[시각화로 데이터 관계 파악하기]*
+. *link:05-linear-regression-and-overfitting/[회귀: 선형회귀와 과적합]*
+. *link:06-classification-logistic-and-tree/[분류: 로지스틱회귀와 트리 기반 모델]*
+
+*3부: 딥러닝으로 넘어가기 (Keras)*
+
+[start=7]
+. *link:07-first-neural-network/[신경망 하나로 시작하기]*
+. *link:08-building-classification-models/[분류 모델 만들기 (이진/다중 분류)]*
+. *link:09-regression-and-preventing-overfitting/[회귀 모델과 과적합 방지(Dropout, EarlyStopping)]*
+
+*4부: 시험형 문제 실전*
+
+[start=10]
+. *link:10-image-data-and-cnn-basics/[이미지 데이터와 CNN 기초]*
+. *link:11-model-evaluation-and-persistence/[모델 평가와 저장(save/load, confusion matrix)]*
+. *link:12-end-to-end-pipeline/[종합 실전: 처음부터 끝까지 파이프라인 하나로]*
+
+*맺음말*
+
+[start=13]
+. *link:13-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-pandas-loading-and-inspecting.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-missing-values-and-outliers.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-categorical-encoding.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-visualizing-data-relationships.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-linear-regression-and-overfitting.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-classification-logistic-and-tree.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-first-neural-network.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-building-classification-models.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-regression-and-preventing-overfitting.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-image-data-and-cnn-basics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-model-evaluation-and-persistence.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-end-to-end-pipeline.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-afterword.adoc[tag=body,leveloffset=+1]

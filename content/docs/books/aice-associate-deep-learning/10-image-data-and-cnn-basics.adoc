@@ -1,0 +1,132 @@
+---
+title: "10장: 이미지 데이터와 CNN 기초"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["deep-learning", "aice", "keras", "cnn", "book"]
+categories: ["books"]
+description: "scikit-learn의 손글씨 숫자 데이터셋으로 이미지 입력을 정규화·reshape하는 법을 익히고, Dense 모델과 Conv2D+MaxPooling2D로 지은 CNN이 같은 정확도를 내면서도 CNN의 첫 층 파라미터 수가 26배 적다는 것을 가중치 공유의 관점에서 확인하는 4부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-regression-and-preventing-overfitting/[9장: 회귀 모델과 과적합 방지] · 다음: link:../11-model-evaluation-and-persistence/[11장: 모델 평가와 저장]_
+
+'''
+
+지금까지는 모두 표(정형) 데이터였습니다. AICE Associate 시험에는 이미지 데이터로 CNN을 만드는 문제도 나올 수 있습니다. 이 장에서는 scikit-learn에 내장된 손글씨 숫자 이미지(`load_digits`)로, 이미지 데이터를 신경망에 넣을 수 있는 형태로 준비하는 법과 CNN(합성곱 신경망)의 기본 구조를 다룹니다.
+
+== 이미지 데이터 불러오기
+
+[source,python]
+----
+from sklearn.datasets import load_digits
+
+digits = load_digits()
+X, y = digits.images, digits.target
+print(X.shape, y.shape)          # (1797, 8, 8)  (1797,)
+print(X.min(), X.max())          # 0.0  16.0
+----
+
+image::https://y30n9ju1v.github.io/develop/images/books/aice-associate-deep-learning/digits_samples.png[손글씨 숫자 샘플 10개]
+
+`8×8` 크기의 흑백 손글씨 숫자 이미지 `1797`장입니다. 각 픽셀 값은 `0`(검정)부터 `16`(흰색)까지의 정수입니다 — 일반적인 이미지(`0~255`)보다 해상도도 값 범위도 작은, 다루기 쉬운 장난감 데이터셋입니다.
+
+== 정규화와 reshape
+
+[source,python]
+----
+X_norm = X / 16.0                       # 0~16 -> 0~1
+X_cnn = X_norm.reshape(-1, 8, 8, 1)      # CNN 입력 형태: (배치, 높이, 너비, 채널)
+print(X_cnn.shape)                        # (1797, 8, 8, 1)
+----
+
+7장에서 `StandardScaler`로 정형 데이터의 스케일을 맞췄던 것과 같은 이유로, 이미지도 `0~1` 범위로 정규화합니다(픽셀의 최댓값 `16`으로 나누는 min-max 방식). `Conv2D` 층은 입력을 `(배치 크기, 높이, 너비, 채널 수)` 4차원 형태로 기대합니다 — 흑백 이미지는 채널이 `1`개(컬러 이미지라면 R/G/B로 `3`개)이므로, 마지막에 크기 `1`짜리 차원을 추가해야 합니다.
+
+== 비교 대상: Dense만으로 이미지를 펼쳐서 학습
+
+CNN이 왜 필요한지 보기 전에, 먼저 이미지를 1차원으로 펼쳐서(`8×8=64`개의 숫자로) 지금까지 써온 `Dense` 층만으로 학습시켜봅니다.
+
+[source,python]
+----
+model_dense = keras.Sequential([
+    keras.Input(shape=(64,)),
+    keras.layers.Dense(64, activation="relu"),
+    keras.layers.Dense(10, activation="softmax"),
+])
+model_dense.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+hist_dense = model_dense.fit(X_train_flat, y_train, epochs=20, batch_size=32, verbose=0,
+                               validation_data=(X_test_flat, y_test))
+print(model_dense.evaluate(X_test_flat, y_test, verbose=0)[1])   # 0.964
+----
+
+출력층이 `Dense(10, activation="softmax")`인 이유는 숫자가 `0~9` 열 개의 클래스이기 때문입니다(8장에서 다룬 다중 분류 그대로입니다). 정확도 `96.4%`로, 이미지를 그냥 숫자 나열로 펼쳤을 뿐인데도 꽤 잘 맞춥니다 — `8×8`이라는 작은 해상도 덕분입니다.
+
+== CNN 모델: Conv2D와 MaxPooling2D
+
+[source,python]
+----
+model_cnn = keras.Sequential([
+    keras.Input(shape=(8, 8, 1)),
+    keras.layers.Conv2D(16, (3, 3), activation="relu", padding="same"),
+    keras.layers.MaxPooling2D((2, 2)),
+    keras.layers.Conv2D(32, (3, 3), activation="relu", padding="same"),
+    keras.layers.Flatten(),
+    keras.layers.Dense(32, activation="relu"),
+    keras.layers.Dense(10, activation="softmax"),
+])
+----
+
+`Conv2D(16, (3,3))`은 `3×3` 크기의 작은 필터(가중치 조각) `16`개를 이미지 전체에 슬라이딩하며 적용하는 층입니다 — 필터 하나가 이미지의 모든 위치에서 **똑같은 가중치**를 재사용합니다(이걸 가중치 공유라고 부릅니다). `MaxPooling2D((2,2))`는 `2×2` 영역마다 가장 큰 값 하나만 남겨 크기를 절반으로 줄이는 층으로, 약간의 위치 변화에도 강건해지는 효과가 있습니다. `Flatten()`은 CNN 층들을 거친 다차원 출력을 다시 1차원으로 펴서, 마지막 `Dense` 층에 넣을 수 있게 합니다.
+
+[source,python]
+----
+model_cnn.compile(optimizer="adam", loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+hist_cnn = model_cnn.fit(X_train, y_train, epochs=20, batch_size=32, verbose=0,
+                           validation_data=(X_test, y_test))
+print(model_cnn.evaluate(X_test, y_test, verbose=0)[1])   # 0.964
+----
+
+정확도는 `96.4%`로, `Dense`만 쓴 모델과 (이 데이터셋에서는) 거의 같습니다. `8×8`처럼 아주 작은 이미지에서는 `Dense`만으로도 이미지 전체를 한 번에 다 볼 수 있어서, CNN의 장점(지역적인 패턴을 재사용하며 찾아내는 것)이 뚜렷하게 드러나지 않습니다 — 실제 CNN의 강점은 훨씬 큰 이미지(수백×수백 픽셀)에서 명확해집니다.
+
+== 그래도 CNN이 이기는 지점: 파라미터 효율
+
+정확도는 비슷해도, 두 모델이 같은 일을 하는 데 쓴 파라미터 수를 비교하면 차이가 뚜렷합니다.
+
+[source,python]
+----
+print(model_dense.layers[0].count_params())   # Dense(64,64): 4160
+print(model_cnn.layers[0].count_params())     # Conv2D(16, 3x3): 160
+----
+
+`Dense`의 첫 층은 입력 `64`개 전부와 출력 뉴런 `64`개를 완전히 연결해야 하므로 `(64+1)×64=4160`개의 파라미터가 필요합니다. 반면 `Conv2D`의 첫 층은 `3×3×1`(필터 크기 × 입력 채널) `+1`(편향)짜리 필터를 `16`개만 두면 됩니다 — `(3×3×1+1)×16=160`개, `Dense`의 `1/26`도 안 되는 양입니다. 이렇게 적은 파라미터로도 비슷한 성능을 낼 수 있는 이유는, 필터 하나가 이미지의 모든 위치에서 재사용되기 때문입니다(같은 "선을 찾는 필터"가 이미지의 왼쪽 위든 오른쪽 아래든 똑같이 적용됩니다) — `Dense`처럼 모든 픽셀 쌍마다 별도의 가중치를 두지 않아도 됩니다. 이미지가 커질수록(픽셀 수가 늘어날수록) 이 파라미터 효율의 차이는 훨씬 극적으로 벌어집니다.
+
+== 직접 해보기
+
+* `MaxPooling2D` 층을 빼고 `Conv2D` 두 개만 남긴 모델을 만들어, `Flatten()` 직전의 특성 맵 크기가 어떻게 달라지는지, 그리고 마지막 `Dense` 층의 파라미터 수가 어떻게 늘어나는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+model_nopool = keras.Sequential([
+    keras.Input(shape=(8, 8, 1)),
+    keras.layers.Conv2D(16, (3, 3), activation="relu", padding="same"),
+    keras.layers.Conv2D(32, (3, 3), activation="relu", padding="same"),
+    keras.layers.Flatten(),
+    keras.layers.Dense(32, activation="relu"),
+    keras.layers.Dense(10, activation="softmax"),
+])
+model_nopool.summary()
+----
+
+`MaxPooling2D`가 없으면 특성 맵 크기가 `4×4×32`(`512`개)가 아니라 `8×8×32`(`2048`개)로 `4`배 커집니다 — `padding="same"`을 쓰면 `Conv2D`는 입력과 같은 공간 크기를 유지하기 때문입니다. `Flatten()` 뒤에 오는 `Dense(32)` 층의 파라미터 수도 그만큼 늘어납니다(`(2048+1)×32` vs `(512+1)×32`). `MaxPooling2D`는 정확도를 위해서만이 아니라, 뒤따르는 층들의 계산량과 파라미터 수를 줄이는 실용적인 역할도 한다는 걸 확인할 수 있습니다.
+====
+
+== 요약
+
+* 이미지를 CNN에 넣기 전에 `0~1`로 정규화하고 `(배치, 높이, 너비, 채널)` 형태로 `reshape`해야 합니다.
+* `Conv2D`는 작은 필터를 이미지 전체에 재사용(가중치 공유)하며 지역적인 패턴을 찾고, `MaxPooling2D`는 공간 크기를 줄여 이후 계산량을 절감합니다.
+* `8×8`처럼 작은 이미지에서는 `Dense`만으로도 CNN과 비슷한 정확도(둘 다 `96.4%`)를 낼 수 있지만, CNN의 첫 층은 같은 일을 `1/26`의 파라미터로 해냈습니다 — 이미지가 커질수록 이 효율 차이가 CNN을 실질적으로 우위에 서게 만듭니다.
+
+다음 장에서는 이렇게 학습한 모델을 저장하고 다시 불러오는 법, 그리고 혼동행렬로 다중 분류 모델의 성능을 클래스별로 뜯어보는 법을 다룹니다.
+// end::body[]
