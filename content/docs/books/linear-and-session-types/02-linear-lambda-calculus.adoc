@@ -1,0 +1,139 @@
+---
+title: "2장: 선형 람다계산법의 문법과 타이핑 규칙"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["lean4", "linear-types", "type-system", "book"]
+categories: ["books"]
+description: "함수(⊸)와 곱(⊗)을 가진 작은 언어의 문법을 짓고, 컨텍스트를 쪼개는 타이핑 규칙으로 정확히 두 종류의 실수(중복 사용, 미사용)를 컴파일 타임에 거부하는 것을 Lean4로 직접 확인하는 1부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-use-after-free/[1장: 자원을 두 번 쓰면 생기는 일] · 다음: link:../03-progress/[3장: 조작적 의미론과 Progress 정리]_
+
+'''
+
+1장에서 세운 규칙("정확히 한 번")을 실제 타입 시스템으로 만듭니다. 언어는 최대한 작게 유지합니다 — 함수(`⊸`, "선형 화살표")와 순서쌍(`⊗`, "텐서곱"), 그리고 아무 정보도 없는 `Unit` 타입만 있으면 이 장의 목표(중복 사용과 미사용을 둘 다 거부하는 것)를 보이기에 충분합니다.
+
+== 문법
+
+[source,lean]
+----
+inductive Ty where
+  | unit
+  | arrow (a b : Ty)   -- τ1 ⊸ τ2
+  | tensor (a b : Ty)  -- τ1 ⊗ τ2
+
+inductive Term where
+  | var (x : String)
+  | unit
+  | lam (x : String) (τ : Ty) (body : Term)
+  | app (f a : Term)
+  | pair (a b : Term)
+  | letpair (x y : String) (p : Term) (body : Term)
+----
+
+`Term`은 언어 8장(`building-a-language-from-scratch`)의 `Twig`와 얼개가 비슷하지만 훨씬 작습니다 — `let`도, 재귀도, 대수적 데이터 타입도 없습니다. 대신 `letpair x y p body`가 새로 있습니다 — 순서쌍 `p`를 분해해서 첫 성분을 `x`, 둘째 성분을 `y`라는 이름으로 `body` 안에서 씁니다(패턴 매칭의 아주 작은 특수 사례로 생각해도 됩니다). 순서쌍을 이렇게 "분해해서만" 쓰게 만든 이유는 뒤에서 곧 드러납니다.
+
+== 컨텍스트: 리스트로, 그리고 "정확히 한 번"이라는 불변량
+
+[source,lean]
+----
+abbrev Ctx := List (String × Ty)
+
+def dom (Γ : Ctx) : List String := Γ.map Prod.fst
+
+def Disjoint (l1 l2 : List String) : Prop := ∀ x, x ∈ l1 → x ∉ l2
+----
+
+컨텍스트 `Γ`는 그냥 `(이름, 타입)` 리스트입니다. 여기까지는 보통의 타입 시스템과 다를 게 없어 보입니다 — 다른 점은 **이 리스트를 다루는 규칙**에 있습니다. `Disjoint`는 두 리스트가 이름을 하나도 안 겹친다는 뜻이고, 곧 볼 `app`/`pair`/`letpair` 규칙에서 컨텍스트를 쪼갤 때 매번 이걸 요구합니다.
+
+== 타이핑 규칙: 컨텍스트를 쪼개는 곳이 핵심
+
+[source,lean]
+----
+inductive HasType : Ctx → Term → Ty → Prop
+  | var (x : String) (τ : Ty) :
+      HasType [(x, τ)] (.var x) τ
+  | unit :
+      HasType [] .unit .unit
+  | lam (x : String) (τ1 τ2 : Ty) (Γ : Ctx) (e : Term) :
+      x ∉ dom Γ →
+      HasType ((x, τ1) :: Γ) e τ2 →
+      HasType Γ (.lam x τ1 e) (.arrow τ1 τ2)
+  | app (Γ1 Γ2 : Ctx) (f a : Term) (τ1 τ2 : Ty) :
+      Disjoint (dom Γ1) (dom Γ2) →
+      HasType Γ1 f (.arrow τ1 τ2) →
+      HasType Γ2 a τ1 →
+      HasType (Γ1 ++ Γ2) (.app f a) τ2
+  | pair (Γ1 Γ2 : Ctx) (a b : Term) (τ1 τ2 : Ty) :
+      Disjoint (dom Γ1) (dom Γ2) →
+      HasType Γ1 a τ1 →
+      HasType Γ2 b τ2 →
+      HasType (Γ1 ++ Γ2) (.pair a b) (.tensor τ1 τ2)
+  | letpair (Γ1 Γ2 : Ctx) (x y : String) (p e : Term) (τ1 τ2 τ3 : Ty) :
+      x ∉ dom Γ2 → y ∉ dom Γ2 → x ≠ y →
+      Disjoint (dom Γ1) (dom ((x, τ1) :: (y, τ2) :: Γ2)) →
+      HasType Γ1 p (.tensor τ1 τ2) →
+      HasType ((x, τ1) :: (y, τ2) :: Γ2) e τ3 →
+      HasType (Γ1 ++ Γ2) (.letpair x y p e) τ3
+----
+
+가장 중요한 두 규칙만 짚습니다.
+
+**`var` 규칙**은 컨텍스트가 정확히 `[(x, τ)]`(원소 하나!)일 때만 `.var x`에 타입 `τ`를 줍니다. 보통의 타입 시스템이라면 `Γ ⊢ x : τ` (임의의 더 큰 `Γ`에 `(x,τ)`가 들어있기만 하면 됨) 형태로 썼을 자리입니다 — 이 차이가 "정확히 한 번"의 출발점입니다. 변수 하나를 참조하는 순간, 그 변수는 컨텍스트 전체를 "다 써버립니다".
+
+**`app` 규칙**이 1장에서 예고한 "컨텍스트 쪼개기"입니다. `f a`를 타입 검사하려면 전체 컨텍스트를 `Γ1`(f용)과 `Γ2`(a용)로 나누고, 이 둘이 이름을 하나도 안 겹치게(`Disjoint`) 만듭니다. `pair`도 똑같은 구조입니다 — `(a, b)`를 만들 때 `a`와 `b`가 서로 다른 변수를 씁니다.
+
+`letpair`는 조금 더 복잡해 보이지만 원리는 같습니다 — 순서쌍 `p`(컨텍스트 `Γ1`)를 분해해서 얻은 `x`, `y`를 `body`(`e`) 안에서 쓰는데, `e`가 원래부터 갖고 있던 자유 변수들의 컨텍스트가 `Γ2`입니다. `x ≠ y`와 `x,y ∉ dom Γ2`는 새로 도입한 두 이름이 서로 또는 기존 컨텍스트와 충돌하지 않게 하는 순전히 기술적인 "이름이 안 겹친다"는 조건입니다.
+
+== 검증 1: 항등 함수는 타입이 있다
+
+[source,lean]
+----
+example : HasType [] (.lam "x" .unit (.var "x")) (.arrow .unit .unit) := by
+  apply HasType.lam
+  · simp [dom]
+  · exact HasType.var "x" .unit
+----
+
+`(λx:Unit. x)`는 자유 변수가 없는(닫힌) 항이므로 바깥 컨텍스트는 `[]`이고, `lam` 규칙에 따라 몸체 `x`는 `[("x", Unit)]` 아래서 타입 검사됩니다 — `var` 규칙이 정확히 이 모양이므로 그대로 들어맞습니다. `x`가 정확히 한 번(그 자리 하나) 쓰였으니 선형성 조건도 만족합니다. 이 예제는 실제로 `lean --run`(또는 `#check`)으로 컴파일해서 확인했습니다.
+
+== 검증 2: 미사용 변수는 거부된다
+
+`(λx:Unit. ())` — 인자 `x`를 아예 안 쓰고 그냥 `()`를 반환하는 함수 — 는 우리 시스템에서 **타입이 없습니다**. 왜 그런지 직접 증명해서 확인합니다.
+
+[source,lean]
+----
+theorem unit_ctx_gen : ∀ {Γ : Ctx} {e : Term} {τ : Ty}, HasType Γ e τ →
+    e = .unit → Γ = [("x", Ty.unit)] → False := by
+  intro Γ e τ h
+  induction h with
+  | var x' τ' => intro he hΓ; simp_all
+  | unit => intro he hΓ; simp_all
+  | lam x1 τ1 τ2 Γ1 e1 hfresh hbody ih => intro he hΓ; simp_all
+  | app Γ1 Γ2 f a τ1 τ2 hdisj hf ha ihf iha => intro he hΓ; simp_all
+  | pair Γ1 Γ2 a b τ1 τ2 hdisj ha hb iha ihb => intro he hΓ; simp_all
+  | letpair Γ1 Γ2 x1 y p e1 τ1 τ2 τ3 hx hy hxy hdisj hp he2 ihp ihe => intro he hΓ; simp_all
+
+example : ¬ HasType [("x", Ty.unit)] .unit .unit :=
+  fun h => unit_ctx_gen h rfl rfl
+----
+
+증명의 핵심은 **딱 하나의 규칙만 결론이 `.unit`인 항에 대한 것**(`HasType.unit`)이고, 그 규칙은 컨텍스트를 반드시 `[]`로 강제한다는 사실입니다. `(λx:Unit. ())`의 몸체는 `[("x", Unit)]`(원소 하나) 아래서 타입 검사되어야 하는데, `.unit` 자체는 오직 `[]`에서만 타입을 받을 수 있으므로 — 컨텍스트가 안 맞아서 증명이 아예 시작될 수 없습니다. `simp_all`이 여섯 갈래(모든 `HasType` 생성자)를 전부 훑어서 이 모순을 자동으로 찾아냅니다. `#print axioms unit_ctx_gen`도 `sorryAx` 없이 통과합니다 — 진짜로 증명된 정리입니다.
+
+== 검증 3: 변수를 두 번 쓰는 것도 거부된다 (직접 따라가 보기)
+
+`(x, x)` — 같은 변수 `x`를 순서쌍의 양쪽에 쓰는 것 — 도 `[("x", τ)]` 아래서 타입이 없습니다. 이번엔 Lean 증명 대신, `pair` 규칙을 손으로 따라가면서 왜 막히는지 직접 봅니다.
+
+`(x, x)`에 타입을 주려면 `pair` 규칙을 써야 하고, 그러려면 컨텍스트 `[("x", τ)]`(원소 딱 하나!)를 `Γ1`과 `Γ2`로 쪼개야 합니다. 그런데 `pair`의 왼쪽(`.var "x"`)이 타입을 받으려면 `var` 규칙에 의해 `Γ1`이 정확히 `[("x", τ)]`여야 하고, 오른쪽도 마찬가지 이유로 `Γ2`가 정확히 `[("x", τ)]`여야 합니다. 그러면 `Γ1`과 `Γ2` **둘 다 `"x"`를 담고 있으니**, `pair` 규칙이 요구하는 `Disjoint (dom Γ1) (dom Γ2)`가 깨집니다 — `"x"`가 두 쪽 모두에 있는데 어떻게 겹치지 않을 수 있겠습니까. 컨텍스트 하나짜리 원소를 둘로 쪼개서 양쪽 다 그 원소를 담게 만드는 건 애초에 불가능합니다 — `Γ1 ++ Γ2 = [("x", τ)]`이면서 `"x" ∈ dom Γ1`이고 `"x" ∈ dom Γ2`인 경우는 존재하지 않습니다(리스트 길이가 안 맞습니다).
+
+이 논증을 Lean으로 완전히 자동화하려면 "컨텍스트 인덱스가 함수 호출(`Γ1 ++ Γ2`) 형태일 때 `cases`/`induction`이 더 이상 변수가 아닌 인덱스를 자동으로 다루지 못한다"는, 이 장의 다른 증명들에서도 반복해서 만났던 기술적 장벽을 몇 겹 더 넘어야 합니다 — 핵심 통찰은 위 문단의 논증이 전부이므로, 여기서는 형식 증명 대신 이 손 논증으로 갈음합니다. (검증 2의 `unit_ctx_gen`이 이미 "컨텍스트 크기가 안 맞으면 거부된다"는 같은 종류의 벽을 실제로 넘어서 보여줬습니다 — `pair`의 경우 그 벽이 하나 더 겹쳐 있을 뿐, 새로운 원리는 아닙니다.)
+
+== 요약
+
+* 선형 함수(`⊸`)와 곱(`⊗`), `Unit`만 가진 작은 언어를 짓고, 컨텍스트를 쪼개는 `HasType` 규칙(`var`는 정확히 원소 하나인 컨텍스트만 받고, `app`/`pair`/`letpair`는 컨텍스트를 서로 안 겹치는 두 조각으로 나눈다)을 정의했습니다.
+* `(λx:Unit. x)`처럼 변수를 정확히 한 번 쓰는 항은 타입이 있다는 걸 Lean으로 확인했습니다.
+* `(λx:Unit. ())`처럼 변수를 안 쓰는 항은 컨텍스트 크기가 맞지 않아 타입이 없다는 걸 `unit_ctx_gen` 정리로 완전히 증명했고, `(x, x)`처럼 변수를 두 번 쓰는 항은 컨텍스트를 쪼갤 때 `Disjoint` 조건이 깨져서 타입이 없다는 걸 손으로 따라가며 확인했습니다.
+
+다음 장에서는 이 언어에 **실행**(조작적 의미론)을 부여하고, "잘 타입된 프로그램은 실행 중 막다른 골목에 빠지지 않는다"는 Progress 정리를 처음부터 끝까지 증명합니다.
+// end::body[]

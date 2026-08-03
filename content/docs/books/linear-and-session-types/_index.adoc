@@ -1,0 +1,91 @@
+---
+title: "자원은 한 번만 쓴다: 선형 타입과 세션 타입"
+draft: false
+---
+
+선형 타입과 세션 타입으로 병렬·동시 프로그램의 안전성을 타입 수준에서 증명하는 법을, Lean4로 처음부터 끝까지 새로 지어 검증하는 독립적인 입문서입니다. 왜 선형성인가(1부) → 타입 시스템 증명하기(2부) → 세션 타입으로(3부) → 종합과 확장(4부) 순서로 쌓아 올립니다.
+
+이 책의 모든 정리 — 선형 람다계산법의 Progress, 세션 타입의 교착 없음(`session_progress`) — 는 이 세션 환경에 실제로 설치된 Lean4(v4.32.0, elan)로 실제 컴파일하고 증명을 검증했습니다. `session_progress`는 `sorryAx`는 물론 어떤 공리에도 의존하지 않고 완전히 증명됩니다.
+
+이 책은 이 사이트의 `fp-backbone-of-async`와 `nand2npu-cpu`가 미뤄뒀던 선형 타입이라는 복선을 회수하고, `nand2npu-gpu`가 하드웨어 조작적 의미론으로 증명한 병렬 안전성을 타입 시스템의 눈으로 다시 읽는, 독립적인 타입 이론 입문서입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 자원은 한 번만 쓴다]*
+
+*1부: 왜 선형성인가*
+
+[start=1]
+. *link:01-use-after-free/[자원을 두 번 쓰면 생기는 일]*
+. *link:02-linear-lambda-calculus/[선형 람다계산법의 문법과 타이핑 규칙]*
+
+*2부: 선형 타입 시스템 증명하기*
+
+[start=3]
+. *link:03-progress/[조작적 의미론과 Progress 정리]*
+. *link:04-preservation/[Preservation과 대입 보조정리의 벽]*
+
+*3부: 세션 타입으로*
+
+[start=5]
+. *link:05-session-types/[프로토콜을 타입으로: 세션 타입과 듀얼리티]*
+. *link:06-typed-processes/[타입 지정 프로세스와 통신 리덕션]*
+. *link:07-deadlock-freedom/[Progress: 교착 없음을 증명하기]*
+
+*4부: 종합과 확장*
+
+[start=8]
+. *link:08-comparisons/[실전 언어 연결: Rust 소유권과 세션 타입 라이브러리]*
+. *link:09-warps-as-sessions/[nand2npu-gpu 다시 보기: 워프 동기화를 세션 타입으로]*
+
+*맺음말*
+
+[start=10]
+. *link:10-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-use-after-free.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-linear-lambda-calculus.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-progress.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-preservation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-session-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-typed-processes.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-deadlock-freedom.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-comparisons.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-warps-as-sessions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-afterword.adoc[tag=body,leveloffset=+1]

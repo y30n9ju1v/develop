@@ -1,0 +1,103 @@
+---
+title: "6장: 타입 지정 프로세스와 통신 리덕션"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["lean4", "session-types", "process-calculus", "book"]
+categories: ["books"]
+description: "세션 타입 명세를 실제로 지키는 프로세스와 타입 판정 HasSType을 짓고, 두 프로세스가 채널 하나로 실제 통신하는 것을 GStep 리덕션으로 모델링한 뒤, 클라이언트-서버 프로토콜 하나를 처음부터 끝까지 손으로 실행해 검증하는 3부의 중간 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-session-types/[5장: 프로토콜을 타입으로: 세션 타입과 듀얼리티] · 다음: link:../07-deadlock-freedom/[7장: Progress: 교착 없음을 증명하기]_
+
+'''
+
+== 프로세스: 세션 타입을 실제로 지키는 프로그램
+
+[source,lean]
+----
+inductive Proc where
+  | send (v : Nat) (k : Proc)
+  | recv (k : Nat → Proc)
+  | done
+----
+
+`Proc`는 아주 작은 프로세스 언어입니다 — 값 하나를 보내고 계속하는 `send`, 값을 하나 받아서(`Nat → Proc`, "받은 값에 따라 계속할 방법") 계속하는 `recv`, 그리고 끝을 나타내는 `done`. `recv`가 함수(`Nat → Proc`)를 담는다는 게 눈에 띕니다 — "아직 안 받은 값"에 의존해 다음 행동이 달라질 수 있다는 뜻이고, 이건 4부 언어 책(`building-a-language-from-scratch`)의 클로저와 정확히 같은 발상입니다.
+
+== 타입 판정: `SType`을 지키는 프로세스만 받아들인다
+
+[source,lean]
+----
+inductive HasSType : SType → Proc → Prop
+  | send (v : Nat) (k : Proc) (S : SType) :
+      HasSType S k → HasSType (.send S) (.send v k)
+  | recv (k : Nat → Proc) (S : SType) :
+      (∀ v, HasSType S (k v)) → HasSType (.recv S) (.recv k)
+  | done : HasSType .end .done
+----
+
+`send` 규칙은 프로세스가 `.send v k` 모양이어야 하고, 그 나머지 `k`가 명세의 나머지 `S`를 지켜야 한다고 요구합니다. `recv` 규칙이 흥미롭습니다 — `k : Nat → Proc`가 명세를 지키려면, **어떤 값을 받든 상관없이**(`∀ v`) 그다음 행동 `k v`가 `S`를 지켜야 합니다. 받을 값을 프로세스가 미리 알 수 없으므로, 이건 자연스러운 요구입니다.
+
+`done`은 오직 `SType.end`에서만 유효합니다 — `HasSType`에 `.end`를 결론으로 갖는 생성자는 이거 하나뿐이므로, "명세가 아직 안 끝났는데 프로세스가 먼저 끝나버리는" 상황은 애초에 이 판정으로 표현할 수 없습니다(다음 장에서 이 사실이 핵심적으로 쓰입니다).
+
+== 통신 리덕션: 두 프로세스가 채널로 만나면
+
+지금까지는 프로세스 하나가 자기 타입을 지키는지만 다뤘습니다. 실제 통신은 **두 프로세스가 채널의 양쪽 끝에서 만나야** 일어납니다.
+
+[source,lean]
+----
+inductive GStep : Proc × Proc → Proc × Proc → Prop
+  | commL (v : Nat) (k1 : Proc) (k2 : Nat → Proc) :
+      GStep (.send v k1, .recv k2) (k1, k2 v)
+  | commR (v : Nat) (k1 : Nat → Proc) (k2 : Proc) :
+      GStep (.recv k1, .send v k2) (k1 v, k2)
+----
+
+`GStep`은 프로세스 **쌍**(`Proc × Proc`) 위의 리덕션입니다 — 왼쪽이 보내고 오른쪽이 받는 중이면(`commL`) 실제로 값이 건네지면서 양쪽 다 한 스텝 나아가고, 그 반대(`commR`)도 마찬가지입니다. 이건 2~4장의 `Step`과 근본적으로 다른 지점입니다 — 거기서는 항 하나가 자기 안에서 계산됐지만, 여기서는 **둘이 동시에** 나아갑니다. 이게 병렬성을 명시적으로 모델링하는 부분입니다.
+
+== 검증: 클라이언트-서버 프로토콜 하나를 처음부터 끝까지
+
+5장의 `ProtoS`("보내고, 받고, 끝")를 실제로 지키는 클라이언트와, 그 듀얼(`dual ProtoS` = "받고, 보내고, 끝")을 지키는 서버를 짜서, 실제로 통신이 끝까지 이어지는지 손으로 확인합니다.
+
+[source,lean]
+----
+def ProtoS : SType := .send (.recv .end)
+
+def client : Proc := .send 21 (.recv (fun _ => .done))
+def server : Proc := .recv (fun n => .send (n * 2) .done)
+
+example : HasSType ProtoS client := by
+  apply HasSType.send
+  apply HasSType.recv
+  intro v
+  exact HasSType.done
+
+example : HasSType (dual ProtoS) server := by
+  simp only [dual, ProtoS]
+  apply HasSType.recv
+  intro n
+  apply HasSType.send
+  exact HasSType.done
+----
+
+`client`는 `21`을 보내고 응답을 받아 끝나고, `server`는 값을 받아 두 배로 만들어 돌려보내고 끝납니다. 둘 다 `HasSType`으로 타입 검사를 통과합니다.
+
+[source,lean]
+----
+example : GStep (client, server) (.recv (fun _ => .done), .send 42 .done) :=
+  GStep.commL 21 (.recv (fun _ => .done)) (fun n => .send (n * 2) .done)
+
+example : GStep (.recv (fun _ => .done), .send 42 .done) (.done, .done) :=
+  GStep.commR 42 (fun _ => .done) .done
+----
+
+첫 스텝에서 클라이언트가 `21`을 보내고, 서버가 그걸 받아 `n := 21`을 대입한 `.send 42 .done`(정말로 `21*2 = 42`가 계산되어 있는 값)이 됩니다. 둘째 스텝에서 서버가 `42`를 보내고 클라이언트가 그걸 받아, 양쪽 다 `.done`으로 끝납니다 — **정확히 명세(`ProtoS`)가 약속한 대로**, 두 번 통신하고 정상 종료했습니다.
+
+== 요약
+
+* 세션 타입을 실제로 지키는 프로세스(`Proc`)와, 그 준수 여부를 판정하는 `HasSType`을 지었습니다 — `recv`는 "받을 값이 무엇이든" 명세를 지켜야 한다는 전칭 조건으로 표현됩니다.
+* 두 프로세스가 채널의 양 끝에서 만나 실제로 값을 주고받는 것을 `GStep`(프로세스 쌍 위의 리덕션)으로 모델링했습니다 — 하나가 아니라 둘이 동시에 나아간다는 점이 2~4부의 `Step`과 다릅니다.
+* 클라이언트-서버 프로토콜 하나를 실제로 타입 검사하고, 통신 두 번을 손으로 실행해 양쪽 다 `.done`으로 끝난다는 걸 확인했습니다.
+
+다음 장에서는 "이런 구체적인 예제 하나가 아니라, **명세(`S`)와 그 듀얼을 지키는 임의의 두 프로세스는 항상 이렇게 끝까지 통신하거나 이미 끝나 있다**"는 일반 정리 — 교착 상태에 빠지지 않는다는 것 — 를 증명합니다.
+// end::body[]

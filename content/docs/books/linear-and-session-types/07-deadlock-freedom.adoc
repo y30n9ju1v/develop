@@ -1,0 +1,100 @@
+---
+title: "7장: Progress: 교착 없음을 증명하기"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["lean4", "session-types", "deadlock-freedom", "book"]
+categories: ["books"]
+description: "세션 타입 S와 그 듀얼을 지키는 임의의 두 프로세스는 항상 이미 끝나 있거나 다음 통신 스텝을 밟을 수 있다는 것 — 교착 상태가 원천적으로 발생하지 않는다는 것 — 을 Lean4로 공리 없이 완전히 증명하는 3부의 마지막 장이자 이 책의 정점"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-typed-processes/[6장: 타입 지정 프로세스와 통신 리덕션] · 다음: link:../08-comparisons/[8장: 실전 언어 연결: Rust 소유권과 세션 타입 라이브러리]_
+
+'''
+
+6장에서 구체적인 프로토콜 하나를 손으로 검증했습니다. 이 장에서는 그 검증을 **일반화**합니다 — 세션 타입 `S`를 지키는 프로세스와 `dual S`를 지키는 프로세스를 채널 양 끝에 놓으면, 어떤 `S`이든, 어떤 구체적인 프로세스이든 상관없이 **항상** 다음 둘 중 하나입니다: 이미 끝났거나(`S = .end`이고 둘 다 `.done`), 아니면 통신 스텝을 밟을 수 있습니다. 세 번째 경우 — 둘 다 아직 안 끝났는데 아무 스텝도 못 밟는 상태, 즉 **교착 상태(deadlock)** — 는 원천적으로 존재하지 않는다는 것이 이 정리의 내용입니다.
+
+== 정리 진술
+
+> Session Progress (교착 없음): `HasSType S P1`이고 `HasSType (dual S) P2`이면, `(S = .end ∧ P1 = .done ∧ P2 = .done)`이거나 `∃ P1' P2', GStep (P1, P2) (P1', P2')`이다.
+
+이건 3장의 Progress 정리와 판박이 모양입니다 — "값이거나 스텝을 밟을 수 있다"가 "끝났거나 통신 스텝을 밟을 수 있다"로 바뀌었을 뿐입니다. 다른 점은, 여기서는 프로세스 **하나**가 아니라 **양 끝이 서로 듀얼**이라는 조건으로 "막힘"을 원천 봉쇄한다는 것입니다.
+
+== 증명: `S`에 대한 구조적 귀납법
+
+[source,lean]
+----
+theorem session_progress : ∀ {S : SType} {P1 P2 : Proc},
+    HasSType S P1 → HasSType (dual S) P2 →
+    (S = .end ∧ P1 = .done ∧ P2 = .done) ∨ ∃ P1' P2', GStep (P1, P2) (P1', P2') := by
+  intro S
+  induction S with
+  | «end» =>
+      intro P1 P2 h1 h2
+      left
+      cases h1
+      simp only [dual] at h2
+      cases h2
+      exact ⟨rfl, rfl, rfl⟩
+  | send S' ih =>
+      intro P1 P2 h1 h2
+      right
+      cases h1 with
+      | send v k hk =>
+          simp only [dual] at h2
+          cases h2 with
+          | recv k2 hk2 => exact ⟨k, k2 v, GStep.commL v k k2⟩
+  | recv S' ih =>
+      intro P1 P2 h1 h2
+      right
+      cases h1 with
+      | recv k hk =>
+          simp only [dual] at h2
+          cases h2 with
+          | send v k2 hk2 => exact ⟨k v, k2, GStep.commR v k k2⟩
+----
+
+`S`의 세 가지 모양을 따라갑니다.
+
+**`S = .end`인 경우**: `HasSType .end P1`을 만족하는 유일한 방법은 `HasSType.done`(`P1 = .done`)뿐입니다 — `cases h1`이 이걸 즉시 확정합니다. `dual .end`는 정의상 그대로 `.end`이므로(`simp only [dual]`로 펼침), `h2`도 같은 이유로 `P2 = .done`이 됩니다. 왼쪽 갈래(이미 끝났다)를 고르고 `⟨rfl, rfl, rfl⟩`로 마무리합니다.
+
+**`S = .send S'`인 경우**: `HasSType (.send S') P1`을 만족하는 유일한 방법은 `HasSType.send`이므로, `P1`은 반드시 `.send v k`(어떤 `v`와 `k`) 모양입니다 — `cases h1`이 그 `v`, `k`, 그리고 "`k`는 `S'`를 지킨다"는 증거 `hk`를 즉시 꺼내줍니다. 한편 `dual (.send S') = .recv (dual S')`이므로 `h2 : HasSType (.recv (dual S')) P2`이고, 같은 논리로 `P2`는 `.recv k2` 모양이어야 합니다. 이제 필요한 재료가 다 모였습니다 — `GStep.commL v k k2`가 정확히 `(P1, P2) = (.send v k, .recv k2)`에서 `(k, k2 v)`로 가는 실제 통신 스텝을 만들어줍니다.
+
+**`S = .recv S'`인 경우**: 정확히 대칭입니다 — `P1`은 `.recv k` 모양이고 `P2`는 `.send v k2` 모양이어야 하고, `GStep.commR`이 그 스텝을 제공합니다.
+
+주목할 점은, 이 증명 **어디에서도** 2~4장에서 반복해서 만났던 "컨텍스트 인덱스가 함수 호출(`Γ1 ++ Γ2`) 형태라서 `cases`가 자동으로 모순을 못 찾는다"는 벽이 등장하지 않는다는 것입니다. `HasSType`의 인덱스는 언제나 `SType`의 리터럴 생성자(`.send S`, `.recv S`, `.end`)이거나 `Proc`의 리터럴 생성자이지, 두 컨텍스트를 이어붙인 결과가 아닙니다 — 세션 타입은 "변수를 몇 번 썼는가"가 아니라 "채널 하나 위에서 순서가 맞는가"만 추적하므로, 애초에 쪼갤 컨텍스트 자체가 없습니다. 이게 이 장의 증명이 2~4장보다 훨씬 짧고 매끄러운 근본적인 이유입니다.
+
+`#print axioms session_progress`로 확인하면 **어떤 공리도 쓰지 않고**(3장의 `progress`가 의존했던 `propext`조차 필요 없이) 완전히 증명됐습니다.
+
+== 이 정리가 실제로 말하는 것
+
+`session_progress`를 6장의 `ProtoS`/`client`/`server`에 적용하면(연습문제로 직접 해볼 만합니다), 정확히 6장에서 손으로 확인했던 두 스텝이 존재해야 한다는 게 **일반 정리로부터 자동으로** 따라 나옵니다 — 6장은 "이 특정 프로토콜은 교착에 안 빠진다"를 보여줬고, 이 장은 "듀얼 관계를 지키는 **어떤** 프로토콜과 **어떤** 구현이든 교착에 안 빠진다"는 걸 보여줬습니다.
+
+이게 정확히 서문에서 예고한 "병렬 프로그램을 안전하게 만드는 이론"의 실체입니다 — 파일 핸들을 두 번 쓰는 버그를 선형 타입이 컴파일 타임에 막았듯, "클라이언트는 응답을 기다리는데 서버는 이미 다른 걸 기다리고 있는" 교착 상태를, 세션 타입은 **두 쪽의 타입이 서로 듀얼이라는 것만 확인하면** 컴파일 타임에 막습니다. 프로그램을 실행해서 우연히 교착이 안 생기길 바라는 게 아니라, 타입 검사를 통과한 순간 교착이 수학적으로 불가능하다는 걸 압니다.
+
+== 직접 해보기
+
+* `session_progress`를 6장의 `client`, `server`, `ProtoS`에 직접 적용해서, 그 결과가 정말로 `GStep.commL 21 ...`(6장에서 손으로 만든 바로 그 스텝)와 일치하는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+example := session_progress
+  (S := ProtoS) (P1 := client) (P2 := server)
+  (by apply HasSType.send; apply HasSType.recv; intro v; exact HasSType.done)
+  (by simp only [dual, ProtoS]; apply HasSType.recv; intro n; apply HasSType.send; exact HasSType.done)
+-- 이 항의 타입을 `#check`하면 `Or`의 오른쪽(∃ P1' P2', GStep ...)이 선택된다는 걸 알 수 있고,
+-- `session_progress`의 증명을 그대로 펼치면 그 P1', P2'가 정확히 6장의 (.recv ..., .send 42 .done)임을 확인할 수 있습니다.
+----
+====
+
+== 요약
+
+* 세션 타입 `S`와 `dual S`를 지키는 임의의 두 프로세스는 항상 (1) 둘 다 끝났거나 (2) 통신 스텝을 밟을 수 있다는 `session_progress` 정리를, `S`에 대한 구조적 귀납법으로 완전히 증명했습니다 — `sorryAx`는 물론 어떤 공리에도 의존하지 않습니다.
+* 증명이 2~4장의 선형 람다계산법보다 훨씬 매끄러웠던 이유는, 세션 타입에는 "컨텍스트를 쪼개는" 메커니즘이 없기 때문입니다 — 채널 하나의 순서만 추적하면 되므로, `cases`/`induction`이 늘 리터럴 생성자만 다루면 됩니다.
+* 이 정리가 바로 이 책이 처음부터 약속한 "타입 검사를 통과하면 병렬 프로그램이 교착 상태에 빠지지 않는다는 것을 수학적으로 안다"는 결과입니다.
+
+4부에서는 이 책에서 지은 것을 실전과 연결합니다 — Rust의 소유권 시스템이 선형 타입과 어떻게 대응하는지, 세션 타입을 실제로 구현한 언어/라이브러리에는 뭐가 있는지, 그리고 이 사이트의 `nand2npu-gpu`가 조작적 의미론으로 직접 증명했던 워프 동기화를 세션 타입의 눈으로 다시 읽어봅니다.
+// end::body[]

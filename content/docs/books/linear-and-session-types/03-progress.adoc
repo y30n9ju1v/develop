@@ -1,0 +1,192 @@
+---
+title: "3장: 조작적 의미론과 Progress 정리"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["lean4", "linear-types", "progress", "book"]
+categories: ["books"]
+description: "베타 축약과 값 정의로 선형 언어에 실행을 부여하고, '잘 타입된 닫힌 항은 절대 막다른 골목에 빠지지 않는다'는 Progress 정리를 Lean4로 완전히 증명하면서, 그 과정에서 induction 전술이 리터럴 인덱스를 못 다루는 진짜 벽에 부딪히고 넘어서는 2부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-linear-lambda-calculus/[2장: 선형 람다계산법의 문법과 타이핑 규칙] · 다음: link:../04-preservation/[4장: Preservation과 대입 보조정리의 벽]_
+
+'''
+
+2장에서 지은 타입 시스템은 "이상한 프로그램을 거부한다"는 것만으로는 아직 쓸모를 증명하지 못했습니다. 진짜 확인해야 할 건 **타입 검사를 통과한 프로그램이 실행 중에 절대 이상해지지 않는다**는 것입니다. 이 장에서는 실행(조작적 의미론)을 정의하고, 그 중 절반 — **Progress**(잘 타입된 닫힌 항은 이미 값이거나, 다음 스텝으로 나아갈 수 있다 — 절대 "막다른 골목"에 갇히지 않는다) — 을 처음부터 끝까지 증명합니다.
+
+== 값과 대입
+
+[source,lean]
+----
+def isValue : Term → Bool
+  | .unit => true
+  | .lam .. => true
+  | .pair a b => isValue a && isValue b
+  | _ => false
+
+def subst (x : String) (v : Term) : Term → Term
+  | .var y => if x = y then v else .var y
+  | .unit => .unit
+  | .lam y τ body => if x = y then .lam y τ body else .lam y τ (subst x v body)
+  | .app f a => .app (subst x v f) (subst x v a)
+  | .pair a b => .pair (subst x v a) (subst x v b)
+  | .letpair y z p body =>
+      if x = y ∨ x = z then .letpair y z (subst x v p) body
+      else .letpair y z (subst x v p) (subst x v body)
+----
+
+값은 "더 이상 계산할 게 없는 항"입니다 — 함수 자체(`.lam`), `()`, 그리고 값들만으로 이루어진 순서쌍. `subst x v e`는 `e` 안의 자유 변수 `x`를 `v`로 바꿔치기합니다 — `lam`과 `letpair`에서는 `x`와 이름이 겹치는 바인더를 만나면 더 이상 재귀하지 않습니다(그 안의 `x`는 다른 변수를 가리키므로).
+
+== 작은걸음 리덕션
+
+[source,lean]
+----
+inductive Step : Term → Term → Prop
+  | beta (x : String) (τ : Ty) (body v : Term) :
+      isValue v = true →
+      Step (.app (.lam x τ body) v) (subst x v body)
+  | app1 (f f' a : Term) : Step f f' → Step (.app f a) (.app f' a)
+  | app2 (v a a' : Term) : isValue v = true → Step a a' → Step (.app v a) (.app v a')
+  | pair1 (a a' b : Term) : Step a a' → Step (.pair a b) (.pair a' b)
+  | pair2 (v b b' : Term) : isValue v = true → Step b b' → Step (.pair v b) (.pair v b')
+  | letpairBeta (x y : String) (a b body : Term) :
+      isValue a = true → isValue b = true →
+      Step (.letpair x y (.pair a b) body) (subst y b (subst x a body))
+  | letpairStep (x y : String) (p p' body : Term) :
+      Step p p' → Step (.letpair x y p body) (.letpair x y p' body)
+----
+
+익숙한 모양입니다 — `beta`는 함수 호출을 실행하고, `letpairBeta`는 순서쌍을 실제로 분해합니다. `app1`/`app2`/`pair1`/`pair2`/`letpairStep`은 "왼쪽부터 순서대로 계산한다(call-by-value, 왼쪽에서 오른쪽)"는 순서를 강제하는 합동(congruence) 규칙입니다.
+
+== Canonical Forms: 타입만 보고 값의 모양을 안다
+
+Progress를 증명하려면 "함수 타입을 가진 값은 반드시 `.lam` 모양이다" 같은 사실이 필요합니다 — 이런 걸 **canonical forms 보조정리**라고 부릅니다.
+
+[source,lean]
+----
+theorem canonical_arrow {v : Term} {τ1 τ2 : Ty}
+    (hv : isValue v = true) (ht : HasType [] v (.arrow τ1 τ2)) :
+    ∃ x body, v = .lam x τ1 body := ...
+
+theorem canonical_tensor {v : Term} {τ1 τ2 : Ty}
+    (hv : isValue v = true) (ht : HasType [] v (.tensor τ1 τ2)) :
+    ∃ a b, v = .pair a b ∧ isValue a = true ∧ isValue b = true := ...
+----
+
+증명 자체는 `HasType`의 여섯 생성자를 하나씩 따져서 "값이면서 화살표 타입"인 경우가 `lam`밖에 없다는 걸 보이는 것입니다(`var`/`unit`은 애초에 화살표 타입일 수 없고, `app`/`letpair`는 값이 아니고, `pair`는 화살표가 아니라 텐서곱 타입이므로).
+
+== 벽에 부딪히다: `induction`이 리터럴 인덱스를 못 다룬다
+
+이 보조정리를 처음 Lean으로 쓸 때 다음과 같이 썼습니다.
+
+[source,lean]
+----
+theorem canonical_arrow {v : Term} {τ1 τ2 : Ty}
+    (hv : isValue v = true) (ht : HasType [] v (.arrow τ1 τ2)) :
+    ∃ x body, v = .lam x τ1 body := by
+  cases ht with
+  | lam x τ1' τ2' Γ e hfresh hbody => exact ⟨x, e, rfl⟩
+  | app Γ1 Γ2 f a τ1' τ2' hdisj hf ha => simp [isValue] at hv
+  | ...
+----
+
+`app` 갈래에서 Lean이 이런 에러를 냈습니다.
+
+[source]
+----
+error: Dependent elimination failed: Failed to solve equation
+  [] = List.append Γ1 Γ2
+----
+
+`app` 규칙의 결론은 `HasType (Γ1 ++ Γ2) (.app f a) τ2`입니다 — 우리가 가진 `ht`의 컨텍스트 인덱스는 리터럴 `[]`인데, `app` 갈래로 들어가려면 `[] = Γ1 ++ Γ2`라는 방정식을 풀어야 합니다. `var`/`unit`처럼 컨텍스트가 `[(x,τ)]`나 `[]`같은 **리스트 리터럴**인 생성자는 Lean이 "생성자가 다르면 값도 다르다"(no-confusion)는 원리로 자동으로 모순을 찾아내 갈래를 지워주는데, `Γ1 ++ Γ2`는 `List.append`라는 **함수 호출**이라서 이 자동 모순 찾기가 통하지 않습니다 — `Γ1 = Γ2 = []`이면 얼마든지 참이 될 수 있는 방정식이기 때문입니다.
+
+`induction`(그리고 `cases`)이 다루기 좋아하는 건 인덱스가 **바로 그 자리에 있는 자유 변수**일 때입니다. `[]`처럼 이미 구체적인 값으로 굳어 있으면 곤란해합니다. 해법은 정리를 더 일반적인 형태로 다시 써서, 인덱스 자리에 진짜 변수를 놓고, "그 변수가 나중에 `[]`와 같다"는 조건은 **증명 안에서** 다루는 것입니다.
+
+[source,lean]
+----
+theorem canonical_arrow_gen : ∀ {Γ : Ctx} {v : Term} {τ : Ty},
+    HasType Γ v τ → isValue v = true → Γ = [] →
+    ∀ {τ1 τ2 : Ty}, τ = .arrow τ1 τ2 → ∃ x body, v = .lam x τ1 body := by
+  intro Γ v τ ht
+  induction ht with
+  | var x τ => intro hv hΓ τ1 τ2 hτ; simp_all
+  | unit => intro hv hΓ τ1 τ2 hτ; simp_all
+  | lam x τ1' τ2' Γ' e hfresh hbody ih =>
+      intro hv hΓ τ1 τ2 hτ
+      obtain ⟨e1, e2⟩ := Ty.arrow.injEq .. ▸ hτ
+      exact ⟨x, e, by rw [e1]⟩
+  | app Γ1 Γ2 f a τ1' τ2' hdisj hf ha ihf iha => intro hv hΓ τ1 τ2 hτ; simp [isValue] at hv
+  | pair Γ1 Γ2 a b τ1' τ2' hdisj ha hb iha ihb => intro hv hΓ τ1 τ2 hτ; simp_all
+  | letpair Γ1 Γ2 x y p e τ1' τ2' τ3' hx hy hxy hdisj hp he ihp ihe =>
+      intro hv hΓ τ1 τ2 hτ; simp [isValue] at hv
+
+theorem canonical_arrow {v : Term} {τ1 τ2 : Ty}
+    (hv : isValue v = true) (ht : HasType [] v (.arrow τ1 τ2)) :
+    ∃ x body, v = .lam x τ1 body :=
+  canonical_arrow_gen ht hv rfl rfl
+----
+
+`Γ`도, 결론 타입 `τ`도 모두 진짜 변수로 남겨두고, `Γ = []`와 `τ = .arrow τ1 τ2`라는 조건은 `induction` **다음에** `intro`로 받습니다. 이러면 `app` 갈래에서는 `simp [isValue] at hv`(값이 아니라는 모순)만으로 충분히 끝나고, `pair` 갈래는 `τ = .tensor τ1' τ2'`인데 우리가 원하는 건 `τ = .arrow τ1 τ2`이므로 `simp_all`이 `Ty.tensor ≠ Ty.arrow` 모순을 자동으로 찾아 갈래를 지웁니다. `canonical_tensor`도 대칭적으로 같은 패턴으로 증명됩니다. 이 "일반화한 다음 증명 안에서 등식을 다룬다"는 패턴은 뒤에서 `progress` 자체를 증명할 때도, 4장에서도 반복해서 씁니다.
+
+== Progress 정리
+
+[source,lean]
+----
+theorem progress_gen : ∀ {Γ : Ctx} {e : Term} {τ : Ty},
+    HasType Γ e τ → Γ = [] → isValue e = true ∨ ∃ e', Step e e' := by
+  intro Γ e τ h
+  induction h with
+  | var x τ => intro hΓ; simp_all
+  | unit => intro hΓ; left; rfl
+  | lam x τ1 τ2 Γ e hfresh hbody ih => intro hΓ; left; rfl
+  | app Γ1 Γ2 f a τ1 τ2 hdisj hf ha ihf iha =>
+      intro hΓ
+      right
+      have hΓ12 : Γ1 = [] ∧ Γ2 = [] := by cases Γ1 <;> cases Γ2 <;> simp_all
+      obtain ⟨hΓ1, hΓ2⟩ := hΓ12
+      cases ihf hΓ1 with
+      | inl hfv =>
+          obtain ⟨x, body, hveq⟩ := canonical_arrow hfv (hΓ1 ▸ hf)
+          cases iha hΓ2 with
+          | inl hav => exact ⟨subst x a body, hveq ▸ Step.beta x τ1 body a hav⟩
+          | inr hstep => obtain ⟨a', hstep⟩ := hstep; exact ⟨.app f a', Step.app2 f a a' hfv hstep⟩
+      | inr hstep => obtain ⟨f', hstep⟩ := hstep; exact ⟨.app f' a, Step.app1 f f' a hstep⟩
+  | pair Γ1 Γ2 a b τ1 τ2 hdisj ha hb iha ihb =>
+      intro hΓ
+      have hΓ12 : Γ1 = [] ∧ Γ2 = [] := by cases Γ1 <;> cases Γ2 <;> simp_all
+      obtain ⟨hΓ1, hΓ2⟩ := hΓ12
+      cases iha hΓ1 with
+      | inl hav =>
+          cases ihb hΓ2 with
+          | inl hbv => left; simp [isValue, hav, hbv]
+          | inr hstep => right; obtain ⟨b', hstep⟩ := hstep; exact ⟨.pair a b', Step.pair2 a b b' hav hstep⟩
+      | inr hstep => right; obtain ⟨a', hstep⟩ := hstep; exact ⟨.pair a' b, Step.pair1 a a' b hstep⟩
+  | letpair Γ1 Γ2 x y p e τ1 τ2 τ3 hx hy hxy hdisj hp he ihp ihe =>
+      intro hΓ
+      right
+      have hΓ12 : Γ1 = [] ∧ Γ2 = [] := by cases Γ1 <;> cases Γ2 <;> simp_all
+      obtain ⟨hΓ1, hΓ2⟩ := hΓ12
+      cases ihp hΓ1 with
+      | inl hpv =>
+          obtain ⟨a, b, hpeq, hav, hbv⟩ := canonical_tensor hpv (hΓ1 ▸ hp)
+          exact ⟨subst y b (subst x a e), hpeq ▸ Step.letpairBeta x y a b e hav hbv⟩
+      | inr hstep => obtain ⟨p', hstep⟩ := hstep; exact ⟨.letpair x y p' e, Step.letpairStep x y p p' e hstep⟩
+
+theorem progress {e : Term} {τ : Ty} (h : HasType [] e τ) :
+    isValue e = true ∨ ∃ e', Step e e' :=
+  progress_gen h rfl
+----
+
+`app` 갈래를 따라가 봅시다. 전체 컨텍스트가 `[]`이고 `Γ1 ++ Γ2 = []`이므로, `cases Γ1 <;> cases Γ2 <;> simp_all`로 `Γ1 = Γ2 = []`을 뽑아냅니다(리스트 두 개를 이어붙여 빈 리스트가 나오려면 둘 다 빈 리스트여야만 하니까요). 그러면 함수 `f`와 인자 `a` **둘 다 닫힌 항**이 되어, 귀납 가설(`ihf`, `iha`)을 곧바로 적용할 수 있습니다. `f`가 값이면 `canonical_arrow`로 그게 `.lam` 모양이라는 걸 알아내고, `a`도 값이면 `beta` 규칙으로 한 스텝 나아갈 수 있습니다 — `f`나 `a` 중 하나라도 아직 값이 아니면 합동 규칙(`app1`, `app2`)으로 그 안을 한 스텝 계산합니다. `pair` 갈래에는 미묘한 차이가 하나 있습니다: 처음에 무작정 `right`를 선언했다가 오류가 났는데, `(a, b)`가 둘 다 값이면 그 쌍 자체가 이미 값(`isValue`가 참)이라서 `left`로 답해야 하기 때문입니다 — `right`를 결과가 정해지기 **전에** 미리 선택해버리면 안 됩니다. 이 실수는 실제로 처음 증명을 쓸 때 저질렀던 것이고, Lean이 "`⊢ ∃ e', Step (a.pair b) e'`인데 `Or`가 아니라서 `left`를 쓸 수 없다"는 형태로 즉시 잡아줬습니다.
+
+`progress`는 `#print axioms progress`로 확인하면 `propext`(고전 논리의 명제 외연성 공리, Lean4 표준 라이브러리 자체가 기본으로 쓰는 것) 외에는 아무 공리도, `sorryAx`(증명이 빠진 부분을 표시하는 특수 공리)도 없이 완전히 증명됐습니다 — 이 장에서 세운 타입 시스템을 통과한 닫힌 프로그램은 정말로 **절대 막다른 골목에 갇히지 않는다**는 것이, 가정이 아니라 증명된 사실입니다.
+
+== 요약
+
+* 값(`isValue`), 대입(`subst`), 작은걸음 리덕션(`Step`)으로 2장의 언어에 실행을 부여했습니다.
+* "값이면서 특정 타입을 가지면 모양이 정해진다"는 canonical forms 보조정리(`canonical_arrow`, `canonical_tensor`)를 증명했습니다.
+* 그 과정에서 `induction`/`cases`가 컨텍스트 인덱스가 `Γ1 ++ Γ2`처럼 리터럴이 아닌 함수 호출 형태일 때 자동으로 모순을 못 찾는다는 진짜 벽에 부딪혔고, "정리를 일반화해서 인덱스를 변수로 남기고, 등식은 증명 안에서 다룬다"는 패턴으로 넘어섰습니다.
+* Progress 정리 — 잘 타입된 닫힌 항은 값이거나 한 스텝 나아갈 수 있다 — 를 완전히 증명했고, `sorryAx` 없이 통과한다는 걸 `#print axioms`로 확인했습니다.
+
+Progress는 "아직 안 끝났다는 걸 안다"는 것이지, "끝까지 가도 여전히 같은 타입을 유지한다"는 건 아닙니다. 그게 다음 장의 Preservation입니다 — 그리고 이번에는 선형 타입 시스템만의 진짜 어려움(대입 보조정리)과 마주칩니다.
+// end::body[]
