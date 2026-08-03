@@ -1,0 +1,92 @@
+---
+title: "2장: C++ 타입 시스템이 못 잡는 것"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["cpp23", "type-system", "typestate", "book"]
+categories: ["books"]
+description: "connect-send-close라는 지극히 평범한 API의 호출 순서를 어기는 코드가 경고 하나 없이 컴파일되는 것을 실제로 확인하고, linear-and-session-types의 세 이론(선형 타입·세션 타입·범주론)이 이 책에서 각각 어떤 C++ 기법으로 재구현될지 미리 지도를 그리는 1부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-data-races/[1장: 데이터 경쟁을 실제로 일으켜 보기] · 다음: link:../03-typestate-basics/[3장: 타입 상태 패턴 기초]_
+
+'''
+
+1장은 "같은 변수를 동시에 건드리는" 문제를 다뤘습니다. 이 장에서는 병렬 프로그래밍에서 못지않게 흔한 다른 문제 — **순서를 어기는 것** — 를 확인합니다.
+
+== 순서가 있는 API, 순서를 안 지켜도 컴파일되는 API
+
+[source,cpp]
+----
+// 이 클래스의 올바른 호출 순서는: connect() -> send()* -> close()
+class Connection {
+  bool connected_ = false;
+public:
+  void connect() { connected_ = true; std::cout << "connected\n"; }
+  void send(const std::string& msg) {
+    if (!connected_) { std::cout << "RUNTIME ERROR: send() before connect()!\n"; return; }
+    std::cout << "sent: " << msg << "\n";
+  }
+  void close() { connected_ = false; std::cout << "closed\n"; }
+};
+
+int main() {
+  Connection c;
+  c.send("hello");   // 버그: connect()보다 먼저 send()함. 컴파일은 잘 됨.
+  c.connect();
+  c.send("world");
+  c.close();
+  c.send("oops");    // 버그: close() 이후에 send()함. 이것도 컴파일은 잘 됨.
+}
+----
+
+실행하면 이렇습니다.
+
+[source]
+----
+RUNTIME ERROR: send() before connect()!
+connected
+sent: world
+closed
+RUNTIME ERROR: send() before connect()!
+----
+
+컴파일러는 이 코드에 아무 말도 하지 않습니다 — `Connection`은 지극히 평범한 클래스이고, `send`, `connect`, `close`는 지극히 평범한 멤버 함수라서, 문법적으로는 어떤 순서로 부르든 다 유효한 호출입니다. `connected_`라는 내부 플래그를 두고 `if`로 방어했으니 그나마 크래시는 안 나지만, 이건 **런타임에** 확인하는 것이지 **컴파일 타임에** 막는 게 아닙니다 — 방어 코드를 깜빡 빼먹으면(또는 `connected_` 체크할 상태가 세 개, 네 개로 늘어나서 실수로 케이스 하나를 놓치면) 그대로 정의되지 않은 동작(undefined behavior)으로 이어질 수 있는 클래스도 실전에는 얼마든지 있습니다.
+
+이건 정확히 `linear-and-session-types` 5장이 세션 타입으로 풀었던 문제입니다 — "다음에 뭘 해야 하는가"라는 **순서**를 타입이 전혀 표현하지 못하니, 순서를 어긴 프로그램도 똑같이 타입 검사를 통과합니다.
+
+== 이 책의 나머지가 하는 일: 이론을 타입으로 다시 인코딩하기
+
+`linear-and-session-types`가 지은 세 가지 아이디어를, 이 책은 C++23의 서로 다른 기능으로 되짚습니다.
+
+[cols="1,2,2"]
+|===
+| 원전 이론 | C++23 인코딩 | 이 책에서 다루는 장
+
+| 세션 타입 (`HasSType`, 5~7장) — "다음에 뭘 해야 하는지"가 타입에 나타난다
+| 타입 상태 패턴 — `connect()`를 부르면 `Connected` 타입의 객체가 **새로** 나오고, `send()`는 `Connected`에만 있다
+| 3~5장
+
+| 선형 타입 (`HasType`, 2~4장) — 값을 정확히 한 번만 쓸 수 있다
+| 이동 전용 타입 — 복사 생성자를 지우고, 이동하면 원본이 "빈 상태"가 되어 재사용이 막힌다
+| 6~8장
+
+| 범주론 (`category-theory-for-programmers` 등) — Functor/Monad로 효과를 합성한다
+| concepts로 `Functor`/`Monad` 요구사항을 정의하고, `std::optional`/`std::expected`가 그걸 만족함을 확인
+| 9~10장
+|===
+
+이 표를 앞으로 계속 다시 참조하게 될 것입니다 — 각 부의 첫 장에서 "원전 이론의 어떤 정리가, 이번엔 어떤 C++ 메커니즘으로 다시 나타나는가"를 먼저 짚고 코드로 들어갑니다.
+
+== 왜 "인코딩"이지 "이식"이 아닌가
+
+미리 정직하게 짚어둘 게 있습니다 — 이 책의 타입 상태 패턴은 `linear-and-session-types` 7장의 `session_progress`처럼 "교착 상태가 수학적으로 불가능하다"는 **정리**를 증명하지 않습니다. C++ 컴파일러의 타입 체커는 Lean4의 증명 보조 도구가 아니라서, "이 프로그램이 컴파일되면 항상 교착이 없다"를 형식적으로 증명해주지 않습니다 — 대신 "특정 종류의 실수(순서를 어긴 호출, 두 번 쓴 자원)를 하면 컴파일이 실패한다"는 **경험적 보장**을 손으로 짠 타입들이 제공합니다. 이 차이는 크지만, 실무에서는 그걸로 충분한 경우가 많습니다 — Rust의 빌림 검사기도 마찬가지로 "증명"이 아니라 "정적 분석 규칙"입니다. 3장부터는 이 경험적 보장을 실제로 컴파일러가 지켜준다는 걸 매번 "일부러 틀리게 짜서 컴파일이 실패하는지" 확인하는 방식으로 검증합니다.
+
+== 요약
+
+* `connect`-`send`-`close` 순서가 있는 지극히 평범한 클래스가, 순서를 어겨도 경고 하나 없이 컴파일된다는 걸 실제로 확인했습니다 — 방어 코드가 있어도 그건 런타임 검사일 뿐입니다.
+* `linear-and-session-types`의 세션 타입은 타입 상태 패턴으로, 선형 타입은 이동 전용 타입으로, 범주론은 concepts로 각각 이 책에서 재구현된다는 지도를 그렸습니다.
+* 이 책의 타입 기법들은 Lean4의 형식적 증명이 아니라 "일부러 틀리게 짜면 컴파일이 실패한다"는 경험적 보장이라는 것도 미리 정직하게 짚었습니다 — 이 보장은 이후 모든 장에서 실제 컴파일러 에러 메시지로 직접 검증합니다.
+
+2부에서는 이 지도의 첫 번째 칸 — 타입 상태 패턴으로 `Connection`의 호출 순서를 컴파일 타임에 강제하는 것 — 부터 시작합니다.
+// end::body[]

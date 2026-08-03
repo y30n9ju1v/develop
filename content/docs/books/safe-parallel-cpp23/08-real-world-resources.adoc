@@ -1,0 +1,117 @@
+---
+title: "8장: 실전 자원 관리"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["cpp23", "raii", "exception-safety", "book"]
+categories: ["books"]
+description: "이동 전용 핸들 두 개를 멤버로 가진 클래스가 손으로 쓴 특수 멤버 함수 하나 없이(Rule of Zero) 그대로 안전하게 이동되는 것과, 두 번째 자원 획득이 예외를 던져도 이미 획득한 첫 번째 자원이 스택 되감기로 자동 해제되는 것까지 실제로 확인하는 3부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-custom-move-only-handles/[7장: 커스텀 이동 전용 핸들] · 다음: link:../09-categorical-interfaces/[9장: concepts로 범주론적 인터페이스 짜기]_
+
+'''
+
+7장은 자원 하나를 감싸는 클래스를 손으로 짰습니다. 실전에서는 자원이 여러 개인 클래스가 훨씬 흔합니다 — 이 장에서는 자원 두 개를 가진 클래스를 다루면서, 3부 전체가 기대온 두 가지를 확인합니다: **합성이 공짜로 안전한가**, 그리고 **초기화 도중 실패해도 안전한가**.
+
+== Rule of Zero: 멤버가 이미 안전하면, 합성도 공짜로 안전하다
+
+[source,cpp]
+----
+// Rule of Zero: 특수 멤버 함수를 하나도 손으로 안 씀.
+// 컴파일러가 생성하는 이동 생성자/대입이 각 멤버를 그대로 이동시키고,
+// FileHandle 자신의 이동이 이미 옳으므로 그걸로 충분하다.
+class Session {
+  FileHandle control_;
+  FileHandle data_;
+public:
+  Session(int a, int b) : control_(a), data_(b) {}
+};
+----
+
+[source,cpp]
+----
+int main() {
+  Session s1(10, 11);
+  Session s2 = std::move(s1); // 컴파일러가 생성한 이동 생성자: control_, data_ 각각 이동
+  std::cout << "-- both sessions going out of scope now --\n";
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -Wall compose.cpp -o compose && ./compose
+opened fd 10
+opened fd 11
+-- both sessions going out of scope now --
+closed fd 11
+closed fd 10
+----
+
+주목할 점 셋입니다.
+
+1. `Session`에는 이동 생성자를 손으로 쓴 줄이 **하나도 없습니다** — 컴파일러가 자동으로 만들어준 이동 생성자가 `control_`과 `data_`를 각각 (7장에서 짠) `FileHandle`의 이동 생성자로 이동시킵니다.
+2. `s1`에서 `s2`로 이동할 때 `opened fd`가 **다시 찍히지 않습니다** — 진짜 이동이지 복사나 재생성이 아닙니다.
+3. 소멸은 `fd 11`, `fd 10` 순서(멤버 선언의 **역순**)로 정확히 한 번씩만 일어납니다 — C++ 표준이 못박은 규칙(멤버는 선언 순서로 생성되고, 소멸은 그 역순)이 그대로 지켜집니다.
+
+이게 **Rule of Zero**입니다 — 자원을 직접 다루는 저수준 클래스(`FileHandle`)에서만 7장처럼 Rule of Five를 손으로 쓰고, 그걸 조합하는 고수준 클래스(`Session`)는 아무것도 안 써도 안전이 "타고 올라옵니다". 이건 `linear-and-session-types` 2장의 `HasType.pair` 규칙(두 조각이 각자 선형이면 그 쌍도 선형이다)이 C++의 멤버별 자동 생성 규칙으로 그대로 나타난 것입니다.
+
+== 초기화 도중 실패해도 안전한가
+
+두 번째 자원을 만들다가 예외가 나면 어떻게 될까요 — 첫 번째 자원은 이미 만들어져 있는데, 생성자 자체가 끝까지 실행되지 못했으니 소멸자가 불릴 기회가 없어 보입니다.
+
+[source,cpp]
+----
+struct AlwaysThrows {
+  AlwaysThrows() { throw std::runtime_error("failed to acquire second resource"); }
+};
+
+class Session {
+  FileHandle control_;
+  AlwaysThrows data_; // 이 멤버를 만들다가 예외가 난다
+public:
+  Session(int a) : control_(a), data_() {}
+};
+
+int main() {
+  try {
+    Session s(10);
+  } catch (const std::exception& e) {
+    std::cout << "caught: " << e.what() << "\n";
+  }
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -Wall partial_init.cpp -o partial_init && ./partial_init
+opened fd 10
+closed fd 10
+caught: failed to acquire second resource
+----
+
+`control_`이 열리고(`opened fd 10`), `data_`를 만들다가 예외가 던져지는데, **`control_`의 소멸자가 자동으로 호출됩니다**(`closed fd 10`) — `Session`의 생성자 자체는 한 번도 완료되지 못했고 `Session` 객체 자체의 소멸자도 안 불렸는데도 그렇습니다. 이건 우연이 아니라 C++ 표준이 명시한 **스택 되감기(stack unwinding)** 규칙입니다 — 생성자 실행 도중 예외가 발생하면, 그 시점까지 **이미 완전히 생성된 멤버들의 소멸자만** 역순으로 호출됩니다.
+
+이게 RAII가 예외 안전성(exception safety)까지 "공짜로" 제공하는 이유입니다 — `malloc`/`free`나 수동 `lock`/`unlock` 페어로 자원을 관리했다면, 이 경로(두 번째 자원 획득 실패)를 프로그래머가 직접 `try`/`catch`로 짜서 첫 번째 자원을 명시적으로 해제해야 했을 것입니다. RAII를 쓰면 그 방어 코드를 아예 안 써도, 각 자원이 자기 소멸자만 올바르게 구현해두면 조합된 상위 객체가 저절로 예외 안전해집니다.
+
+== 3부를 마치며: 이 장이 확인한 것
+
+3부 전체가 `linear-and-session-types` 2~4장의 선형 타입을 C++의 이동 의미론으로 인코딩하는 여정이었습니다. 이 장에서 확인한 두 성질 — **합성이 안전하다**(Rule of Zero)와 **부분 실패에도 안전하다**(스택 되감기) — 은 사실 4장에서 증명하려다 정직하게 멈췄던 **대입 보조정리**가 실전에서 걱정했던 바로 그 문제들의 실용적 버전입니다. Lean4의 증명은 "컨텍스트를 쪼개는 서브텀이 서로 영향을 안 준다"는 걸 수학적으로 보장하려 했고, C++은 "각 멤버의 소멸자가 서로 독립적으로, 정확한 순서로 불린다"는 언어 명세로 실용적으로 같은 효과를 냅니다 — 증명은 아니지만, 컴파일러와 언어 표준이 그 규칙을 지킨다는 걸 믿을 수 있는 강한 보장입니다.
+
+== 팁 박스: C++17 환경이라면
+
+[NOTE]
+====
+Rule of Zero, 멤버 초기화 순서 규칙, 스택 되감기 예외 안전성은 전부 C++98 시절부터 있던 핵심 언어 규칙입니다 — 이 장은 C++17은 물론, 사실상 이 시리즈의 어떤 C++ 버전에서도 동일하게 동작합니다.
+
+한 가지 실전 팁 — C++17부터는 생성자 위임(delegating constructor, 사실 C++11부터) 대신 **집합 초기화(aggregate initialization)** 가 조금 더 유연해졌습니다(기반 클래스가 있는 애그리게잇도 허용 등 이후 표준에서 확장). `Session`처럼 멤버 초기화 순서만으로 자원을 관리하는 단순한 클래스라면, 생성자를 아예 안 쓰고 애그리게잇으로 만들어도 이 장이 보여준 소멸 순서 보장은 동일하게 적용됩니다 — 다만 이 책의 예제들처럼 생성자에서 로깅이나 유효성 검사를 하고 싶다면 애그리게잇은 맞지 않으므로, 이 장에서는 명시적 생성자를 계속 씁니다.
+====
+
+== 요약
+
+* 이동 전용 자원 두 개를 멤버로 가진 `Session`이, 특수 멤버 함수를 하나도 손으로 안 써도(Rule of Zero) 정확히 한 번씩, 선언의 역순으로 안전하게 소멸된다는 걸 실제로 확인했습니다.
+* 두 번째 멤버를 만들다가 예외가 나도, 이미 만들어진 첫 번째 멤버의 소멸자가 스택 되감기로 자동 호출된다는 걸 실제로 재현했습니다 — RAII가 예외 안전성까지 공짜로 제공하는 이유입니다.
+* 이 두 성질이, 4장에서 정직하게 멈췄던 Lean4의 대입 보조정리가 걱정했던 문제(서브텀들이 서로 영향을 안 준다)의 실용적인, 언어 명세로 보장되는 버전이라는 것도 짚었습니다.
+
+4부에서는 이 책의 마지막 이론 — 범주론 — 을 concepts로 인코딩합니다. `std::optional`과 `std::expected`가 실제로 Functor/Monad 인터페이스를 만족하는지 concepts로 직접 확인하고, 그걸로 병렬 파이프라인을 안전하게 합성합니다.
+// end::body[]

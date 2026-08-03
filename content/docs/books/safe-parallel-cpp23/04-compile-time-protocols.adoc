@@ -1,0 +1,144 @@
+---
+title: "4장: 컴파일 타임 프로토콜 검사 넓히기"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["cpp23", "typestate", "concepts", "book"]
+categories: ["books"]
+description: "정확히 N번 보내야 끝낼 수 있는 프로토콜을 템플릿 매개변수 하나로 타입에 새기고, C++20 requires 절로 '몇 번 남았는지'까지 컴파일 타임에 강제해, 너무 일찍 close()하면 실제로 컴파일이 실패하는 것까지 확인하는 2부의 중간 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-typestate-basics/[3장: 타입 상태 패턴 기초] · 다음: link:../05-channels/[5장: 뮤텍스와 채널에 적용하기]_
+
+'''
+
+3장은 "다음에 뭘 할 수 있는가"만 타입에 새겼습니다. `linear-and-session-types` 5장의 `SType`은 그보다 더 정밀했습니다 — `.send (.recv .end)`처럼 **정확히 몇 번, 어떤 순서로** 주고받아야 하는지까지 타입 하나에 통째로 새겼습니다. 이 장에서는 그 정밀함을 C++로 옮깁니다 — "정확히 N번 보내야 끝낼 수 있다"는 프로토콜을 만듭니다.
+
+== 템플릿 매개변수로 "몇 번 남았는지" 새기기
+
+[source,cpp]
+----
+template <int N> class Connected;
+
+class Disconnected {
+public:
+  template <int N>
+  [[nodiscard]] Connected<N> connect() &&;
+};
+
+template <int N>
+class Connected {
+public:
+  Connected() = default;
+
+  [[nodiscard]] Connected<N - 1> send(const std::string& msg) &&
+    requires (N > 0)
+  {
+    std::cout << "sent (" << N << " left before this): " << msg << "\n";
+    return Connected<N - 1>();
+  }
+
+  void close() && requires (N == 0) {
+    std::cout << "closed\n";
+  }
+};
+
+template <int N>
+Connected<N> Disconnected::connect() && {
+  std::cout << "connected, protocol requires exactly " << N << " sends\n";
+  return Connected<N>();
+}
+----
+
+`Connected<N>`의 `N`이 "앞으로 몇 번 더 보내야 하는가"를 나타냅니다. `send()`는 **`requires (N > 0)`** 일 때만 존재하고 `Connected<N-1>`을 반환하며, `close()`는 **`requires (N == 0)`** 일 때만 존재합니다 — C++20의 `requires` 절은 함수(또는 함수 템플릿)가 특정 조건을 만족하는 타입 인스턴스에만 유효하도록 제약을 겁니다. `N`이 0이 될 때까지는 `close()`가 아예 그 타입에 "없는 함수"이고, `N`이 0이면 그때부터 `send()`가 없는 함수가 됩니다.
+
+== 검증 1: 정확히 두 번 보내고 닫기
+
+[source,cpp]
+----
+int main() {
+  Disconnected d;
+  auto c2 = std::move(d).connect<2>();
+  auto c1 = std::move(c2).send("first");
+  auto c0 = std::move(c1).send("second");
+  std::move(c0).close();
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 typestate2.cpp -o typestate2 && ./typestate2
+connected, protocol requires exactly 2 sends
+sent (2 left before this): first
+sent (1 left before this): second
+closed
+----
+
+`connect<2>()`가 `Connected<2>`를 주고, `send`를 부를 때마다 `N`이 하나씩 줄어드는 새 타입(`Connected<1>`, `Connected<0>`)이 나오다가, `N == 0`이 됐을 때만 `close()`가 등장합니다 — 정확히 명세한 프로토콜 그대로 진행됩니다.
+
+== 검증 2: 너무 일찍 닫으면 — 컴파일이 실패한다
+
+[source,cpp]
+----
+int main() {
+  Disconnected d;
+  auto c2 = std::move(d).connect<2>();
+  std::move(c2).close(); // 버그: 아직 두 번 다 안 보냈는데 닫으려 함
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 typestate2_bad.cpp -o /tmp/w
+typestate2_bad.cpp:22:17: error: invalid reference to function 'close':
+constraints not satisfied
+   22 |   std::move(c2).close();
+      |                 ^
+typestate2_bad.cpp:16:29: note: because '2 == 0' (2 == 0) evaluated to false
+   16 |   void close() && requires (N == 0) { std::cout << "closed\n"; }
+      |                             ^
+----
+
+컴파일러가 **정확히 왜** 실패했는지까지 알려줍니다 — `'2 == 0' evaluated to false`. `Connected<2>`에는 `close()`라는 이름의 함수가 아예 존재하지 않는 것과 같은 취급을 받습니다(제약을 만족하지 못하는 템플릿 함수는 오버로드 후보에서 제외됩니다). `linear-and-session-types` 6장의 `HasSType.done`이 오직 `SType.end`에서만 유효했던 것과 정확히 같은 구조입니다 — "아직 안 끝났는데 끝난 척하는" 프로그램은 타입이 안 맞아서 거부됩니다.
+
+== 이게 정확히 무엇을 흉내 내는가, 그리고 무엇을 흉내 내지 않는가
+
+`linear-and-session-types` 7장의 `session_progress`는 "`S`와 `dual S`를 지키는 두 프로세스는 절대 교착에 빠지지 않는다"는 **일반 정리**였습니다 — 어떤 `S`이든, 어떤 구체적인 프로세스이든 상관없이 성립했습니다. 이 장의 `requires (N == 0)`은 그런 일반 정리가 아닙니다 — `Connected<N>`이라는 **특정 클래스 템플릿**을 짤 때 프로그래머가 "닫으려면 N이 0이어야 한다"는 조건을 손으로 박아 넣은 것이고, 그 조건이 실제로 "프로토콜을 정확히 지킨다"는 걸 보장하는지는 클래스를 짠 사람의 책임입니다. 만약 실수로 `close()`에 `requires (N >= 0)`(항상 참)이라고 썼다면, 이 검사는 아무것도 안 막아줍니다 — 컴파일러가 대신 증명해주는 게 아니라, 프로그래머가 짠 제약을 컴파일러가 **기계적으로 확인**해줄 뿐입니다. 이건 2장에서 이미 예고한 "인코딩이지 이식이 아니다"라는 구분이 실제 코드로 나타난 지점입니다.
+
+== 팁 박스: C++17 환경이라면
+
+[NOTE]
+====
+`requires` 절은 **C++20**부터입니다. C++17에는 없으므로 `enable_if`(SFINAE, "치환 실패는 에러가 아니다")로 흉내 냅니다.
+
+[source,cpp]
+----
+template <int N>
+class Connected {
+public:
+  Connected() = default;
+
+  template <int M = N, typename std::enable_if<(M > 0), int>::type = 0>
+  Connected<N - 1> send(const std::string& msg) && {
+    std::cout << "sent: " << msg << "\n";
+    return Connected<N - 1>();
+  }
+
+  template <int M = N, typename std::enable_if<(M == 0), int>::type = 0>
+  void close() && {
+    std::cout << "closed\n";
+  }
+};
+----
+
+원리는 같습니다 — `M > 0`이 거짓이면 `std::enable_if<false, int>::type`이 존재하지 않는 타입이 되어 그 `send` 템플릿 자체가 오버로드 후보에서 조용히 빠집니다("substitution failure is not an error"). 이걸 `-std=c++17`로 컴파일해서 정확히 같은 두 번 보내고 닫는 시나리오가 똑같이 동작한다는 걸 확인했습니다. 다만 실무 체감 차이는 분명합니다 — `enable_if` 버전이 제약을 어기면 나오는 에러 메시지는 "어떤 오버로드도 안 맞다"는 길고 읽기 힘든 템플릿 에러 더미인 경우가 많은 반면, `requires` 버전은 3장·4장에서 봤듯 "정확히 어떤 조건이 거짓이었는지"를 짚어주는 짧고 읽기 좋은 메시지를 냅니다 — 이게 C++20 concepts가 도입된 가장 큰 실용적 이유 중 하나입니다.
+====
+
+== 요약
+
+* 프로토콜에서 "앞으로 몇 번 더 해야 하는가"를 템플릿 매개변수(`Connected<N>`)로 타입에 새기고, `requires (N > 0)`/`requires (N == 0)`으로 `send`/`close`가 올바른 시점에만 존재하도록 제약했습니다.
+* 정확한 시나리오는 통과하고, 너무 일찍 `close()`하는 시나리오는 "`2 == 0`이 거짓"이라는 정확한 이유와 함께 컴파일이 실패한다는 걸 실제로 확인했습니다.
+* 이 검사는 `session_progress` 같은 일반 정리가 아니라 프로그래머가 짜 넣은 제약을 컴파일러가 기계적으로 확인해주는 것이라는 걸 다시 짚었고, `requires`(C++20)가 없는 C++17에서는 `enable_if`로 같은 효과를 내되 에러 메시지의 품질이 떨어진다는 것도 실제 코드로 확인했습니다.
+
+다음 장에서는 이 타입 상태 패턴을 장난감 프로토콜이 아니라 **실제로 유용한 것**(스코프 락, 간단한 스레드 안전 채널)에 적용합니다.
+// end::body[]

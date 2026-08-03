@@ -1,0 +1,160 @@
+---
+title: "9장: concepts로 범주론적 인터페이스 짜기"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["cpp23", "concepts", "functor", "monad", "book"]
+categories: ["books"]
+description: "concept으로 최소한의 Functor 인터페이스를 정의하고 std::optional/std::expected가 C++23의 새 .transform()/.and_then() 멤버로 그 요구사항을 실제로 만족한다는 걸 static_assert로 확인하며, 항등 법칙과 에러 전파(short-circuit)까지 실제 코드로 검증하는 4부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-real-world-resources/[8장: 실전 자원 관리] · 다음: link:../10-parallel-pipelines/[10장: 범주론적 인터페이스로 병렬 파이프라인 합성하기]_
+
+'''
+
+2~3부는 `linear-and-session-types`의 선형 타입·세션 타입을 옮겼습니다. 마지막 4부는 이 사이트의 세 번째 갈래 — 범주론(`category-theory-for-programmers` 등이 다룬 Functor, Monad) — 을 C++23의 **concepts** 로 옮깁니다.
+
+== concept으로 "Functor"를 정의하기
+
+`category-theory-for-programmers` 1-7장(Functors)은 Functor를 "구조를 보존하면서 안의 값에 함수를 적용하는 것"이라고 정의했습니다. C++로 옮기면 — "`transform`이라는, 안의 값에 함수를 적용해서 같은 모양의 새 컨테이너를 돌려주는 메서드가 있는 것"입니다.
+
+[source,cpp]
+----
+template <typename M>
+concept Functor = requires(M m) {
+  { m.transform([](auto x) { return x; }) };
+};
+----
+
+`concept`은 "이 요구사항(`requires` 블록 안의 표현식이 실제로 컴파일되는가)을 만족하는 타입만 이 이름으로 부를 수 있다"는 컴파일 타임 술어입니다. `Functor<M>`은 "`M` 타입의 값에 `.transform(함수)`를 부를 수 있다"는 뜻입니다.
+
+== 검증 1: `std::optional`과 `std::expected`가 실제로 Functor다
+
+[source,cpp]
+----
+static_assert(Functor<std::optional<int>>);
+static_assert(Functor<std::expected<int, std::string>>);
+static_assert(!Functor<int>); // 평범한 int에는 .transform()이 없다 -- Functor가 아니다
+----
+
+세 `static_assert` 모두 통과합니다 — 컴파일 시점에 확인됩니다. C++23의 `std::optional`과 `std::expected`는 **둘 다 새로 `.transform()` 멤버 함수를 얻었습니다**(이전 C++ 표준에는 없었습니다 — 아래 팁 박스에서 다시 다룹니다). 실제로 써봅시다.
+
+[source,cpp]
+----
+std::optional<int> a = 21;
+auto b = a.transform([](int x) { return x * 2; });
+std::cout << "optional: " << *b << "\n";
+
+std::expected<int, std::string> e = 21;
+auto e2 = e.transform([](int x) { return x * 2; });
+std::cout << "expected: " << *e2 << "\n";
+
+std::expected<int, std::string> err = std::unexpected("boom");
+auto err2 = err.transform([](int x) { return x * 2; });
+std::cout << "expected error propagated: " << (err2.has_value() ? "has value" : err2.error()) << "\n";
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 functor_concept.cpp -o functor_concept && ./functor_concept
+optional: 42
+expected: 42
+expected error propagated: boom
+----
+
+`err`(에러 상태)에 `.transform()`을 걸면, 함수는 아예 호출되지 않고 에러가 **그대로 전파**됩니다(`err2.error()`가 원래 `"boom"`을 그대로 갖고 있습니다) — `category-theory-for-programmers`가 Functor를 "구조를 보존한다"고 했던 그 성질입니다. 값이 있으면 값에 함수를 적용하고, 값이 없으면(에러거나 `nullopt`거나) 그 "없음"이라는 구조 자체는 그대로 유지됩니다.
+
+== Functor 법칙을 실제로 확인하기
+
+Functor는 아무 `transform`이나 다 되는 게 아니라 법칙을 지켜야 합니다 — 그중 항등 법칙(identity law): `m.transform(항등함수)`는 `m` 자신과 같아야 합니다.
+
+[source,cpp]
+----
+std::optional<int> y = 7;
+auto y2 = y.transform([](int v) { return v; });
+std::cout << "functor identity law holds: " << (y == y2) << "\n";
+----
+
+[source]
+----
+functor identity law holds: 1
+----
+
+`std::optional`의 `==`는 값 비교이므로, `y2`가 정말로 `y`와 같은 값(`7`)이라는 걸 확인합니다 — `concept Functor`가 요구하는 건 "`.transform()`이 존재한다"는 문법적 조건뿐이지만, 그 뒤에 있는 **의미론적 법칙**(항등, 결합)까지는 `concept`이 검사해주지 않는다는 것도 짚어둘 만합니다. 이건 2장에서 이미 짚은 "인코딩이지 이식이 아니다"의 또 다른 사례입니다 — `concept`은 "이 함수가 있다"는 걸 컴파일 타임에 강제하지만, "이 함수가 Functor 법칙을 지킨다"는 건 여전히 프로그래머의 책임이자, 테스트로 확인해야 할 몫입니다.
+
+== Monad: `and_then`으로 실패를 자동으로 전파하기
+
+Functor보다 한 단계 더 나가면 Monad입니다 — `linear-and-session-types` 서문이 짚었듯, "효과를 값으로 만들고 합성하는" 도구입니다. `std::optional::and_then`이 정확히 이 역할을 합니다.
+
+[source,cpp]
+----
+std::optional<int> safe_div(int a, int b) {
+  if (b == 0) return std::nullopt;
+  return a / b;
+}
+
+std::optional<int> x = 100;
+auto result = x.and_then([](int v) { return safe_div(v, 5); })
+               .and_then([](int v) { return safe_div(v, 2); });
+std::cout << "100/5/2 = " << *result << "\n";
+
+auto result2 = x.and_then([](int v) { return safe_div(v, 0); })
+                .and_then([](int v) { std::cout << "this must not print\n"; return safe_div(v, 2); });
+std::cout << "has_value after div-by-zero chain: " << result2.has_value() << "\n";
+----
+
+[source]
+----
+100/5/2 = 10
+has_value after div-by-zero chain: 0
+----
+
+`100 / 5 / 2 = 10`은 예상대로입니다. 두 번째 체인은 `100 / 0`에서 `nullopt`이 되고, **그다음 `and_then`의 람다는 아예 실행되지 않습니다**("this must not print"가 실제로 출력되지 않았습니다) — 이게 Monad의 핵심 힘입니다. `safe_div`가 `std::optional<int>`를 돌려주므로 `.transform()`을 썼다면 `std::optional<std::optional<int>>`(중첩된 옵셔널)이 됐을 텐데, `and_then`은 그 중첩을 자동으로 "평평하게(flatten)" 만들어서 매번 `if (!result) return nullopt;`를 손으로 안 써도 실패가 자동으로 전파되게 합니다.
+
+== 팁 박스: C++17 환경이라면
+
+[NOTE]
+====
+**`std::optional::transform`/`and_then`은 C++23의 라이브러리 추가분입니다** — `concept`(언어 기능, C++20)과는 별개로, 표준 라이브러리 자체가 C++23이 되기 전까지는 이 멤버 함수들이 아예 없었습니다. 그러니 C++17 환경이라면 두 가지를 따로 흉내 내야 합니다.
+
+`concept`이 없으니 `void_t` 기반 SFINAE 트레잇으로 "이 타입에 `.transform()`이 있는가"를 검사합니다.
+
+[source,cpp]
+----
+struct identity_fn { template <typename T> T operator()(T x) const { return x; } };
+
+template <typename M, typename = void>
+struct is_functor : std::false_type {};
+
+template <typename M>
+struct is_functor<M, std::void_t<decltype(std::declval<M>().transform(identity_fn{}))>>
+    : std::true_type {};
+----
+
+(람다는 C++17에서 "평가되지 않는 문맥"(`decltype` 안)에 못 들어가므로, 대신 함수 객체 구조체 `identity_fn`을 씁니다 — 실제로 람다를 넣어 컴파일해보면 "lambda expression in an unevaluated operand"라는 에러가 나는 걸 확인했습니다.) 그리고 재미있게도 이 트레잇을 `std::optional<int>`에 적용하면 — **C++17 환경에서는 `false`가 나옵니다.** `std::optional` 자체는 C++17부터 있었지만 `.transform()` 멤버는 C++23이 되어서야 붙었기 때문입니다.
+
+[source,cpp]
+----
+static_assert(!is_functor<std::optional<int>>::value, "pre-C++23 std::optional has no .transform()");
+
+template <typename T>
+struct MyBox {
+  T value;
+  template <typename F>
+  auto transform(F f) const { return MyBox<decltype(f(value))>{f(value)}; }
+};
+static_assert(is_functor<MyBox<int>>::value, "MyBox has .transform() so it counts");
+----
+
+우리가 직접 `.transform()`을 가진 `MyBox`를 만들면 그건 트레잇을 통과합니다 — `is_functor`라는 검사 메커니즘 자체는 C++17에서도 똑같이 동작하지만, **검사 대상(`std::optional`)이 그 시절엔 아직 Functor가 아니었다**는 게 이 팁 박스의 진짜 요점입니다. C++17 프로젝트에서 `std::optional`을 Functor처럼 쓰고 싶다면, `.transform()`을 흉내 내는 자유 함수(`transform_optional(opt, f)`)를 직접 만들어야 합니다.
+====
+
+== 요약
+
+* `concept Functor`로 "`.transform()`이 있는 타입"을 정의하고, C++23의 `std::optional`/`std::expected`가 실제로 그 요구사항을 만족한다는 걸 `static_assert`로 컴파일 타임에 확인했습니다.
+* `.transform()`이 에러/빈 상태에서는 함수를 호출하지 않고 그 상태를 그대로 보존한다는 것(Functor의 구조 보존)과, 항등 법칙이 실제로 성립한다는 것도 코드로 검증했습니다 — 다만 `concept`은 문법만 강제하지 의미론적 법칙까지는 강제하지 않는다는 것도 짚었습니다.
+* `.and_then()`(Monad의 bind)이 실패를 자동으로 전파하며 중첩된 옵셔널을 평평하게 만든다는 걸, 두 번째 나눗셈이 0으로 나누기 때문에 그다음 단계가 정말로 스킵된다는 실행 결과로 확인했습니다.
+* C++17에는 `.transform()`/`.and_then()` 자체가 없어서, `concept` 대신 `void_t` SFINAE 트레잇으로 검사 메커니즘은 흉내 낼 수 있지만 `std::optional`은 그 시절엔 진짜로 Functor가 아니었다는 것까지 실제 코드로 확인했습니다.
+
+마지막 장에서는 이 Functor/Monad 인터페이스로 **병렬** 파이프라인을 합성합니다 — `std::async`/`std::future`와 이 장의 `and_then`을 조합해서, 실패가 안전하게 전파되는 병렬 작업 체인을 짭니다.
+// end::body[]

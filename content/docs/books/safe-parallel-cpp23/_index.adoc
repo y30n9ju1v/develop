@@ -1,0 +1,96 @@
+---
+title: "이론을 C++23으로 옮기다: 안전한 병렬 프로그래밍"
+draft: false
+---
+
+선형 타입·세션 타입·범주론이라는 이론을 실제 C++23 언어 기능(타입 상태 패턴, 이동 전용 타입, concepts)으로 인코딩해 컴파일 타임에 병렬 프로그래밍 버그를 잡는 법을 다루는 독립적인 입문서입니다. 왜 안전하지 않은가(1부) → 타입 상태로 세션 타입 흉내내기(2부) → 이동 전용 타입으로 선형성 흉내내기(3부) → 범주론적 인터페이스(4부) 순서로 쌓아 올립니다.
+
+이 책의 모든 코드는 이 세션 환경에 실제로 설치된 Apple Clang 21(`-std=c++23`)로 컴파일하고 실행해서 검증했습니다 — 컴파일이 안 되는 걸 노린 예제는 실제 컴파일러 에러 메시지를 그대로 인용하고, 데이터 경쟁·이중 해제는 ThreadSanitizer/AddressSanitizer로 실제 검출한 리포트를 그대로 보여줍니다. 각 장 끝에는 "C++17 환경이라면" 팁 박스를 두어, 그 장의 핵심 기법을 C++17로 근사하는 법과 그 근사가 잃는 것을 실제로 컴파일해 검증한 코드로 정리합니다.
+
+이 책은 `linear-and-session-types`(선형 타입·세션 타입의 Lean4 증명)와 이 사이트의 범주론 책들을 실무 언어로 잇는 다리입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 이론을 C++23으로 옮기다]*
+
+*1부: 왜 안전하지 않은가*
+
+[start=1]
+. *link:01-data-races/[데이터 경쟁을 실제로 일으켜 보기]*
+. *link:02-what-types-miss/[C++ 타입 시스템이 못 잡는 것]*
+
+*2부: 타입 상태로 세션 타입 흉내내기*
+
+[start=3]
+. *link:03-typestate-basics/[타입 상태 패턴 기초]*
+. *link:04-compile-time-protocols/[컴파일 타임 프로토콜 검사 넓히기]*
+. *link:05-channels/[뮤텍스와 채널에 적용하기]*
+
+*3부: 이동 전용 타입으로 선형성 흉내내기*
+
+[start=6]
+. *link:06-move-only-types/[unique_ptr와 RAII]*
+. *link:07-custom-move-only-handles/[커스텀 이동 전용 핸들]*
+. *link:08-real-world-resources/[실전 자원 관리]*
+
+*4부: 범주론적 인터페이스*
+
+[start=9]
+. *link:09-categorical-interfaces/[concepts로 범주론적 인터페이스 짜기]*
+. *link:10-parallel-pipelines/[범주론적 인터페이스로 병렬 파이프라인 합성하기]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-data-races.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-what-types-miss.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-typestate-basics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-compile-time-protocols.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-channels.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-move-only-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-custom-move-only-handles.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-real-world-resources.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-categorical-interfaces.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-parallel-pipelines.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]

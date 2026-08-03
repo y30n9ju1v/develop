@@ -1,0 +1,145 @@
+---
+title: "5장: 뮤텍스와 채널에 적용하기"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["cpp23", "typestate", "mutex", "channel", "book"]
+categories: ["books"]
+description: "std::lock_guard가 이미 타입 상태 원리(생성자가 잠그고 소멸자가 푼다)로 락 실수를 원천 봉쇄한다는 걸 확인하고, std::promise/future의 '한 번만 값을 설정한다'는 계약이 런타임 예외로만 지켜진다는 걸 실제로 재현한 뒤, 그 계약을 컴파일 타임에 강제하는 원샷 채널을 3~4장의 타입 상태 패턴으로 직접 짜보는 2부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-compile-time-protocols/[4장: 컴파일 타임 프로토콜 검사 넓히기] · 다음: link:../06-move-only-types/[6장: unique_ptr와 RAII]_
+
+'''
+
+3~4장에서는 장난감 프로토콜(`connect`-`send`-`close`)로 타입 상태 패턴을 익혔습니다. 이 장에서는 실전에서 매일 쓰는 두 가지 — 뮤텍스와 채널 — 에 같은 원리를 적용합니다. 흥미롭게도, 뮤텍스 쪽은 **표준 라이브러리가 이미 타입 상태 원리를 쓰고 있다는 걸 확인**하는 장이고, 채널 쪽은 **표준 라이브러리가 타입 상태 원리를 안 쓰고 있어서 우리가 직접 강화해야 하는** 장입니다.
+
+== `std::lock_guard`는 이미 타입 상태다
+
+[source,cpp]
+----
+int main() {
+  std::mutex m;
+  {
+    std::lock_guard<std::mutex> g(m); // 생성자가 잠근다
+    std::cout << "locked\n";
+  } // 소멸자가 푼다 — 잊을 방법도, 두 번 풀 방법도 없다
+  std::cout << "unlocked automatically\n";
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 lockguard.cpp -o lockguard && ./lockguard
+locked
+unlocked automatically
+----
+
+`std::lock_guard`에는 `unlock()`이라는 멤버 함수가 **아예 없습니다** — 락을 푸는 유일한 방법은 `g`가 스코프를 벗어나 소멸자가 호출되는 것뿐입니다. 이건 1장의 `std::jthread`가 소멸자로 "join을 잊는" 버그를 막은 것과 똑같은 원리이고, 3장의 타입 상태 패턴이 "다음 상태로 가는 유일한 경로만 열어둔다"고 한 것의 극단적인(그리고 가장 실용적인) 형태입니다 — 상태가 딱 둘(잠김/안 잠김)뿐이고, 전이가 생성자·소멸자에 묶여 있어서 실수할 방법 자체가 없습니다. `std::unique_lock`도 비슷하지만 `unlock()`/`lock()`을 명시적으로 다시 부를 수 있게 유연성을 열어둔 버전입니다 — 유연성을 더 준 만큼, "두 번 unlock 안 하기"는 다시 프로그래머 책임으로 돌아옵니다.
+
+== `std::promise`/`std::future`: "한 번만"이 런타임 계약인 경우
+
+C++ 표준 라이브러리에도 "정확히 한 번만 값을 설정한다"는 계약을 가진 타입이 있습니다 — `std::promise`입니다. 이게 타입 상태로 강제되는지 실제로 확인해봅시다.
+
+[source,cpp]
+----
+int main() {
+  std::promise<int> p;
+  p.set_value(42);
+  try {
+    p.set_value(43); // 두 번째 set_value — 컴파일은 잘 됨
+  } catch (const std::future_error& e) {
+    std::cout << "runtime exception: " << e.what() << "\n";
+  }
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 promise_double.cpp -o promise_double && ./promise_double
+runtime exception: The state of the promise has already been set.
+----
+
+`set_value`를 두 번 부르는 코드는 **컴파일이 잘 됩니다** — `std::promise<int>::set_value`는 `lock_guard`의 `unlock()`처럼 "존재하지 않는 함수"가 아니라, 그냥 평범하게 호출 가능한 멤버 함수입니다. 대신 런타임에 `std::future_error` 예외를 던져서 계약 위반을 알립니다. 이건 표준 라이브러리 설계자들이 의도적으로 고른 절충입니다 — `std::promise`는 예외 처리 인프라(`set_exception`도 있습니다) 위에서 동작하도록 설계됐고, "한 번만"을 타입으로 강제하려면 3~4장 스타일의 소비형 API가 필요한데 그러면 `std::promise`를 다른 스레드로 넘기는 실전 사용 패턴과 API가 달라졌을 것입니다.
+
+== 우리가 직접 짜면: 컴파일 타임에 강제되는 원샷 채널
+
+`std::promise`가 런타임에만 강제하는 걸, 3~4장의 소비형 타입 상태로 다시 짜면 컴파일 타임으로 끌어올릴 수 있습니다.
+
+[source,cpp]
+----
+struct Sent {}; // 종료 상태: 더 할 일이 없다
+
+class OneShotSender {
+public:
+  [[nodiscard]] Sent send(int value) && {
+    std::cout << "sent " << value << "\n";
+    return Sent{};
+  }
+};
+----
+
+[source,cpp]
+----
+int main() {
+  OneShotSender s;
+  Sent done = std::move(s).send(42);
+  (void)done;
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 oneshot.cpp -o oneshot && ./oneshot
+sent 42
+----
+
+정상적으로 한 번 보내면 통과합니다. 이제 `std::promise`였다면 런타임 예외로만 걸렸을 "두 번 보내기"를 시도해봅시다.
+
+[source,cpp]
+----
+int main() {
+  OneShotSender s;
+  auto done = std::move(s).send(42);
+  auto again = std::move(done).send(43); // 버그: Sent에는 send()가 없다
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 oneshot_bad.cpp -o /tmp/o
+oneshot_bad.cpp:10:32: error: no member named 'send' in 'Sent'
+   10 |   auto again = std::move(done).send(43);
+      |                ~~~~~~~~~~~~~~~ ^
+1 error generated.
+----
+
+`Sent`는 아무 멤버 함수도 없는 빈 구조체이므로, 보내고 난 뒤에는 그 값으로 할 수 있는 일이 정말로 아무것도 없습니다 — "두 번 보내기"는 프로그램을 실행해볼 필요도 없이, 그 시도를 코드로 적는 순간 컴파일이 거부됩니다.
+
+== 언제 어느 쪽을 고를 것인가
+
+이 장이 보여준 두 사례는 실전 설계에서 반복되는 트레이드오프를 그대로 보여줍니다.
+
+* **`std::lock_guard`/`std::jthread` 방식** (소멸자에 전이를 묶는다) — 상태가 단순하고(둘뿐이고) 그 전이가 스코프와 자연스럽게 맞아떨어질 때 가장 좋습니다. API가 아주 단순해집니다.
+* **`std::promise` 방식** (런타임 예외로 계약을 강제한다) — 값이 스레드 경계를 넘나들거나, API가 이미 정해져 있어서 소비형으로 다시 설계하기 어려울 때 현실적인 선택입니다. 대신 "계약 위반"이 반드시 테스트나 실행으로 드러나야 잡힙니다.
+* **3~4장의 소비형 타입 상태 방식** (`OneShotSender`) — 새로 설계하는 API이고, 계약 위반을 컴파일 타임에 잡는 게 값어치가 있을 때(예: 라이브러리를 많은 사람이 쓸 때) 가장 강력합니다. 대신 API가 "한 번 쓰고 버리는" 형태가 되어, 반복 호출이 자연스러운 상황에는 안 맞습니다.
+
+`linear-and-session-types` 8장이 짚었던 것과 같은 결론입니다 — 순수한 이론(정확히 한 번, 컴파일 타임에 강제)은 실전에서 항상 절충됩니다. 이 장은 그 절충을 실제 표준 라이브러리 코드(`std::promise`)와 나란히 놓고 눈으로 확인한 것입니다.
+
+== 팁 박스: C++17 환경이라면
+
+[NOTE]
+====
+`std::lock_guard`와 `std::promise`/`std::future`는 **둘 다 C++11**부터 있었습니다 — 이 장의 표준 라이브러리 부분은 C++17에서 전혀 안 바뀝니다.
+
+`OneShotSender`도 3장에서 확인했듯 rvalue 한정 멤버 함수와 `\[[nodiscard]]`만 쓰므로 C++17 그대로 컴파일됩니다. 굳이 짚을 차이가 있다면 — `std::unique_lock`을 `std::scoped_lock`(C++17에서 새로 추가, 여러 뮤텍스를 한 번에 데드락 없이 잠그는 락 가드)으로 대체할지 여부입니다. 이 책에서는 다루지 않지만, 여러 뮤텍스를 동시에 잠가야 하는 실전 코드에서는 `std::lock_guard`를 여러 개 따로 쓰는 대신 `std::scoped_lock`(가변 인자 템플릿으로 여러 뮤텍스를 한 번에 받아 락 순서로 인한 교착을 방지하는 알고리즘까지 내장) 하나를 쓰는 게 C++17부터 표준 관용구입니다.
+====
+
+== 요약
+
+* `std::lock_guard`(와 1장의 `std::jthread`)는 이미 "전이를 생성자·소멸자에 묶는" 타입 상태 원리를 쓰고 있어서, 락을 잊거나 두 번 푸는 버그를 원천 봉쇄한다는 걸 확인했습니다.
+* `std::promise::set_value`를 두 번 부르는 게 컴파일은 되고 런타임 예외로만 걸린다는 걸 실제로 재현해, 표준 라이브러리조차 "한 번만"을 항상 컴파일 타임에 강제하지는 않는다는 걸 확인했습니다.
+* 3~4장의 소비형 타입 상태 패턴으로 직접 짠 `OneShotSender`는 같은 계약(한 번만 보낸다)을 컴파일 타임에 강제한다는 걸 보였고, 세 접근(소멸자 바인딩, 런타임 예외, 소비형 타입) 중 언제 무엇을 고를지 정리했습니다.
+
+3부에서는 이 책의 두 번째 이론 — 선형 타입 — 을 이동 전용 타입으로 인코딩합니다. 3장에서 정직하게 인정했던 "같은 변수에 `std::move`를 두 번 부르는" 구멍을, 실제 자원(포인터, 파일 핸들)을 다룰 때는 얼마나 메울 수 있는지부터 시작합니다.
+// end::body[]
