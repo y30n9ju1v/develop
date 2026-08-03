@@ -1,0 +1,183 @@
+---
+title: "5장: SO(3)의 지수 사상과 로그 사상"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["lie-group", "so3", "exponential-map", "rodrigues", "book"]
+categories: ["books"]
+description: "로드리게스 공식으로 so(3)의 각속도 벡터를 SO(3) 회전 행렬로 보내는 지수 사상과 그 역함수인 로그 사상을 NumPy로 직접 구현하고, 왕복 변환과 특이점(θ=0, θ=π) 근처의 수치 안정성을 검증하는 5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-lie-groups-and-lie-algebras/[4장: 리 군과 리 대수란 무엇인가] · 다음: link:../06-angular-velocity-and-so3/[6장: 각속도와 so(3)]_
+
+'''
+
+4장에서 `SO(3)`의 리 대수 `so(3)`(반대칭 행렬, `R^3`과 동일시)을 정의했지만, `so(3)`의 원소(각속도)를 실제 회전 행렬로 바꾸는 방법은 아직 없었습니다. 이 장에서는 이 방향의 다리 — **지수 사상(exponential map)** `exp: so(3) → SO(3)` — 과 그 역함수인 **로그 사상(logarithm map)** `log: SO(3) → so(3)`을 구현합니다. 이 두 사상 덕분에, 회전을 다룰 때 리 군과 리 대수를 자유롭게 오갈 수 있게 됩니다.
+
+== 지수 사상: 각속도를 회전으로
+
+행렬 지수함수 `exp(K) = I + K + K²/2! + K³/3! + ...`(테일러 급수)를 반대칭 행렬 `K = skew(w)`에 적용하면, 놀랍게도 무한급수가 삼각함수로 정리되는 닫힌 형태 공식이 나옵니다 — **로드리게스 공식(Rodrigues' formula)**입니다.
+
+[source,python]
+----
+import numpy as np
+
+def skew(w):
+    return np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+
+def exp_so3(w):
+    theta = np.linalg.norm(w)
+    if theta < 1e-8:
+        return np.eye(3) + skew(w)              # 테일러 1차 근사(특이점 회피)
+    axis = w / theta
+    K = skew(axis)
+    return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+----
+
+`w`는 `so(3)`의 원소를 `R^3` 벡터로 표현한 것으로, 방향은 회전축, 크기(`θ = |w|`)는 회전 각도를 나타냅니다. 결과가 정말 `SO(3)`에 속하는지, 그리고 익숙한 `Rz`와 일치하는지 확인합니다.
+
+[source,python]
+----
+def Rz(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+R = exp_so3(np.array([0.0, 0.0, 0.9]))
+print("in SO(3):", np.allclose(R.T @ R, np.eye(3)), np.isclose(np.linalg.det(R), 1))
+print("matches Rz(0.9):", np.allclose(R, Rz(0.9)))
+----
+
+[source]
+----
+in SO(3): True True
+matches Rz(0.9): True
+----
+
+핵심은 이겁니다 — `exp_so3`가 반환하는 행렬은 **정의상 항상** `SO(3)`에 정확히 속합니다. 2장에서 오일러 적분으로 회전을 누적할 때 정규직교성이 서서히 깨졌던 것과 달리, 지수 사상으로 각속도를 회전에 반영하면 애초에 `SO(3)`을 벗어날 수가 없습니다 — 삼각함수(`sin`, `cos`)로 정확히 계산되기 때문입니다.
+
+== θ=0 근처의 특이점: 테일러 근사로 우회하기
+
+`theta`가 `0`에 가까우면 `K = skew(w/theta)`에서 `0`으로 나누는 문제가 생깁니다. 코드에서 이미 `theta < 1e-8`일 때 `I + K`(1차 테일러 근사, `K = skew(w)` 그대로)로 우회하고 있는데, 이게 실제로 정확한지 확인합니다.
+
+[source,python]
+----
+w_small = np.array([1e-9, 2e-9, -1e-9])
+R_small = exp_so3(w_small)
+print(np.allclose(R_small, np.eye(3) + skew(w_small), atol=1e-12))
+----
+
+[source]
+----
+True
+----
+
+각속도가 극히 작을 때는 `sin(θ) ≈ θ`, `1-cos(θ) ≈ θ²/2 ≈ 0`이 되어 고차항이 무시할 만큼 작아지므로, `1`차 근사(`I + skew(w)`)로 충분합니다. 이 분기 처리가 없으면 `theta`가 `0`일 때 `axis = w/theta`에서 `0/0`이 발생해 코드가 깨집니다.
+
+== 로그 사상: 회전을 각속도로
+
+반대 방향 — 임의의 `SO(3)` 행렬 `R`을 받아, `exp_so3`로 그 `R`을 만들어내는 각속도 벡터 `w`를 되찾는 것 — 이 로그 사상입니다. 회전 행렬의 대각합(trace)이 각도를, `R - R^T`(반대칭 성분)가 축을 알려줍니다.
+
+[source,python]
+----
+def log_so3(R):
+    cos_theta = np.clip((np.trace(R) - 1) / 2, -1, 1)
+    theta = np.arccos(cos_theta)
+    if theta < 1e-8:
+        return np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]) / 2
+    w_hat = (R - R.T) / (2 * np.sin(theta))
+    w_axis = np.array([w_hat[2, 1], w_hat[0, 2], w_hat[1, 0]])
+    return w_axis * theta
+----
+
+`trace(R) = 1 + 2cos(θ)`라는 로드리게스 공식의 성질에서 `θ`를 역산하고, 반대칭 성분 `(R - R^T)/2`가 `sin(θ) · skew(axis)`와 같다는 성질에서 축을 역산합니다.
+
+== 왕복 변환 검증: exp(log(R)) = R, log(exp(w)) = w
+
+무작위 각속도로 왕복이 정확히 성립하는지 확인합니다.
+
+[source,python]
+----
+rng = np.random.default_rng(1)
+w = rng.standard_normal(3) * 0.8
+R = exp_so3(w)
+w_back = log_so3(R)
+print("log(exp(w)) == w:", np.allclose(w, w_back))
+
+R2 = exp_so3(rng.standard_normal(3) * 0.5)
+w2 = log_so3(R2)
+R2_back = exp_so3(w2)
+print("exp(log(R)) == R:", np.allclose(R2, R2_back))
+----
+
+[source]
+----
+log(exp(w)) == w: True
+exp(log(R)) == R: True
+----
+
+지수 사상과 로그 사상이 서로 정확한 역함수라는 것을 수치로 확인했습니다. 다만 이 왕복이 항상 무조건 성립하는 건 아닙니다 — 다음 절에서 그 한계를 봅니다.
+
+== θ=π 근처: 로그 사상의 특이점
+
+로그 사상 공식에는 `sin(θ)`로 나누는 부분이 있습니다. `θ`가 `π`(180도)에 가까워지면 `sin(θ)`가 `0`에 가까워지므로 수치적으로 불안정해집니다.
+
+[source,python]
+----
+axis = np.array([0.0, 0.0, 1.0])
+w_pi = axis * (np.pi - 1e-6)     # 180도에 아주 가까운 회전
+R_pi = exp_so3(w_pi)
+w_pi_back = log_so3(R_pi)
+print(w_pi)
+print(w_pi_back)
+print(np.allclose(w_pi, w_pi_back, atol=1e-3))
+----
+
+[source]
+----
+[0.         0.         3.14159165]
+[0.         0.         3.14145202]
+True
+----
+
+`atol=1e-3` 수준에서는 여전히 왕복이 맞지만, 오차가 5장 앞선 예제들(`1e-10` 이하)보다 훨씬 커졌습니다(`~1.4e-4`) — `sin(θ)`가 `0`에 가까운 값으로 나누기 때문에 부동소수점 오차가 증폭된 것입니다. `θ = π`(정확히 180도 회전)에서는 축의 부호가 아예 불확실해집니다 — `180`도 회전은 축을 뒤집어도(`-axis`) 똑같은 회전이기 때문에, 로그 사상이 그 지점에서 정확히는 정의되지 않는(두 값 중 무엇을 골라도 맞는) 특이점입니다. 실전 SLAM/최적화 코드에서 `180`도 근처의 회전 오차가 자주 발생하는 경우(예: 완전히 잘못된 초기 추정)라면 이 수치적 불안정성을 염두에 둬야 합니다.
+
+== 지수/로그 사상이 여는 것
+
+이제 각속도(리 대수, `so(3)`의 원소, 그냥 `R^3` 벡터)와 회전(리 군, `SO(3)`의 원소)을 정확하고 특이점 없이(`θ=π` 근처를 빼면) 오갈 수 있습니다. 이게 왜 중요한지는 다음 장에서 각속도 적분(자이로스코프 데이터를 회전으로 쌓는 것)에 이 지수 사상을 직접 적용해보면서 확인합니다 — 2장에서 오일러 적분이 정규직교성을 깨뜨렸던 문제가, 지수 사상을 쓰면 애초에 발생하지 않는다는 것을 직접 비교해볼 것입니다.
+
+== 직접 해보기
+
+* `theta`가 정확히 `π`일 때(`axis * np.pi`) `log_so3`를 호출하면 어떤 값이 나오는지, 그리고 `axis`를 `-axis`로 바꿔도 `exp_so3`의 결과가 똑같은 회전 행렬을 만드는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+axis = np.array([0.0, 0.0, 1.0])
+w_exact_pi = axis * np.pi
+R_exact_pi = exp_so3(w_exact_pi)
+w_back = log_so3(R_exact_pi)
+print(w_back)
+
+R_neg_axis = exp_so3(-axis * np.pi)
+print(np.allclose(R_exact_pi, R_neg_axis))
+----
+
+[source]
+----
+[0.         0.         3.14159265]
+True
+----
+
+`sin(π) = 0`인데 부동소수점에서는 정확히 `0`이 아니라 아주 작은 값(`~1.2e-16`)이 나와서 `0`으로 나누는 에러 없이 값이 나오긴 하지만, 그 정밀도는 신뢰할 수 없습니다. 그리고 `axis`와 `-axis`로 `π`만큼 돌린 회전이 정확히 같은 행렬을 만든다는 것도 확인됩니다 — `180`도 회전에서는 축의 부호가 회전 결과에 아무 영향도 주지 않기 때문에, 로그 사상이 이 지점에서 축을 유일하게 결정할 수 없는 것이 당연합니다.
+====
+
+== 요약
+
+* 지수 사상 `exp_so3(w)`는 로드리게스 공식으로 각속도 벡터(`so(3)`의 원소)를 정확한 `SO(3)` 회전 행렬로 보내며, 결과가 항상 정의상 정규직교라는 점에서 오일러 적분과 근본적으로 다릅니다.
+* 로그 사상 `log_so3(R)`은 회전 행렬의 trace로 각도를, 반대칭 성분으로 축을 역산해 지수 사상의 역함수 역할을 합니다.
+* 무작위 회전에 대해 `exp(log(R)) = R`, `log(exp(w)) = w`가 정확히 성립함을 수치로 확인했습니다.
+* `θ=0` 근처는 `1`차 테일러 근사로, `θ=π` 근처는 `sin(θ)`로 나누는 항 때문에 수치적으로 불안정해지며, `θ=π`에서는 회전축의 부호가 원리적으로 결정되지 않는 진짜 특이점입니다.
+* 다음 장에서는 이 지수 사상을 각속도 적분에 실제로 적용해, 2장에서 봤던 오일러 적분의 정규직교성 붕괴 문제가 어떻게 사라지는지 비교합니다.
+// end::body[]

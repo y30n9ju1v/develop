@@ -1,0 +1,157 @@
+---
+title: "1장: 회전을 표현하는 문제: 오일러각과 짐벌락"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["lie-group", "so3", "euler-angles", "gimbal-lock", "book"]
+categories: ["books"]
+description: "오일러각으로 3D 회전을 표현할 때 생기는 짐벌락과 순서 의존성을 NumPy로 직접 구현하고 야코비안의 rank 붕괴로 수치 검증하며, 더 나은 회전 표현이 왜 필요한지 확인하는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문: 회전은 왜 어려운가] · 다음: link:../02-rotation-matrices-and-so3/[2장: 회전 행렬과 SO(3)]_
+
+'''
+
+3D 회전을 표현하는 가장 직관적인 방법은 "x축으로 몇 도, y축으로 몇 도, z축으로 몇 도 돌린다"는 오일러각(Euler angles)입니다. 비행기의 롤(roll)·피치(pitch)·요(yaw)가 바로 이것입니다. 직관적이고 숫자 3개면 충분해 보이지만, 이 장에서는 오일러각이 로봇 자세 추정에 왜 부적합한지를 두 가지 실제 문제 — **짐벌락(gimbal lock)**과 **순서 의존성** — 를 코드로 직접 만들어 확인합니다.
+
+== 오일러각으로 회전 행렬 만들기
+
+롤(`x`축 회전) → 피치(`y`축 회전) → 요(`z`축 회전) 순서로 회전을 합성하는 `R = Rz(yaw) @ Ry(pitch) @ Rx(roll)`을 구현합니다.
+
+[source,python]
+----
+import numpy as np
+
+def Rx(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+def Ry(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+
+def Rz(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+def euler_to_R(roll, pitch, yaw):
+    return Rz(yaw) @ Ry(pitch) @ Rx(roll)
+----
+
+`roll=0.3, pitch=0.2, yaw=0.5`(라디안) 같은 임의의 값을 넣으면 그럴듯한 `3x3` 회전 행렬이 나옵니다. 문제는 특정 값 근처에서 벌어집니다.
+
+== 짐벌락: 피치가 90도가 되면 자유도 하나가 사라진다
+
+피치를 `90도`(`π/2`)로 놓고 롤과 요를 각각 바꿔가며 결과 행렬을 비교해봅니다.
+
+[source,python]
+----
+R_a = euler_to_R(roll=0.4, pitch=np.pi / 2, yaw=0.0)
+R_b = euler_to_R(roll=0.0, pitch=np.pi / 2, yaw=-0.4)
+print(np.allclose(R_a, R_b))
+----
+
+[source]
+----
+True
+----
+
+롤을 `+0.4`만큼 돌린 것과 요를 `-0.4`만큼 돌린 것이 피치가 `90도`인 순간 **완전히 같은 회전**이 되어버렸습니다. 롤과 요라는 서로 다른 두 변수가 이 지점에서는 부호만 반대인 채 같은 방향으로 회전 공간을 움직이게 된 것입니다 — 3개였던 자유도가 사실상 2개로 줄어든 셈입니다. 이 현상을 짐벌락이라고 부릅니다. 실제 짐벌(자이로스코프의 물리적 고리 구조)에서 안쪽 고리와 바깥쪽 고리의 회전축이 겹쳐버리는 상황에서 이름이 왔습니다.
+
+=== 야코비안으로 확인하기: 특이값이 0으로 무너진다
+
+이 자유도 손실은 "오일러각 → 회전 행렬" 변환의 야코비안이 특이(singular)해진다는 것으로 정확히 정량화됩니다. 유한차분으로 야코비안(`9`개 행렬 원소를 롤·피치·요 3개 변수로 미분한 `9x3` 행렬)을 계산하고, 그 특이값(singular value)을 살펴봅니다.
+
+[source,python]
+----
+def euler_to_R_flat(rpy):
+    return euler_to_R(*rpy).flatten()
+
+def numerical_jacobian(f, x, eps=1e-4):
+    fx = f(x)
+    J = np.zeros((len(fx), len(x)))
+    for i in range(len(x)):
+        dx = np.zeros(len(x))
+        dx[i] = eps
+        J[:, i] = (f(x + dx) - f(x - dx)) / (2 * eps)
+    return J
+
+rpy_normal = np.array([0.4, 0.3, 0.5])
+rpy_gimbal = np.array([0.4, np.pi / 2, 0.5])
+
+J_normal = numerical_jacobian(euler_to_R_flat, rpy_normal)
+J_gimbal = numerical_jacobian(euler_to_R_flat, rpy_gimbal)
+
+print("normal singular values:", np.linalg.svd(J_normal, compute_uv=False))
+print("gimbal singular values:", np.linalg.svd(J_gimbal, compute_uv=False))
+----
+
+[source]
+----
+normal singular values: [1.610 1.414 1.187]
+gimbal singular values: [2.000 1.414 0.000000000001]
+----
+
+일반적인 자세에서는 세 특이값 모두 `1` 안팎의 뚜렷한 크기를 갖지만(변수 3개 모두 독립적인 방향으로 회전 행렬을 바꾼다는 뜻), 피치가 `90도`인 순간에는 세 번째 특이값이 사실상 `0`(부동소수점 오차 수준)으로 무너집니다 — 롤과 요 방향의 미분이 선형종속이 되어버렸다는 뜻이고, 이것이 방금 확인한 "롤을 돌린 것과 요를 돌린 것(부호 반대)이 같은 결과"라는 관찰과 정확히 일치합니다. EKF나 최적화 알고리즘이 오일러각을 상태 변수로 쓰면, 이 지점 근처에서 야코비안이 거의 특이 행렬이 되어 공분산이 폭발하거나 최적화가 발산할 수 있습니다.
+
+== 순서 의존성: 어느 축부터 돌리느냐가 다른 결과를 만든다
+
+짐벌락과 별개로, 오일러각은 **회전 순서**에도 의존합니다. `Rz @ Ry @ Rx`(내재적 순서 하나)와 `Rx @ Ry @ Rz`(순서를 뒤집은 것)가 같은 각도값을 넣어도 다른 회전을 만듭니다.
+
+[source,python]
+----
+roll, pitch, yaw = 0.3, 0.2, 0.5
+R_zyx = Rz(yaw) @ Ry(pitch) @ Rx(roll)
+R_xyz = Rx(roll) @ Ry(pitch) @ Rz(yaw)
+print(np.allclose(R_zyx, R_xyz))
+print(np.max(np.abs(R_zyx - R_xyz)))
+----
+
+[source]
+----
+False
+0.1738...
+----
+
+같은 세 각도값이라도 어떤 관례(convention)로 합성하느냐에 따라 전혀 다른 회전이 나옵니다. 그래서 "오일러각 `(0.3, 0.2, 0.5)`"라는 표현은 그 자체로는 불완전합니다 — 반드시 "어느 순서로, 어느 축 기준(내재적/외재적)으로"라는 관례를 같이 명시해야 합니다. 라이브러리마다 관례가 다르고(ZYX, XYZ, ZYZ, ...), 이 관례를 잘못 맞추는 것이 실무에서 흔한 버그의 원인입니다.
+
+== 왜 이 두 문제가 근본적인가
+
+짐벌락과 순서 의존성은 오일러각 구현을 더 조심스럽게 짠다고 없어지는 버그가 아닙니다. 오일러각이 회전이라는 `3`차원 공간을 표현하는 **좌표계 하나**를 선택한 것인데, 구(sphere)를 위도·경도라는 평면 좌표로 표현하면 극점에서 경도가 정의되지 않는 것과 똑같은 구조적 문제입니다 — 회전의 공간(`SO(3)`) 자체가 오일러각이라는 `3`개의 평평한 축으로는 특이점 없이 완전히 덮을 수 없는 굽은 공간이기 때문입니다. 이 "굽은 공간"이라는 성질을 정면으로 다루는 것이 이 책의 핵심 주제인 리 군입니다.
+
+이 문제를 피하려는 시도로 흔히 쓰이는 게 쿼터니언인데, 쿼터니언도 `q`와 `-q`가 같은 회전을 나타낸다는 이중 덮개(double cover) 문제가 있습니다(3장에서 직접 확인합니다). 다음 장에서는 오일러각도 쿼터니언도 아닌, 회전을 `3x3` 정규직교 행렬 그 자체로 다루는 `SO(3)`이라는 표현으로 넘어가, 이 표현이 어떤 대수적 구조(군)를 갖는지 확인합니다.
+
+== 직접 해보기
+
+* 피치가 `-90도`(`-π/2`)일 때도 짐벌락이 똑같이 발생하는지, `euler_to_R_flat`의 야코비안 특이값으로 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+rpy_gimbal_neg = np.array([0.4, -np.pi / 2, 0.5])
+J_gimbal_neg = numerical_jacobian(euler_to_R_flat, rpy_gimbal_neg)
+print("gimbal(-90) singular values:", np.linalg.svd(J_gimbal_neg, compute_uv=False))
+
+R_c = euler_to_R(roll=0.4, pitch=-np.pi / 2, yaw=0.0)
+R_d = euler_to_R(roll=0.0, pitch=-np.pi / 2, yaw=0.4)
+print(np.allclose(R_c, R_d))
+----
+
+[source]
+----
+gimbal(-90) singular values: [2.000 1.414 0.000000000001]
+True
+----
+
+피치가 `-90도`에서도 세 번째 특이값이 똑같이 `0`으로 무너집니다. 다만 이번엔 롤을 `+0.4`만큼 돌린 것과 요를 `+0.4`(같은 부호!)만큼 돌린 것이 같은 회전이 됩니다 — 피치가 `+90도`일 때는 롤과 요가 반대 부호로, `-90도`일 때는 같은 부호로 서로를 상쇄한다는 것도 함께 확인할 수 있습니다.
+====
+
+== 요약
+
+* 오일러각은 피치가 `±90도`에 가까워지면 롤과 요가 회전 공간에서 같은 방향으로 움직이게 되는 짐벌락에 걸리며, 이는 "오일러각 → 회전 행렬" 야코비안의 rank가 `3`에서 `2`로 떨어지는 것으로 정확히 수치 검증됩니다.
+* 오일러각은 회전 순서(ZYX, XYZ, ...)에 따라 같은 각도값이 다른 회전을 만드는 순서 의존성도 갖고 있어, 표현 자체가 불완전합니다.
+* 이 두 문제는 구현의 버그가 아니라, 회전의 공간(`SO(3)`)이 오일러각이라는 평평한 `3`개의 축으로는 특이점 없이 표현할 수 없는 굽은 공간이라는 구조적 성질에서 나옵니다.
+* 다음 장에서는 오일러각 대신 `3x3` 정규직교 행렬 자체로 회전을 다루는 `SO(3)`으로 넘어가, 이 표현이 갖는 대수적 구조(군)를 확인합니다.
+// end::body[]

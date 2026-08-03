@@ -1,0 +1,187 @@
+---
+title: "13장: IMU 프리인테그레이션: 리 군 위에서 관성 적분하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["lie-group", "so3", "imu", "preintegration", "book"]
+categories: ["books"]
+description: "자이로/가속도계 측정을 지수 사상으로 적분해 초기 자세와 무관한 프리인테그레이션 값(ΔR, Δv, Δp)을 NumPy로 구현하고, 초기 자세가 최적화 중에 바뀌어도 원시 IMU 데이터를 다시 적분하지 않고 정확한 결과를 재구성할 수 있음을 검증하는 13장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-pose-graph-optimization-se3/[12장: SE(3) 포즈 그래프 최적화] · 다음: link:../14-end-to-end-lie-group-slam/[14장: 종합 실전: 3D 포즈 그래프로 SLAM 완성하기]_
+
+'''
+
+12장의 포즈 그래프에서는 상대 자세 측정값 `Z_ij`가 어디서 왔는지 묻지 않았습니다. 실전에서는 이런 값들이 흔히 IMU(관성측정장치)의 자이로스코프(각속도)와 가속도계 측정을 적분해서 만들어집니다. IMU는 보통 `100~1000Hz`로 매우 빠르게 샘플링되는데, 포즈 그래프 최적화가 반복될 때마다 이 수백~수천 개의 원시 측정값을 처음부터 다시 적분한다면 너무 느립니다. 이 장에서 다룰 **IMU 프리인테그레이션(preintegration)**은 초기 자세와 무관한 상대 운동량을 한 번만 계산해두고, 최적화 중 초기 자세가 바뀔 때는 그 값을 재사용하는 기법입니다.
+
+== IMU 운동 모델: 자이로와 가속도계
+
+세계 좌표계 기준 회전 `R`, 속도 `v`, 위치 `p`가 몸체 기준 각속도 `ω`와 몸체 기준 가속도 `a`(중력 포함)로 다음과 같이 갱신됩니다.
+
+[stem]
+++++
+\dot{R} = R \cdot \text{skew}(\omega), \quad \dot{v} = R a + g, \quad \dot{p} = v
+++++
+
+[source,python]
+----
+import numpy as np
+
+def skew(w):
+    return np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+
+def exp_so3(w):
+    theta = np.linalg.norm(w)
+    if theta < 1e-8:
+        return np.eye(3) + skew(w)
+    axis = w / theta
+    K = skew(axis)
+    return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+
+g = np.array([0.0, 0.0, -9.81])
+----
+
+== 방법 1: 매번 처음부터 적분하기(순진한 방법)
+
+IMU 측정값을 `dt` 간격으로 오일러 적분하되, 회전만큼은 5~6장에서 배운 지수 사상으로 정확하게 갱신합니다(오일러 적분으로 회전을 누적하면 2장에서 봤던 정규직교성 붕괴가 다시 일어나므로).
+
+[source,python]
+----
+def full_integrate(R_i, v_i, p_i, gyro, accel_body, dt):
+    R, v, p = R_i.copy(), v_i.copy(), p_i.copy()
+    for k in range(len(gyro)):
+        a_world = R @ accel_body[k] + g
+        p = p + v * dt + 0.5 * a_world * dt * dt
+        v = v + a_world * dt
+        R = R @ exp_so3(gyro[k] * dt)
+    return R, v, p
+----
+
+이 함수는 시작 자세 `R_i, v_i, p_i`가 있어야만 계산할 수 있습니다 — `accel_body[k]`를 세계 좌표계로 옮기려면(`R @ accel_body[k]`) 매 스텝의 `R`이 필요하기 때문입니다.
+
+== 방법 2: 프리인테그레이션 — 시작 자세와 분리하기
+
+핵심 아이디어는 "세계 좌표계로 옮기지 않고, 시작 시점의 몸체 좌표계(`R_i` 기준) 안에서만 적분한다"는 것입니다. 그러면 결과(`ΔR, Δv, Δp`)가 `R_i, v_i, p_i`와 완전히 무관해집니다.
+
+[source,python]
+----
+def preintegrate(gyro, accel_body, dt):
+    dR = np.eye(3)
+    dv = np.zeros(3)
+    dp = np.zeros(3)
+    for k in range(len(gyro)):
+        dp = dp + dv * dt + 0.5 * (dR @ accel_body[k]) * dt * dt
+        dv = dv + dR @ accel_body[k] * dt
+        dR = dR @ exp_so3(gyro[k] * dt)
+    return dR, dv, dp
+----
+
+`full_integrate`와 거의 같은 구조지만, 매 스텝 `R` 대신 `dR`(항상 `I`에서 시작하는 "상대" 회전)을 쓰고 중력 `g`도 아예 등장하지 않습니다 — 중력은 세계 좌표계에서만 의미가 있는데, 이 함수는 세계 좌표계를 전혀 모르기 때문입니다.
+
+== 검증: 두 방법이 정확히 같은 결과를 주는가
+
+[source,python]
+----
+rng = np.random.default_rng(42)
+dt = 0.005
+N = 200   # 200Hz로 1초 분량
+gyro = np.tile(np.array([0.05, 0.0, 0.1]), (N, 1))
+accel_body = np.tile(np.array([0.2, 0.1, 9.9]), (N, 1))
+
+R_i = exp_so3(np.array([0.1, -0.2, 0.3]))
+v_i = np.array([1.0, 0.5, 0.0])
+p_i = np.array([0.0, 0.0, 0.0])
+
+R_j, v_j, p_j = full_integrate(R_i, v_i, p_i, gyro, accel_body, dt)
+
+dR, dv, dp = preintegrate(gyro, accel_body, dt)
+T = N * dt
+R_j_pre = R_i @ dR
+v_j_pre = v_i + g * T + R_i @ dv
+p_j_pre = p_i + v_i * T + 0.5 * g * T * T + R_i @ dp
+
+print("R:", np.allclose(R_j, R_j_pre, atol=1e-9))
+print("v:", np.allclose(v_j, v_j_pre, atol=1e-6))
+print("p:", np.allclose(p_j, p_j_pre, atol=1e-6))
+----
+
+[source]
+----
+R: True
+v: True
+p: True
+----
+
+`preintegrate`가 반환한 `(dR, dv, dp)`에 시작 자세 `(R_i, v_i, p_i)`를 나중에 결합하는 공식(`R_i @ dR`, `v_i + g·T + R_i @ dv`, `p_i + v_i·T + 0.5·g·T² + R_i @ dp`)이 원시 데이터를 처음부터 적분한 것과 정확히 같은 결과를 줍니다.
+
+== 진짜 이점: 시작 자세가 바뀌어도 재적분이 필요 없다
+
+포즈 그래프 최적화(12장)는 반복 중에 `R_i`(시작 자세) 추정값을 계속 바꿔갑니다. 프리인테그레이션의 진짜 이점은, `R_i`가 바뀌어도 `(dR, dv, dp)`를 다시 계산할 필요 없이 **결합 공식만 다시 적용하면** 된다는 것입니다.
+
+[source,python]
+----
+R_i_perturbed = R_i @ exp_so3(np.array([0.05, 0.0, 0.0]))   # 최적화 중 시작 자세가 바뀌었다고 가정
+
+R_j2_full, v_j2_full, p_j2_full = full_integrate(R_i_perturbed, v_i, p_i, gyro, accel_body, dt)
+
+R_j2_pre = R_i_perturbed @ dR             # dR은 그대로 재사용
+v_j2_pre = v_i + g * T + R_i_perturbed @ dv
+p_j2_pre = p_i + v_i * T + 0.5 * g * T * T + R_i_perturbed @ dp
+
+print("perturbed R:", np.allclose(R_j2_full, R_j2_pre, atol=1e-6))
+print("perturbed v:", np.allclose(v_j2_full, v_j2_pre, atol=1e-4))
+print("perturbed p:", np.allclose(p_j2_full, p_j2_pre, atol=1e-3))
+----
+
+[source]
+----
+perturbed R: True
+perturbed v: True
+perturbed p: True
+----
+
+`R_i`를 바꿨는데도, `200`개의 원시 IMU 측정값을 다시 훑지 않고(`preintegrate`를 다시 호출하지 않고) `dR, dv, dp`를 그대로 재사용해서 정확한 결과를 얻었습니다 — `full_integrate`를 처음부터 다시 돌린 것과 부동소수점 정밀도로 일치합니다. 실전에서 IMU가 `200Hz`이고 포즈 그래프 최적화가 `10`번 반복된다면, 순진한 방법은 매 반복마다 `200`개 측정값을 다시 적분해야 하지만 프리인테그레이션은 딱 한 번만 적분하고 나머지 `9`번은 값싼 결합 공식만 반복합니다.
+
+== 왜 이게 리 군 책의 내용인가
+
+`ΔR = ∏ exp(ω_k·dt)`가 정확히 5장의 지수 사상을 반복 적용한 것이고, `dR`이 항상 `I`에서 시작해 곱셈으로 누적된다는 게 정확히 `SO(3)`의 군 구조(2장의 닫힘 공리)를 활용한 것입니다. 그리고 결합 공식에서 `R_i @ dR`, `R_i @ dv`, `R_i @ dp`처럼 `R_i`를 "곱해서" 적용하는 패턴은, 9장의 애드조인트에서 봤던 "몸체 좌표계 기준 값을 세계 좌표계로 옮기는" 변환과 본질적으로 같은 아이디어입니다. 이 책 전체에서 쌓은 도구(지수 사상, 군의 닫힘, 좌표계 변환)가 실전 센서 데이터 처리에 그대로 쓰인다는 것을 이 장에서 확인했습니다.
+
+(실전 IMU 프리인테그레이션은 여기에 더해 자이로/가속도계의 바이어스가 변할 때 `dR, dv, dp`를 재적분 없이 1차 근사로 보정하는 야코비안까지 포함하는데, 이는 11장의 야코비안 개념을 확장한 것으로 이 책의 범위를 넘어갑니다.)
+
+== 직접 해보기
+
+* `v_i`(초기 속도)를 바꿔도 `dv, dp`를 재사용한 결합 공식이 `full_integrate`와 일치하는지 확인해, 프리인테그레이션이 초기 회전뿐 아니라 초기 속도의 변화에도 강건하다는 것을 검증해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+v_i_perturbed = v_i + np.array([0.3, -0.1, 0.0])
+
+R_j3_full, v_j3_full, p_j3_full = full_integrate(R_i, v_i_perturbed, p_i, gyro, accel_body, dt)
+
+v_j3_pre = v_i_perturbed + g * T + R_i @ dv
+p_j3_pre = p_i + v_i_perturbed * T + 0.5 * g * T * T + R_i @ dp
+
+print(np.allclose(v_j3_full, v_j3_pre, atol=1e-6))
+print(np.allclose(p_j3_full, p_j3_pre, atol=1e-6))
+----
+
+[source]
+----
+True
+True
+----
+
+`v_i`가 바뀌어도 `dv, dp`(둘 다 초기 속도와 무관하게 몸체 좌표계에서만 계산된 값)를 그대로 재사용하고, 결합 공식의 `v_i·T`, `v_i + g·T + ...`처럼 초기 속도가 들어가는 항만 새 값으로 바꾸면 정확한 결과가 나옵니다 — 초기 회전뿐 아니라 초기 속도의 변화에도 프리인테그레이션 값 자체는 전혀 다시 계산할 필요가 없다는 것을 확인했습니다.
+====
+
+== 요약
+
+* IMU 프리인테그레이션은 자이로/가속도계 측정을 시작 시점의 몸체 좌표계 안에서만 적분해(`ΔR, Δv, Δp`), 결과가 시작 자세·속도와 완전히 무관하게 만드는 기법입니다.
+* `ΔR`은 5장의 지수 사상을 반복 곱해 누적하며, 이는 2장에서 확인한 `SO(3)`의 닫힘 공리를 그대로 활용한 것입니다.
+* 시작 자세 `(R_i, v_i)`와 프리인테그레이션 값을 나중에 결합하는 공식(`R_i @ ΔR`, `v_i + g·T + R_i @ Δv` 등)이 원시 데이터를 처음부터 적분한 것과 정확히 같은 결과를 준다는 것을 검증했습니다.
+* 최적화 중 시작 자세나 속도가 바뀌어도, 원시 IMU 데이터를 다시 훑지 않고 결합 공식만 재적용하면 되므로 반복 최적화의 계산 비용이 크게 줄어듭니다.
+* 다음 장에서는 12장의 포즈 그래프 최적화와 이 장의 IMU 프리인테그레이션을 하나로 묶어, 3D 자세와 속도를 함께 추정하는 종합 실전 예제로 이 책을 마무리합니다.
+// end::body[]

@@ -1,0 +1,185 @@
+---
+title: "8장: SE(3)의 지수/로그 사상과 트위스트"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["lie-group", "se3", "twist", "exponential-map", "left-jacobian", "book"]
+categories: ["books"]
+description: "SE(3)의 리 대수 se(3)를 6차원 트위스트 벡터로 표현하고, SO(3)의 왼쪽 야코비안이 등장하는 지수/로그 사상을 NumPy로 구현하며, 이동 성분을 단순히 그대로 쓰는 순진한 방법이 왜 틀렸는지 검증하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-se3-rigid-motion/[7장: SE(3): 회전과 이동을 하나로] · 다음: link:../09-adjoint-representation/[9장: 애드조인트 표현]_
+
+'''
+
+5~6장에서 `SO(3)`의 지수/로그 사상을 만들었습니다. 이 장에서는 같은 작업을 `SE(3)`에 대해 합니다. `SE(3)`의 리 대수 `se(3)`은 `SO(3)`의 각속도(`3`차원)에 "선속도" `3`차원을 더한 `6`차원 벡터로 표현되고, 이를 **트위스트(twist)**라고 부릅니다. 다만 이번엔 5장의 `SO(3)` 지수 사상을 단순히 이동에도 그대로 적용하면 **틀린 답**이 나온다는 함정이 있습니다 — 이 함정을 직접 만들어보고 올바른 공식을 구현합니다.
+
+== 트위스트: se(3)의 원소
+
+`se(3)`의 원소를 `6`차원 벡터 `ξ = (w, v)`로 표현합니다 — `w`는 각속도(5장과 동일), `v`는 "몸체 좌표계 기준 선속도"입니다.
+
+[source,python]
+----
+import numpy as np
+
+def skew(w):
+    return np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+
+def exp_so3(w):
+    theta = np.linalg.norm(w)
+    if theta < 1e-8:
+        return np.eye(3) + skew(w)
+    axis = w / theta
+    K = skew(axis)
+    return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+----
+
+== 순진한(틀린) 시도: 이동을 그냥 v로 쓰기
+
+`SO(3)`에서 각속도 `w`를 지수 사상으로 회전으로 바꿨으니, `SE(3)`에서도 `v`를 그냥 이동 `t`로 써버리면 되지 않을까 시도해봅니다.
+
+[source,python]
+----
+def exp_se3_naive(xi):
+    w, v = xi[:3], xi[3:]
+    T = np.eye(4)
+    T[:3, :3] = exp_so3(w)
+    T[:3, 3] = v          # v를 그냥 이동으로 사용 -- 틀렸다!
+    return T
+----
+
+이게 왜 틀린지는 다음 절에서 올바른 공식과 비교하면 바로 드러납니다.
+
+== 왼쪽 야코비안: 이동 성분을 정확히 계산하는 공식
+
+`4x4` 행렬 지수함수를 `se(3)`의 원소(반대칭 회전 블록 + 이동 블록으로 이루어진 `4x4` 행렬)에 직접 적용해서 테일러 급수를 전개하면, 이동 부분에 `SO(3)`의 **왼쪽 야코비안(left Jacobian)** `V(w)`가 곱해져야 한다는 결과가 나옵니다.
+
+[source,python]
+----
+def left_jacobian_so3(w):
+    theta = np.linalg.norm(w)
+    K = skew(w)
+    if theta < 1e-8:
+        return np.eye(3) + 0.5 * K
+    A = (1 - np.cos(theta)) / theta ** 2
+    B = (theta - np.sin(theta)) / theta ** 3
+    return np.eye(3) + A * K + B * (K @ K)
+
+def exp_se3(xi):
+    w, v = xi[:3], xi[3:]
+    T = np.eye(4)
+    T[:3, :3] = exp_so3(w)
+    T[:3, 3] = left_jacobian_so3(w) @ v
+    return T
+----
+
+`t = V(w) @ v`이지 `t = v`가 아닙니다. 두 결과를 실제로 비교해봅니다.
+
+[source,python]
+----
+rng = np.random.default_rng(7)
+xi = rng.standard_normal(6) * 0.5
+
+T_correct = exp_se3(xi)
+T_naive = exp_se3_naive(xi)
+
+print("naive와 correct가 다른가:", not np.allclose(T_naive, T_correct))
+print("naive 이동:", T_naive[:3, 3])
+print("correct 이동:", T_correct[:3, 3])
+----
+
+[source]
+----
+naive와 correct가 다른가: True
+naive 이동: [-0.445 -0.227 -0.496]
+correct 이동: [-0.495 -0.194 -0.460]
+----
+
+두 결과가 확연히 다릅니다. 회전이 있는 상태에서 로봇이 "몸체 기준 앞으로 전진"하는 궤적을 적분한다면, 회전하는 동안 전진 방향도 함께 휘어지는 효과를 `V(w)`가 정확히 반영합니다 — 순진한 방법은 이 효과를 완전히 놓칩니다. 회전이 없으면(`w=0`) `V(w) = I`가 되어 `t = v`로 정확히 일치하니, 회전이 있을 때만 드러나는 오차입니다.
+
+=== θ→0 극한: 왼쪽 야코비안도 특이점을 피해야 한다
+
+`left_jacobian_so3`에도 `theta < 1e-8`일 때의 `1`차 근사(`I + 0.5·K`)가 들어 있습니다. 극히 작은 트위스트에서 회전이 거의 없다면 이동도 거의 그대로 반영되는지 확인합니다.
+
+[source,python]
+----
+xi_small = np.array([1e-9] * 6)
+T_small = exp_se3(xi_small)
+print(np.allclose(T_small[:3, 3], xi_small[3:], atol=1e-9))
+----
+
+[source]
+----
+True
+----
+
+== 로그 사상: SE(3)에서 트위스트로
+
+역방향은 회전 부분에 5장의 `log_so3`를 적용해 `w`를 구하고, `t = V(w) @ v`를 `v`에 대해 풀면 됩니다(`V(w)`는 `w`가 결정되면 고정된 행렬이므로 선형연립방정식입니다).
+
+[source,python]
+----
+def log_so3(R):
+    cos_theta = np.clip((np.trace(R) - 1) / 2, -1, 1)
+    theta = np.arccos(cos_theta)
+    if theta < 1e-8:
+        return np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]) / 2
+    w_hat = (R - R.T) / (2 * np.sin(theta))
+    w_axis = np.array([w_hat[2, 1], w_hat[0, 2], w_hat[1, 0]])
+    return w_axis * theta
+
+def log_se3(T):
+    R, t = T[:3, :3], T[:3, 3]
+    w = log_so3(R)
+    v = np.linalg.solve(left_jacobian_so3(w), t)
+    return np.concatenate([w, v])
+
+xi_back = log_se3(T_correct)
+print(np.allclose(xi, xi_back))
+----
+
+[source]
+----
+True
+----
+
+무작위 트위스트로 왕복(`log(exp(ξ)) = ξ`)이 정확히 성립하는 것을 확인했습니다.
+
+== 트위스트가 표현하는 것: 순간 강체 운동
+
+트위스트 `ξ = (w, v)`는 "로봇(또는 강체)이 지금 이 순간 회전축 `w/|w|` 둘레로 각속도 `|w|`로 회전하면서, 동시에 몸체 좌표계 기준 `v` 방향으로 나아가는 나선(screw) 운동을 하고 있다"는 것을 정확히 표현합니다. 자동차가 핸들을 꺾은 채로 전진하면 실제로 원을 그리며 나아가는데, 이것이 바로 나선 운동의 직관적인 예입니다 — `w=0`이면 순수 이동, `v=0`이면 순수 회전, 둘 다 있으면 나선 운동입니다.
+
+== 직접 해보기
+
+* `w`를 `0`벡터로 고정하고(`v`만 무작위로) `exp_se3`를 호출하면, 왼쪽 야코비안을 쓰는 올바른 방법과 순진한 방법(`t=v`)이 완전히 일치하는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+xi_pure_translation = np.concatenate([np.zeros(3), rng.standard_normal(3)])
+T_c = exp_se3(xi_pure_translation)
+T_n = exp_se3_naive(xi_pure_translation)
+print(np.allclose(T_c, T_n))
+print(left_jacobian_so3(np.zeros(3)))
+----
+
+[source]
+----
+True
+[[1. 0. 0.]
+ [0. 1. 0.]
+ [0. 0. 1.]]
+----
+
+`w=0`일 때 `left_jacobian_so3(0)`이 정확히 단위행렬이 되므로 `V(w)@v = v`이고, 두 방법이 완전히 같은 결과를 줍니다 — 순진한 방법의 오차는 오직 회전이 존재할 때(`w≠0`)만 나타난다는 것을 다시 한번 확인했습니다.
+====
+
+== 요약
+
+* `se(3)`의 원소는 각속도 `w`와 몸체 기준 선속도 `v`로 이루어진 `6`차원 트위스트 `ξ=(w,v)`이며, `SE(3)`의 나선 운동(회전+전진)을 표현합니다.
+* `SE(3)`의 지수 사상에서 회전 부분은 5장의 `exp_so3(w)`와 같지만, 이동 부분은 `v`를 그대로 쓰는 게 아니라 `SO(3)`의 왼쪽 야코비안 `V(w)`를 곱한 `V(w)@v`여야 하며, 이 차이는 회전이 있을 때만 나타나고 회전이 없으면(`w=0`) 사라집니다.
+* 로그 사상은 회전 부분에서 5장의 `log_so3`로 `w`를 구한 뒤, `t = V(w)@v`를 선형연립방정식으로 풀어 `v`를 복원하며, 왕복 변환이 정확히 성립함을 확인했습니다.
+* 다음 장에서는 트위스트를 서로 다른 좌표계(몸체 기준 ↔ 세계 기준) 사이에서 옮기는 애드조인트 표현을 다룹니다.
+// end::body[]

@@ -1,0 +1,218 @@
+---
+title: "2장: 회전 행렬과 SO(3)"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["lie-group", "so3", "rotation-matrix", "book"]
+categories: ["books"]
+description: "3x3 정규직교 행렬로 회전을 표현하는 SO(3)이 군의 네 공리(닫힘·항등원·역원·결합법칙)를 만족한다는 것과, 반복 합성으로 정규직교성이 무너질 때 SVD로 재사영하는 방법을 NumPy로 직접 구현하고 검증하는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-rotation-representation-problem/[1장: 회전을 표현하는 문제] · 다음: link:../03-quaternions/[3장: 쿼터니언]_
+
+'''
+
+1장에서 오일러각이 짐벌락과 순서 의존성이라는 근본적인 문제를 갖는다는 걸 확인했습니다. 이 장에서는 회전을 각도 3개가 아니라, 회전 행렬 그 자체 — `3x3` 정규직교 행렬 — 로 다룹니다. 이 행렬들의 집합을 `SO(3)`(Special Orthogonal group of dimension 3)이라고 부르는데, 이 이름의 "군(group)"이 우연이 아니라는 것, 즉 `SO(3)`이 정말로 군의 공리를 만족한다는 것을 하나씩 코드로 확인합니다.
+
+== SO(3)의 정의: 정규직교 + 행렬식 1
+
+회전 행렬 `R`은 두 조건을 만족하는 `3x3` 행렬입니다 — 정규직교(`R^T R = I`, 즉 열벡터들이 서로 수직이고 길이 `1`)이고, 행렬식이 `+1`(반사가 아니라 진짜 회전)입니다.
+
+[source,python]
+----
+import numpy as np
+
+def is_so3(R, tol=1e-8):
+    orthogonal = np.allclose(R.T @ R, np.eye(3), atol=tol)
+    proper = np.isclose(np.linalg.det(R), 1.0, atol=tol)
+    return orthogonal and proper
+
+def Rx(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+
+def Rz(a):
+    c, s = np.cos(a), np.sin(a)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+print(is_so3(Rx(0.7)), is_so3(Rz(-1.2)))
+----
+
+[source]
+----
+True True
+----
+
+행렬식이 `-1`인 정규직교 행렬(예: 어느 한 축을 뒤집는 반사)은 `O(3)`(직교군)에는 속하지만 `SO(3)`에는 속하지 않습니다 — "Special"이라는 이름이 바로 이 `det=+1` 조건, 즉 반사가 아니라 회전만 포함한다는 뜻입니다.
+
+== 군의 공리를 하나씩 확인하기
+
+수학에서 "군(group)"은 원소들의 집합과 이항연산이 네 가지 성질 — **닫힘(closure)**, **결합법칙(associativity)**, **항등원(identity)**, **역원(inverse)** — 을 만족하는 구조입니다. `SO(3)`이 행렬 곱셈을 연산으로 하는 군이라는 것을 하나씩 확인해봅니다.
+
+=== 닫힘: 두 회전을 합성해도 여전히 회전
+
+임의의 두 `SO(3)` 행렬을 곱한 결과가 다시 `SO(3)`에 속하는지 확인합니다. 무작위 `SO(3)` 행렬은 임의의 행렬을 QR 분해한 뒤 부호를 정리해서 만듭니다.
+
+[source,python]
+----
+def random_so3(rng):
+    A = rng.standard_normal((3, 3))
+    Q, R = np.linalg.qr(A)
+    Q = Q @ np.diag(np.sign(np.diag(R)))   # 부호를 고정해 진짜 정규직교로
+    if np.linalg.det(Q) < 0:
+        Q[:, 0] *= -1                       # det=-1이면 한 열을 뒤집어 +1로
+    return Q
+
+rng = np.random.default_rng(42)
+R1, R2 = random_so3(rng), random_so3(rng)
+R3 = R1 @ R2
+print(is_so3(R1), is_so3(R2), is_so3(R3))
+----
+
+[source]
+----
+True True True
+----
+
+`R1`, `R2` 각각 `SO(3)`에 속하고, 둘을 곱한 `R3 = R1 @ R2`도 여전히 `SO(3)`에 속합니다 — 회전 두 개를 이어 붙인 결과가 또 다른 하나의 회전이라는, 직관적으로도 당연한 사실이 대수적으로 "닫힘"이라는 이름을 갖습니다.
+
+=== 결합법칙: 행렬 곱셈이 공짜로 준다
+
+[source,python]
+----
+R_a, R_b, R_c = random_so3(rng), random_so3(rng), random_so3(rng)
+lhs = (R_a @ R_b) @ R_c
+rhs = R_a @ (R_b @ R_c)
+print(np.allclose(lhs, rhs))
+----
+
+[source]
+----
+True
+----
+
+`(AB)C = A(BC)`는 행렬 곱셈 자체가 이미 결합법칙을 만족하기 때문에 `SO(3)`에서도 자동으로 성립합니다 — 이 공리는 새로 증명할 게 없는, 행렬 곱셈이라는 연산을 선택한 순간 딸려오는 성질입니다.
+
+=== 항등원과 역원: 단위행렬과 전치행렬
+
+항등원은 단위행렬 `I`(아무 회전도 하지 않음)입니다. 역원은 놀랍게도 일반적인 행렬 역행렬을 계산할 필요 없이, **전치행렬**로 바로 구해집니다.
+
+[source,python]
+----
+print(np.allclose(R1 @ np.eye(3), R1))                    # 항등원
+print(np.allclose(np.linalg.inv(R1), R1.T))                # 역원 = 전치
+print(np.allclose(R1 @ R1.T, np.eye(3)))                   # R R^T = I
+----
+
+[source]
+----
+True
+True
+True
+----
+
+정규직교 조건(`R^T R = I`)이 바로 "전치가 역행렬이다"라는 말과 같습니다. 일반적인 `3x3` 행렬의 역행렬을 구하려면 가우스 소거 같은 계산이 필요하지만, 회전 행렬은 그냥 전치만 하면 됩니다 — 회전을 "거꾸로 되돌리는" 연산이 계산적으로 공짜라는 뜻이고, 이는 실전 로봇 코드에서 자주 활용되는 성질입니다.
+
+=== 교환법칙은 없다: 비가환군(non-abelian group)
+
+닫힘·결합법칙·항등원·역원을 모두 만족하니 `SO(3)`은 분명 군입니다. 하지만 군의 공리에 **교환법칙**(`AB = BA`)은 없습니다 — 그리고 `SO(3)`은 실제로 교환법칙이 성립하지 않는 비가환군입니다.
+
+[source,python]
+----
+R_x = Rx(0.3)
+R_z = Rz(0.5)
+print(np.allclose(R_x @ R_z, R_z @ R_x))
+----
+
+[source]
+----
+False
+----
+
+`x`축으로 먼저 돌리고 `z`축으로 돌린 것과, `z`축으로 먼저 돌리고 `x`축으로 돌린 것은 다른 회전입니다 — 스마트폰을 손에 쥐고 두 방향으로 순서를 바꿔가며 돌려보면 실제로 다른 자세가 된다는 걸 직접 느낄 수 있습니다. 이 비가환성이 나중에 리 대수를 다룰 때 등장하는 리 브라켓(Lie bracket)이라는 연산의 존재 이유가 됩니다 — 두 회전을 "더하는" 순서가 중요하다는 것을 정확히 정량화하는 도구입니다.
+
+== 정규직교성은 반복 계산 중에 무너질 수 있다
+
+`SO(3)`이 대수적으로 닫혀 있다는 것과, 부동소수점 계산에서 실제로 그 조건이 유지되는 것은 다른 이야기입니다. 회전 행렬을 정확한 지수 사상(다음 장에서 다룹니다) 없이 각속도를 단순히 오일러 적분(`R_{k+1} = R_k + dt · (ω× R_k)`)으로 누적하면, 정규직교 조건이 서서히 깨집니다.
+
+[source,python]
+----
+def skew(w):
+    return np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+
+omega = np.array([0.5, -0.3, 0.8])
+K = skew(omega)
+R = np.eye(3)
+dt = 0.001
+for _ in range(5000):
+    R = R + dt * (K @ R)   # 1차 오일러 적분 -- 정확한 회전이 아니다
+
+print("orthogonality error:", np.linalg.norm(R.T @ R - np.eye(3)))
+print("det:", np.linalg.det(R))
+----
+
+[source]
+----
+orthogonality error: 0.006946648441380245
+det: 1.0049120222194243
+----
+
+`5000`번의 적분 후, `R^T R`이 더 이상 단위행렬과 같지 않고 행렬식도 `1`에서 벗어났습니다 — `R`이 `SO(3)`을 살짝 벗어난 것입니다. 이대로 계속 쓰면 로봇의 자세 추정이 스케일이 뒤틀리거나 축이 기울어지는 형태로 조금씩 오염됩니다.
+
+=== SVD로 다시 SO(3)에 사영하기
+
+다행히 임의의 `3x3` 행렬을 가장 가까운 `SO(3)` 행렬로 되돌리는 표준적인 방법이 있습니다 — 특이값 분해(SVD) 후 특이값을 모두 `1`로 강제합니다(이것이 프로크루스테스 문제의 해입니다).
+
+[source,python]
+----
+def project_to_so3(M):
+    U, _, Vt = np.linalg.svd(M)
+    R_fixed = U @ Vt
+    if np.linalg.det(R_fixed) < 0:
+        U[:, -1] *= -1
+        R_fixed = U @ Vt
+    return R_fixed
+
+R_fixed = project_to_so3(R)
+print("fixed orthogonality error:", np.linalg.norm(R_fixed.T @ R_fixed - np.eye(3)))
+print("fixed det:", np.linalg.det(R_fixed))
+----
+
+[source]
+----
+fixed orthogonality error: 7.385073239768516e-16
+fixed det: 1.0000000000000004
+----
+
+재사영 후 정규직교 오차가 부동소수점 정밀도 수준(`~1e-16`)까지 떨어집니다. 실전 SLAM/로봇 코드에서는 보통 매 스텝마다 이런 재사영을 하지 않고, 다음 장에서 배울 지수 사상으로 애초에 `SO(3)`을 벗어나지 않는 방식으로 회전을 갱신합니다 — 하지만 긴 시간 누적되는 계산(예: 여러 시스템에서 받은 회전 행렬을 평균 내거나, 최적화 도중 중간 계산에서 어쩔 수 없이 벗어난 경우)에서는 이 SVD 재사영이 실전에서 흔히 쓰이는 안전장치입니다.
+
+== 직접 해보기
+
+* 오일러 적분 스텝 수를 `5000`에서 `50000`으로 늘리면 정규직교 오차가 어떻게 변하는지 확인하고, `dt`를 `10`배 줄이면(`0.0001`) 같은 총 시간(`5초`) 동안 오차가 어떻게 달라지는지 비교해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def drift_after(steps, dt):
+    R = np.eye(3)
+    for _ in range(steps):
+        R = R + dt * (K @ R)
+    return np.linalg.norm(R.T @ R - np.eye(3))
+
+print("5000 steps, dt=0.001 (5s total):", drift_after(5000, 0.001))
+print("50000 steps, dt=0.001 (50s total):", drift_after(50000, 0.001))
+print("50000 steps, dt=0.0001 (5s total):", drift_after(50000, 0.0001))
+----
+
+같은 총 시간(`5`초)이라면 `dt`를 `10`배 줄인 쪽(`50000`스텝, `dt=0.0001`)이 오차가 훨씬 작습니다 — 1차 오일러 적분의 오차가 스텝 크기에 비례해서 누적되기 때문입니다. 반면 같은 `dt`로 스텝 수만 늘리면(더 긴 시간을 시뮬레이션하면) 오차는 계속 커집니다. 두 경우 모두, 스텝을 아무리 잘게 쪼개도 정확히 `0`이 되지는 않는다는 점이 1차 근사 적분의 근본적인 한계이고, 다음 장의 지수 사상은 이 한계 자체를 없애줍니다.
+====
+
+== 요약
+
+* `SO(3)`은 정규직교(`R^T R = I`)이고 행렬식이 `+1`인 `3x3` 행렬의 집합이며, 행렬 곱셈을 연산으로 삼아 닫힘·결합법칙·항등원(`I`)·역원(전치행렬)이라는 군의 네 공리를 모두 만족한다는 것을 코드로 확인했습니다.
+* `SO(3)`은 비가환군입니다 — 회전의 합성 순서가 결과에 영향을 미치며, 이는 이후 리 대수의 리 브라켓 개념으로 이어집니다.
+* 부동소수점 계산에서 정규직교 조건은 반복되는 근사 적분 속에 서서히 깨질 수 있으며, SVD 기반 재사영으로 가장 가까운 `SO(3)` 행렬로 되돌릴 수 있습니다.
+* 다음 장에서는 회전 행렬과 함께 널리 쓰이는 또 다른 표현인 쿼터니언을 다루고, 쿼터니언이 갖는 이중 덮개 문제를 확인합니다.
+// end::body[]

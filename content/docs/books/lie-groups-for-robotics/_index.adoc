@@ -1,0 +1,118 @@
+---
+title: "회전은 왜 어려운가: 리 군과 리 대수로 로봇 자세 다루기"
+draft: false
+---
+
+오일러각의 짐벌락 문제에서 시작해 회전 행렬·쿼터니언(1부) → 리 군과 리 대수, 지수/로그 사상(2부) → SE(3)와 강체 운동(3부) → 접평면 위의 최적화와 포즈 그래프(4부) → IMU와 3D SLAM 실전 적용(5부)까지, `SO(3)`·`SE(3)`을 NumPy/SciPy로 직접 구현하고 수치로 검증하며 배우는 심화 입문서입니다.
+
+이 책은 2권 "모르는 곳에서 나를 찾는 법"이 2D 평면에 한정하며 남겨둔 3D 회전 문제를 정면으로 다루는 심화편이자, 독립적으로 읽을 수 있는 책입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 회전은 왜 어려운가]*
+
+*1부: 회전을 표현하는 법*
+
+[start=1]
+. *link:01-rotation-representation-problem/[회전을 표현하는 문제: 오일러각과 짐벌락]*
+. *link:02-rotation-matrices-and-so3/[회전 행렬과 SO(3)]*
+. *link:03-quaternions/[쿼터니언: 이중 덮개로 회전을 표현하기]*
+
+*2부: 리 군과 리 대수*
+
+[start=4]
+. *link:04-lie-groups-and-lie-algebras/[리 군과 리 대수란 무엇인가]*
+. *link:05-exponential-and-log-maps-so3/[SO(3)의 지수 사상과 로그 사상]*
+. *link:06-angular-velocity-and-so3/[각속도와 so(3): 리 브라켓의 의미]*
+
+*3부: SE(3)와 강체 운동*
+
+[start=7]
+. *link:07-se3-rigid-motion/[SE(3): 회전과 이동을 하나로]*
+. *link:08-exponential-log-se3/[SE(3)의 지수/로그 사상과 트위스트]*
+. *link:09-adjoint-representation/[애드조인트 표현: 좌표계를 바꿔가며 속도 옮기기]*
+
+*4부: 리 군 기반 최적화*
+
+[start=10]
+. *link:10-tangent-space-optimization/[접평면 위에서 최적화하기: ⊞와 ⊟ 연산자]*
+. *link:11-jacobians-on-manifolds/[다양체 위의 야코비안: 왼쪽/오른쪽 섭동]*
+. *link:12-pose-graph-optimization-se3/[SE(3) 포즈 그래프 최적화]*
+
+*5부: 실전 적용*
+
+[start=13]
+. *link:13-imu-preintegration/[IMU 프리인테그레이션: 리 군 위에서 관성 적분하기]*
+. *link:14-end-to-end-lie-group-slam/[종합 실전: 3D 포즈 그래프로 SLAM 완성하기]*
+
+*맺음말*
+
+[start=15]
+. *link:15-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-rotation-representation-problem.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-rotation-matrices-and-so3.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-quaternions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-lie-groups-and-lie-algebras.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-exponential-and-log-maps-so3.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-angular-velocity-and-so3.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-se3-rigid-motion.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-exponential-log-se3.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-adjoint-representation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-tangent-space-optimization.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-jacobians-on-manifolds.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-pose-graph-optimization-se3.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-imu-preintegration.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-end-to-end-lie-group-slam.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::15-afterword.adoc[tag=body,leveloffset=+1]
