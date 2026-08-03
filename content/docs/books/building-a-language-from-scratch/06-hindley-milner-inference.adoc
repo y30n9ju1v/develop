@@ -1,0 +1,154 @@
+---
+title: "6장: Hindley-Milner 타입 추론"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "type-inference", "hindley-milner", "python", "book"]
+categories: ["books"]
+description: "타입 변수와 유니피케이션으로 Algorithm W를 구현해, 5장에서 반환 타입 주석 없이는 넘을 수 없었던 재귀 함수의 벽을 타입 주석 하나 없이 넘고, occurs check로 자기 자신에 적용하는 함수의 무한 타입까지 잡아내며 2부를 마무리하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-simple-type-checker/[5장: 타입이란 무엇인가: 단순 타입 검사기] · 다음: link:../07-closures-and-lexical-scope/[7장: 클로저와 렉시컬 스코프]_
+
+'''
+
+5장에서 재귀 함수의 반환 타입을 알아내려면 몸체를 먼저 검사해야 하고, 몸체를 검사하려면 반환 타입을 먼저 알아야 하는 순환에 부딪혔고, 반환 타입 주석을 강제하는 것으로 회피했습니다. Hindley-Milner(HM) 타입 추론은 이 순환을 다른 방식으로 정면 돌파합니다 — "아직 모르는 타입"을 타입 변수로 남겨두고, 프로그램을 읽어가며 그 변수들 사이의 **제약**을 모으고, 마지막에 그 제약들을 한꺼번에 풀어서 실제 타입을 알아냅니다.
+
+== 타입 변수: "아직 모르는 타입"을 값처럼 다루기
+
+[source,python]
+----
+@dataclass
+class TVar:
+    id: int
+
+_next_id = [0]
+def fresh():
+    _next_id[0] += 1
+    return TVar(_next_id[0])
+----
+
+`fresh()`를 호출할 때마다 완전히 새로운, 아직 아무 정보도 없는 타입 변수(`'t1`, `'t2`, ...)를 만듭니다 — "이 값의 타입이 뭔지는 아직 모르지만, 일단 이름은 붙여두고 나중에 알아내자"는 뜻입니다.
+
+== 유니피케이션: 두 타입이 같아지려면 무엇을 채워야 하는가
+
+[source,python]
+----
+def unify(t1, t2, subst):
+    t1, t2 = resolve(t1, subst), resolve(t2, subst)
+    if isinstance(t1, TVar):
+        if occurs(t1.id, t2, subst):
+            raise UnifyError(f"occurs check failed: ...")
+        subst[t1.id] = t2      # "t1은 이제부터 t2와 같다"고 기록
+        return
+    if isinstance(t2, TVar): return unify(t2, t1, subst)
+    if isinstance(t1, TFun) and isinstance(t2, TFun):
+        unify(t1.param, t2.param, subst)
+        unify(t1.ret, t2.ret, subst)
+        return
+    if type(t1) == type(t2): return    # TInt와 TInt, TBool과 TBool은 그냥 같음
+    raise UnifyError(f"cannot unify {type_repr(t1, subst)} with {type_repr(t2, subst)}")
+----
+
+`unify(t1, t2, subst)`는 "이 두 타입이 같아야 한다"는 요구를 받아서, 그걸 만족시키려면 어떤 타입 변수를 무엇으로 채워야 하는지 `subst`(치환)에 기록합니다. 타입 변수 하나와 다른 타입을 통일하면 그냥 그 변수를 그 타입으로 채우면 되고(`subst[t1.id] = t2`), 함수 타입끼리는 파라미터와 반환 타입을 각각 재귀적으로 통일합니다.
+
+== 함수: 파라미터 타입을 몰라도 일단 시작한다
+
+[source,python]
+----
+if isinstance(node, Fun):
+    param_type = fresh()             # 타입 주석이 없으니, 일단 "모르는 타입"으로 시작
+    body_env = tenv.child()
+    body_env.types[node.param] = param_type
+    ret_type = infer(node.body, body_env, subst)
+    return TFun(param_type, ret_type)
+----
+
+`fun n -> ...`처럼 타입 주석이 전혀 없어도, `n`의 타입 자리에 일단 새 타입 변수를 놓고 몸체를 추론합니다 — 몸체 안에서 `n`이 어떻게 쓰이는지(예: `n + 1`처럼 정수 연산에 쓰이는지)에 따라, 나중에 `unify`가 이 변수를 실제 타입으로 채워줍니다.
+
+== 검증 1~2: 주석 없이 타입을 알아내고, 제약이 전파된다
+
+[source,python]
+----
+print(infer_type("fun n -> n + 1"))                        # (int -> int)
+print(infer_type("fun x -> if x then 1 else 2"))             # (bool -> int)
+----
+
+`fun n -> n + 1`에서 `n`의 타입 변수가 `+` 연산에 쓰이는 순간 `unify(n의 타입, TInt(), subst)`가 호출되어 `int`로 확정됩니다. `fun x -> if x then 1 else 2`도 마찬가지로, `x`가 `if`의 조건으로 쓰이는 순간 `bool`로 확정됩니다 — 타입 주석은 단 하나도 없었는데, 프로그램이 그 변수를 **쓰는 방식** 자체가 타입에 대한 정보를 흘려주고, 유니피케이션이 그 정보를 실제 타입으로 굳혀줍니다.
+
+== 검증 3: 5장의 벽을 정말로 넘는가
+
+[source,python]
+----
+TWIG_SOURCE = """
+let rec fact = fun n ->
+  if n = 0 then 1 else n * fact (n - 1)
+in fact 5
+"""
+print(infer_type(TWIG_SOURCE))   # int
+----
+
+[source,python]
+----
+if node.is_rec:
+    fn_type_var = fresh()          # 5장의 반환 타입 주석 대신, 그냥 "모르는 타입 변수"를 만든다
+    rec_env = tenv.child()
+    rec_env.types[node.name] = fn_type_var
+    value_type = infer(node.value, rec_env, subst)   # 몸체 안에서 fact(재귀 호출)는 이 변수로 취급됨
+    unify(fn_type_var, value_type, subst)              # 몸체를 다 본 뒤에야, 이 변수가 실제로 무엇인지 확정
+    body_env = rec_env
+----
+
+5장에서는 이 순환을 풀 방법이 없어서 사람에게 반환 타입을 요구했습니다. 여기서는 그냥 `fact`의 타입을 "아직 모르는 타입 변수"(`fn_type_var`)로 놓고 몸체를 추론합니다 — 몸체 안에서 `fact (n - 1)`을 호출하는 부분은, `App` 처리 규칙(`unify(fn_type, TFun(arg_type, ret_type), subst)`)에 따라 "`fact`의 타입은 `(int -> 뭔가)`여야 한다"는 제약을 자동으로 만들어냅니다. 몸체 전체를 다 훑고 나면, `fn_type_var`가 실제로 `int -> int`라는 게 유니피케이션을 통해 자연스럽게 드러납니다 — **타입 주석이 단 하나도 없었는데도** `fact 5`의 타입이 `int`로 정확히 나옵니다. 5장에서 "6장에서 넘을 수 있다"고 예고했던 벽을 정말로 넘었습니다.
+
+== 검증 4: 여전히 잘못된 프로그램은 거부된다
+
+[source,python]
+----
+infer_type("1 + true")             # cannot unify bool with int
+infer_type("if 1 then 2 else 3")    # cannot unify int with bool
+----
+
+주석이 없어졌다고 타입 검사가 느슨해진 게 아닙니다 — `unify`가 실패하면 여전히 명확한 오류를 냅니다. 다만 이제는 "당신이 선언한 타입과 실제 쓰임이 다르다"가 아니라, "프로그램 안에서 이 값에 대해 서로 다른 요구가 동시에 걸려서 만족시킬 수 없다"는 형태의 오류입니다.
+
+== 검증 5: occurs check — 무한한 타입 잡아내기
+
+[source,python]
+----
+infer_type("fun x -> x x")   # x를 x 자신에 적용
+----
+
+[source]
+----
+occurs check failed: 't9 occurs in ('t9 -> 't10) (infinite type)
+----
+
+`x x`는 `x`가 함수이면서 동시에 그 함수의 인자이기도 해야 합니다 — `x`의 타입을 `'t9`라 하면, `App` 규칙이 `unify('t9, TFun('t9, 't10), subst)`를 요구하게 됩니다(자기 자신 `'t9`가 함수 타입 안에 다시 나타남). 이걸 그대로 허용하면 `'t9 = ('t9 -> 't10) = (('t9 -> 't10) -> 't10) = ...`처럼 무한히 펼쳐지는 타입이 만들어집니다 — `occurs` 함수가 "이 변수가 자기 자신이 채워질 타입 안에 이미 나타나는가"를 미리 검사해서 이런 무한 타입을 사전에 차단합니다.
+
+== 5장과 6장을 비교하며
+
+5장의 검사기는 "타입을 어떻게 아는가"라는 질문에 "프로그래머가 말해줘야 한다"고 답했다면, 6장의 추론기는 "프로그램이 그 값을 쓰는 방식 자체가 답을 담고 있다"고 답합니다. 둘 다 결국 같은 종류의 오류(타입 불일치, 함수 아닌 것 호출)를 잡아내지만, HM 추론은 그 대가로 사람이 타입을 반복해서 적어야 하는 수고를 없애줍니다 — OCaml, Haskell, F# 같은 언어들이 타입 주석 없이도 정적 타입 안전성을 제공하는 비결이 바로 이 알고리즘(또는 그 확장)입니다.
+
+== 직접 해보기
+
+* `infer_type("fun x -> fun y -> if x then y else y + 1")`을 추론해보고, `x`와 `y`의 타입이 각각 무엇으로 확정되는지, 그리고 그 이유를 유니피케이션 관점에서 설명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+print(infer_type("fun x -> fun y -> if x then y else y + 1"))
+----
+
+`x`는 `if`의 조건으로 쓰이므로 `bool`로 확정됩니다. `y`는 두 곳에서 쓰입니다 — `then` 분기에서는 그냥 `y` 자체(제약 없음), `else` 분기에서는 `y + 1`(정수 연산이므로 `y`가 `int`여야 함). `if`의 두 분기는 같은 타입이어야 하므로(`unify(tt, et, subst)`), `then` 분기의 `y`도 결국 `int`로 통일됩니다. 최종 타입은 `(bool -> (int -> int))`가 나와야 합니다 — `y`가 두 분기에서 서로 다르게 "보이는" 방식으로 쓰였는데도, 유니피케이션이 그 둘을 하나의 일관된 타입으로 정확히 묶어낸다는 걸 확인할 수 있습니다.
+====
+
+== 요약
+
+* Hindley-Milner 타입 추론은 아직 모르는 타입을 타입 변수로 남겨두고, 프로그램이 그 값을 쓰는 방식에서 나오는 제약을 유니피케이션으로 점진적으로 풀어갑니다.
+* 5장에서 반환 타입 주석 없이는 넘을 수 없었던 재귀 함수의 순환을, 재귀 함수 자신을 위한 타입 변수 하나를 미리 만들어두는 것으로 정면 돌파했습니다 — 타입 주석 없이 `fact`의 타입이 `int -> int`로 정확히 추론됐습니다.
+* 여전히 실제로 모순되는 프로그램은 유니피케이션 실패로 거부되고, occurs check로 자기 자신에 적용하는 함수 같은 무한 타입까지 사전에 감지했습니다.
+
+2부에서 프로그램을 실행하고(4장) 타입을 검사·추론하는(5~6장) 두 축을 다졌습니다. 3부에서는 클로저가 변수를 실제로 어떻게 붙잡는지 더 깊이 파고들고, 대수적 데이터 타입과 패턴 매칭, 그리고 다형성(하나의 함수가 여러 타입에 쓰이는 것)을 다룹니다.
+// end::body[]

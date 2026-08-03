@@ -1,0 +1,176 @@
+---
+title: "10장: AST를 MLIR IR로 방출하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "mlir", "codegen", "python", "book"]
+categories: ["books"]
+description: "AST를 순회하며 arith 다이얼렉트의 SSA 값으로 변환하는 방출기를 구현해, let 바인딩이 값을 다시 계산하지 않고 이미 계산된 SSA 값을 그대로 재사용한다는 것을 확인하고, 방출한 텍스트를 실제 mlir-opt로 파싱·검증·재출력까지 왕복시키며 4부를 여는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-polymorphism-and-let-polymorphism/[9장: 다형성과 let-다형성] · 다음: link:../11-lowering-and-jit-execution/[11장: mlir-opt로 낮추고 mlir-runner로 실제로 실행하기 (JIT)]_
+
+'''
+
+지금까지 `Twig` 프로그램을 실행하는 방법은 4장의 트리-워킹 인터프리터 하나뿐이었습니다. 이 장부터는 완전히 다른 방법 — `Twig`의 AST를 실제 컴파일러 인프라인 MLIR의 중간 표현(IR)으로 **번역**하는 법을 다룹니다. 이 장은 산술 연산과 `let` 바인딩만 다루는 축소판으로 시작해서, 방출한 MLIR 텍스트가 실제 `mlir-opt`로 검증되는지까지 확인합니다.
+
+== MLIR IR의 기본 꼴: SSA와 다이얼렉트
+
+MLIR의 `arith` 다이얼렉트는 이런 모양의 텍스트로 산술 연산을 표현합니다.
+
+[source]
+----
+func.func @main() -> i64 {
+    %0 = arith.constant 1 : i64
+    %1 = arith.constant 2 : i64
+    %2 = arith.addi %0, %1 : i64
+    return %2 : i64
+}
+----
+
+`%0`, `%1`, `%2`는 SSA(Static Single Assignment) 값입니다 — 한 번 정해지면 절대 다시 바뀌지 않는 이름입니다. `arith.constant`는 상수를, `arith.addi`는 정수 덧셈을 뜻합니다. `func.func`는 함수 정의이고, `Twig` 프로그램 전체를 일단 `main`이라는 함수 하나로 감쌉니다.
+
+== 방출기: AST를 순회하며 MLIR 줄을 쌓기
+
+[source,python]
+----
+class Emitter:
+    def __init__(self):
+        self.lines = []
+        self.counter = 0
+
+    def fresh_ssa(self):
+        name = f"%{self.counter}"
+        self.counter += 1
+        return name
+
+    def emit(self, node, env):
+        if isinstance(node, IntLit):
+            ssa = self.fresh_ssa()
+            self.lines.append(f"    {ssa} = arith.constant {node.value} : i64")
+            return ssa
+        if isinstance(node, Var):
+            return env[node.name]   # 이미 계산된 SSA 값을 그대로 재사용
+        if isinstance(node, BinOp):
+            l = self.emit(node.left, env)
+            r = self.emit(node.right, env)
+            ssa = self.fresh_ssa()
+            op_name = {"+": "arith.addi", "-": "arith.subi", "*": "arith.muli"}[node.op]
+            self.lines.append(f"    {ssa} = {op_name} {l}, {r} : i64")
+            return ssa
+        if isinstance(node, Let):
+            value_ssa = self.emit(node.value, env)
+            new_env = dict(env)
+            new_env[node.name] = value_ssa
+            return self.emit(node.body, new_env)
+----
+
+이 구조가 4장의 `eval_expr`, 5~6장의 `type_of`/`infer`와 놀랍도록 닮았습니다 — AST 노드 종류마다 분기하는 재귀 순회라는 점은 똑같고, 다만 이번엔 "값"이나 "타입"이 아니라 "이 부분식을 계산하는 MLIR 명령어들"과 "그 결과를 담은 SSA 이름"을 만들어낼 뿐입니다. `env`는 4장의 `Env`와 비슷한 역할이지만, 여기서는 변수 이름을 실제 값이 아니라 **이미 계산된 SSA 값의 이름**에 매핑합니다.
+
+== 검증 1: 단순한 프로그램 방출
+
+[source,python]
+----
+mlir1 = emit_module("1 + 2")
+print(mlir1)
+----
+
+[source]
+----
+func.func @main() -> i64 {
+    %0 = arith.constant 1 : i64
+    %1 = arith.constant 2 : i64
+    %2 = arith.addi %0, %1 : i64
+    return %2 : i64
+}
+----
+
+== 검증 2: SSA 값이 재계산 없이 재사용되는가
+
+[source,python]
+----
+mlir2 = emit_module("let x = 3 * 4 in x + x")
+print(mlir2)
+assert mlir2.count("arith.muli") == 1   # "3*4"를 계산하는 연산이 딱 한 번만 나와야 함
+----
+
+[source]
+----
+func.func @main() -> i64 {
+    %0 = arith.constant 3 : i64
+    %1 = arith.constant 4 : i64
+    %2 = arith.muli %0, %1 : i64
+    %3 = arith.addi %2, %2 : i64
+    return %3 : i64
+}
+----
+
+`x + x`에서 `x`가 두 번 나오지만, `arith.muli`(`3 * 4`를 계산하는 연산)는 딱 한 번만 나옵니다 — `Var` 노드를 처리할 때 `env[node.name]`으로 **이미 계산해둔 SSA 값**(`%2`)을 그대로 돌려주기 때문입니다. `arith.addi %2, %2`처럼 같은 SSA 값을 두 번 참조하는 건 전혀 문제가 없습니다 — SSA는 "한 값이 한 번만 정의된다"는 규칙이지, "한 번만 쓰인다"는 규칙이 아닙니다.
+
+== 검증 3: 진짜 mlir-opt로 검증하기
+
+지금까지는 우리가 만든 문자열이 "MLIR처럼 생겼다"는 것만 확인했습니다. 이제 실제 MLIR 파서로 확인합니다.
+
+[source,python]
+----
+import subprocess
+
+def check_valid_mlir(mlir_text):
+    result = subprocess.run(["mlir-opt"], input=mlir_text, capture_output=True, text=True)
+    return result.returncode == 0, result.stdout, result.stderr
+
+ok1, out1, err1 = check_valid_mlir(mlir1)
+print(ok1)   # True
+----
+
+[source]
+----
+mlir-opt parse check (1+2): OK
+mlir-opt parse check (let x = 3*4 in x+x): OK
+----
+
+`mlir-opt`에 인자 없이 입력을 넣으면, MLIR 텍스트를 파싱해서 내부 자료구조로 만들고, 문제가 없으면 다시 텍스트로 출력합니다(아무 최적화 패스도 지정하지 않았으므로 "파싱 후 그대로 재출력"만 합니다). 반환 코드가 `0`이면 우리가 방출한 텍스트가 실제로 MLIR 문법에 맞는 유효한 IR이라는 뜻입니다 — 서문에서 약속한 대로, "이렇게 될 것이다"라는 설명이 아니라 진짜 도구로 확인한 결과입니다.
+
+== 검증 4: 왕복 검증
+
+[source,python]
+----
+ok3, out3, err3 = check_valid_mlir(out2)   # mlir-opt가 재출력한 텍스트를 다시 mlir-opt에 넣기
+print(ok3)   # True
+----
+
+`mlir-opt`가 한 번 파싱하고 재출력한 텍스트를, 다시 `mlir-opt`에 넣어도 문제없이 통과합니다 — 이건 당연해 보이지만 실은 중요한 성질입니다(파싱과 출력이 서로 역함수 관계라는 뜻이고, 이후 장에서 최적화 패스를 거친 IR을 다시 검사하거나 다른 도구에 넘길 때 이 성질에 의존하게 됩니다).
+
+== 아직 다루지 않은 것들
+
+이 장의 방출기는 일부러 단순하게 유지했습니다 — 조건문(`if`), 함수 정의와 호출, 재귀는 아직 방출하지 않습니다. `let`과 산술 연산만으로는 MLIR이 "그냥 계산기"처럼 보이지만, 다음 장에서 이 IR을 실제로 낮추고 실행해서 숫자가 나오는 걸 먼저 확인한 뒤, 12장에서 `if`(→ `scf.if`)와 재귀 함수(→ `func.call`)를 추가하며 `Twig`의 나머지 기능을 채워갑니다.
+
+== 직접 해보기
+
+* `Emitter`에 나눗셈(`arith.divsi`, 부호 있는 정수 나눗셈)을 추가해보고, `emit_module("10 / 3")`으로 방출한 텍스트가 실제 `mlir-opt`를 통과하는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+op_name = {"+": "arith.addi", "-": "arith.subi", "*": "arith.muli", "/": "arith.divsi"}[node.op]
+# TOKEN_SPEC에 ("SLASH", r"/")와 parse_multiplicative에 SLASH 처리도 추가해야 함
+
+mlir3 = emit_module("10 / 3")
+ok, out, err = check_valid_mlir(mlir3)
+print(ok)
+----
+
+`arith.divsi`(signed integer division)를 추가하는 것 자체는 `arith.addi` 등과 똑같은 패턴이라 어렵지 않습니다 — 다만 11장에서 이 IR을 실제로 실행해보면, `10 / 3`이 정수 나눗셈이라 `3`이 나오는지(내림 방식), 아니면 다른 반올림 방식을 따르는지는 `arith.divsi`의 정확한 의미론을 실제로 실행해보고서야 확실히 알 수 있습니다 — "MLIR 문법에 맞다"는 것과 "내가 원하는 의미론과 정확히 일치한다"는 것은 다른 질문이라는 걸 기억해둘 만합니다.
+====
+
+== 요약
+
+* MLIR의 `arith` 다이얼렉트는 SSA 값(`%0`, `%1`, ...)과 `arith.constant`, `arith.addi` 같은 연산으로 산술 계산을 표현합니다.
+* `Twig`의 AST를 순회하며 MLIR 텍스트를 쌓는 방출기가, 4장의 인터프리터·5~6장의 타입 검사기와 구조적으로 똑같은 재귀 순회라는 걸 확인했습니다.
+* `let` 바인딩이 이미 계산된 SSA 값을 재사용할 뿐 다시 계산하지 않는다는 것을, 방출된 `arith.muli`가 정확히 한 번만 나온다는 사실로 검증했습니다.
+* 방출한 텍스트를 실제 `mlir-opt`로 파싱·검증하고, 그 재출력 결과까지 다시 검증하는 왕복 확인을 마쳤습니다 — 우리가 만든 IR이 진짜 MLIR이라는 걸 실제 도구로 증명했습니다.
+
+다음 장에서는 이 IR을 `mlir-opt`로 LLVM 다이얼렉트까지 낮추고, `mlir-runner`로 실제 JIT 실행해서, 방출된 코드가 정말로 올바른 숫자를 계산하는지 확인합니다.
+// end::body[]

@@ -1,0 +1,175 @@
+---
+title: "13장: 표준 라이브러리와 모듈 시스템"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "standard-library", "modules", "python", "book"]
+categories: ["books"]
+description: "표준 라이브러리를 별도의 내장 함수 메커니즘 없이 Twig 자신으로 작성해 사용자 프로그램 앞에 이어붙이는 것만으로 구현하고, 그 과정에서 match 절 안에 if가 못 들어가던 실제 파서 버그를 발견해 고치며, open으로 모듈을 열지 않으면 그 함수가 여전히 안 보인다는 것으로 진짜 네임스페이스 역할을 확인하는 5부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-control-flow-and-recursion-in-mlir/[12장: 제어흐름과 재귀를 scf/cf 다이얼렉트로] · 다음: link:../14-end-to-end-example/[14장: 종합 실전: 작은 프로그램을 처음부터 끝까지]_
+
+'''
+
+지금까지 `Twig`는 사용자가 모든 함수를 직접 정의해야 했습니다. 실전 언어라면 리스트를 다루는 `map`, `filter`, `fold` 같은 흔한 함수들을 표준 라이브러리로 미리 제공합니다. 이 장에서는 이런 표준 라이브러리를, 별도의 "내장 함수" 메커니즘을 인터프리터에 새로 만들지 않고 — **`Twig` 자신으로 작성한 코드를 사용자 프로그램 앞에 이어붙이는 것만으로** 구현합니다.
+
+== 표준 라이브러리 = Twig로 쓴 let 사슬
+
+[source,python]
+----
+MODULE_LIST = """
+let rec length = fun lst ->
+  match lst with
+  | Nil -> 0
+  | Cons x rest -> 1 + length rest
+in
+let rec map = fun f -> fun lst ->
+  match lst with
+  | Nil -> Nil
+  | Cons x rest -> Cons (f x) (map f rest)
+in
+let rec filter = fun pred -> fun lst ->
+  match lst with
+  | Nil -> Nil
+  | Cons x rest ->
+      if pred x then Cons x (filter pred rest) else filter pred rest
+in
+let rec fold = fun f -> fun acc -> fun lst ->
+  match lst with
+  | Nil -> acc
+  | Cons x rest -> fold f (f acc x) rest
+in
+"""
+----
+
+`length`, `map`, `filter`, `fold`가 전부 8장에서 만든 언어 기능(`let rec`, `match`, 재귀)만으로 짜여 있습니다 — 이 문자열의 끝이 `in`으로 끝나는 걸 눈여겨보세요. 사용자 프로그램을 이 문자열 뒤에 그대로 이어붙이면, 통째로 하나의 거대한 `let ... in let ... in ... in <사용자 프로그램>`이 됩니다. 그러면 사용자 프로그램은 자연스럽게 `length`, `map` 등이 이미 정의된 환경 안에서 실행됩니다 — 인터프리터 코드는 **단 한 줄도 바뀌지 않았습니다.**
+
+== 실제로 버그를 발견하다: match 절 안에 if가 안 들어갔다
+
+이 표준 라이브러리를 처음 실행해보니, `filter`를 정의하는 부분에서 파싱 에러가 났습니다 — `| Cons x rest -> if pred x then ... else ...`처럼, `match`의 한 절(case) 안에 `if` 표현식을 넣으려 했는데 파서가 이걸 거부했습니다.
+
+[source,python]
+----
+def parse_match(self):
+    self.expect("MATCH"); scrutinee = self.parse_equality(); self.expect("WITH")
+    cases = []
+    while self.peek().kind == "PIPE":
+        self.advance(); pat = self.parse_pattern(); self.expect("ARROW")
+        expr = self.parse_equality()   # 버그: 절의 몸체를 equality까지만 파싱함
+        cases.append((pat, expr))
+    return Match(scrutinee, cases)
+----
+
+8장에서 `match` 절의 몸체를 `parse_equality`(산술/비교 연산까지만 다루는 규칙)로 파싱하도록 만들어뒀는데, `if`는 `parse_expr`(가장 바깥의, `let`/`if`/`fun`/`match` 자체를 포함하는 규칙)에서만 처리됩니다 — `parse_equality`는 `if`라는 키워드를 아예 모릅니다. 8장까지는 `match` 절 안에서 `if`를 써본 적이 없어서 이 문제를 놓치고 있었습니다.
+
+[source,python]
+----
+expr = self.parse_expr()   # 수정: if/let/fun/match도 매치 절 안에 올 수 있어야 함
+----
+
+한 줄을 고치는 것으로 해결됩니다 — `match` 절의 몸체도 다른 모든 표현식이 올 수 있는 자리인 `parse_expr`로 파싱해야 했습니다. 이건 3장에서 "우선순위를 문법 계층으로 표현한다"고 했던 원리를 정확히 어긴 실수였습니다 — `parse_equality`는 `parse_expr`보다 좁은 범위만 다루는 하위 규칙인데, `match` 절의 몸체처럼 "임의의 표현식이 올 수 있는 자리"에 실수로 더 좁은 규칙을 써버린 것입니다.
+
+== 검증 1: List 모듈
+
+[source,python]
+----
+src1 = "open List\nlength (Cons 1 (Cons 2 (Cons 3 Nil)))"
+print(run_with_modules(src1))   # 3
+
+src2 = """
+open List
+fold (fun acc -> fun x -> acc + x) 0 (map (fun x -> x * 2) (Cons 1 (Cons 2 (Cons 3 Nil))))
+"""
+print(run_with_modules(src2))   # 12  ((1*2)+(2*2)+(3*2))
+----
+
+`open List`가 있으면 `MODULE_LIST`(위의 표준 라이브러리 문자열)가 프로그램 앞에 이어붙습니다. `fold`로 `map`이 두 배로 만든 리스트(`[2,4,6]`)의 합을 구하면 `12`가 정확히 나옵니다.
+
+== 검증 2: 방금 고친 filter가 정말로 동작하는가
+
+[source,python]
+----
+src3 = "open List\nlength (filter (fun x -> x < 3) (Cons 1 (Cons 2 (Cons 3 (Cons 4 Nil)))))"
+print(run_with_modules(src3))   # 2 (1, 2만 3보다 작으므로 남음)
+----
+
+방금 고친 그 `if`가 정확히 `filter`의 핵심 로직입니다 — `[1,2,3,4]`에서 `3`보다 작은 원소만 남기면 `[1,2]`, 길이는 `2`입니다.
+
+== 검증 3: Math 모듈, 그리고 여러 모듈 동시에 열기
+
+[source,python]
+----
+MODULE_MATH = """
+let square = fun x -> x * x in
+let double = fun x -> x * 2 in
+let max2 = fun a -> fun b -> if a < b then b else a in
+"""
+----
+
+[source,python]
+----
+src5 = "open List\nopen Math\nlength (map square (Cons 1 (Cons 2 (Cons 3 Nil))))"
+print(run_with_modules(src5))   # 3
+----
+
+`open List`와 `open Math`를 둘 다 쓰면 두 모듈의 정의가 순서대로 이어붙어서, `List`의 `map`과 `Math`의 `square`를 같은 프로그램에서 함께 쓸 수 있습니다.
+
+== 검증 4: 열지 않은 모듈의 함수는 정말로 안 보이는가
+
+[source,python]
+----
+try:
+    run_with_modules("length (Cons 1 Nil)")   # List를 열지 않음
+except NameError as e:
+    print(e)   # unbound variable: length
+----
+
+`open List`를 빼먹으면, `length`가 정의된 적이 없으니 4장의 `Env.get`이 그대로 `NameError`를 냅니다 — 이게 "모듈"이라는 개념이 진짜로 하는 일입니다. 단순히 편의를 위한 문법이 아니라, **필요한 것만 명시적으로 가져와야 쓸 수 있는** 진짜 네임스페이스 경계를 만듭니다. 프로그램이 커질수록, 어떤 함수가 어디서 왔는지 명확한 이 성질이 중요해집니다.
+
+== 검증 5: 없는 모듈을 열면
+
+[source,python]
+----
+try:
+    run_with_modules("open Nonexistent\n1 + 1")
+except NameError as e:
+    print(e)   # no such module: Nonexistent
+----
+
+`preprocess_opens`가 `MODULES` 딕셔너리에 없는 이름을 발견하면 즉시 명확한 에러를 냅니다 — 오타 낸 모듈 이름이 조용히 무시되는 대신, 실행 전에 바로 잡힙니다.
+
+== 이 접근의 한계
+
+이 장의 "모듈 시스템"은 사실 아주 단순한 텍스트 전처리입니다 — 실제 언어의 모듈 시스템(네임스페이스 충돌 감지, 선택적 공개(export) 목록, 모듈 간 순환 참조 감지 등)에 비하면 한참 모자랍니다. 하지만 핵심 원리 하나는 정확히 보여줍니다 — **"표준 라이브러리"는 언어 구현체에 마법처럼 내장된 것이 아니라, 그 언어로 쓰인 평범한 코드일 뿐**이라는 것입니다. 실전 언어의 표준 라이브러리도 상당 부분(전부는 아니지만)이 그 언어 자신으로 작성되어 있습니다 — OCaml의 `List` 모듈, Python의 많은 표준 라이브러리 모듈들이 그렇습니다.
+
+== 직접 해보기
+
+* `MODULE_LIST`에 `reverse`(리스트를 뒤집는 함수)를 추가해보세요. `fold`를 이용하면 재귀를 직접 쓰지 않고도 만들 수 있습니다.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+# MODULE_LIST 끝(마지막 "in" 앞)에 추가:
+"""
+let reverse = fun lst -> fold (fun acc -> fun x -> Cons x acc) Nil lst in
+"""
+
+src = "open List\nlength (reverse (Cons 1 (Cons 2 (Cons 3 Nil))))"
+print(run_with_modules(src))   # 3 (길이는 안 변함, reverse가 실제로 동작하는지는 원소 순서로 확인해야 함)
+----
+
+`reverse`는 빈 리스트(`Nil`)에서 시작해서, `fold`가 원래 리스트를 순서대로 훑으며 각 원소를 누적값의 **앞에** 붙입니다(`Cons x acc`, `acc`가 아니라 `x`가 앞에 옴) — 그 결과 마지막에 처리된 원소가 맨 앞에, 처음 처리된 원소가 맨 뒤에 오게 되어 순서가 뒤집힙니다. `fold`라는 하나의 범용 순회 도구로 `length`(누적값을 세는 것), `reverse`(누적값에 앞으로 붙이는 것), 그리고 검증 1의 합계 계산(누적값에 더하는 것)까지 전부 표현할 수 있다는 게, `fold`가 리스트 처리의 "만능 도구"로 불리는 이유입니다.
+====
+
+== 요약
+
+* 표준 라이브러리를 인터프리터에 내장 함수로 하드코딩하는 대신, `Twig` 자신으로 작성한 `let` 사슬을 사용자 프로그램 앞에 이어붙이는 것만으로 구현했습니다 — 인터프리터 코드는 전혀 바꾸지 않았습니다.
+* 이 과정에서 `match` 절의 몸체가 `if`를 파싱하지 못하던 실제 버그를 발견했고, "우선순위 계층에서 더 좁은 규칙을 잘못된 자리에 썼다"는 3장의 원리로 원인을 정확히 짚어 고쳤습니다.
+* `open`으로 모듈을 열지 않으면 그 함수가 여전히 안 보인다는 것으로, 이 단순한 텍스트 이어붙이기가 실제로 네임스페이스 경계 역할을 한다는 걸 확인했습니다.
+* 표준 라이브러리가 언어에 마법처럼 내장된 것이 아니라 그 언어로 쓰인 평범한 코드라는 걸, `length`/`map`/`filter`/`fold`를 직접 작성해보며 체감했습니다.
+
+마지막 장에서는 지금까지 만든 모든 것 — 렉서, 파서, 인터프리터, 타입 추론, 클로저, ADT, MLIR 코드 생성, 표준 라이브러리 — 을 하나로 묶어, 작은 프로그램 하나를 처음부터 끝까지 통째로 실행합니다.
+// end::body[]

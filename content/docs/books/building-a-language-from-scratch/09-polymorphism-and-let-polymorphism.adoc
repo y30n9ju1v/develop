@@ -1,0 +1,155 @@
+---
+title: "9장: 다형성과 let-다형성"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "polymorphism", "type-inference", "python", "book"]
+categories: ["books"]
+description: "6장의 추론기를 그대로 재현해 항등 함수를 int와 bool에 두 번 쓰면 실패한다는 것을 먼저 확인한 뒤, let에서 값의 타입을 일반화(generalize)하고 참조할 때마다 새로 구체화(instantiate)하는 let-다형성을 추가해 같은 프로그램이 성공하는 것을 나란히 비교하고, 이 다형성이 함수 파라미터에는 적용되지 않는다는 경계까지 확인하는 3부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-algebraic-data-types-and-pattern-matching/[8장: 대수적 데이터 타입과 패턴 매칭] · 다음: link:../10-emitting-mlir-ir/[10장: AST를 MLIR IR로 방출하기]_
+
+'''
+
+항등 함수 `fun x -> x`는 `x`가 정수든 불리언이든 함수든, 무엇이 오든 그대로 돌려줍니다 — 이 함수는 원리적으로 **어떤 타입에도** 쓰일 수 있어야 합니다. 하지만 6장의 추론기를 그대로 쓰면, 이 함수를 한 프로그램 안에서 두 가지 다른 타입으로 쓰는 순간 실패합니다. 이 장에서는 그 실패를 먼저 직접 확인하고, `let-다형성`으로 그 문제를 해결합니다.
+
+== 문제를 재현하기: 6장의 추론기를 그대로
+
+[source,python]
+----
+POLY_SOURCE = """
+let id = fun x -> x in
+let a = id 1 in
+let b = id true in
+a
+"""
+----
+
+`id`를 `1`(정수)에 한 번, `true`(불리언)에 한 번 적용합니다. 6장의 `Let` 처리를 그대로 가져오면:
+
+[source,python]
+----
+if isinstance(node, Let):
+    value_type = infer_no_poly(node.value, tenv, subst)   # id의 타입을 추론 (아직 'a -> 'a, 'a는 타입 변수)
+    benv = tenv.child(); benv.types[node.name] = value_type   # 그 monotype을 그대로 바인딩
+    return infer_no_poly(node.body, benv, subst)
+----
+
+[source]
+----
+caught (as expected, no let-polymorphism): cannot unify int with bool
+----
+
+원인은 명확합니다 — `id`의 타입을 처음 추론하면 `'t9 -> 't9`(어떤 타입 변수 `'t9`에 대해)가 나오는데, 이 **하나의 타입 변수를 가진 하나의 타입**을 그대로 환경에 박아 넣습니다. `id 1`을 호출하는 순간 `unify('t9, TInt(), subst)`가 `'t9`를 `int`로 확정해버리고, 그 다음 `id true`를 호출하면 이미 `int`로 확정된 같은 `'t9`를 다시 `bool`과 통일하려다 실패합니다 — `id`의 두 번의 쓰임이 **같은 타입 변수를 공유**하고 있었던 게 문제입니다.
+
+== 해법: 일반화(generalize)와 구체화(instantiate)
+
+[source,python]
+----
+@dataclass
+class Forall:
+    """forall 'a 'b ... . type -- 여러 타입에 두루 쓰일 수 있는 '일반화된' 타입"""
+    vars: frozenset
+    ty: object
+
+def generalize(t, tenv, subst):
+    t_free = free_vars(t, subst)
+    env_free = free_vars_env(tenv, subst)
+    quantified = t_free - env_free   # 바깥 환경엔 안 나타나는(즉 이 let 안에서만 생긴) 변수들만 일반화
+    return Forall(frozenset(quantified), resolve(t, subst))
+
+def instantiate(scheme):
+    if not isinstance(scheme, Forall): return scheme
+    mapping = {v: fresh() for v in scheme.vars}   # 참조할 때마다 완전히 새로운 타입 변수로 교체
+    # ... mapping을 이용해 scheme.ty 안의 양화된 변수들을 치환 ...
+----
+
+`generalize`는 "이 타입 안의 변수 중, `let` 바깥에는 안 나타나는 것들"을 찾아서 `forall`로 묶습니다 — `id`의 타입 `'t9 -> 't9`에서 `'t9`는 오직 `id`의 정의 안에서만 생긴 변수이므로 통째로 일반화됩니다. `instantiate`는 그 반대 방향입니다 — `Forall`을 실제로 **쓸 때마다**, 양화된 변수 하나하나를 완전히 새로운 타입 변수로 바꿔치기합니다. 그래서 `id`를 두 번 쓰면 서로 다른 타입 변수를 가진 두 개의 독립적인 사본이 만들어집니다.
+
+[source,python]
+----
+if isinstance(node, Let):
+    value_type = infer_poly(node.value, tenv, subst)
+    scheme = generalize(value_type, tenv, subst)   # <-- 핵심 차이: 여기서 일반화
+    benv = tenv.child(); benv.types[node.name] = scheme
+    return infer_poly(node.body, benv, subst)
+----
+
+`Let`의 처리에서 딱 한 줄(`generalize` 호출)만 다릅니다.
+
+== 검증: 같은 프로그램이 이번엔 성공한다
+
+[source,python]
+----
+result_b = infer_poly(parse(POLY_SOURCE), TEnv(), subst_b)
+print(type_repr(result_b, subst_b))   # int
+----
+
+`id`를 참조할 때마다(`Var` 노드 처리에서 `instantiate(tenv.get(node.name))`) 서로 다른 새 타입 변수를 받으므로, `id 1`에서의 `'t_a -> 't_a`와 `id true`에서의 `'t_b -> 't_b`는 서로 완전히 독립적입니다 — 각각 따로 `int`와 `bool`로 확정되어도 서로 충돌하지 않습니다.
+
+== 검증: id의 스킴이 정말로 "모든 타입"을 아우르는가
+
+[source,python]
+----
+value_type = infer_poly(let_node.value, tenv_c, subst_c)
+scheme = generalize(value_type, tenv_c, subst_c)
+print(scheme)   # Forall(vars={9}, ty=TFun(TVar(9), TVar(9)))
+assert len(scheme.vars) == 1
+----
+
+`id`의 스킴이 정확히 `forall 't9. 't9 -> 't9`(하나의 타입 변수가 전칭 양화된)로 나옵니다 — "이 함수는 어떤 타입 `'t9`를 고르든, 그 타입을 받아서 같은 타입을 돌려준다"는 뜻이고, 이게 항등 함수의 정확한 다형적 타입입니다.
+
+== 경계: 함수 파라미터는 일반화되지 않는다
+
+`let`-다형성이라는 이름 그대로, 이 일반화는 **`let`으로 묶인 값에만** 적용됩니다 — 함수의 파라미터는 여전히 하나의 monotype으로만 쓰일 수 있습니다.
+
+[source,python]
+----
+lambda_source = "fun f -> if f 1 = 1 then f true else false"
+infer_poly(parse(lambda_source), TEnv(), subst_d)
+----
+
+[source]
+----
+caught (function parameters stay monomorphic, only let gets polymorphism): cannot unify int with bool
+----
+
+`f`는 `let`이 아니라 `fun`의 파라미터로 묶였으므로, `Fun` 처리(`pt = fresh(); benv.types[node.param] = pt`)에서 `Forall`이 아니라 그냥 `TVar`(구체적인 하나의 타입 변수)로 바인딩됩니다. `f 1`이 `f`의 타입을 `int -> ...`로 확정해버리면, 그 다음 `f true`는 이미 확정된 파라미터 타입과 충돌합니다 — `id`가 성공했던 것과 겉보기엔 비슷한 상황인데도, `f`가 `let`이 아니라 함수 파라미터로 묶였다는 사실 하나 때문에 결과가 완전히 달라집니다. 이 구분(`let`은 다형적, 함수 파라미터는 단형적)이 Hindley-Milner 타입 시스템의 "let-다형성"이라는 이름이 정확히 가리키는 지점입니다 — 임의의 다형적 함수 인자를 받는 것(랭크-2 다형성 이상)은 이 시스템의 범위를 벗어나는, 별도의(더 복잡한) 확장이 필요합니다.
+
+== 왜 이 구분이 필요한가
+
+만약 함수 파라미터까지 자유롭게 다형적으로 쓸 수 있다면, 타입 추론 알고리즘이 훨씬 복잡해지고(어떤 경우엔 결정 불가능해지기까지 합니다) 타입 검사 자체가 느려집니다. `let`만 다형적으로 허용하는 절충은, 실전에서 필요한 다형성(라이브러리 함수를 여러 타입에 재사용하는 것)의 대부분을 커버하면서도, 추론 알고리즘을 여전히 효율적이고 항상 종료하도록 유지합니다 — OCaml, Haskell(98) 같은 실전 언어들이 이 절충을 표준으로 채택한 이유입니다.
+
+== 직접 해보기
+
+* `let compose = fun f -> fun g -> fun x -> f (g x) in ...`처럼 함수 합성 함수를 정의하고, 이 함수도 `id`처럼 여러 타입 조합에 다형적으로 쓰일 수 있는지(예: 한 번은 `int -> int` 함수들을, 한 번은 `bool -> bool` 함수들을 합성) 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+compose_source = """
+let compose = fun f -> fun g -> fun x -> f (g x) in
+let add1 = fun n -> n + 1 in
+let double = fun n -> n * 2 in
+let add1_then_double = compose double add1 in
+add1_then_double 5
+"""
+subst_e = {}
+result_e = infer_poly(parse(compose_source), TEnv(), subst_e)
+print(type_repr(result_e, subst_e))   # int
+----
+
+`compose`도 `let`으로 정의됐으므로 다형적으로 일반화됩니다 — `f`, `g`, `x`의 타입이 모두 타입 변수인 채로 일반화되어(`forall 'a 'b 'c. ('b -> 'c) -> ('a -> 'b) -> ('a -> 'c)`에 해당하는 형태), `int -> int` 함수들의 합성에도, 만약 다른 곳에서 `bool -> bool` 함수들을 합성하는 데도 같은 `compose`를 재사용할 수 있습니다. 이런 고차 다형적 유틸리티 함수(합성, 맵, 필터 등)를 라이브러리로 만들어 재사용하는 것이 실전 함수형 프로그래밍의 핵심 패턴이고, let-다형성이 바로 그걸 가능하게 하는 타입 시스템의 토대입니다.
+====
+
+== 요약
+
+* 6장의 추론기를 그대로 쓰면, 항등 함수처럼 원리적으로 다형적이어야 할 함수도 한 프로그램 안에서 서로 다른 타입에 두 번 쓰이면 실패한다는 걸 직접 확인했습니다.
+* `let`에서 값의 타입을 일반화(`Forall`로 감싸기)하고, 그 값을 참조할 때마다 새로 구체화(각 양화 변수를 새 타입 변수로 교체)하는 것으로 이 문제를 해결했습니다.
+* 이 다형성은 `let`으로 묶인 값에만 적용되고, 함수 파라미터는 여전히 단형적이라는 경계도 실제 실패로 확인했습니다 — 이게 "let-다형성"이라는 이름의 정확한 의미입니다.
+
+3부에서 클로저(7장), 대수적 데이터 타입(8장), 다형성(9장)까지 다지며 `Twig`를 실전 함수형 언어에 가까운 모습으로 완성했습니다. 4부에서는 이 언어를 트리-워킹 인터프리터가 아니라, 실제 MLIR 컴파일러 인프라로 낮춰서 진짜로 컴파일된 코드로 실행하는 법을 다룹니다.
+// end::body[]

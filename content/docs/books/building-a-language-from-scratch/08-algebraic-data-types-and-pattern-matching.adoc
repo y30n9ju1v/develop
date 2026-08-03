@@ -1,0 +1,188 @@
+---
+title: "8장: 대수적 데이터 타입과 패턴 매칭"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "algebraic-data-types", "pattern-matching", "python", "book"]
+categories: ["books"]
+description: "대문자로 시작하는 식별자를 생성자로 인식하는 렉서 규칙으로 Option과 List를 표현하고, 커링과 똑같은 방식으로 다항 생성자를 부분 적용하는 PartialCtor를 구현해 Cons/Nil로 만든 리스트의 합을 재귀 패턴 매칭으로 정확히 계산하며, 중첩된 생성자 패턴까지 매칭하는 3부의 두 번째 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-closures-and-lexical-scope/[7장: 클로저와 렉시컬 스코프] · 다음: link:../09-polymorphism-and-let-polymorphism/[9장: 다형성과 let-다형성]_
+
+'''
+
+지금까지 `Twig`의 값은 정수, 불리언, 함수뿐이었습니다. 실전 언어라면 "있을 수도 없을 수도 있는 값"(`Option`)이나 "여러 개를 이어붙인 목록"(`List`) 같은, 여러 경우 중 하나를 표현하는 타입이 필요합니다. 이 장에서는 이런 대수적 데이터 타입(ADT)을 생성자로 만들고, 그 값을 분해하는 패턴 매칭을 구현합니다.
+
+== 렉서 규칙 하나로 생성자를 식별자와 구별하기
+
+[source,python]
+----
+elif kind == "IDENT" and text[0].isupper(): kind, value = "CTOR", text   # 대문자 시작 = 생성자
+----
+
+`Some`, `None`, `Cons`, `Nil`처럼 대문자로 시작하는 식별자는 일반 변수(`IDENT`)가 아니라 생성자(`CTOR`)로 분류합니다 — OCaml, Haskell 같은 언어들이 실제로 쓰는 관례입니다. 이 규칙 하나로, 별도의 `type` 선언 문법 없이도 파서가 "이건 생성자다"를 즉시 알 수 있습니다.
+
+== 생성자의 필요 인자 수(arity)
+
+[source,python]
+----
+CTOR_ARITY = {"None": 0, "Some": 1, "Nil": 0, "Cons": 2}
+----
+
+`Option`(있을 수도 없을 수도 있는 값)은 `None`(인자 없음)과 `Some`(값 하나)으로, `List`(리스트)는 `Nil`(빈 리스트)과 `Cons`(머리 원소 + 나머지 리스트, 인자 둘)로 표현합니다.
+
+== 생성자도 커링된 함수처럼 부분 적용된다
+
+[source,python]
+----
+class PartialCtor:
+    """아직 필요한 인자를 다 못 받은 생성자. 예: Cons 1 은 하나 더 받아야 완성됨."""
+    def __init__(self, name, collected):
+        self.name, self.collected = name, collected
+
+class Constructed:
+    """완전히 적용된 생성자 값. 예: Some(5), Cons(1, Cons(2, Nil()))"""
+    def __init__(self, name, args): self.name, self.args = name, args
+
+def apply_ctor(name, collected, arg):
+    new_collected = collected + [arg]
+    if len(new_collected) == CTOR_ARITY[name]:
+        return Constructed(name, new_collected)
+    return PartialCtor(name, new_collected)
+----
+
+`Cons`처럼 인자가 둘 필요한 생성자는, `Cons 1`까지만 적용하면 아직 완성되지 않은 `PartialCtor`(`x`가 아직 하나 더 필요함)가 되고, `Cons 1 (Cons 2 Nil)`처럼 두 번째 인자까지 적용해야 비로소 `Constructed`(완성된 값)가 됩니다. `App` 처리에서 이걸 그대로 반영합니다.
+
+[source,python]
+----
+if isinstance(node, App):
+    fn = eval_expr(node.fn, env)
+    arg = eval_expr(node.arg, env)
+    if isinstance(fn, PartialCtor):
+        return apply_ctor(fn.name, fn.collected, arg)
+    if isinstance(fn, Closure):
+        # ... 4장과 동일한 함수 호출 ...
+----
+
+이건 7장에서 다룬 커링과 정확히 같은 아이디어입니다 — `Cons`가 함수는 아니지만, "인자를 하나씩 받아가며 완성되어 간다"는 점에서 커링된 함수와 똑같이 동작합니다.
+
+== 패턴: 값을 분해하는 규칙
+
+[source,python]
+----
+@dataclass
+class PWildcard: pass          # _  (아무 값이나 매치하되 바인딩하지 않음)
+@dataclass
+class PVar: name: str          # x  (매치하고 그 값을 x로 바인딩)
+@dataclass
+class PCtor: name: str; subpatterns: list   # Some x, Cons x rest 같은 생성자 패턴
+----
+
+== match_pattern: 패턴과 값을 대조하며 변수를 바인딩하기
+
+[source,python]
+----
+def match_pattern(pat, value, env):
+    if isinstance(pat, PWildcard): return True
+    if isinstance(pat, PVar):
+        env.set(pat.name, value)
+        return True
+    if isinstance(pat, PCtor):
+        if not isinstance(value, Constructed) or value.name != pat.name:
+            return False
+        for subpat, subval in zip(pat.subpatterns, value.args):
+            if not match_pattern(subpat, subval, env):
+                return False
+        return True
+----
+
+`PCtor` 패턴은 값의 생성자 이름이 일치하는지 먼저 확인하고, 일치하면 그 안에 들어있는 각 인자를 하위 패턴으로 재귀적으로 매칭합니다 — `Cons x rest`가 `Constructed("Cons", [1, Constructed("Cons", [2, ...])])`와 매치되면, `x`에는 `1`이, `rest`에는 나머지 리스트가 바인딩됩니다.
+
+== 검증 1: Option 패턴 매칭
+
+[source,python]
+----
+run("match Some 5 with | None -> 0 | Some n -> n")    # 5
+run("match None with | None -> 0 | Some n -> n")        # 0
+----
+
+`Some 5`는 `PCtor("Some", [PVar("n")])`와 매치되어 `n=5`가 바인딩되고, 그 케이스의 결과(`n`)를 계산하면 `5`입니다.
+
+== 검증 2: Cons/Nil로 리스트 만들고 재귀로 합계 구하기
+
+[source,python]
+----
+list_sum_source = """
+let rec sum = fun lst ->
+  match lst with
+  | Nil -> 0
+  | Cons x rest -> x + sum rest
+in sum (Cons 1 (Cons 2 (Cons 3 Nil)))
+"""
+print(run(list_sum_source))   # 6
+----
+
+`Cons 1 (Cons 2 (Cons 3 Nil))`은 `[1, 2, 3]`이라는 리스트를 손으로 조립한 것입니다. `sum` 함수는 리스트가 `Nil`(빈 리스트)이면 `0`을, `Cons x rest`(머리와 나머지)면 `x`에 나머지의 합(`sum rest`)을 더한 것을 반환합니다 — 이 재귀는 4장에서 만든 `let rec`(매듭 묶기)과 8장의 패턴 매칭이 자연스럽게 합쳐진 결과입니다.
+
+== 검증 3: 와일드카드
+
+[source,python]
+----
+run("match Some 42 with | None -> 0 | Some _ -> 999")   # 999
+----
+
+`Some _`는 `Some`이라는 생성자인지는 확인하지만, 그 안의 값(`42`)은 아예 바인딩하지 않고 버립니다 — "이 값이 존재한다는 사실만 중요하고, 정확히 무엇인지는 관심 없다"는 걸 표현할 때 씁니다.
+
+== 검증 4: 매치 실패 시 명확한 런타임 에러
+
+[source,python]
+----
+try:
+    run("match Some 5 with | None -> 0")   # Some 케이스가 없음
+except RuntimeError as e:
+    print(e)   # match failed: no pattern matched Some(5)
+----
+
+`Some 5`를 감당할 수 있는 케이스가 하나도 없으면, 조용히 이상한 값을 내는 대신 명확한 런타임 에러가 납니다. 실전 언어(OCaml 등)는 이런 **비완전(non-exhaustive) 매치**를 컴파일 타임(타입 검사 단계)에 경고하기도 하는데, `Twig`의 이 인터프리터는 아직 그 단계까지는 못 가고 실행 시점에서야 잡아냅니다 — 9장 이후에도 이 책에서는 이 한계를 그대로 남겨두고, "정적으로 이런 것까지 잡아내려면 무엇이 더 필요할지"를 생각해볼 거리로 남겨둡니다.
+
+== 검증 5: 중첩 패턴
+
+[source,python]
+----
+nested_source = """
+match Some (Cons 1 Nil) with
+| None -> 0
+| Some (Cons x _) -> x
+| Some Nil -> 100
+"""
+print(run(nested_source))   # 1
+----
+
+`Some (Cons 1 Nil)`처럼 생성자 안에 생성자가 들어있는 값도, 패턴을 그만큼 중첩해서(`Some (Cons x _)`) 한 번에 분해할 수 있습니다 — 괄호로 하위 패턴을 묶어야 했는데(`parse_pattern`에 `LPAREN` 처리를 추가해서), 이건 3장에서 표현식을 괄호로 묶었던 것과 같은 이유입니다.
+
+== 직접 해보기
+
+* `CTOR_ARITY`에 `Triple`(인자 셋)을 추가하고, `match Triple 1 2 3 with | Triple a b c -> a + b + c`가 정확히 `6`을 내는지 확인해보세요 — 인자가 셋인 생성자도 이 장의 부분 적용 메커니즘이 그대로 확장되는지 보는 연습입니다.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+CTOR_ARITY["Triple"] = 3
+print(run("match Triple 1 2 3 with | Triple a b c -> a + b + c"))   # 6
+----
+
+`apply_ctor`가 `len(new_collected) == CTOR_ARITY[name]`을 확인하는 방식은 인자 개수에 무관하게 그대로 작동합니다 — `Triple 1`은 `PartialCtor(collected=[1])`, `Triple 1 2`는 `PartialCtor(collected=[1,2])`, `Triple 1 2 3`에서야 `Constructed("Triple", [1,2,3])`이 완성됩니다. 패턴 쪽도 `parse_pattern`이 `arity`만큼 하위 패턴을 반복해서 파싱하므로 그대로 확장됩니다 — 이 장에서 만든 메커니즘이 인자 개수 `0`, `1`, `2`, `3`, ... 어디에도 특별히 매여있지 않은, 진짜로 일반적인 설계라는 걸 확인할 수 있습니다.
+====
+
+== 요약
+
+* 대문자로 시작하는 식별자를 생성자로 인식하는 렉서 규칙 하나로, 별도의 `type` 선언 문법 없이도 `Option`(`None`/`Some`)과 `List`(`Nil`/`Cons`) 같은 대수적 데이터 타입을 표현했습니다.
+* 다항 생성자(`Cons`)는 커링된 함수와 똑같은 방식(`PartialCtor`)으로 인자를 하나씩 받아가며 완성됩니다.
+* 패턴 매칭은 값의 생성자 이름을 확인하고 그 안의 인자들을 하위 패턴으로 재귀적으로 분해하며, 이 재귀 패턴 매칭과 `let rec`을 합쳐 리스트의 합을 정확히 계산했습니다.
+* 매치 실패는 명확한 런타임 에러로 나타나지만, 이걸 실행 전(타입 검사 단계)에 잡아내려면 아직 더 필요한 것들이 있다는 한계도 확인했습니다.
+
+다음 장에서는 지금까지 함수 하나가 항상 하나의 구체적인 타입에만 쓰일 수 있었던 제약을 없애는, 다형성(polymorphism)과 let-다형성을 다룹니다 — 예를 들어 항등 함수(`fun x -> x`) 하나가 `int`에도 `bool`에도 동시에 쓰일 수 있게 하는 능력입니다.
+// end::body[]

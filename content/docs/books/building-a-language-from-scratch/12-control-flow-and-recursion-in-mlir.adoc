@@ -1,0 +1,209 @@
+---
+title: "12장: 제어흐름과 재귀를 scf/cf 다이얼렉트로"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "mlir", "recursion", "python", "book"]
+categories: ["books"]
+description: "if를 scf.if로, 재귀 함수 호출을 func.call로 방출해 1장이 약속한 재귀 팩토리얼을 실제 MLIR 컴파일러 파이프라인으로 낮추고 JIT 실행해서, 정말로 fact(5)가 120을 내는 것을 확인하며 4부를 마무리하는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-lowering-and-jit-execution/[11장: mlir-opt로 낮추고 mlir-runner로 실제로 실행하기 (JIT)] · 다음: link:../13-standard-library-and-modules/[13장: 표준 라이브러리와 모듈 시스템]_
+
+'''
+
+11장에서는 상수식만 다뤄서, 사실 모든 프로그램이 컴파일 시점에 이미 답이 정해져 있었습니다. 이 장에서는 `if`(조건에 따라 실행 경로가 갈리는 것)와 재귀 함수 호출(실행해봐야 몇 번 반복될지 아는 것)을 MLIR로 방출해서, 1장부터 약속해온 그 프로그램 — 재귀로 계산하는 팩토리얼 — 을 마침내 실제 MLIR 컴파일러로 실행합니다.
+
+== scf.if: 조건에 따라 갈라지는 두 값 중 하나를 고르기
+
+[source,python]
+----
+if isinstance(node, If):
+    cond_ssa = self.emit(node.cond, env, lines, indent)
+    result_ssa = self.fresh_ssa()
+    lines.append(f"{pad}{result_ssa} = scf.if {cond_ssa} -> (i64) {{")
+    then_val = self.emit(node.then_branch, env, then_lines, indent+1)
+    lines.append(f"{pad}  scf.yield {then_val} : i64")
+    lines.append(f"{pad}}} else {{")
+    else_val = self.emit(node.else_branch, env, else_lines, indent+1)
+    lines.append(f"{pad}  scf.yield {else_val} : i64")
+    lines.append(f"{pad}}}")
+    return result_ssa
+----
+
+`scf`(Structured Control Flow) 다이얼렉트의 `scf.if`는 `then`과 `else` 두 영역(region)을 가지고, 각 영역의 마지막에 `scf.yield`로 "이 분기가 선택되면 이 값을 결과로 낸다"고 알려줍니다. `Twig`의 `if`가 항상 값을 내는 표현식(4장의 `eval_expr`에서 `if`가 `return` 문이 아니라 값을 계산하는 것과 같은 방식)이라는 점이, `scf.if -> (i64)`처럼 결과 타입을 갖는 이 MLIR 구조와 정확히 맞아떨어집니다.
+
+== func.call: 재귀 함수 호출
+
+이 장의 범위를 명확히 하기 위해, MLIR로 방출하는 함수는 `let rec f = fun n -> ... in f <인자>`라는 특정 형태만 지원합니다 — 일반적인 클로저(7장)를 MLIR로 낮추려면 클로저 변환(closure conversion)이라는 별도의 큰 주제가 필요하므로, 이 장에서는 자기 자신만 재귀 호출하는 최상위 함수로 범위를 좁힙니다.
+
+[source,python]
+----
+if isinstance(node, App):
+    if isinstance(node.fn, Var) and node.fn.name == self.recursive_fn_name:
+        arg_ssa = self.emit(node.arg, env, lines, indent)
+        ssa = self.fresh_ssa()
+        lines.append(f"{pad}{ssa} = func.call @{self.recursive_fn_name}({arg_ssa}) : (i64) -> i64")
+        return ssa
+    raise TypeError("this chapter only supports direct recursive self-calls, not general closures")
+----
+
+`fact`가 자기 자신(`fact`)을 호출하는 부분은, MLIR의 `func.call`로 직접 방출됩니다 — 인터프리터가 환경을 뒤져 클로저를 찾아 호출했던 4장의 방식과 달리, 여기서는 컴파일 시점에 "이건 `fact`라는 이름의 MLIR 함수를 호출하는 것"이라는 게 이미 확정됩니다.
+
+== 프로그램 전체를 두 개의 MLIR 함수로 방출하기
+
+[source,python]
+----
+def emit_recursive_program(source, call_arg):
+    ast = parse(source)
+    fn_name, param, body = ast.name, ast.value.param, ast.value.body
+
+    fn_emitter = FuncEmitter(recursive_fn_name=fn_name)
+    result_ssa = fn_emitter.emit(body, {param: f"%{param}"}, fn_lines, indent=1)
+    # func.func @fact(%n: i64) -> i64 { ... return result_ssa }
+
+    main_emitter = FuncEmitter(recursive_fn_name=fn_name)
+    # func.func @main() -> i64 { call_arg를 상수로 만들고 func.call @fact(...) 후 반환 }
+----
+
+`fact` 자체가 하나의 MLIR 함수(`func.func @fact`)가 되고, `main`은 그 함수를 특정 인자(`5`)로 호출하는 또 다른 함수가 됩니다 — 10~11장의 "모든 걸 `main` 하나에 욱여넣기"에서, 실제 프로그램이 여러 함수로 이루어지는 자연스러운 형태로 넘어갔습니다.
+
+== 검증 1: if만 있는 함수
+
+[source,python]
+----
+simple_if_source = "let rec ignore_rec = fun n -> if n < 5 then 100 else 200 in ignore_rec 3"
+mlir_if = emit_recursive_program(simple_if_source, call_arg=3)
+----
+
+[source]
+----
+func.func @ignore_rec(%n: i64) -> i64 {
+  %v0 = arith.constant 5 : i64
+  %v1 = arith.cmpi slt, %n, %v0 : i64
+  %v2 = scf.if %v1 -> (i64) {
+    %v3 = arith.constant 100 : i64
+    scf.yield %v3 : i64
+  } else {
+    %v4 = arith.constant 200 : i64
+    scf.yield %v4 : i64
+  }
+  return %v2 : i64
+}
+----
+
+`n < 5`가 `arith.cmpi slt`(signed less-than)로, `if`가 `scf.if`로 정확히 방출됩니다. `mlir-opt`로 문법 검증 후, `--convert-scf-to-cf`(구조적 제어흐름을 저수준 분기명령으로), `--convert-arith-to-llvm`, `--convert-func-to-llvm`, `--convert-cf-to-llvm`으로 낮춰서 실행하면:
+
+[source]
+----
+JIT result (n=3 < 5, so 100): 100
+----
+
+`n=3`이 `5`보다 작으므로 `100`이 나옵니다 — 정확합니다.
+
+== 검증 2: 1장이 약속한 진짜 재귀 팩토리얼
+
+[source,python]
+----
+TWIG_SOURCE = """
+let rec fact = fun n ->
+  if n = 0 then 1 else n * fact (n - 1)
+in fact 5
+"""
+mlir_fact = emit_recursive_program(TWIG_SOURCE, call_arg=5)
+----
+
+[source]
+----
+func.func @fact(%n: i64) -> i64 {
+  %v0 = arith.constant 0 : i64
+  %v1 = arith.cmpi eq, %n, %v0 : i64
+  %v2 = scf.if %v1 -> (i64) {
+    %v3 = arith.constant 1 : i64
+    scf.yield %v3 : i64
+  } else {
+    %v4 = arith.constant 1 : i64
+    %v5 = arith.subi %n, %v4 : i64
+    %v6 = func.call @fact(%v5) : (i64) -> i64
+    %v7 = arith.muli %n, %v6 : i64
+    scf.yield %v7 : i64
+  }
+  return %v2 : i64
+}
+
+func.func @main() -> i64 {
+  %v0 = arith.constant 5 : i64
+  %v1 = func.call @fact(%v0) : (i64) -> i64
+  return %v1 : i64
+}
+----
+
+`else` 분기 안에서 `%v6 = func.call @fact(%v5)`가 보입니다 — `fact`가 자기 자신을 호출하는 재귀가, MLIR 함수가 자기 자신을 `func.call`로 부르는 것으로 정확히 표현됐습니다.
+
+[source,python]
+----
+llvm_fact = lower_to_llvm(mlir_fact)
+fact_result = jit_run(llvm_fact)
+print(fact_result)   # 120
+assert fact_result == 120
+----
+
+[source]
+----
+fact 5, compiled to real machine code via MLIR and JIT-executed: 120
+----
+
+**`120`입니다.** 1장에서 순수 Python으로 미리 계산해뒀던 그 정답이, 이제 렉서(2장) → 파서(3장) → (타입 추론까지 거쳤다면 5~6장) → MLIR 방출(10장) → `mlir-opt`로 LLVM 다이얼렉트까지 낮추기(11~12장) → `mlir-runner`로 실제 기계어 JIT 실행이라는 전체 파이프라인을 통과해서, 진짜 컴파일된 코드가 실제로 계산한 값으로 나왔습니다.
+
+== 검증 3: 다른 입력에서도 재귀가 정확한가
+
+[source,python]
+----
+for n, expected in [(0, 1), (1, 1), (3, 6), (6, 720)]:
+    result_n = jit_run(lower_to_llvm(emit_recursive_program(TWIG_SOURCE, call_arg=n)))
+    assert result_n == expected
+----
+
+[source]
+----
+fact(0) via MLIR JIT = 1     (expected 1)
+fact(1) via MLIR JIT = 1     (expected 1)
+fact(3) via MLIR JIT = 6     (expected 6)
+fact(6) via MLIR JIT = 720   (expected 720)
+----
+
+기저 사례(`fact(0)=1`)부터, 재귀가 여러 번 반복되는 경우(`fact(6)`은 `fact`를 `6`번 재귀 호출)까지 전부 정확합니다 — `func.call`이 실제로 함수를 반복해서 호출하고, `scf.if`의 기저 사례 분기가 정확한 시점에 재귀를 멈춘다는 걸 확인했습니다.
+
+== 왜 이게 이 책의 정점인가
+
+이 결과가 특별한 이유는, 이게 "장난감 언어를 위한 장난감 백엔드"가 아니기 때문입니다 — `mlir-opt`와 `mlir-runner`는 실제 LLVM 프로젝트의 일부이고, 우리가 만든 IR은 실제 프로덕션 컴파일러가 처리할 수 있는 형태의 IR입니다. 여기서 다룬 `scf.if`, `func.call` 같은 다이얼렉트 연산은, 이 시리즈의 nand2npu 시리즈가 하드웨어 회로를 `comb`/`hw` 다이얼렉트로 방출했던 것과 인프라를 완전히 공유합니다 — 다이얼렉트만 바뀔 뿐, "AST를 MLIR로 방출하고, 패스로 낮추고, 실행 가능한 형태로 만든다"는 파이프라인 자체는 똑같습니다.
+
+== 직접 해보기
+
+* `emit_recursive_program`이 요구하는 "`let rec f = ... in f <상수>`" 형태가 아니라, `in` 이후의 표현식이 `f 3 + f 4`처럼 같은 재귀 함수를 두 번 호출하는 경우를 지원하도록 `main` 방출 부분을 확장해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def emit_main_for_expr(fn_name, expr, call_emitter, lines):
+    """단순히 상수 하나를 호출하는 대신, main의 몸체 표현식 전체를 재귀적으로 방출"""
+    return call_emitter.emit(expr, {}, lines, indent=1)
+
+# emit_recursive_program 안에서, ast.body(원래는 App(Var(fn_name), IntLit(n))으로 가정했던 부분)를
+# 위 함수로 일반화해서 방출하면, "fact 3 + fact 4" 같은 표현식도 main 함수 몸체로 그대로 방출된다.
+----
+
+지금까지의 `main` 방출 코드는 "정확히 `f <상수 하나>`" 형태만 처리하도록 하드코딩되어 있었는데, `FuncEmitter.emit`이 이미 `BinOp`, `App`(재귀 호출)을 포함한 임의의 표현식을 처리할 수 있으므로, `main`의 몸체를 그 일반적인 `emit`에 그대로 맡기기만 하면 `fact 3 + fact 4` 같은 더 복잡한 `in` 절도 자연스럽게 지원됩니다 — 이 장의 방출기가 처음부터 "하나의 표현식을 방출하는" 일반적인 도구로 설계됐기 때문에, 이런 확장이 새로운 개념 없이 기존 조각들을 다르게 조합하는 것만으로 가능하다는 걸 보여주는 연습입니다.
+====
+
+== 요약
+
+* `if`는 `scf.if`(두 영역과 `scf.yield`로 조건부 값을 표현)로, 재귀 함수 호출은 `func.call`(자기 자신을 가리키는 MLIR 함수 호출)로 정확히 방출됩니다.
+* 이 장의 방출기는 클로저 일반이 아니라 최상위 재귀 함수라는 좁은 범위로 설계했고, `fact`와 `main`이라는 두 개의 MLIR 함수로 프로그램을 표현했습니다.
+* 1장에서 약속한 재귀 팩토리얼이, 이 책 전체의 파이프라인(렉서 → 파서 → MLIR 방출 → 낮추기 → JIT)을 통과해 실제로 `120`을 계산하는 것을 확인했습니다 — 이 책의 정점입니다.
+* `fact(0)`부터 `fact(6)`까지 여러 입력에서 재귀가 정확하다는 것도 확인해, 이게 우연이 아니라 방출 로직이 실제로 올바르다는 걸 검증했습니다.
+
+4부에서 `Twig`를 진짜 MLIR 컴파일러 파이프라인으로 실행하는 법을 완성했습니다. 5부에서는 표준 라이브러리 개념을 더하고, 마지막으로 이 책 전체의 여정을 하나로 묶는 종합 실전을 다룹니다.
+// end::body[]

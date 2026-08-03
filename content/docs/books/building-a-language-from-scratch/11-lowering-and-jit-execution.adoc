@@ -1,0 +1,160 @@
+---
+title: "11장: mlir-opt로 낮추고 mlir-runner로 실제로 실행하기 (JIT)"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "mlir", "jit", "python", "book"]
+categories: ["books"]
+description: "실제 mlir-opt로 arith 다이얼렉트를 llvm 다이얼렉트로 낮추고 mlir-runner로 JIT 실행해, 7개 프로그램에서 트리-워킹 인터프리터와 방금 컴파일된 기계어가 완전히 같은 답을 낸다는 것을 확인하고, 일부러 심은 코드 생성 버그를 이 교차검증이 실제로 잡아내는 것까지 확인하는 11장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-emitting-mlir-ir/[10장: AST를 MLIR IR로 방출하기] · 다음: link:../12-control-flow-and-recursion-in-mlir/[12장: 제어흐름과 재귀를 scf/cf 다이얼렉트로]_
+
+'''
+
+10장에서 `arith`/`func` 다이얼렉트로 방출한 IR은, 아직 CPU가 직접 실행할 수 있는 형태가 아닙니다. 이 장에서는 그 IR을 `mlir-opt`로 더 낮은 수준(`llvm` 다이얼렉트)까지 낮추고, `mlir-runner`로 실제 JIT(즉석 컴파일) 실행해서 진짜 숫자를 뽑아냅니다 — 그리고 그 숫자가 4장의 트리-워킹 인터프리터가 낸 답과 정확히 일치하는지 확인합니다.
+
+== 낮추기(Lowering): arith에서 llvm으로
+
+[source,python]
+----
+def lower_to_llvm(mlir_text):
+    result = subprocess.run(
+        ["mlir-opt", "--convert-arith-to-llvm", "--convert-func-to-llvm", "--reconcile-unrealized-casts"],
+        input=mlir_text, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"lowering failed: {result.stderr}")
+    return result.stdout
+----
+
+`--convert-arith-to-llvm`과 `--convert-func-to-llvm`은 각각 `arith`, `func` 다이얼렉트의 연산을 `llvm` 다이얼렉트(LLVM IR과 거의 1:1로 대응하는 저수준 표현)로 바꾸는 변환 패스입니다. `--reconcile-unrealized-casts`는 이 과정에서 생기는 "아직 정리 안 된 타입 변환" 찌꺼기를 정리합니다.
+
+== 뜻밖의 발견: 컴파일러가 이미 답을 계산해버렸다
+
+[source,python]
+----
+mlir_text = emit_module("1 + 2")
+llvm_text = lower_to_llvm(mlir_text)
+print(llvm_text)
+----
+
+[source]
+----
+module {
+  llvm.func @main() -> i64 {
+    %0 = llvm.mlir.constant(1 : i64) : i64
+    %1 = llvm.mlir.constant(2 : i64) : i64
+    %2 = llvm.mlir.constant(3 : i64) : i64
+    llvm.return %2 : i64
+  }
+}
+----
+
+`arith.addi`가 전혀 안 보입니다 — 대신 `%2`가 곧바로 `3`(`1+2`의 답)이라는 상수로 나타납니다. `let x = 5 in x + x`도 시도해보면 마찬가지로, `arith.addi` 없이 곧바로 `10`이라는 상수가 나옵니다. `mlir-opt`가 낮추는 과정에서 **상수 접기(constant folding)**를 자동으로 수행한 것입니다 — `1 + 2`처럼 컴파일 시점에 이미 답을 알 수 있는 계산은, 실제로 덧셈 명령어를 실행할 필요 없이 그냥 답(`3`)으로 미리 바꿔버립니다. 이건 버그가 아니라 실전 컴파일러의 당연한 최적화입니다 — 우리 `Twig` 프로그램이 지금까지 외부 입력을 전혀 받지 않고 순전히 리터럴로만 계산했기 때문에, 사실상 모든 프로그램이 "미리 계산 가능한 상수식"이었던 것입니다. 12장에서 함수 파라미터(실행 시점에야 값이 정해지는 입력)를 추가하면, 이런 상수 접기가 더 이상 불가능한 진짜 연산들을 보게 됩니다.
+
+== JIT 실행: mlir-runner로 진짜 숫자 뽑아내기
+
+[source,python]
+----
+def jit_run(llvm_mlir_text, entry="main"):
+    result = subprocess.run(
+        ["mlir-runner", "-e", entry, "-entry-point-result=i64"],
+        input=llvm_mlir_text, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"JIT execution failed: {result.stderr}")
+    return int(result.stdout.strip())
+----
+
+`mlir-runner`는 낮춰진 `llvm` 다이얼렉트 IR을 그 자리에서 기계어로 컴파일하고 즉시 실행합니다(JIT, Just-In-Time 컴파일) — `-e main`은 `main` 함수부터 실행하라는 뜻이고, `-entry-point-result=i64`는 반환값을 `64`비트 정수로 해석해서 출력하라는 뜻입니다.
+
+== 검증: 인터프리터와 실제 컴파일된 코드가 일치하는가
+
+[source,python]
+----
+def compile_and_run(source):
+    mlir_text = emit_module(source)
+    llvm_text = lower_to_llvm(mlir_text)
+    return jit_run(llvm_text)
+
+test_programs = [
+    "1 + 2", "10 - 3", "6 * 7", "100 / 3",
+    "let x = 5 in x * x",
+    "let a = 3 in let b = 4 in a * a + b * b",
+    "let x = 10 in let y = x * 2 in let z = y + x in z",
+]
+for prog in test_programs:
+    expected = run_ref(prog)        # 4장 스타일의 트리-워킹 인터프리터
+    actual = compile_and_run(prog)   # 방금 컴파일해서 JIT 실행한 결과
+    assert expected == actual
+----
+
+[source]
+----
+'1 + 2'                                              => interpreter:      3   MLIR JIT:      3   OK
+'10 - 3'                                              => interpreter:      7   MLIR JIT:      7   OK
+'6 * 7'                                               => interpreter:     42   MLIR JIT:     42   OK
+'100 / 3'                                             => interpreter:     33   MLIR JIT:     33   OK
+'let x = 5 in x * x'                                   => interpreter:     25   MLIR JIT:     25   OK
+'let a = 3 in let b = 4 in a * a + b * b'               => interpreter:     25   MLIR JIT:     25   OK
+'let x = 10 in let y = x * 2 in let z = y + x in z'      => interpreter:     30   MLIR JIT:     30   OK
+----
+
+`7`개의 프로그램 모두, 완전히 다른 두 실행 경로(파이썬으로 AST를 직접 재귀 순회하는 인터프리터 vs. 실제 MLIR을 거쳐 기계어로 컴파일되고 JIT 실행되는 코드)가 **정확히 같은** 답을 냅니다. 이건 단순한 우연의 일치가 아닙니다 — 10장의 방출기가 `Twig`의 각 연산을 올바른 MLIR 연산으로 정확히 번역했고, 그 번역이 실제 컴파일러 파이프라인을 통과해서도 의미를 보존했다는 증거입니다.
+
+== 이 교차검증이 실제로 버그를 잡아내는가: 일부러 심어보기
+
+이 시리즈에서 반복해온 습관대로, 검증 방법 자체가 제대로 작동하는지 확인하는 가장 확실한 방법은 일부러 버그를 심어보는 것입니다.
+
+[source,python]
+----
+class BuggyEmitter(Emitter):
+    def emit(self, node, env):
+        if isinstance(node, BinOp) and node.op == "-":
+            # 일부러 뺄셈을 덧셈으로 방출하는 버그
+            l = self.emit(node.left, env); r = self.emit(node.right, env)
+            ssa = self.fresh_ssa()
+            self.lines.append(f"    {ssa} = arith.addi {l}, {r} : i64   // BUG: should be arith.subi")
+            return ssa
+        return super().emit(node, env)
+----
+
+[source,python]
+----
+buggy_result = jit_run(lower_to_llvm(buggy_emit_module("10 - 3")))
+correct_result = run_ref("10 - 3")
+print(buggy_result, correct_result)   # 13  7
+assert buggy_result != correct_result
+----
+
+`10 - 3`을 뺄셈 대신 덧셈으로 방출하는 방출기를 만들었더니, 실제로 컴파일되고 실행된 결과가 `13`(`10+3`)으로 나옵니다 — 올바른 답(`7`)과 다릅니다. 이 교차검증(인터프리터와 MLIR JIT 실행을 나란히 비교하는 것)이, 방출기 코드 자체의 실수를 실제로 잡아낼 수 있다는 걸 확인했습니다 — 방출된 MLIR이 `mlir-opt`를 통과했다는 것(10장에서 확인한 것)과, 방출된 MLIR이 **올바른 의미를 계산한다**는 것(이 장에서 확인한 것)은 서로 다른 종류의 검증이라는 걸 명확히 보여주는 사례입니다. 문법적으로 유효한 것과 의미적으로 옳은 것은 다릅니다.
+
+== 지금까지의 성과
+
+`Twig` 소스 코드 문자열이 렉서(2장) → 파서(3장) → MLIR 방출(10장) → 실제 컴파일러의 낮추기(이 장) → 진짜 기계어로 JIT 실행(이 장)까지, 완전히 실제 산업용 컴파일러 인프라를 거쳐 실행되는 걸 확인했습니다. 4장의 트리-워킹 인터프리터가 "우리가 만든 장난감 실행기"였다면, 이 장의 결과는 "LLVM이 실제로 최적화하고 실행하는 진짜 기계어"입니다.
+
+== 직접 해보기
+
+* `lower_to_llvm`에 `--convert-arith-to-llvm`과 `--convert-func-to-llvm` 사이에 `--canonicalize` 패스를 추가로 끼워 넣으면, `let x = 10 in let y = x * 2 in let z = y + x in z`처럼 더 복잡한 프로그램도 상수 접기로 완전히 사라지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+result = subprocess.run(
+    ["mlir-opt", "--canonicalize", "--convert-arith-to-llvm", "--convert-func-to-llvm", "--reconcile-unrealized-casts"],
+    input=mlir_text, capture_output=True, text=True)
+print(result.stdout)
+----
+
+`--canonicalize`는 상수 접기를 포함해 더 적극적인 "정규화" 최적화를 수행하는 전용 패스입니다 — 이 장에서 이미 봤듯, 상수 접기는 명시적인 `--canonicalize` 없이도 낮추기 과정에서 어느 정도 자동으로 일어나지만(변환 패턴들이 자체적으로 상수를 접는 규칙을 가진 경우가 많습니다), `--canonicalize`를 명시적으로 추가하면 이런 최적화가 더 일관되고 예측 가능하게 적용됩니다. 우리 `Twig` 프로그램은 아직 외부 입력이 전혀 없으므로, 아무리 복잡한 산술 표현이라도 원리적으로는 전부 컴파일 시점에 계산 가능한 상수로 접힐 수 있습니다 — 이게 다음 장에서 함수와 재귀(그리고 진짜 "실행 시점에만 정해지는 값")를 추가해야 하는 이유이기도 합니다.
+====
+
+== 요약
+
+* `mlir-opt`의 변환 패스로 `arith`/`func` 다이얼렉트를 `llvm` 다이얼렉트로 낮췄고, 그 과정에서 컴파일러가 상수식을 자동으로 미리 계산해버리는 상수 접기를 실제로 목격했습니다.
+* `mlir-runner`로 낮춰진 IR을 실제 JIT 실행해서, `7`개의 서로 다른 프로그램에서 트리-워킹 인터프리터와 정확히 같은 결과를 얻었습니다.
+* 일부러 코드 생성 버그(뺄셈을 덧셈으로 방출)를 심어서, 인터프리터와 MLIR 실행 결과를 나란히 비교하는 이 교차검증 방법이 실제로 그 버그를 잡아낸다는 걸 확인했습니다 — 문법적 유효성과 의미적 정확성이 다른 검증이라는 것도 함께 확인했습니다.
+
+지금까지는 상수식과 `let`만 다뤄서 모든 프로그램이 실행 전에 이미 답이 정해져 있었습니다. 다음 장에서는 `if`(조건 분기)와 재귀 함수를 MLIR의 `scf`/`func` 다이얼렉트로 방출해서, 진짜로 "실행해봐야 아는" 계산 — 1장부터 약속해온 재귀 팩토리얼 — 을 실제 MLIR로 실행합니다.
+// end::body[]

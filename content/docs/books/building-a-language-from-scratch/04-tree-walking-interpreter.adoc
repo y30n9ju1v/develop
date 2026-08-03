@@ -1,0 +1,158 @@
+---
+title: "4장: 트리-워킹 인터프리터로 평가하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "interpreter", "python", "book"]
+categories: ["books"]
+description: "AST를 직접 재귀적으로 순회하며 실행하는 트리-워킹 인터프리터를 구현해, 1장이 약속한 목표 프로그램(재귀 팩토리얼)이 실제로 120을 계산하는 것을 확인하고, let rec이 자기 자신을 담은 환경을 먼저 만든 뒤 값을 채워 넣는 '매듭 묶기' 트릭으로 재귀를 가능하게 한다는 것을 확인하는 2부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-parser/[3장: 파서: 재귀 하강과 연산자 우선순위로 AST 만들기] · 다음: link:../05-simple-type-checker/[5장: 타입이란 무엇인가: 단순 타입 검사기]_
+
+'''
+
+3장까지 소스 코드를 AST로 바꿨습니다. 이 장에서는 그 AST를 실제로 **실행**합니다. 트리-워킹 인터프리터는 이름 그대로, AST를 컴파일하지 않고 트리 구조를 직접(재귀적으로) 걸어 다니며 각 노드가 뜻하는 계산을 즉시 수행합니다 — 가장 직접적이고, 그래서 가장 이해하기 쉬운 실행 방식입니다.
+
+== 환경: 변수 이름과 값을 잇는 사슬
+
+[source,python]
+----
+class Env:
+    def __init__(self, parent=None):
+        self.vars = {}
+        self.parent = parent
+    def get(self, name):
+        if name in self.vars:
+            return self.vars[name]
+        if self.parent is not None:
+            return self.parent.get(name)
+        raise NameError(f"unbound variable: {name}")
+    def child(self):
+        return Env(parent=self)
+----
+
+`Env`는 "지금 어떤 이름이 어떤 값을 가리키는지"를 기록합니다. 새 스코프(함수 호출, `let` 바인딩)가 시작될 때마다 `child()`로 새 환경을 만들어, 그 안에서 못 찾은 이름은 부모 환경으로 거슬러 올라가며 찾습니다 — 이 사슬 구조가 "바깥 스코프의 변수를 안쪽에서도 볼 수 있다"는 렉시컬 스코프의 기초입니다(7장에서 클로저와 함께 더 깊이 다룹니다).
+
+== 클로저: 함수 값 = 코드 + 정의 시점의 환경
+
+[source,python]
+----
+class Closure:
+    def __init__(self, param, body, env):
+        self.param, self.body, self.env = param, body, env
+----
+
+`Fun` AST 노드를 평가하면 `Closure`가 만들어지는데, 이때 **정의된 시점의 환경**(`env`)을 함께 붙잡아 갑니다 — 함수가 나중에 다른 곳에서 호출되더라도, 자신이 태어난 곳에서 보이던 변수들을 계속 볼 수 있어야 하기 때문입니다.
+
+== eval_expr: AST 노드 종류마다 하나씩
+
+[source,python]
+----
+def eval_expr(node, env):
+    if isinstance(node, IntLit): return node.value
+    if isinstance(node, Var): return env.get(node.name)
+    if isinstance(node, BinOp):
+        l, r = eval_expr(node.left, env), eval_expr(node.right, env)
+        if node.op == "+": return l + r
+        # ...
+    if isinstance(node, If):
+        return eval_expr(node.then_branch if eval_expr(node.cond, env) else node.else_branch, env)
+    if isinstance(node, Fun):
+        return Closure(node.param, node.body, env)
+    if isinstance(node, App):
+        fn = eval_expr(node.fn, env)
+        arg = eval_expr(node.arg, env)
+        call_env = fn.env.child()      # 클로저가 붙잡은 환경을 기준으로 확장 (호출한 곳의 환경이 아님!)
+        call_env.set(fn.param, arg)
+        return eval_expr(fn.body, call_env)
+----
+
+`App`(함수 호출) 처리가 이 인터프리터의 핵심입니다 — 새 환경을 만들 때 **호출하는 쪽의 환경**(`env`)이 아니라 **클로저가 정의될 때 붙잡아둔 환경**(`fn.env`)을 부모로 삼습니다. 이 한 줄의 선택이 렉시컬 스코프(정적 스코프)와 동적 스코프를 가르는 지점입니다 — 여기서는 렉시컬 스코프를 구현했습니다.
+
+== 검증 1~5: 기본 기능들
+
+[source,python]
+----
+run("1 + 2 * 3")                          # 7 (3장에서 검증한 우선순위대로)
+run("let x = 5 in x + 1")                 # 6
+run("if 1 < 2 then 10 else 20")           # 10
+run("(fun x -> x + 1) 5")                 # 6
+run("let add1 = fun x -> x + 1 in add1 10") # 11
+----
+
+산술, `let`, `if`, 함수 정의와 호출, 그리고 `let`으로 정의한 함수까지 — 3장까지 만든 AST 노드 각각이 실제로 뜻하는 대로 계산됩니다.
+
+== 재귀: 매듭 묶기(tying the knot)
+
+`let rec`으로 정의한 함수는 자기 자신을 함수 본문 안에서 호출할 수 있어야 합니다. 문제는, `Fun` 노드를 평가해서 `Closure`를 만드는 시점에는 아직 `fact`라는 이름에 아무 값도 안 묶여 있다는 것입니다 — `fact`를 평가하려면 `fact`가 필요한, 닭이 먼저냐 달걀이 먼저냐의 문제입니다.
+
+[source,python]
+----
+if node.is_rec:
+    rec_env = env.child()
+    value = eval_expr(node.value, rec_env)   # 이 시점엔 rec_env에 아직 이름이 없음
+    rec_env.set(node.name, value)             # 클로저를 다 만든 뒤에야 그 이름을 채워 넣음
+    body_env = rec_env
+----
+
+`Fun` 노드를 평가해서 `Closure`(`value`)를 만드는 것 자체는 즉시 값을 필요로 하지 않습니다 — `Closure`는 `body`를 아직 실행하지 않고 그냥 `(param, body, env)`를 저장해둘 뿐이기 때문입니다. 그러니 먼저 `Closure`를 만들고, 그 `Closure`가 이미 참조하고 있는 바로 그 `rec_env`에 나중에서야 `fact`라는 이름으로 그 `Closure` 자신을 채워 넣을 수 있습니다 — `Closure`가 붙잡은 환경과 그 이름이 채워지는 환경이 **같은 객체**이기 때문에, 함수가 나중에(호출될 때) `fact`를 찾으면 이미 채워진 자기 자신을 찾게 됩니다. 이런 "자기 자신을 참조하는 구조를 먼저 만들고 나중에 채운다"는 기법을 흔히 "매듭 묶기"라고 부릅니다.
+
+== 검증 6: 1장이 약속한 목표 프로그램
+
+[source,python]
+----
+TWIG_SOURCE = """
+let rec fact = fun n ->
+  if n = 0 then 1 else n * fact (n - 1)
+in fact 5
+"""
+result = run(TWIG_SOURCE)
+print(result)   # 120
+assert result == 120
+----
+
+1장에서 순수 Python 함수로 미리 계산해뒀던 정답(`120`)과, 지금 `Twig` 인터프리터가 실제로 계산한 값이 정확히 일치합니다 — 렉서(2장) → 파서(3장) → 인터프리터(4장)로 이어지는 파이프라인 전체가 처음으로 끝에서 끝까지 작동했습니다.
+
+== 검증 7: let과 let rec은 정말로 다른가
+
+[source,python]
+----
+try:
+    run("""
+    let fact = fun n -> if n = 0 then 1 else n * fact (n - 1)
+    in fact 5
+    """)
+except NameError as e:
+    print(e)   # unbound variable: fact
+----
+
+`is_rec=False`인 `let`으로 똑같은 함수를 정의하면, "매듭 묶기" 없이 `Closure`가 만들어지는 시점의 환경에는 `fact`라는 이름이 아직(그리고 앞으로도) 없습니다 — 함수 본문에서 `fact`를 호출하려는 순간 `NameError`가 납니다. `let`과 `let rec`이 눈에 보기엔 키워드 하나 차이지만, 인터프리터 내부에서는 "환경을 먼저 만들고 나중에 채우는가, 아니면 값을 먼저 만들고 나중에 환경에 넣는가"라는 근본적으로 다른 절차라는 걸 이 실패로 확인했습니다.
+
+== 직접 해보기
+
+* `eval_expr`에 나눗셈(`/`)에서 `0`으로 나누는 경우를 명확한 에러 메시지로 처리하는 코드를 추가해보고, `run("1 / 0")`이 어떻게 동작하는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+if node.op == "/":
+    if r == 0:
+        raise ZeroDivisionError("division by zero in Twig program")
+    return l // r
+----
+
+지금 구현은 Python의 `//` 연산자를 그대로 쓰고 있어서, `0`으로 나누면 Python 자체의 `ZeroDivisionError`(메시지가 `Twig` 프로그램과 무관한 내부 구현 세부사항을 노출함)가 그대로 새어 나옵니다 — 명시적으로 잡아서 `Twig` 사용자에게 의미 있는 메시지를 주는 게 더 나은 언어 설계입니다. 이런 "런타임 에러를 언어 차원에서 어떻게 다룰 것인가"(예외로 중단할지, `Option`/`Result` 같은 값으로 표현할지)는 실전 언어 설계에서 중요한 결정이고, 이 책의 범위를 넘어서는 흥미로운 확장 주제입니다.
+====
+
+== 요약
+
+* 트리-워킹 인터프리터는 AST 노드 종류마다 하나의 처리 분기를 두고, 그 노드가 뜻하는 계산을 즉시(재귀적으로) 실행합니다.
+* 함수 호출 시 클로저가 붙잡은(정의 시점의) 환경을 기준으로 새 스코프를 만드는 것이 렉시컬 스코프의 핵심 구현입니다.
+* `let rec`은 "자기 자신을 담을 환경을 먼저 만들고, 값을 채우는 건 나중에" 하는 매듭 묶기로 재귀를 가능하게 하며, 이게 `let`과 `let rec`을 근본적으로 다르게 만듭니다.
+* 1장에서 약속한 목표 프로그램(재귀 팩토리얼)이 실제로 `120`을 계산했습니다 — 파이프라인 전체가 처음으로 끝까지 작동했습니다.
+
+다음 장에서는 지금까지 "실행해봐야만" 알 수 있었던 오류들(예: 함수가 아닌 것을 호출하려는 시도)을, 실행하기 **전에** 미리 잡아내는 타입 검사기를 다룹니다.
+// end::body[]

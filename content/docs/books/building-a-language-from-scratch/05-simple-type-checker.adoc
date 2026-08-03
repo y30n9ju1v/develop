@@ -1,0 +1,198 @@
+---
+title: "5장: 타입이란 무엇인가: 단순 타입 검사기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["compiler", "type-checking", "python", "book"]
+categories: ["books"]
+description: "명시적 타입 주석을 요구하는 단순 타입 검사기를 구현해 다섯 가지 실행 전 오류를 정확히 잡아내고, 재귀 함수는 자기 자신의 반환 타입을 알아야 몸체를 검사할 수 있는데 그 반환 타입은 몸체를 검사해야만 알 수 있다는 근본적인 순환 문제와 정면으로 부딪히며 6장의 타입 추론을 예고하는 2부의 두 번째 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-tree-walking-interpreter/[4장: 트리-워킹 인터프리터로 평가하기] · 다음: link:../06-hindley-milner-inference/[6장: Hindley-Milner 타입 추론]_
+
+'''
+
+4장의 인터프리터는 `1 + true`처럼 말이 안 되는 프로그램도 일단 실행을 **시도**했다가, 실행 도중에야 오류를 냅니다. 타입 검사는 이런 오류를 실행 전에, 프로그램의 구조만 보고 미리 잡아냅니다. 이 장에서는 함수 파라미터에 명시적 타입 주석을 요구하는 가장 단순한 형태의 타입 검사기를 만들고, 그 단순함이 어디서 한계에 부딪히는지 직접 확인합니다.
+
+== 타입을 표현하는 자료구조
+
+[source,python]
+----
+@dataclass(frozen=True)
+class TInt: pass
+@dataclass(frozen=True)
+class TBool: pass
+@dataclass(frozen=True)
+class TFun: param: object; ret: object
+----
+
+`Twig`의 타입은 세 가지뿐입니다 — 정수(`TInt`), 불리언(`TBool`), 그리고 함수(`TFun`, 파라미터 타입과 반환 타입을 가짐). `TFun(TInt(), TInt())`는 "정수를 받아 정수를 돌려주는 함수"라는 뜻이고, `int -> int`로 표기합니다.
+
+== 타입 주석이 붙은 함수 문법
+
+[source,python]
+----
+def parse_fun(self):
+    self.expect("FUN"); self.expect("LPAREN")
+    param = self.expect("IDENT").value
+    self.expect("COLON")
+    param_type = self.parse_type()   # 파라미터 타입은 필수
+    self.expect("RPAREN")
+    ret_type = None
+    if self.peek().kind == "COLON":   # 반환 타입은 선택: (n: int) : int -> ...
+        self.advance()
+        ret_type = self.parse_type()
+    self.expect("ARROW")
+    body = self.parse_expr()
+    return Fun(param, param_type, ret_type, body)
+----
+
+지금까지는 `fun n -> ...`였는데, 이 장부터는 `fun (n: int) -> ...`처럼 파라미터의 타입을 명시해야 합니다 — 타입 검사기가 "이 함수가 무엇을 받는지"를 프로그램 실행 없이 알아야 하기 때문입니다.
+
+== type_of: 각 노드의 타입을 계산하기
+
+[source,python]
+----
+def type_of(node, tenv):
+    if isinstance(node, IntLit): return TInt()
+    if isinstance(node, BinOp):
+        lt, rt = type_of(node.left, tenv), type_of(node.right, tenv)
+        if node.op in ("+","-","*","/"):
+            if not (isinstance(lt, TInt) and isinstance(rt, TInt)):
+                raise TypeError_(f"operator '{node.op}' expects (int, int), got ({type_repr(lt)}, {type_repr(rt)})")
+            return TInt()
+    if isinstance(node, App):
+        fn_type = type_of(node.fn, tenv)
+        arg_type = type_of(node.arg, tenv)
+        if not isinstance(fn_type, TFun):
+            raise TypeError_(f"attempted to call a non-function of type {type_repr(fn_type)}")
+        if type_repr(fn_type.param) != type_repr(arg_type):
+            raise TypeError_(f"function expects {type_repr(fn_type.param)}, got {type_repr(arg_type)}")
+        return fn_type.ret
+----
+
+4장의 `eval_expr`과 구조가 거의 똑같습니다 — 다만 **값**을 계산하는 대신 **타입**을 계산합니다. `App`(함수 호출) 처리를 보면, 호출하려는 것이 정말 함수인지(`TFun`인지), 넘기는 인자의 타입이 함수가 기대하는 타입과 맞는지를 실제로 값을 넘기고 실행해보지 않고도 검사합니다.
+
+== 검증 1: 잘 타입 붙은 프로그램
+
+[source,python]
+----
+print(type_repr(check("1 + 2")))                        # int
+print(type_repr(check("fun (n: int) -> n + 1")))          # (int -> int)
+print(type_repr(check("if 1 < 2 then 3 else 4")))          # int
+----
+
+== 검증 2: 다섯 가지 실행 전 오류
+
+[source,python]
+----
+check("1 + true")                                  # 산술 연산자에 bool
+check("if 1 then 2 else 3")                          # 조건이 bool이 아님
+check("if true then 1 else false")                    # 분기 타입 불일치
+check("1 2")                                          # 함수가 아닌 것을 호출
+check("(fun (n: int) -> n + 1) true")                   # 인자 타입 불일치
+----
+
+[source]
+----
+caught: operator '+' expects (int, int), got (int, bool)
+caught: if-condition must be bool, got int
+caught: if-branches must match: then=int, else=bool
+caught: attempted to call a non-function of type int
+caught: function expects int, got bool
+----
+
+이 다섯 가지 프로그램은 모두 **한 번도 실행되지 않고** 거부됩니다 — 4장의 인터프리터였다면 어떤 것은 그냥 조용히 이상한 값을 내고(파이썬의 `+`가 정수와 불리언을 어중간하게 받아들일 수도 있는 경우), 어떤 것은 실행 도중에야 터졌을 오류들입니다.
+
+== 벽에 부딪히다: 재귀 함수를 검사할 수가 없다
+
+`fact` 함수에 타입 주석을 붙여 검사해봅니다.
+
+[source,python]
+----
+TWIG_SOURCE_TYPED = """
+let rec fact = fun (n: int) ->
+  if n = 0 then 1 else n * fact (n - 1)
+in fact 5
+"""
+check(TWIG_SOURCE_TYPED)
+----
+
+[source]
+----
+TypeError_: operator '*' expects (int, int), got (int, <object object at 0x...>)
+----
+
+이상한 에러가 납니다. 원인을 따라가보면 근본적인 문제가 드러납니다 — `fact`의 몸체(`n * fact (n-1)`)를 검사하려면 `fact (n-1)`의 타입, 즉 `fact` 자신의 **반환 타입**을 알아야 합니다. 그런데 `fact`의 반환 타입은 바로 그 몸체를 검사해야만 알아낼 수 있는 것입니다 — 반환 타입을 알아야 몸체를 검사할 수 있고, 몸체를 검사해야 반환 타입을 알 수 있는, 닭과 달걀의 순환입니다. 처음에는 "일단 반환 타입 자리에 자리표시자(placeholder)를 넣고 나중에 채우면 되지 않을까" 시도해봤지만, `n * fact(n-1)`을 검사하는 시점에는 아직 그 자리표시자가 실제 타입(`int`)으로 채워지지 않아서, 자리표시자 자체가 `int`도 `bool`도 아닌 애매한 값으로 산술 연산에 들어가 버렸습니다.
+
+== 해결: 반환 타입 주석을 강제하기
+
+[source,python]
+----
+if node.is_rec:
+    if node.value.ret_type is None:
+        raise TypeError_(
+            f"let rec '{node.name}' requires an explicit return type annotation "
+            f"because this simple checker cannot infer it without seeing the body first"
+        )
+    rec_env = tenv.child()
+    rec_env.types[node.name] = TFun(node.value.param_type, node.value.ret_type)   # 주석을 그대로 신뢰
+    fn_type = type_of(node.value, rec_env)   # 몸체 검사 + 주석과의 일치 확인
+    return type_of(node.body, rec_env)
+----
+
+이 단순한 검사기가 스스로 순환을 풀 방법이 없다는 걸 인정하고, 대신 프로그래머에게 반환 타입을 미리 알려달라고 요구합니다 — `fun (n: int) : int -> ...`처럼요.
+
+[source,python]
+----
+try:
+    check("""let rec fact = fun (n: int) -> ...""")   # 반환 타입 주석 없음
+except TypeError_ as e:
+    print(e)
+----
+
+[source]
+----
+caught: let rec 'fact' requires an explicit return type annotation
+(e.g. 'fun (n: int) : int -> ...') because this simple checker cannot
+infer it without seeing the body first -- see chapter 6 for a checker that can
+----
+
+== 검증 3: 반환 타입을 명시하면 성공한다
+
+[source,python]
+----
+TWIG_SOURCE_TYPED = """
+let rec fact = fun (n: int) : int ->
+  if n = 0 then 1 else n * fact (n - 1)
+in fact 5
+"""
+fact_type = check(TWIG_SOURCE_TYPED)
+print(type_repr(fact_type))   # int
+----
+
+반환 타입(`int`)을 명시하자 검사가 성공하고, `fact 5`의 타입이 `int`로 나옵니다 — 1장에서 미리 예고했던 바로 그 타입입니다.
+
+== 왜 이 한계가 중요한가
+
+방금 부딪힌 벽은 이 검사기 구현이 서툴러서가 아니라, "타입을 몸체로부터 **합성(synthesize)**한다"는 이 접근 방식 자체의 근본적인 한계입니다 — 합성 방식은 항상 "필요한 정보가 이미 주어져 있다"는 전제 위에서만 작동하는데, 재귀는 정확히 그 전제를 깨뜨립니다. 매번 재귀 함수마다 반환 타입을 사람이 적어줘야 한다면, "타입을 검사"하는 게 아니라 "사람이 이미 알고 있는 타입을 재차 확인"하는 것에 가깝습니다. 다음 장에서 다룰 Hindley-Milner 타입 추론은 이 순환을 다른 방식(타입 변수와 제약 조건을 먼저 모으고, 나중에 한꺼번에 푸는 것)으로 풀어서, 이런 반환 타입 주석 없이도 재귀 함수의 타입을 스스로 알아냅니다.
+
+== 직접 해보기
+
+* `let rec`이 아니라 **상호 재귀**(`fact_even`이 `fact_odd`를 호출하고, `fact_odd`가 다시 `fact_even`을 호출하는 경우)라면, 이 장의 반환 타입 주석 요구사항이 어떻게 확장돼야 할지 생각해보세요(실제로 구현할 필요는 없습니다).
+
+.해답 보기
+[%collapsible]
+====
+상호 재귀에서는 `fact_even`을 검사하는 도중에 `fact_odd`를 참조하고, `fact_odd`를 검사하는 도중에 다시 `fact_even`을 참조합니다 — 이 장의 해법(재귀 함수 하나의 반환 타입만 미리 알려주기)을 그대로 확장하면, 서로 참조하는 **모든** 함수의 반환 타입을 한꺼번에 미리 선언해야 합니다(예: `let rec fact_even : int -> bool = ... and fact_odd : int -> bool = ...`처럼, 여러 함수를 한 그룹으로 묶어 타입 환경에 전부 먼저 등록한 뒤에야 각 몸체를 검사). 이건 이 장에서 겪은 문제(재귀 호출의 타입을 알아야 몸체를 검사할 수 있다)가 함수 하나가 아니라 함수 그룹 전체로 확장된 것뿐입니다 — 근본적인 해법(사람이 매번 타입을 다 적어주거나, 추론기가 스스로 알아내거나)은 동일합니다.
+====
+
+== 요약
+
+* 타입 검사기는 값 대신 타입을 계산하는, 인터프리터와 구조적으로 거의 같은 재귀 순회입니다.
+* 산술 연산자 오용, 잘못된 조건문, 분기 타입 불일치, 함수 아닌 것 호출, 인자 타입 불일치라는 다섯 가지 오류를 프로그램을 실행하지 않고도 잡아냈습니다.
+* 재귀 함수는 자기 자신의 반환 타입을 알아야 몸체를 검사할 수 있는데, 그 반환 타입은 몸체를 검사해야만 알 수 있다는 순환에 실제로 부딪혔고, 반환 타입 주석을 강제하는 것으로 이 순환을 회피했습니다.
+* 이 회피(주석 강제)가 "타입을 검사"하는 것과 "사람이 적어준 타입을 재확인"하는 것 사이의 경계를 흐리게 만든다는 한계를 확인했습니다.
+
+다음 장에서는 이 반환 타입 주석 요구사항 자체를 없애는 Hindley-Milner 타입 추론을 다룹니다 — 타입 변수와 통일(unification)이라는 도구로, 재귀 함수의 타입까지 프로그래머의 도움 없이 스스로 알아냅니다.
+// end::body[]
