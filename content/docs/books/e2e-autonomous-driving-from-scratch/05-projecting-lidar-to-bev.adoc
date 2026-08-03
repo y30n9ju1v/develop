@@ -1,0 +1,151 @@
+---
+title: "5장: 라이다 포인트를 BEV 격자로 투영하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "bev", "lidar", "pointpillars", "book"]
+categories: ["books"]
+description: "PointPillars 스타일로 라이다 점을 BEV 격자에 직접 집계(점 개수, 최대/평균 높이)해, 트럭이 승용차보다 더 크고 높은 신호로 뚜렷이 구별된다는 것과 라이다는 카메라와 달리 depth 불확실성 없이 항상 정확히 같은 칸에 떨어진다는 것을 확인하는 5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-lift-splat-shoot/[4장: Lift-Splat-Shoot: 이미지 특징을 3D로 들어올리기] · 다음: link:../06-camera-lidar-bev-fusion/[6장: 카메라-라이다 BEV 융합]_
+
+'''
+
+4장의 카메라는 깊이를 몰라서 "확률분포로 들어올려" BEV에 흩뿌려야 했습니다. 라이다는 사정이 다릅니다 — 3장에서 이미 봤듯, 라이다는 각 점의 3D 좌표를 (센서 노이즈 수준의 오차만 갖고) **정확히** 압니다. 그러니 라이다를 BEV에 옮기는 건 훨씬 직접적입니다 — 확률분포를 만들 필요 없이, 점을 그냥 해당하는 BEV 칸에 떨어뜨리면 됩니다. 이 장에서는 PointPillars가 널리 쓰는 이 방식을 구현합니다.
+
+== 장면: 서로 다른 크기의 차량 두 대
+
+[source,python]
+----
+ground = make_ground_points(3000)
+car1 = make_box_points(center=[20.0, 2.0, 0.75], size=[4.0, 2.0, 1.5], n=400)    # 승용차
+car2 = make_box_points(center=[12.0, -4.0, 1.25], size=[6.0, 2.5, 2.5], n=400)   # 트럭 (더 큼)
+all_points = np.vstack([ground, car1, car2])
+----
+
+바닥에 흩뿌려진 점 `3000`개, 승용차(높이 `1.5m`) `400`개, 트럭(높이 `2.5m`) `400`개로 장면을 만듭니다.
+
+== Pillarize: BEV 칸마다 점들을 통계로 요약하기
+
+[source,python]
+----
+def pillarize(points):
+    count = np.zeros((BEV_SIZE, BEV_SIZE))
+    max_height = np.full((BEV_SIZE, BEV_SIZE), -np.inf)
+    sum_height = np.zeros((BEV_SIZE, BEV_SIZE))
+    for x, y, z in points:
+        if not (-BEV_RANGE <= x < BEV_RANGE and -BEV_RANGE <= y < BEV_RANGE):
+            continue
+        row, col = world_to_bev_idx(x, y)
+        count[row, col] += 1
+        max_height[row, col] = max(max_height[row, col], z)
+        sum_height[row, col] += z
+    mean_height = np.where(count > 0, sum_height / np.maximum(count, 1), 0.0)
+    return count, np.where(count > 0, max_height, 0.0), mean_height
+----
+
+BEV 칸(가로세로 `1m`)마다 그 안에 떨어진 점들의 개수, 최고 높이, 평균 높이를 계산합니다 — 이 세 숫자만으로도 "이 칸에 뭔가 서 있는지"를 상당히 잘 짐작할 수 있습니다. "필라(pillar)"라는 이름은, 각 BEV 칸을 땅에서 하늘까지 뻗은 기둥으로 보고 그 기둥 안의 점들을 요약한다는 뜻에서 왔습니다.
+
+== 검증 1: 차량 위치의 칸이 실제로 다르게 나타나는가
+
+[source,python]
+----
+car1_row, car1_col = world_to_bev_idx(20.0, 2.0)
+ground_row, ground_col = world_to_bev_idx(20.0, 8.0)   # 차가 없는 도로 영역
+print(count[car1_row, car1_col], max_height[car1_row, car1_col])
+print(count[ground_row, ground_col], max_height[ground_row, ground_col])
+----
+
+[source]
+----
+car1 cell:          count=57.0  max_height=1.454
+empty ground cell:  count=4.0   max_height=0.023
+----
+
+차가 있는 칸은 점이 `57`개나 몰려 있고 최고 높이도 `1.45m`(차 높이 근처)인 반면, 빈 도로 칸은 점이 `4`개뿐이고 높이도 `0.023m`(거의 평평)입니다.
+
+== 검증 2: 이 차이가 통계적으로도 뚜렷한가
+
+[source,python]
+----
+mean_height_on_cars = np.concatenate([max_height[car1_mask], max_height[car2_mask]])
+mean_height_ground = max_height[ground_only_mask]
+print(mean_height_on_cars.mean(), mean_height_ground.mean())
+----
+
+[source]
+----
+mean max-height on car cells:    2.004
+mean max-height on ground-only cells: 0.028
+----
+
+차량이 있는 칸들의 평균 최고 높이(`2.00m`)가, 차 없는 칸들(`0.028m`)보다 `70`배 이상 높습니다 — 이 정도로 뚜렷한 차이라면, 아주 단순한 임계값(예: "최고 높이가 `0.3m`를 넘으면 물체로 간주")만으로도 차량과 도로를 상당히 잘 구별할 수 있습니다. 실제 신경망 기반 인지 모델은 이보다 훨씬 정교한 판단을 하지만, 그 판단의 재료가 되는 신호 자체가 이렇게 명확하다는 걸 확인해두는 게 중요합니다.
+
+== 검증 3: 승용차와 트럭이 실제로 다르게 나타나는가
+
+[source,python]
+----
+print(car1_occupied_cells, car1_max_h)   # 승용차
+print(car2_occupied_cells, car2_max_h)   # 트럭
+----
+
+[source]
+----
+car1(승용차): 8 cells,  max height 1.50
+car2(트럭):   24 cells, max height 2.50
+----
+
+트럭이 승용차보다 차지하는 BEV 칸 수(`24` vs `8`, `3`배)도, 최고 높이(`2.50m` vs `1.50m`)도 뚜렷하게 큽니다 — 이 수치들은 우연이 아니라, 두 차량을 만들 때 지정한 크기(승용차 `4×2×1.5m`, 트럭 `6×2.5×2.5m`)와 정확히 일치합니다. 최고 높이가 각각 정확히 `1.50`, `2.50`으로 나온 이유는, 차량 상자를 중심 높이 `±size/2` 범위로 만들었기 때문에 바닥부터의 최고 높이가 정확히 `size_z`와 같기 때문입니다 — 시뮬레이션으로 만든 장면이라 이렇게 설계값과 결과가 딱 맞아떨어지는지 검증할 수 있다는 것 자체가, 이 책이 시뮬레이션을 쓰는 이유입니다.
+
+== 검증 4: 라이다에는 카메라 같은 "확률적 퍼짐"이 없다
+
+4장에서는 depth 불확실성 때문에 하나의 픽셀이 여러 BEV 칸에 걸쳐 흐릿하게 퍼졌습니다. 라이다는 3D 좌표를 직접 아니까, 노이즈가 작다면 항상 같은 칸에 떨어져야 합니다.
+
+[source,python]
+----
+test_point = np.array([[15.3, 3.4, 1.0]])
+same_cell_count = 0
+for _ in range(100):
+    noisy = test_point + rng.normal(0, 0.001, test_point.shape)   # 아주 작은 센서 노이즈
+    if world_to_bev_idx(*noisy[0,:2]) == world_to_bev_idx(15.3, 3.4):
+        same_cell_count += 1
+print(same_cell_count)   # 100/100
+----
+
+`100`번 모두 정확히 같은 칸에 떨어졌습니다 — 4장의 카메라가 depth 불확실성으로 특징을 여러 칸에 나눠 뿌려야 했던 것과 뚜렷이 대조됩니다.
+
+== 시행착오: 셀 경계에 걸친 점은 노이즈에 취약하다
+
+이 검증을 준비하며 처음에는 시험 점을 `(15.0, 3.0)`으로 잡았는데, `100`번 중 `27`번만 같은 칸에 떨어지는 뜻밖의 결과가 나왔습니다. 원인은 단순했습니다 — `BEV_RES=1.0`이고 원점 오프셋이 정수 배수라서, `x=15.0`이 정확히 두 칸의 경계선 위에 있었던 것입니다. `int((x+30)/1.0)`을 계산할 때, `x`에 아주 작은 부동소수점 노이즈만 섞여도 그 값이 `44.999...`가 될지 `45.000...1`이 될지에 따라 결과 칸이 `44`와 `45` 사이를 오갔습니다. 시험 점을 `(15.3, 3.4)`처럼 경계에서 확실히 떨어진 값으로 바꾸자 문제가 사라졌습니다 — 이건 버그가 아니라 격자 이산화의 본질적인 특성입니다 — **경계에 딱 걸친 점은 아무리 작은 노이즈에도 결과가 뒤집힐 수 있다**는 것이고, 실전에서 BEV 격자를 설계할 때 격자 크기나 원점을 물체들이 자주 나타나는 위치와 맞아떨어지지 않게(경계가 아닌 칸 중앙에 오도록) 잡는 게 이런 미세한 불안정성을 줄이는 실용적인 요령입니다.
+
+== 왜 카메라와 라이다를 각자 다른 방식으로 BEV에 올리는가
+
+4장의 확률적 LSS와 이 장의 직접적인 pillarize, 방식이 다른 이유는 각 센서가 가진 정보의 성격이 다르기 때문입니다 — 카메라는 "방향은 정확히 알지만 거리는 모르는" 센서이고, 라이다는 "거리까지 정확히 아는" 센서입니다. 각 센서의 강점을 살리는 방식으로 BEV에 올린 뒤, 다음 장에서 이 둘을 같은 BEV 격자 위에서 합칩니다 — 그래야 카메라가 잘 보는 것(색상, 질감, 먼 거리의 신호등 같은 것)과 라이다가 잘 보는 것(정확한 3D 형태와 거리)이 서로를 보완합니다.
+
+== 직접 해보기
+
+* `BEV_RES`(격자 해상도)를 `1.0m`에서 `0.5m`로 촘촘하게 하면, 승용차와 트럭이 차지하는 칸 수가 어떻게 달라지는지, 그리고 그 비율(`3`배)이 유지되는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+BEV_RES_fine = 0.5
+BEV_SIZE_fine = int(2*BEV_RANGE / BEV_RES_fine)
+# world_to_bev_idx를 BEV_RES_fine 기준으로 다시 정의하고 동일하게 pillarize 실행
+----
+
+격자가 촘촘해지면 절대적인 칸 수는 늘어나지만(대략 `4`배, `1m→0.5m`면 가로세로 각각 `2`배씩이므로), 승용차와 트럭이 차지하는 칸 수의 **비율**은 대체로 비슷하게 유지됩니다 — 둘 다 같은 비율로 더 세밀하게 쪼개질 뿐, 상대적인 크기 관계 자체는 격자 해상도와 무관한 물리적 사실이기 때문입니다. 다만 해상도가 너무 거칠면(예: `BEV_RES=5.0`) 작은 물체가 큰 물체와 같은 칸에 뭉뚱그려질 수 있는데, 이런 한계가 어디서부터 시작되는지도 함께 실험해볼 만합니다.
+====
+
+== 요약
+
+* 라이다는 3D 좌표를 직접 알고 있으므로, BEV로 올릴 때 카메라 같은 확률적 깊이 분포가 필요 없이 각 점을 해당 칸에 직접 집계하면 됩니다(PointPillars 방식).
+* 칸별 점 개수·최고 높이·평균 높이만으로도 차량 영역과 빈 도로가 `70`배 이상 차이 나는 뚜렷한 신호를 만들어냈고, 승용차와 트럭도 이 신호로 명확히 구별됐습니다.
+* 라이다 기반 BEV는 카메라와 달리 노이즈가 작으면 항상 같은 칸에 정확히 떨어진다는 걸 확인했습니다 — 다만 물체가 격자 경계에 딱 걸쳐 있으면 이 안정성도 깨질 수 있다는 실전적인 함정을 겪었습니다.
+* 카메라와 라이다가 서로 다른 방식으로 BEV에 정보를 올리는 이유는, 두 센서가 가진 정보의 성격(방향은 정확하지만 거리는 불확실한 카메라 vs. 거리까지 정확한 라이다)이 근본적으로 다르기 때문입니다.
+
+다음 장에서는 4장의 카메라 BEV와 이 장의 라이다 BEV를 실제로 하나의 격자 위에서 합쳐, 두 센서의 장점을 모두 살리는 융합된 BEV 표현을 만듭니다.
+// end::body[]

@@ -1,0 +1,182 @@
+---
+title: "9장: BEVFormer 인코더 조립하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "transformer", "bevformer", "pytorch", "book"]
+categories: ["books"]
+description: "8장의 deformable attention에 FFN과 잔차 연결을 더해 BEVFormer 스타일 인코더 레이어를 완성하고, 카메라 특징맵에 무작위로 심어둔 물체 신호를 BEV 격자에서 실제로 감지하는 이진 분류 과제를 학습시켜 98.9%의 테스트 정확도를 달성하며 3부를 마무리하는 9장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-deformable-attention/[8장: Deformable Attention: BEV 쿼리가 이미지 특징을 참조하는 법] · 다음: link:../10-trajectory-as-sequence/[10장: 궤적을 시퀀스로 표현하기]_
+
+'''
+
+8장에서 BEV 쿼리 하나가 카메라 특징 하나를 정확히 참조하는 법을 다졌습니다. 이 장에서는 이걸 BEV 격자 전체, 여러 층에 걸쳐 조립해서 실제로 "물체가 있는지 없는지"를 학습하고 맞히는 완전한 인코더를 완성합니다 — 이 파이프라인이 실제로 끝에서 끝까지 학습된다는 걸 직접 확인하는 게 이 장의 목표입니다.
+
+== BEV 쿼리 격자 준비
+
+[source,python]
+----
+BEV_H, BEV_W = 8, 8
+x_coords = np.linspace(6, 36, BEV_H)     # 전방 6~36m
+y_coords = np.linspace(-14, 14, BEV_W)    # 좌우 -14~14m
+bev_positions[i,j] = [x_coords[i], y_coords[j], 0.7]   # 각 쿼리의 3D 위치
+
+for i in range(BEV_H):
+    for j in range(BEV_W):
+        pix, depth = cam.project(bev_positions[i,j])
+        if pix is not None and 화면_안:
+            ref_pixels[i,j] = pix
+            ref_valid[i,j] = True
+----
+
+[source]
+----
+BEV queries with valid camera reference: 34 / 64
+----
+
+`64`개의 BEV 쿼리 중 `34`개(`53%`)만 전방 카메라 화각 안에 들어옵니다 — 좌우로 너무 벗어난 위치는 이 카메라 하나로는 볼 수 없기 때문입니다(2장에서 이미 확인했듯, 실전에서는 나머지 카메라들이 이 빈틈을 채웁니다).
+
+== BEVFormer 레이어: Deformable Attention + FFN + 잔차 연결
+
+[source,python]
+----
+class BEVFormerLayer(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.deform_attn = DeformableAttention(dim)
+        self.norm1 = nn.LayerNorm(dim)
+        self.ffn = nn.Sequential(nn.Linear(dim, dim*2), nn.ReLU(), nn.Linear(dim*2, dim))
+        self.norm2 = nn.LayerNorm(dim)
+
+    def forward(self, bev_query, ref_pixel, valid, feature_map):
+        if valid:
+            attn_out = self.deform_attn(bev_query, ref_pixel, feature_map)
+            bev_query = self.norm1(bev_query + attn_out)      # 잔차 연결 + 정규화
+        ffn_out = self.ffn(bev_query)
+        bev_query = self.norm2(bev_query + ffn_out)
+        return bev_query
+----
+
+표준 Transformer 블록의 구조(attention → 잔차+정규화 → FFN → 잔차+정규화) 그대로에, attention 부분만 8장의 deformable attention으로 바꿨습니다. 화각 밖의 쿼리(`valid=False`)는 attention을 건너뛰고 FFN만 거칩니다 — 카메라로부터 아무 정보도 못 받은 쿼리는, 자기 자신의 표현을 다듬는 것 말고는 할 수 있는 게 없습니다.
+
+== 인코더: 여러 레이어를 쌓기
+
+[source,python]
+----
+class BEVFormerEncoder(nn.Module):
+    def __init__(self, dim, n_layers=2):
+        super().__init__()
+        self.layers = nn.ModuleList([BEVFormerLayer(dim) for _ in range(n_layers)])
+        self.query_init = nn.Parameter(torch.randn(BEV_H, BEV_W, dim) * 0.1)
+
+    def forward(self, feature_map):
+        bev = self.query_init.clone()
+        for i in range(BEV_H):
+            for j in range(BEV_W):
+                q = bev[i,j]
+                for layer in self.layers:
+                    q = layer(q, ref_pixels[i,j], ref_valid[i,j], feature_map)
+                out[i,j] = q
+        return out
+----
+
+각 BEV 위치마다 학습 가능한 초기 쿼리(`query_init`)에서 시작해, `2`개의 레이어를 통과하며 점점 카메라 특징으로 채워집니다.
+
+== 학습 과제: 카메라 특징 속 물체를 BEV에서 감지하기
+
+[source,python]
+----
+def make_scene():
+    occ = np.zeros((BEV_H, BEV_W))
+    n_objects = rng.integers(0, 3)
+    feature_map = torch.randn(IMG_H, IMG_W, DIM) * 0.15   # 배경 노이즈
+    for idx in rng.choice(BEV_H*BEV_W, size=n_objects, replace=False):
+        i, j = idx // BEV_W, idx % BEV_W
+        if not ref_valid[i,j]: continue
+        occ[i,j] = 1.0
+        u, v = ref_pixels[i,j]
+        feature_map[v0:v0+2, u0:u0+2] = torch.randn(DIM)*2.0 + 3.0   # 물체 신호
+    return feature_map, torch.from_numpy(occ)
+----
+
+매번 무작위로 `0~2`개의 "물체"를 BEV 격자 위에 배치하고, 그 물체가 실제로 투영되는 카메라 픽셀 위치에 뚜렷한 신호를 심습니다. 모델의 과제는 카메라 특징맵만 보고, 각 BEV 칸에 물체가 있는지(`occ=1`) 없는지(`occ=0`)를 맞히는 것입니다 — 4~5장에서 다룬 BEV 융합이 "특징을 올바른 위치로 옮기는" 문제였다면, 이건 "옮겨진 특징으로 실제 판단을 내리는" 문제입니다.
+
+== 학습
+
+[source,python]
+----
+optimizer = torch.optim.Adam(list(encoder.parameters()) + list(classifier.parameters()), lr=0.01)
+for step in range(300):
+    feature_map, occ = make_scene()
+    bev_encoded = encoder(feature_map)
+    logits = classifier(bev_encoded).squeeze(-1)
+    loss = F.binary_cross_entropy_with_logits(logits[ref_valid], occ[ref_valid])
+    loss.backward(); optimizer.step()
+----
+
+[source]
+----
+loss[0]: 1.241   loss[-1]: 0.0011   (99.9% 감소)
+----
+
+매 스텝 다른 무작위 장면(물체 개수와 위치가 계속 바뀜)으로 학습했는데도 손실이 거의 `0`까지 떨어졌습니다 — 모델이 특정 장면을 암기한 게 아니라, "카메라 특징의 신호를 그 위치를 담당하는 BEV 쿼리로 정확히 옮겨오는" 일반적인 능력을 배웠다는 뜻입니다.
+
+== 검증: 한 번도 보지 못한 새 장면에서도 정확한가
+
+[source,python]
+----
+n_correct, n_total = 0, 0
+for _ in range(50):
+    feature_map, occ = make_scene()   # 매번 새로운 무작위 장면
+    logits = classifier(encoder(feature_map)).squeeze(-1)
+    pred = (torch.sigmoid(logits) > 0.5).float()
+    n_correct += (pred[mask] == occ[mask]).sum().item()
+    n_total += mask.sum().item()
+print(n_correct / n_total)
+----
+
+[source]
+----
+test accuracy (valid BEV cells): 0.989
+----
+
+`50`개의 완전히 새로운 무작위 장면(총 `1700`개 안팎의 유효 BEV 칸)에서 `98.9%`의 정확도를 달성했습니다 — 물체가 있는 칸과 없는 칸을 거의 완벽하게 구별합니다.
+
+== 지금까지 만든 것을 되짚어보며
+
+이 장에서 완성한 파이프라인이 실제로 하는 일을 순서대로 보면: (1) BEV 쿼리가 자신의 3D 위치를 알고(설계 시 고정값), (2) 그 위치를 2장의 카메라 기하학으로 이미지 참조점으로 바꾸고, (3) 8장의 deformable attention으로 그 참조점 주변 카메라 특징을 끌어오고, (4) 7장에서 검증한 attention·FFN 구조로 그 정보를 다듬고, (5) 마지막에 작은 분류기가 "물체가 있는가"를 판단합니다. 3부 전체가, 결국 "카메라 이미지의 정보를 정확한 3D 위치로 가져와서 실제 판단에 쓰는" 하나의 목표를 향해 쌓여왔다는 걸 이 장에서 확인했습니다.
+
+== 직접 해보기
+
+* `n_layers`를 `2`에서 `1`로 줄이면, 정확도가 어떻게 달라지는지 확인해보세요. 반대로 `4`로 늘리면 학습이 더 잘 되는지, 아니면 오히려 불안정해지는지도 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+for n_layers in [1, 2, 4]:
+    encoder_test = BEVFormerEncoder(DIM, n_layers=n_layers)
+    classifier_test = nn.Linear(DIM, 1)
+    optimizer_test = torch.optim.Adam(list(encoder_test.parameters())+list(classifier_test.parameters()), lr=0.01)
+    for step in range(300):
+        feature_map, occ = make_scene()
+        logits = classifier_test(encoder_test(feature_map)).squeeze(-1)
+        loss = F.binary_cross_entropy_with_logits(logits[ref_valid], occ[ref_valid])
+        optimizer_test.zero_grad(); loss.backward(); optimizer_test.step()
+    print(n_layers, loss.item())
+----
+
+이 장의 과제(물체 신호를 BEV로 옮기는 것)는 사실 `1`개의 레이어만으로도 충분히 풀 수 있는 비교적 단순한 문제입니다 — deformable attention 한 번이면 이미 정확한 참조점의 정보를 가져올 수 있으니까요. 레이어를 늘린다고 반드시 더 좋아지는 건 아니며, 오히려 데이터와 학습 스텝이 충분치 않으면 과적합이나 학습 불안정성이 생길 수 있습니다 — 실전 BEVFormer가 여러 레이어를 쌓는 이유는, 훨씬 복잡한 실제 장면(수십 개의 물체, 가려짐, 다양한 크기)에서는 한 번의 attention만으로는 부족하기 때문입니다. 이 장난감 문제에서 레이어 수를 실험해보는 것은, "얼마나 복잡한 문제인가"와 "얼마나 깊은 모델이 필요한가"가 서로 맞물려 있다는 감을 잡는 데 유용합니다.
+====
+
+== 요약
+
+* 8장의 deformable attention에 표준 Transformer 블록의 나머지 요소(잔차 연결, LayerNorm, FFN)를 더해 BEVFormer 스타일 인코더 레이어를 완성했습니다.
+* 매번 다른 무작위 장면으로 학습했는데도 손실이 `99.9%` 줄었고, 완전히 새로운 장면에서도 `98.9%`의 정확도로 물체 유무를 맞혔습니다.
+* 3부 전체가 "카메라 이미지의 정보를 정확한 3D 위치로 가져와서 실제 판단에 쓴다"는 목표를 향해 쌓여왔다는 걸 확인했습니다.
+
+3부에서 카메라·라이다 특징을 BEV로 옮기고(2부), 그 BEV를 Transformer로 더 풍부하게 만드는(3부) 전 과정을 완성했습니다. 4부에서는 이렇게 만들어진 BEV 표현에서 실제로 미래 궤적을 뽑아내는 Planning Head를 다룹니다.
+// end::body[]

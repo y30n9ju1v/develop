@@ -1,0 +1,127 @@
+---
+title: "6장: 카메라-라이다 BEV 융합"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "bev", "sensor-fusion", "book"]
+categories: ["books"]
+description: "라이다가 측정한 정확한 깊이로 카메라의 막연한 depth 분포를 보정하는 depth completion을 구현해, 참값 셀에 모이는 에너지가 사실상 0에서 99.997%로 뛰는 것을 확인하고, 두 센서의 BEV 표현을 채널 방향으로 이어붙여 하나의 융합 표현을 완성하며 2부를 마무리하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-projecting-lidar-to-bev/[5장: 라이다 포인트를 BEV 격자로 투영하기] · 다음: link:../07-self-attention-basics-in-pytorch/[7장: Self-Attention 기초를 PyTorch로]_
+
+'''
+
+4장의 카메라는 깊이를 몰라 확률분포로 흐릿하게 BEV에 퍼졌고, 5장의 라이다는 깊이를 정확히 알아 또렷하게 BEV에 맺혔습니다. 이 장에서는 라이다의 정확한 깊이 정보로 카메라의 막연한 추측을 실제로 고쳐주는 **depth completion**을 구현하고, 두 센서의 BEV 표현을 하나로 합칩니다.
+
+== 문제 설정: 카메라 혼자서는 부정확하다
+
+[source,python]
+----
+true_object_depth = 22.3
+generic_prior_logits = -2.0 * (depth_values - 20.0)**2   # "대충 20m 근처겠지" 정도의 느슨한 추정
+generic_prob = softmax(generic_prior_logits)
+pts_generic, wf_generic = lift_pixel(cam, u_test, v_test, generic_prob, feature_test)
+splat_to_bev(pts_generic, wf_generic, bev_camera_only)
+----
+
+카메라만으로 depth를 추정한다면, 실제 물체는 `22.3m`에 있는데 신경망은 (아직 잘 학습되지 않았거나, 원래 애매한 장면이라) `20m` 근처라고 추측할 수 있습니다.
+
+[source]
+----
+camera-only energy at true cell: 2.02e-05
+----
+
+참값 위치(`22.3m`에 해당하는 BEV 셀)에 도달한 에너지가 사실상 `0`입니다 — 카메라의 잘못된 추측이 엉뚱한 셀(`20m` 근처)에 에너지를 쏟아버렸기 때문입니다.
+
+== 라이다로 깊이를 보정하기 (Depth Completion)
+
+라이다가 이 픽셀과 같은 방향에서 실제로 물체를 감지했다면, 그 정확한 거리 측정값으로 카메라의 depth 분포를 뾰족하게 바꿀 수 있습니다.
+
+[source,python]
+----
+lidar_measured_depth = true_object_depth + rng.normal(0, 0.05)   # 라이다는 5cm 수준으로 정확
+lidar_informed_logits = -50.0 * (depth_values - lidar_measured_depth)**2
+lidar_informed_prob = softmax(lidar_informed_logits)
+pts_fused, wf_fused = lift_pixel(cam, u_test, v_test, lidar_informed_prob, feature_test)
+splat_to_bev(pts_fused, wf_fused, bev_fused_depth)
+----
+
+카메라 자신의 (막연한) depth 추측을 완전히 버리고, 라이다가 실측한 거리(`22.26m`, 참값 `22.3m`에서 노이즈 `5cm` 이내) 근처에 뾰족하게 집중된 분포로 대체합니다.
+
+[source]
+----
+lidar measured depth: 22.26   (true: 22.3)
+lidar-informed energy at true cell: 0.99997
+----
+
+참값 셀에 모이는 에너지가 `0.00002`에서 `0.99997`로 — 사실상 완전히 정확해졌습니다. 이게 depth completion의 핵심 효과입니다 — 카메라의 "방향은 정확하지만 거리는 막연한" 정보와, 라이다의 "거리까지 정확한" 정보를 결합하면, 카메라 픽셀 하나하나가 정확한 3D 위치를 갖게 됩니다.
+
+== 왜 그냥 라이다만 쓰지 않는가
+
+여기서 자연스러운 질문이 생깁니다 — 라이다가 이렇게 정확하다면, 애초에 카메라 없이 라이다만 쓰면 안 될까요? 이 질문에 대한 답은 3장의 검증 4에서 이미 나왔습니다 — 라이다는 카메라 화각의 `85.7%`만 커버했습니다(그리고 그 비율은 라이다 자체의 한계라기보다 이 실험에서 카메라 한 대만 비교했기 때문이지만, 실전에서도 라이다는 먼 거리·작은 물체·특정 재질(유리, 검은 차량)에서 반사가 약해 점이 성기게 찍히는 경우가 많습니다). 카메라는 라이다가 놓치는 곳에서도(질감, 색상, 표지판 글씨 등 라이다가 아예 감지 못 하는 정보까지) 신호를 주므로, 라이다가 있는 곳에서는 라이다로 depth를 보정하고, 라이다가 없는 곳에서는 카메라 자신의(신경망이 학습한) depth 추정에 의존하는 식으로 상호보완하는 것이 실전 LSS 계열 모델들의 전형적인 전략입니다.
+
+== 최종 융합: 채널 방향으로 이어붙이기
+
+[source,python]
+----
+lidar_bev = pillarize(lidar_all_points)          # (BEV_SIZE, BEV_SIZE, 3) -- count, max_h, mean_h
+camera_bev = bev_fused_depth                       # (BEV_SIZE, BEV_SIZE, 3) -- LSS로 만든 특징
+
+fused_bev = np.concatenate([camera_bev, lidar_bev], axis=-1)   # 채널 방향으로 이어붙임
+print(fused_bev.shape)   # (60, 60, 6)
+----
+
+카메라 BEV(`3`채널)와 라이다 BEV(`3`채널)를 단순히 채널 축으로 이어붙이면(concat), `6`채널짜리 융합 BEV가 됩니다 — 각 칸이 "카메라가 본 것"과 "라이다가 잰 것"을 모두 담은 하나의 벡터를 갖게 됩니다.
+
+== 검증: 융합된 셀에 두 신호가 모두 살아있는가
+
+[source,python]
+----
+fused_cell = fused_bev[true_row, true_col]
+camera_part, lidar_part = fused_cell[:3], fused_cell[3:]
+print(camera_part, lidar_part)
+----
+
+[source]
+----
+fused cell - camera part: [1.00  0.50  -0.30]
+fused cell - lidar part:  [44.0  1.40  0.67]
+----
+
+같은 BEV 칸에서 카메라 부분(원래 특징 `[1.0, 0.5, -0.3]`이 거의 그대로 보존됨)과 라이다 부분(그 칸에 `44`개의 점이 찍혔고 최고 높이 `1.4m`)이 나란히 살아 있습니다. 실전 모델은 이렇게 이어붙인 `6`채널을 그대로 다음 층에 넘기기보다, 작은 신경망(`1×1` 합성곱 등)으로 이 둘을 더 정교하게 섞지만, 그 정교한 융합도 결국 이 장에서 확인한 "같은 칸에 두 센서의 정보가 정렬되어 있다"는 전제 위에서만 의미가 있습니다.
+
+== 지금까지 다진 것과 다음 단계
+
+2부에서 카메라와 라이다라는, 성질이 완전히 다른 두 센서를 하나의 공통 좌표계(BEV)로 가져오는 전체 과정을 다졌습니다 — 좌표계 통일(1부) → 확률적 들어올리기(카메라, 4장)와 직접적인 집계(라이다, 5장) → 서로를 보정하며 하나로 합치기(6장). 지금까지의 BEV 특징들은 여전히 "칸마다 독립적"입니다 — 한 칸이 옆 칸의 정보를 전혀 참조하지 못합니다. 3부에서 다룰 Transformer는 정확히 이 한계를 풉니다 — 각 칸이 다른 칸들, 그리고 원본 카메라 특징을 필요에 따라 "돌아보며" 자신의 표현을 더 풍부하게 만들 수 있게 됩니다.
+
+== 직접 해보기
+
+* 라이다의 측정 노이즈(`0.05`)를 `1.0`(훨씬 부정확한 라이다)으로 키우면, depth completion 이후의 참값 셀 에너지가 `0.99997`에서 얼마나 떨어지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+lidar_measured_depth_noisy = true_object_depth + rng.normal(0, 1.0)
+lidar_informed_logits_noisy = -50.0 * (depth_values - lidar_measured_depth_noisy)**2
+prob_noisy = softmax(lidar_informed_logits_noisy)
+pts_noisy, wf_noisy = lift_pixel(cam, u_test, v_test, prob_noisy, feature_test)
+bev_noisy = np.zeros((BEV_SIZE, BEV_SIZE, len(feature_test)))
+splat_to_bev(pts_noisy, wf_noisy, bev_noisy)
+print(np.linalg.norm(bev_noisy[true_row, true_col]) / np.linalg.norm(feature_test))
+----
+
+라이다 노이즈가 `1.0m`로 커지면, 뾰족했던 depth 분포의 중심 자체가 참값에서 최대 `1m` 넘게 벗어날 수 있고, `1m` 해상도의 BEV 격자에서는 이 정도 오차가 실제로 다른 칸으로 잘못 떨어질 확률을 뚜렷하게 높입니다 — 그 결과 참값 셀에 모이는 에너지도 `0.99997`보다 확연히 낮아질 것입니다. 라이다도 완벽한 센서가 아니라는 것, 그리고 융합의 정확도가 결국 각 센서의 정확도에 의해 제한된다는 걸 보여주는 실험입니다.
+====
+
+== 요약
+
+* 카메라의 막연한 depth 추측을 라이다의 정확한 실측값으로 대체하는 depth completion으로, 참값 BEV 셀에 도달하는 에너지가 사실상 `0`에서 `99.997%`로 극적으로 개선됐습니다.
+* 라이다만으로 충분하지 않은 이유(화각의 빈틈, 재질에 따른 반사 약화)를 3장의 결과와 연결지어 확인했고, 그래서 두 센서를 상호보완적으로 쓰는 전략이 필요하다는 걸 짚었습니다.
+* 카메라 BEV와 라이다 BEV를 채널 방향으로 이어붙여, 같은 BEV 칸이 두 센서의 정보를 모두 담는 융합 표현을 완성했습니다.
+* 지금까지의 BEV 표현은 칸마다 독립적이라는 한계가 있고, 이를 넘어서는 것이 3부의 Transformer 인코더입니다.
+
+2부에서 센서 융합의 핵심 기하학을 다졌습니다. 3부에서는 이렇게 만들어진 BEV 표현을 Transformer로 더 풍부하게 만드는 법을 PyTorch로 실제 학습시키며 다룹니다.
+// end::body[]

@@ -1,0 +1,187 @@
+---
+title: "7장: Self-Attention 기초를 PyTorch로"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "transformer", "self-attention", "pytorch", "book"]
+categories: ["books"]
+description: "Self-Attention을 손으로 구현해 PyTorch 내장 MultiheadAttention과 완전히 동일한 결과를 내는 것을 확인하고, 위치 임베딩 없이는 '이웃'이라는 개념 자체가 학습되지 않는다는 것을 실패로 직접 겪은 뒤 위치 임베딩을 더해 손실을 99.9% 줄이며 3부를 여는 7장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-camera-lidar-bev-fusion/[6장: 카메라-라이다 BEV 융합] · 다음: link:../08-deformable-attention/[8장: Deformable Attention: BEV 쿼리가 이미지 특징을 참조하는 법]_
+
+'''
+
+2부에서 만든 BEV 표현은 칸마다 독립적이었습니다 — 한 칸이 옆 칸이나 원본 카메라 특징을 전혀 "돌아보지" 못했습니다. Transformer의 핵심 연산인 attention은 정확히 이 문제를 풉니다 — 각 위치가 다른 모든 위치를 살펴보고, 그중 지금 필요한 것에 더 큰 가중치를 실어 정보를 끌어옵니다. 이 장에서는 이 시리즈의 다른 책들이 NumPy로 손수 구현했던 것과 같은 정신으로, Self-Attention을 PyTorch 텐서 연산으로 직접 짜고, 그게 실제 PyTorch 내장 구현과 정확히 같은지, 그리고 실제로 학습이 되는지 검증합니다.
+
+== Self-Attention을 손으로 구현하기
+
+[source,python]
+----
+class SelfAttention(nn.Module):
+    def __init__(self, dim, n_heads=1):
+        super().__init__()
+        self.n_heads = n_heads
+        self.head_dim = dim // n_heads
+        self.W_q = nn.Linear(dim, dim, bias=False)
+        self.W_k = nn.Linear(dim, dim, bias=False)
+        self.W_v = nn.Linear(dim, dim, bias=False)
+        self.W_o = nn.Linear(dim, dim, bias=False)
+
+    def forward(self, x, return_attn=False):
+        B, N, C = x.shape
+        Q = self.W_q(x).view(B, N, self.n_heads, self.head_dim).transpose(1, 2)
+        K = self.W_k(x).view(B, N, self.n_heads, self.head_dim).transpose(1, 2)
+        V = self.W_v(x).view(B, N, self.n_heads, self.head_dim).transpose(1, 2)
+
+        scores = Q @ K.transpose(-2, -1) / np.sqrt(self.head_dim)
+        attn = torch.softmax(scores, dim=-1)
+        out = (attn @ V).transpose(1, 2).reshape(B, N, C)
+        return self.W_o(out)
+----
+
+각 토큰이 자신의 `Query`로 다른 모든 토큰의 `Key`와 얼마나 "관련 있는지"(내적)를 재고, 그 관련도를 `softmax`로 확률처럼 정규화한 뒤, 그 확률로 다른 토큰들의 `Value`를 가중 평균해서 가져옵니다 — "Attention is All You Need" 논문의 그 공식 그대로입니다.
+
+== 검증 1: PyTorch 내장 구현과 정확히 같은가
+
+[source,python]
+----
+mine = SelfAttention(dim=8, n_heads=2)
+ref = nn.MultiheadAttention(8, 2, bias=False, batch_first=True)
+
+# PyTorch의 in_proj_weight는 [Wq; Wk; Wv]가 이어붙은 형태
+ref.in_proj_weight.copy_(torch.cat([mine.W_q.weight, mine.W_k.weight, mine.W_v.weight], dim=0))
+ref.out_proj.weight.copy_(mine.W_o.weight)
+
+out_mine, attn_mine = mine(x, return_attn=True)
+out_ref, attn_ref = ref(x, x, x, need_weights=True, average_attn_weights=True)
+print((out_mine - out_ref).abs().max().item())
+----
+
+[source]
+----
+my output vs PyTorch output max diff: 0.0
+attention weights vs PyTorch max diff: 0.0
+----
+
+같은 가중치를 넣어주면, 내가 손으로 짠 구현과 PyTorch 내장 `nn.MultiheadAttention`의 출력이 **완전히 동일**합니다(부동소수점 오차조차 없이 정확히 `0.0`) — 이 책의 다른 검증들이 유한차분으로 "거의 일치"를 확인했던 것과 달리, 여기서는 두 구현이 수학적으로 정확히 같은 연산을 하고 있다는 걸 직접 확인한 것입니다.
+
+== 검증 2: attention 가중치가 정말 확률분포인가
+
+[source,python]
+----
+row_sums = attn_mine.sum(dim=-1)
+print(row_sums)   # 모두 1.0
+----
+
+`softmax`를 거친 attention 가중치의 각 행(하나의 쿼리가 모든 키에 나눠주는 가중치)의 합이 정확히 `1.0`입니다 — 이건 이 장 뒤에서 중요한 함의를 갖습니다. attention의 출력은 항상 `Value`들의 **가중 평균**(convex combination)이라는 뜻이고, 개별 `Value`의 범위를 벗어나는 값(예: 여러 값의 단순 합)은 절대 만들어낼 수 없습니다.
+
+== 검증 3: 학습이 되는가 — "이웃 평균" 토이 태스크
+
+[source,python]
+----
+def make_neighbor_sum_batch(batch_size, seq_len, rng):
+    x = rng.normal(0, 1, size=(batch_size, seq_len, 1))
+    y = np.zeros((batch_size, seq_len, 1))
+    for i in range(seq_len):
+        lo, hi = max(0, i-1), min(seq_len, i+2)
+        y[:, i, 0] = x[:, lo:hi, 0].mean(axis=1)   # 자신 + 좌우 이웃의 평균
+    return x, y
+----
+
+목표: 길이 `6`짜리 무작위 시퀀스가 주어지면, 각 위치에서 "자신과 좌우 이웃(경계는 있는 것만) 값들의 평균"을 출력하는 것입니다. 처음에는 **합**(sum)으로 시도했는데, 손실이 절반 정도 줄어들다가 멈췄습니다 — 검증 2에서 확인했듯 attention의 출력은 항상 가중 **평균**이라, 개별 값의 범위를 넘어서는 합을 애초에 표현할 수 없었기 때문입니다. 목표를 attention이 구조적으로 표현 가능한 평균으로 바꾸자 문제가 사라졌습니다.
+
+[source,python]
+----
+model = NeighborSumModel(seq_len=6)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.02)
+for step in range(3000):
+    x, y = make_neighbor_sum_batch(32, 6, rng_np)
+    loss = ((model(x) - y) ** 2).mean()
+    loss.backward(); optimizer.step()
+----
+
+== 첫 실패: 위치 정보 없이는 "이웃"이라는 개념이 성립하지 않는다
+
+목표를 평균으로 고친 뒤에도, 손실이 `0.39`에서 `0.18`까지만 줄고 더 이상 내려가지 않았습니다. 원인을 생각해보니 명확했습니다 — attention은 **내용(content)** 기반으로 어디를 볼지 정합니다. 그런데 입력이 순전히 무작위 스칼라라서, "3번째 위치"라는 정보 자체가 모델에게 전혀 주어지지 않았습니다 — 모델 입장에서는 "지금 보고 있는 값이 무엇인가"만 알 뿐 "지금 몇 번째 위치인가"를 전혀 모르니, "내 왼쪽/오른쪽 이웃을 봐야 한다"는 규칙을 애초에 배울 방법이 없었던 것입니다.
+
+[source,python]
+----
+class NeighborSumModel(nn.Module):
+    def __init__(self, seq_len):
+        super().__init__()
+        self.proj_in = nn.Linear(1, 16)
+        self.pos_embed = nn.Parameter(torch.randn(1, seq_len, 16) * 0.1)  # 위치마다 고유한 신호를 더해줌
+        self.attn = SelfAttention(16, n_heads=1)
+        self.proj_out = nn.Linear(16, 1)
+    def forward(self, x):
+        h = self.proj_in(x) + self.pos_embed   # 내용 + 위치
+        h = self.attn(h)
+        return self.proj_out(h)
+----
+
+각 위치마다 학습 가능한 고유 벡터(`pos_embed`)를 내용에 더해주자, 모델이 "지금 몇 번째 위치인가"라는 정보를 비로소 가질 수 있게 됐습니다.
+
+== 검증 4: 위치 임베딩을 더한 뒤
+
+[source]
+----
+loss[0]: 0.409   loss[-1]: 0.0003   (99.9% 이상 감소)
+----
+
+손실이 `0.0003`까지 떨어졌습니다 — 위치 정보 하나를 더해준 것만으로 학습이 완전히 다르게 진행됐습니다.
+
+[source,python]
+----
+attn_matrix = attn_test[0, 0].numpy()
+print(np.round(attn_matrix, 2))
+----
+
+[source]
+----
+[[0.51 0.48 0.01 0.   0.   0.01]
+ [0.33 0.32 0.33 0.01 0.   0.  ]
+ [0.01 0.34 0.32 0.32 0.   0.  ]
+ [0.   0.   0.34 0.31 0.33 0.01]
+ [0.   0.   0.01 0.32 0.33 0.34]
+ [0.   0.   0.   0.01 0.5  0.48]]
+----
+
+학습된 attention 가중치를 그대로 출력해보면, 중간 위치들(`1~4`행)에서 정확히 자신과 좌우 이웃(`3`곳)에 `~0.33`씩 거의 균등하게 나뉘어 있습니다 — 정확히 목표(3개 값의 평균)를 계산하는 데 필요한 가중치입니다. 양 끝(`0`행, `5`행)은 이웃이 한쪽뿐이라 두 곳에 `~0.5`씩 나뉜 것도 경계 조건과 정확히 일치합니다. 모델이 "내가 몇 번째 위치인지"와 "이웃이 어디인지"를 스스로 알아내서, 정말로 필요한 곳에만 정확히 집중하도록 학습됐다는 걸 눈으로 확인한 것입니다.
+
+== 이게 BEV 인코더와 무슨 관계인가
+
+방금 겪은 "위치 정보 없이는 이웃 개념이 성립하지 않는다"는 교훈이, 다음 장에서 다룰 BEV Transformer 인코더에서 그대로(오히려 더 크게) 적용됩니다 — BEV 격자의 각 칸은 "내가 자아차량 기준 몇 미터 앞, 몇 미터 옆인가"라는 위치 정보가 없으면, "내 앞의 칸을 봐야 한다"거나 "내가 보고 있는 카메라 영역이 어디인가" 같은 공간적 관계를 전혀 배울 수 없습니다. 8장의 deformable attention이 각 BEV 쿼리의 위치를 명시적으로 활용하는 이유가 여기서 이미 예고됩니다.
+
+== 직접 해보기
+
+* `pos_embed`를 학습 가능한 파라미터가 아니라, 사인/코사인 함수로 미리 고정한 위치 인코딩(2권에서 NeRF를 다룰 때 나온 positional encoding과 같은 아이디어)으로 바꾸면 학습이 비슷하게 되는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def sincos_pos_embed(seq_len, dim):
+    pos = torch.arange(seq_len).unsqueeze(1).float()
+    i = torch.arange(dim // 2).float()
+    freq = 1.0 / (10000 ** (2*i/dim))
+    angles = pos * freq
+    pe = torch.zeros(seq_len, dim)
+    pe[:, 0::2] = torch.sin(angles)
+    pe[:, 1::2] = torch.cos(angles)
+    return pe.unsqueeze(0)
+----
+
+고정된 사인/코사인 위치 인코딩도, 학습 가능한 위치 임베딩과 마찬가지로 "위치마다 서로 다른 고유한 신호"를 제공하기만 하면 비슷하게 잘 작동합니다 — 핵심은 "학습 가능한가 고정인가"가 아니라 "위치 정보가 존재하는가 아닌가"였다는 걸 다시 확인할 수 있습니다. 실전 Transformer들은 시퀀스 길이가 가변적인 경우(고정된 학습 임베딩은 정해진 길이만 다룰 수 있음) 사인/코사인 인코딩을, 시퀀스 길이가 고정적인 경우(BEV 격자처럼 항상 같은 크기) 학습 가능한 임베딩을 선호하는 경향이 있습니다.
+====
+
+== 요약
+
+* Self-Attention을 손으로 구현한 결과가 PyTorch 내장 `nn.MultiheadAttention`과 부동소수점 오차 없이 완전히 일치한다는 걸 확인했습니다.
+* attention의 출력은 `softmax`로 정규화된 가중치의 성질(합이 `1`) 때문에 항상 `Value`들의 가중 **평균**이며, 합처럼 이 범위를 벗어나는 값은 표현할 수 없다는 걸 학습 실패로 직접 겪었습니다.
+* 위치 정보(positional embedding) 없이는 "이웃"처럼 위치에 기반한 관계를 attention이 전혀 배울 수 없다는 것도 실패를 통해 확인했고, 위치 임베딩을 더하자 손실이 `99.9%` 이상 줄었습니다.
+* 학습된 attention 가중치를 직접 시각화해서, 모델이 정확히 목표에 필요한 위치(자신+좌우 이웃)에 집중하도록 학습됐다는 걸 눈으로 검증했습니다.
+
+다음 장에서는 이 Self-Attention을 BEV 쿼리가 원본 카메라 특징을 직접 참조하는 형태로 확장한 deformable attention — BEVFormer의 핵심 구성 요소 — 를 다룹니다.
+// end::body[]

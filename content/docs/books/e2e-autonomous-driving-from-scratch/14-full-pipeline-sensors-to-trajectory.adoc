@@ -1,0 +1,178 @@
+---
+title: "14장: 종합 실전: 센서에서 궤적까지 파이프라인 완성"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "bev", "transformer", "pytorch", "book"]
+categories: ["books"]
+description: "카메라 기하학, BEV 쿼리, BEVFormer 인코더, Planning Head를 하나의 PyTorch 모듈로 통합해 카메라 특징맵에서 미래 궤적까지 실제로 역전파가 관통하는 파이프라인을 완성하고, 왼쪽/오른쪽 어느 경로가 열려 있는지 100% 정확히 따라가는 것을 확인하는 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../13-trajectory-evaluation-metrics/[13장: 궤적 평가 지표 (ADE/FDE, 충돌률)] · 다음: link:../15-afterword/[맺음말]_
+
+'''
+
+이제 이 책 전체에서 배운 것을 하나로 묶습니다. 새로운 개념은 없습니다 — 1부의 카메라 기하학, 2~3부의 BEV 쿼리와 BEVFormer 인코더, 4부의 Planning Head, 그리고 13장의 평가 지표를 그대로 이어 붙여, **카메라 특징맵이 들어가서 미래 궤적이 나오는** 하나의 `nn.Module`을 완성합니다.
+
+== 1부: 센서 기하학
+
+[source,python]
+----
+front_cam = Camera(0, [0,0,1.5], K)
+----
+
+2장의 `Camera` 클래스를 그대로 재사용합니다 — 위치와 방향만 주면 투영을 계산하는 그 코드입니다.
+
+== 2~3부: BEV 쿼리와 BEVFormer 인코더
+
+[source,python]
+----
+BEV_H, BEV_W = 6, 6
+# ... bev_positions, ref_pixels, ref_valid 계산 (2장·9장과 동일) ...
+print(ref_valid.sum(), "/", BEV_H*BEV_W, "valid")
+----
+
+[source]
+----
+2. BEV query grid ready: 24 / 36 valid
+----
+
+`36`개의 BEV 쿼리 중 `24`개가 전방 카메라 화각 안에 들어옵니다. 9장의 `BEVFormerEncoder`(deformable attention + FFN)를 그대로 가져와, 카메라 특징맵을 BEV 격자로 인코딩합니다.
+
+== 4부: Planning Head
+
+[source,python]
+----
+class PlanningHead(nn.Module):
+    def forward(self, bev_tokens):
+        mem = bev_tokens.unsqueeze(0)
+        q = self.query_embed.unsqueeze(0)
+        a,_ = self.cross_attn(q, mem, mem)
+        q = self.norm1(q+a)
+        q = self.norm2(q + self.ffn(q))
+        delta = self.head(q)[0]
+        return torch.cumsum(delta, dim=0)   # 10장의 교훈: 델타를 예측하고 누적합으로 복원
+----
+
+11장의 Transformer Decoder를 단순화한 버전입니다 — BEV 인코더의 출력(`36`개 토큰)을 memory로 삼아 cross-attention하고, 10장에서 검증한 대로 델타 좌표를 예측한 뒤 누적합으로 궤적을 복원합니다.
+
+== 하나로 조립하기
+
+[source,python]
+----
+class FullPipeline(nn.Module):
+    def __init__(self, dim, n_future):
+        super().__init__()
+        self.encoder = BEVFormerEncoder(dim, n_layers=1)
+        self.head = PlanningHead(dim, n_future)
+    def forward(self, feature_map):
+        bev = self.encoder(feature_map)
+        tokens = bev.reshape(-1, bev.shape[-1])
+        return self.head(tokens)
+
+model = FullPipeline(DIM, N_FUTURE)
+print(sum(p.numel() for p in model.parameters()), "parameters")
+----
+
+[source]
+----
+5. full pipeline assembled: 2810 parameters, camera feature map -> trajectory
+----
+
+`2810`개의 파라미터로, 카메라 특징맵(`(32,32,12)` 텐서)이 들어가서 `(8,2)` 궤적이 나오는 하나의 미분 가능한 함수가 완성됐습니다 — 1장에서 그려둔 파이프라인 설계도가, 지금은 실제로 실행되고 학습되는 코드가 됐습니다.
+
+== 학습 데이터: 카메라가 "어느 쪽 길이 열려 있는지" 보여준다
+
+[source,python]
+----
+def make_scene(rng):
+    go_left = rng.uniform() < 0.5
+    feature_map = torch.randn(IMG_H, IMG_W, DIM) * 0.15
+    signal = torch.randn(DIM) * 2.0 + 3.0
+    if go_left:
+        feature_map[10:22, 2:14] = signal    # 이미지 왼쪽 영역에 "열린 길" 신호
+        steer = np.radians(14)
+    else:
+        feature_map[10:22, 18:30] = signal   # 이미지 오른쪽 영역
+        steer = -np.radians(14)
+    # ... 이 조향각으로 실제 궤적을 시뮬레이션 ...
+    return feature_map, traj, go_left
+----
+
+12장의 "애매한 교차로"와 달리, 이번엔 카메라 이미지 자체에 답이 있습니다 — 이미지의 왼쪽 또는 오른쪽 영역에 "이쪽 길이 열려 있다"는 신호가 있고, 모델은 그 신호를 실제로 읽어서 그 방향으로 향하는 궤적을 만들어야 합니다.
+
+== 학습: 인코더와 헤드를 통째로 역전파
+
+[source,python]
+----
+optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+for step in range(500):
+    fmap, gt_traj, _ = make_scene(rng)
+    pred_traj = model(fmap)
+    loss = ((pred_traj - gt_traj) ** 2).mean()
+    loss.backward(); optimizer.step()
+----
+
+[source]
+----
+loss[0]: 59.75   loss[-1]: 0.84   (98.6% 감소)
+----
+
+손실이 `500`스텝 만에 `98.6%` 줄었습니다 — 이 그래디언트는 최종 궤적 오차에서 시작해서, Planning Head의 cross-attention을 거쳐, BEVFormer 인코더의 deformable attention을 거쳐, 결국 카메라 특징맵까지 거슬러 올라갑니다. 8~9장에서 각각 따로 검증했던 두 구성 요소가, 여기서는 하나의 손실 함수 아래 함께 학습되고 있습니다.
+
+== 평가: ADE와 방향 정확도
+
+[source,python]
+----
+mean_ade = np.mean([ade(model(fmap).numpy(), gt.numpy()) for fmap, gt, _ in test_scenes])
+direction_accuracy = np.mean([방향_예측이_맞았는가 for ... in test_scenes])
+----
+
+[source]
+----
+test mean ADE:        1.113
+direction accuracy:   1.000
+----
+
+`60`개의 완전히 새로운 테스트 장면에서, 평균 변위 오차(ADE) `1.11m`, 그리고 왼쪽/오른쪽 방향 판단 정확도 **100%**를 달성했습니다 — 카메라 이미지의 어느 영역에 신호가 있는지에 따라, 모델이 매번 정확한 방향으로 향하는 궤적을 만들어냅니다.
+
+== 이 파이프라인이 실전과 다른 점
+
+이 장에서 완성한 파이프라인은 실전 E2E 자율주행 모델의 축소판입니다 — 실전과의 주요한 차이는 규모(카메라 `1`대 vs `6`대, BEV 격자 `36`칸 vs `수만`칸, 파라미터 `2810`개 vs 수백만~수십억 개)와 과제의 복잡도(왼쪽/오른쪽 이진 판단 vs 실제 도로의 연속적인 의사결정)입니다. 하지만 **구조**는 동일합니다 — 카메라 기하학으로 BEV 쿼리의 참조점을 정하고, deformable attention으로 이미지 특징을 끌어오고, 그 BEV 표현으로부터 Transformer Decoder가 궤적을 생성하고, 그 전체가 최종 궤적 오차 하나로부터 역전파되어 함께 학습됩니다. 1장에서 "이 책은 실전보다 `200`배 작은 스케일을 쓴다"고 했던 그 축소가, 이 마지막 장에서 실제로 끝까지 작동하는 걸 확인했습니다.
+
+== 지나온 길을 돌아보며
+
+1부에서 카메라와 라이다의 좌표계를 통일하고, 2부에서 그 좌표계 위에서 두 센서를 BEV로 융합하고, 3부에서 Transformer로 그 BEV를 더 풍부하게 만들고, 4부에서 그로부터 안전하고 다양한 미래 궤적을 뽑아내고, 5부에서 이 모든 걸 정량적으로 재고 하나로 묶었습니다. 이 과정에서 실제로 발견한 것들 — LayerNorm이 균일한 섭동을 지운다는 것, softmax attention이 구조적으로 평균만 표현할 수 있다는 것, 위치 정보 없이는 위치 기반 관계를 배울 수 없다는 것, 표현 방식의 선택이 학습 속도를 몇 배씩 바꾼다는 것, 평가 지표 선택이 결론을 뒤집을 수 있다는 것 — 은 모두 코드를 실제로 돌려보지 않았다면 몰랐을 사실들이었습니다.
+
+== 직접 해보기
+
+* `make_scene`의 신호를 왼쪽/오른쪽 둘 중 하나가 아니라, 신호가 아예 없는(둘 다 열려있지 않은, 또는 안개가 낀 것 같은) 세 번째 경우를 추가하면, 이 단일 모드 파이프라인이 어떻게 반응하는지 확인해보세요 — 12장에서 배운 것을 떠올리며 예상해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def make_scene_with_ambiguous(rng):
+    case = rng.choice(["left", "right", "ambiguous"])
+    if case == "ambiguous":
+        feature_map = torch.randn(IMG_H, IMG_W, DIM) * 0.15   # 신호 없음
+        go_left = rng.uniform() < 0.5   # 정답은 무작위로 좌/우 둘 다 있을 수 있음
+        steer = np.radians(14) if go_left else -np.radians(14)
+        # ... 나머지는 동일
+    else:
+        # 기존 로직
+        pass
+----
+
+12장에서 이미 겪었듯, 신호가 없어서 정답이 좌우로 갈리는 `ambiguous` 케이스가 섞이면, 이 단일 모드 파이프라인은 그 경우들에 대해 물리적으로 말이 안 되는 "가운데" 궤적으로 수렴하려 할 것입니다 — 그 결과 `ambiguous` 케이스의 ADE가 유독 나빠지고, 전체 평균 ADE도 그만큼 나빠질 것입니다. 이 파이프라인을 12장의 다중 모드 Planning Head로 바꾸면(`PlanningHead`를 `MultiModalDecoder`로 교체), `ambiguous` 케이스에서도 여러 후보를 내고 그중 하나가 정답에 가깝도록 minADE로 평가할 수 있습니다 — 이 책의 모든 장이 결국 서로 조합 가능한 부품들이라는 것을, 이 마지막 연습이 다시 한번 보여줍니다.
+====
+
+== 요약
+
+* 1~13장에서 각각 검증한 카메라 기하학, BEV 쿼리, BEVFormer 인코더, Planning Head를 하나의 `nn.Module`로 조립해, 카메라 특징맵에서 궤적까지 실제로 역전파가 관통하는 파이프라인을 완성했습니다.
+* `500`스텝의 학습만으로 손실이 `98.6%` 줄었고, 완전히 새로운 테스트 장면에서 ADE `1.11m`, 방향 판단 정확도 `100%`를 달성했습니다.
+* 이 파이프라인은 실전 E2E 자율주행 모델과 스케일만 다를 뿐 구조는 동일하며, 이 책 전체에서 확인한 여러 실전적 교훈(정규화의 함정, attention의 표현력 한계, 위치 정보의 필요성, 표현 방식과 평가 지표의 중요성)이 규모와 무관하게 적용된다는 것을 확인했습니다.
+
+이것으로 센서 좌표계(1부)부터 BEV 융합(2부), Transformer 인코더(3부), Planning Head(4부), 평가와 통합(5부)까지, 센서 데이터가 들어가서 궤적이 나오는 E2E 자율주행 모델의 전체 파이프라인을 처음부터 끝까지 손으로 짓고 검증했습니다. 이 시리즈의 앞선 책들이 세계를 인식하는 법(멀티뷰 기하학, 3DGS, SLAM)을 다뤘다면, 이 책은 그렇게 인식된 세계 위에서 실제로 결정을 내리는 법을 다뤘습니다 — 3DGS 기반 디지털 트윈 위에서 이런 E2E 모델을 검증하는 것이, 이 시리즈가 처음부터 향하고 있던 목적지입니다.
+// end::body[]

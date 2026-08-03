@@ -1,0 +1,152 @@
+---
+title: "12장: 충돌 회피와 다중 모드(multi-modal) 궤적"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "trajectory", "multimodal", "pytorch", "book"]
+categories: ["books"]
+description: "애매한 교차로 상황에서 단일 모드 예측이 좌/우 정답의 물리적으로 말이 안 되는 평균으로 붕괴하는 것을 확인한 뒤, Best-of-K 손실로 3개의 뚜렷이 다른 궤적 후보를 학습시키고 충돌 비용으로 안전한 모드를 선택하며 4부를 마무리하는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-transformer-decoder-for-trajectory/[11장: Transformer Decoder로 미래 궤적 예측하기] · 다음: link:../13-trajectory-evaluation-metrics/[13장: 궤적 평가 지표 (ADE/FDE, 충돌률)]_
+
+'''
+
+11장의 Decoder는 "정답이 하나"라고 가정하고 학습했습니다. 실전에서는 그렇지 않습니다 — 교차로에서 "왼쪽으로 갈 수도, 오른쪽으로 갈 수도" 있는 것처럼, 같은 상황(같은 BEV 컨텍스트)에서 여러 개의 서로 다른 미래가 똑같이 그럴듯할 수 있습니다. 이 장에서는 이런 애매함을 다루는 다중 모드 예측과, 여러 후보 중 충돌 위험이 적은 것을 고르는 법을 다룹니다.
+
+== 문제: 애매한 상황을 만들기
+
+[source,python]
+----
+def make_ambiguous_scenario(rng):
+    context_vec = np.array([1.0, 0.5])   # "교차로"라는 신호만 줌, 방향 정보는 전혀 없음
+    go_left = rng.uniform() < 0.5
+    steer = np.radians(12) if go_left else -np.radians(12)
+    ...
+----
+
+컨텍스트 벡터는 항상 똑같은데(`[1.0, 0.5]`), 실제 정답 궤적은 `50%` 확률로 왼쪽, `50%` 확률로 오른쪽입니다 — 컨텍스트만 봐서는 어느 쪽이 정답인지 원리적으로 알 방법이 없는 상황을 일부러 만들었습니다.
+
+== 단일 모드 예측의 실패: "평균"이라는 잘못된 타협
+
+[source,python]
+----
+single_model = SingleModeDecoder(DIM, N_FUTURE)   # 11장과 같은 구조, 궤적 하나만 출력
+# ... MSE 손실로 학습 ...
+pred_single = single_model(ctx_test)
+print(pred_single[-1, 1])   # 최종 y좌표
+----
+
+[source]
+----
+single-mode prediction final y (averaged over left/right): 0.446
+----
+
+학습된 모델의 예측이 `y≈0.45`, 사실상 `0`(직진) 근처로 수렴했습니다. 정답은 항상 왼쪽(`y≈+12` 근방)이거나 오른쪽(`y≈-12` 근방)이었는데, 그 어느 쪽도 아닌 **가운데**를 골랐습니다. 이유는 명확합니다 — MSE 손실은 여러 그럴듯한 정답이 있을 때 그것들의 평균을 최소 오차 지점으로 계산하는데, 이 "평균 궤적"은 실제로는 존재한 적 없는, 물리적으로 말이 안 되는(교차로 한가운데를 어중간하게 가로지르는) 경로입니다. 이건 이 시리즈의 SLAM 책에서 EKF가 다봉 분포(왼쪽 또는 오른쪽, 둘 중 하나)를 가우시안 하나로 표현하려다 실패했던 것과 본질적으로 같은 함정입니다.
+
+== 다중 모드 Decoder: K개의 서로 다른 궤적 후보
+
+[source,python]
+----
+class MultiModalDecoder(nn.Module):
+    def __init__(self, dim, n_future, k_modes):
+        super().__init__()
+        self.mode_query = nn.Parameter(torch.randn(k_modes, n_future, dim) * 0.1)
+        ...
+        self.conf_head = nn.Linear(dim, 1)   # 각 모드가 얼마나 그럴듯한지
+
+    def forward(self, ctx):
+        outs, confs = [], []
+        for k in range(self.k_modes):
+            q = self.mode_query[k].unsqueeze(0).expand(B,-1,-1)
+            # ... cross-attention, FFN ...
+            outs.append(traj_k); confs.append(conf_k)
+        return torch.stack(outs, dim=1), torch.stack(confs, dim=1)
+----
+
+궤적 쿼리를 `K=3`벌 준비해서, 서로 다른 `K`개의 궤적 후보와 각 후보의 신뢰도(confidence)를 동시에 냅니다 — SLAM 책 7장의 파티클 필터가 여러 가설을 동시에 유지했던 것과 비슷한 아이디어를, 신경망의 출력 구조로 표현한 것입니다.
+
+== Best-of-K 손실: 가장 잘 맞춘 모드만 학습시키기
+
+[source,python]
+----
+dists = ((pred_trajs - traj.unsqueeze(1))**2).mean(dim=(2,3))    # (B,K) 각 모드의 오차
+best_k = dists.argmin(dim=1)                                      # 가장 잘 맞춘 모드
+reg_loss = dists[torch.arange(len(best_k)), best_k].mean()        # 그 모드만 회귀 손실 반영
+conf_loss = F.cross_entropy(pred_confs, best_k)                    # 신뢰도는 "어느 모드가 이겼는지" 분류로 학습
+loss = reg_loss + 0.5*conf_loss
+----
+
+이게 다중 모드 학습의 핵심입니다 — 매 스텝, `K`개 후보 중 정답과 가장 가까운 것 **하나만** 골라서 그 모드로 역전파합니다. 나머지 모드들은 이번 배치에서는 벌점을 받지 않습니다. 이렇게 하면 각 모드가 "내가 정답에 가장 가까울 때가 있다"는 걸 스스로 발견하며, 서로 다른 모드가 서로 다른 미래(왼쪽/오른쪽)를 전담하도록 자연스럽게 갈립니다 — 만약 매번 모든 모드를 정답과 비교해서 평균 손실로 학습시켰다면, 다시 단일 모드 때와 같은 "평균으로의 붕괴"가 일어났을 것입니다.
+
+== 검증: 세 모드가 실제로 서로 다른 미래를 담당하는가
+
+[source,python]
+----
+pred_trajs_test, pred_confs_test = multi_model(ctx_test)
+final_ys = pred_trajs_test[0, :, -1, 1].numpy()
+print(final_ys)
+----
+
+[source]
+----
+final y for each of the 3 modes: [-22.11  23.02  2.90]
+----
+
+`3`개 모드가 각각 뚜렷하게 오른쪽(`-22.11`), 왼쪽(`23.02`), 그리고 중간적인 경로(`2.90`)를 담당하도록 분화했습니다 — Best-of-K 손실이 실제로 "붕괴하지 않는" 다양한 후보를 만들어낸다는 걸 확인했습니다.
+
+== 충돌 회피: 후보 중 안전한 것 고르기
+
+여러 후보가 있다는 건, 그중 실제 상황(다른 차량, 장애물)에 맞춰 "가장 안전한" 것을 고를 수 있다는 뜻이기도 합니다.
+
+[source,python]
+----
+obstacle_pos = np.array([15.0, 8.0])   # 왼쪽 경로 상에 있는 장애물
+
+def collision_cost(traj, obstacle, threshold=3.0):
+    dists = np.linalg.norm(traj - obstacle, axis=1)
+    return max(0.0, threshold - dists.min())   # 임계 거리보다 가까우면 그만큼 비용
+
+costs = [collision_cost(trajs_np[k], obstacle_pos) for k in range(K_MODES)]
+final_score = confs_np - 2.0 * costs    # 신뢰도는 높이고, 충돌 위험은 낮추는 쪽으로
+selected_mode = np.argmax(final_score)
+----
+
+[source]
+----
+collision cost per mode: [0.0  1.45  0.0]   confidence per mode: [0.44  0.56  0.0005]
+selected mode: 0   collision cost: 0.0
+----
+
+왼쪽으로 가는 모드(`1`번, 신뢰도가 가장 높았던`0.56`)가 장애물과 충돌 위험이 있어(`cost=1.45`) 걸러지고, 대신 안전한(`cost=0`) 오른쪽 모드(`0`번)가 최종 선택됐습니다 — 신뢰도만으로 고르면 위험한 모드를 골랐겠지만, 충돌 비용을 함께 고려하니 실제로 안전한 경로를 골랐습니다. 실전 자율주행 스택에서는 이 "충돌 비용"이 훨씬 정교합니다(다른 차량의 예측 궤적, 도로 경계, 교통 법규 등을 모두 반영합니다). 이 장에서는 그 정교함 대신, "여러 후보 중 하나를 비용 함수로 고른다"는 구조 자체가 제대로 작동하는지에 집중했습니다.
+
+== 다중 모드가 이 시리즈에서 반복된 아이디어인 이유
+
+단일 봉우리(가우시안, 또는 이 장의 단일 모드 Decoder)로는 표현 못 하는 "여러 개의 뚜렷한 가능성"을 다뤄야 하는 문제가, SLAM 심화편(파티클 필터)과 이 장(다중 모드 궤적)에서 형태만 다르게 반복해서 등장했습니다 — 로봇의 위치든, 차량의 미래 경로든, 세상은 종종 "이것 아니면 저것"이라는 이산적인 가능성들로 이루어져 있고, 그걸 억지로 하나의 매끄러운 평균으로 뭉개면 실제로 존재하지 않는 답을 내놓게 됩니다.
+
+== 직접 해보기
+
+* `K_MODES`를 `3`에서 `2`로 줄이면, 애매한 좌/우 시나리오를 잘 표현할 수 있는지, 반대로 `K_MODES=5`로 늘리면 나머지 모드들은 무엇을 학습하게 되는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+multi_model_k2 = MultiModalDecoder(DIM, N_FUTURE, k_modes=2)
+# ... 동일하게 학습 후 final_ys 확인
+multi_model_k5 = MultiModalDecoder(DIM, N_FUTURE, k_modes=5)
+----
+
+`K_MODES=2`는 이 시나리오(정답이 정확히 두 갈래)에 딱 맞아서, `2`개 모드가 각각 왼쪽·오른쪽을 깔끔하게 나눠 담당하게 될 가능성이 높습니다. `K_MODES=5`처럼 실제 정답의 가짓수보다 많으면, Best-of-K 손실 특성상 일부 모드는 "항상 지는" 모드가 되어(한 번도 최선의 모드로 뽑히지 않아) 제대로 학습되지 않거나, 왼쪽·오른쪽 각각의 미세한 변형(예: 더 넓게 도는 왼쪽, 더 좁게 도는 왼쪽)을 나눠 담당하게 될 수 있습니다 — `K`를 실제 문제의 "그럴듯한 미래의 가짓수"보다 넉넉하게 잡는 게 실전에서 흔한 전략이지만, 너무 많으면 이렇게 일부 모드가 낭비될 수 있다는 트레이드오프가 있습니다.
+====
+
+== 요약
+
+* 애매한 상황(정답이 여러 갈래인 경우)에서 단일 모드 예측은 물리적으로 말이 안 되는 "평균" 궤적으로 붕괴한다는 걸 직접 확인했습니다.
+* Best-of-K 손실(정답과 가장 가까운 모드만 역전파)로 학습시킨 다중 모드 Decoder는, `3`개 모드가 실제로 서로 다른 미래(왼쪽·오른쪽·중간)를 각각 전담하도록 자연스럽게 분화했습니다.
+* 각 모드의 신뢰도와 충돌 비용을 함께 고려해서, 신뢰도가 가장 높지만 위험한 모드 대신 안전한 모드를 선택하는 구조를 구현했습니다.
+* 다중 모드라는 아이디어가 SLAM 심화편의 파티클 필터와 본질적으로 같은 문제(단일 분포로 표현 못 하는 여러 가능성)를 다른 형태로 풀고 있다는 것도 짚었습니다.
+
+4부에서 궤적을 시퀀스로 표현하고(10장), Transformer Decoder로 생성하고(11장), 여러 가능성과 안전성까지 고려하는(12장) Planning Head를 완성했습니다. 5부에서는 지금까지 만든 모든 요소를 정량적으로 평가하는 지표를 다루고, 마지막으로 센서에서 궤적까지 전체 파이프라인을 하나로 묶습니다.
+// end::body[]

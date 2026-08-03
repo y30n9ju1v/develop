@@ -1,0 +1,170 @@
+---
+title: "3장: 라이다 포인트클라우드와 센서 간 좌표 변환"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "lidar", "sensor-fusion", "book"]
+categories: ["books"]
+description: "라이다 장착 각도(roll/pitch)까지 반영한 좌표 변환으로 원시 라이다 점을 자아차량 좌표계로 정확히 복원하고, 장착 오차를 무시하면 오차가 7배 이상 커진다는 것과, 복원된 라이다 점을 카메라에 투영한 결과가 카메라가 직접 본 위치와 픽셀 단위로 일치한다는 것을 확인하는 1부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-multi-camera-coordinate-systems/[2장: 다중 카메라 좌표계 통일] · 다음: link:../04-lift-splat-shoot/[4장: Lift-Splat-Shoot: 이미지 특징을 3D로 들어올리기]_
+
+'''
+
+라이다는 자기 자신을 중심으로 한 3D 점들을 쏟아냅니다. 이 점들을 2장에서 다진 카메라들과 같은 자아차량 좌표계로 옮겨야, 두 센서가 "같은 물리적 지점"을 가리키고 있는지 확인할 수 있습니다. 이 장에서는 그 변환을 다루고, 실전에서 흔히 벌어지는 문제 — 센서가 설계대로 완벽하게 장착되지 않는 것 — 까지 시뮬레이션합니다.
+
+== 라이다 장착: 완벽하지 않은 현실
+
+[source,python]
+----
+class Lidar:
+    def __init__(self, position_ego, roll_deg=0.0, pitch_deg=0.0, yaw_deg=0.0):
+        self.position = np.array(position_ego)
+        # roll, pitch, yaw로 라이다 좌표계 -> 자아차량 좌표계 회전을 만듦
+        Rx = ...  # roll
+        Ry = ...  # pitch
+        Rz = ...  # yaw
+        self.R_lidar_to_ego = Rz @ Ry @ Rx
+
+    def to_ego(self, points_lidar):
+        return (self.R_lidar_to_ego @ points_lidar.T).T + self.position
+----
+
+[source,python]
+----
+lidar = Lidar(position_ego=[0, 0, 1.8], roll_deg=0.5, pitch_deg=-0.3, yaw_deg=0.0)
+----
+
+`roll_deg=0.5, pitch_deg=-0.3`처럼 아주 작은 각도를 일부러 줬습니다 — 실제 차량에서 라이다를 지붕에 완벽하게 수평으로 장착하는 건 거의 불가능하고, 이런 미세한 기울어짐이 항상 존재합니다. 이 값을 무시하면 어떤 문제가 생기는지 뒤에서 직접 확인합니다.
+
+== 합성 장면 만들기
+
+[source,python]
+----
+ground_true = make_ground_points(2000)                              # 바닥면
+car_true = make_box_points(center=[20,2,0.75], size=[4,2,1.5], n=300)  # 전방 20m의 차량
+scene_true_ego = np.vstack([ground_true, car_true])                  # "정답" 좌표
+----
+
+바닥에 흩뿌려진 점 `2000`개와, 전방 `20m`·왼쪽 `2m`에 있는 다른 차량(가로 `4m`, 세로 `2m`, 높이 `1.5m`짜리 상자 표면 근처 점 `300`개)으로 장면을 만듭니다. 이 `scene_true_ego`가 우리가 알고 있는 "정답"입니다.
+
+== 라이다가 실제로 관측하는 원시 점 시뮬레이션
+
+[source,python]
+----
+scene_points_lidar = (lidar.R_lidar_to_ego.T @ (scene_true_ego - lidar.position).T).T
+scene_points_lidar += rng.normal(0, 0.01, scene_points_lidar.shape)   # 측정 노이즈
+----
+
+실제 센서라면 raw 좌표(라이다 자신의 좌표계)만 내놓지, "정답"인 자아차량 좌표계 값은 절대 주지 않습니다. 여기서는 검증을 위해 반대 방향(정답 → 라이다가 실제로 봤을 값)으로 미리 계산해두고, 이후 우리가 만든 변환 코드가 이 원시 값에서 다시 정답을 복원해내는지 확인하는 식으로 검증합니다.
+
+== 검증 1: 라이다 → 자아차량 좌표 변환이 정확한가
+
+[source,python]
+----
+scene_points_ego_recovered = lidar.to_ego(scene_points_lidar)
+error = np.linalg.norm(scene_points_ego_recovered - scene_true_ego, axis=1)
+print(error.mean(), error.max())
+----
+
+[source]
+----
+mean recovery error: 0.016   max: 0.041
+----
+
+평균 오차가 `0.016m`(`1.6cm`)로, 애초에 섞어 넣은 측정 노이즈(표준편차 `0.01m`) 수준과 거의 일치합니다 — 좌표 변환 자체는 노이즈를 넘어서는 추가 오차를 전혀 만들어내지 않는다는 뜻입니다.
+
+== 검증 2: 장착 각도를 무시하면 무슨 일이 생기는가
+
+[source,python]
+----
+scene_points_ego_naive = scene_points_lidar + lidar.position   # 회전 없이, 그냥 위치만 더함
+error_naive = np.linalg.norm(scene_points_ego_naive - scene_true_ego, axis=1)
+print(error_naive.mean(), error_naive.max())
+----
+
+[source]
+----
+naive (no rotation) mean error: 0.119   max: 0.306
+----
+
+라이다의 미세한 장착 회전(`roll 0.5°`, `pitch -0.3°`)을 완전히 무시하고 위치 이동만 반영하면, 평균 오차가 `0.119m`(`12cm`)로, 회전을 정확히 반영했을 때(`1.6cm`)보다 **`7.4`배** 커집니다. `0.5°`라는 아주 작은 각도 오차가, 먼 거리(전방 `20~40m`)에서는 `arc = 거리 × 각도`(라디안)로 상당한 크기의 위치 오차로 증폭되기 때문입니다 — 센서 캘리브레이션에서 "몇 도쯤이야 괜찮겠지"라는 방심이 실제로는 위험하다는 걸 숫자로 보여줍니다.
+
+== 검증 3: 라이다로 복원한 위치가 카메라가 직접 본 위치와 일치하는가
+
+이게 센서 퓨전의 핵심 전제입니다 — 라이다와 카메라가 같은 물리적 차량을 가리키고 있다면, 그 좌표들이 같은 자아차량 좌표계에서 정확히 일치해야 합니다.
+
+[source,python]
+----
+car_center_true = np.array([20.0, 2.0, 0.75])
+pixel_direct, _ = front_cam.project(car_center_true)             # 카메라로 "정답" 위치를 직접 투영
+
+car_points_recovered = scene_points_ego_recovered[len(ground_true):]
+car_center_from_lidar = car_points_recovered.mean(axis=0)         # 라이다가 관측하고 복원한 위치
+pixel_from_lidar, _ = front_cam.project(car_center_from_lidar)
+
+print(pixel_direct, pixel_from_lidar)
+----
+
+[source]
+----
+direct projection:            [54.   67.75]
+from lidar-recovered points:  [54.05 67.62]
+----
+
+카메라로 직접 계산한 픽셀 위치와, 라이다 점들을 복원해서 그 중심을 카메라에 투영한 픽셀 위치가 `0.16`픽셀 이내로 거의 정확히 일치합니다 — 두 센서가 서로 다른 물리적 원리(카메라는 빛, 라이다는 레이저 반사)로 작동하는데도, 좌표계만 정확히 통일하면 같은 물체를 같은 곳에서 "본다"고 일관되게 말할 수 있다는 걸 확인했습니다.
+
+== 검증 4: 카메라 화각으로 라이다 점 걸러내기
+
+[source,python]
+----
+in_view_mask = []
+for p in scene_points_ego_recovered:
+    pixel, depth = front_cam.project(p)
+    visible = pixel is not None and 0 <= pixel[0] < IMG_W and 0 <= pixel[1] < IMG_H
+    in_view_mask.append(visible)
+
+print(sum(in_view_mask), "/", len(in_view_mask))
+----
+
+[source]
+----
+lidar points visible in front camera: 1971 / 2300
+----
+
+`2300`개의 라이다 점 중 `1971`개(`85.7%`)가 전방 카메라의 화각 안에 들어옵니다 — 전방 카메라 하나만으로는 라이다가 보는 전체 `360°` 중 일부만 커버한다는 뜻이고, 2장에서 만든 나머지 `5`대의 카메라가 이 빈틈을 채우는 역할을 합니다. 이렇게 "이 라이다 점이 어느 카메라의 화각 안에 있는가"를 판단하는 게, 다음 장에서 다룰 카메라-라이다 융합의 첫 단계입니다.
+
+== 왜 이 정확성이 중요한가
+
+이 장에서 확인한 서브픽셀 수준의 일치(`0.16`픽셀)는 시뮬레이션이라 가능한 이상적인 결과입니다 — 실전에서는 센서 시계 동기화 오차, 캘리브레이션 오차, 차량 진동 등으로 이 정도까지 정확하게 맞아떨어지지 않습니다. 하지만 이 이상적인 기준선을 먼저 확인해두는 게 중요합니다 — 실전에서 카메라-라이다 정합이 어긋난 결과를 볼 때, "원래 이 정도는 어긋나는 게 정상인가, 아니면 캘리브레이션이 잘못됐나"를 판단할 기준이 이 장에서 확인한 이상적인 케이스입니다.
+
+== 직접 해보기
+
+* `roll_deg`를 `0.5`에서 `2.0`으로 더 키우면, 순진한(회전 무시) 변환의 오차가 어떻게 더 커지는지, 그리고 그 관계가 대략 선형인지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+for roll in [0.5, 1.0, 2.0, 4.0]:
+    lidar_test = Lidar(position_ego=[0,0,1.8], roll_deg=roll, pitch_deg=-0.3, yaw_deg=0.0)
+    pts_lidar_test = (lidar_test.R_lidar_to_ego.T @ (scene_true_ego - lidar_test.position).T).T
+    pts_naive_test = pts_lidar_test + lidar_test.position
+    err_test = np.linalg.norm(pts_naive_test - scene_true_ego, axis=1)
+    print(roll, err_test.mean())
+----
+
+`roll_deg`가 `2`배씩 커질 때마다(`0.5→1.0→2.0→4.0`), 순진한 변환의 오차도 대략 `2`배씩 커지는 걸 확인할 수 있습니다 — 작은 각도에서는 `sin(θ) ≈ θ`(라디안)이므로, 각도 오차와 위치 오차가 거의 정비례합니다. 이는 실전 캘리브레이션에서 "각도 오차를 절반으로 줄이면 위치 오차도 대략 절반으로 준다"는 직관적인 관계가 성립한다는 뜻이고, 정밀한 캘리브레이션에 투자할 가치가 있다는 근거가 됩니다.
+====
+
+== 요약
+
+* 라이다의 원시 좌표는 장착 위치뿐 아니라 장착 각도(roll/pitch/yaw)까지 정확히 반영해야 자아차량 좌표계로 올바르게 변환됩니다.
+* 아주 작은 장착 각도 오차(`0.5°` 근처)를 무시하는 것만으로도 위치 복원 오차가 `7`배 이상 커진다는 걸 확인했습니다.
+* 정확하게 복원된 라이다 점을 카메라에 투영한 결과가, 카메라가 직접 본 위치와 `0.16`픽셀 이내로 일치한다는 걸 확인해 두 센서 사이의 좌표계 통일이 실제로 이뤄졌다는 걸 검증했습니다.
+* 라이다 점을 카메라 화각으로 걸러내는 것이 센서 퓨전의 첫 단계이며, 카메라 한 대로는 라이다가 보는 범위의 일부(`85.7%`)만 커버한다는 것도 확인했습니다.
+
+1부에서 카메라와 라이다를 하나의 좌표계로 묶었습니다. 2부에서는 이렇게 통일된 좌표계 위에서, 실제로 두 센서의 정보를 BEV라는 공통 표현으로 융합하는 방법을 다룹니다.
+// end::body[]

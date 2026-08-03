@@ -1,0 +1,168 @@
+---
+title: "4장: Lift-Splat-Shoot: 이미지 특징을 3D로 들어올리기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "bev", "lift-splat-shoot", "book"]
+categories: ["books"]
+description: "픽셀마다 depth 확률분포를 곱해 3D 프러스텀 점들로 들어올리고(Lift) BEV 격자에 누적하는(Splat) Lift-Splat-Shoot을 구현해, depth 예측이 확신에 찰수록 BEV 셀 하나에 특징 에너지의 100%가 정확히 모인다는 것을 확인하며 2부를 여는 4장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-lidar-and-sensor-coordinate-transforms/[3장: 라이다 포인트클라우드와 센서 간 좌표 변환] · 다음: link:../05-projecting-lidar-to-bev/[5장: 라이다 포인트를 BEV 격자로 투영하기]_
+
+'''
+
+카메라 이미지는 본질적으로 2D입니다 — 픽셀 하나가 "이 방향에 무언가 있다"는 건 알려주지만, "얼마나 멀리 있는지"는 알려주지 않습니다. 2장에서 다룬 역투영은 깊이(depth)를 **안다면** 3D 점을 정확히 복원할 수 있다는 걸 보여줬지만, 실전에서는 깊이를 확실히 알 수 없습니다. Lift-Splat-Shoot(LSS)은 이 불확실성을 정면으로 받아들입니다 — "이 픽셀은 이 깊이에 있을 확률이 이만큼"이라는 분포 전체를 3D 공간에 흩뿌린 뒤, 학습이 진행되면서 그 분포가 점점 정답에 집중되도록 만드는 방식입니다.
+
+== Lift: 픽셀 하나를 깊이 확률분포로 들어올리기
+
+[source,python]
+----
+D_BINS = 20
+depth_values = np.linspace(2.0, 42.0, D_BINS)   # 2m~42m를 20개 구간으로 이산화
+
+def lift_pixel(cam, u, v, depth_prob, feature):
+    points_3d, weighted_features = [], []
+    for d, p in zip(depth_values, depth_prob):
+        pt = cam.backproject(u, v, d)       # 2장의 역투영: 픽셀+깊이 -> 3D 점
+        points_3d.append(pt)
+        weighted_features.append(feature * p)   # 특징 벡터에 그 깊이일 확률을 곱함
+    return np.array(points_3d), np.array(weighted_features)
+----
+
+픽셀 하나(`u,v`)와 그 픽셀의 특징 벡터(`feature`) 하나가, `20`개의 서로 다른 깊이에 놓인 `20`개의 3D 점으로 "들어올려집니다" — 각 점은 원래 특징에 "그 깊이일 확률"을 곱한 약해진 특징을 가집니다. 확률이 높은 깊이의 점은 원래 특징에 가깝게, 확률이 낮은 깊이의 점은 거의 `0`에 가깝게 남습니다.
+
+== 검증 1: 확신에 찬 depth 예측은 정확한 위치에 점을 모은다
+
+[source,python]
+----
+true_object_depth = 20.0
+logits_confident = -100.0 * (depth_values - true_object_depth)**2   # 20m 근처에 뾰족한 분포
+depth_prob_confident = softmax(logits_confident)
+
+points_3d, weighted_feats = lift_pixel(cam, u_test, v_test, depth_prob_confident, feature_test)
+mean_position = (points_3d * depth_prob_confident[:,None]).sum(axis=0)
+true_position = cam.backproject(u_test, v_test, true_object_depth)
+print(mean_position, true_position)
+----
+
+[source]
+----
+weighted mean 3D position: [20.947  0.  1.5]
+true position:             [20.     0.  1.5]
+----
+
+`20`개 깊이 구간 중 `20m`에 가장 가까운 구간(`20.947m`, 이산화 간격 `~2.1m` 때문에 정확히 `20`은 아닙니다)에 확률이 집중되고, 그 가중 평균 위치가 실제 물체 위치와 `1m` 이내로 거의 일치합니다.
+
+== 검증 2: depth를 전혀 모르면 점들이 넓게 퍼진다
+
+[source,python]
+----
+depth_prob_uniform = np.ones(D_BINS) / D_BINS   # 모든 깊이가 똑같이 그럴듯함
+
+def weighted_std(points, weights):
+    mean = (points * weights[:,None]).sum(axis=0)
+    var = (weights[:,None] * (points - mean)**2).sum(axis=0)
+    return np.sqrt(var)
+
+spread_confident = weighted_std(points_3d, depth_prob_confident)
+spread_uniform = weighted_std(points_3d_u, depth_prob_uniform)
+print(spread_confident, spread_uniform)
+----
+
+[source]
+----
+weighted spread (confident): [5.0e-10  0.  0.]
+weighted spread (uniform):   [12.14     0.  4.4e-16]
+----
+
+확신에 찬 분포는 사실상 퍼짐이 `0`(한 점에 완전히 모임)이지만, 균등 분포는 카메라 정면 방향(자아차량 `x`축)으로 `12.14m`나 되는 큰 퍼짐을 보입니다 — 이 픽셀이 정면을 보는 픽셀이라, "얼마나 멀리 있는지" 모른다는 불확실성이 정확히 그 방향(전후 거리)의 퍼짐으로 나타난 것입니다. 이게 LSS의 핵심 그림입니다 — 신경망이 깊이를 잘 예측할수록 이 퍼짐이 줄어들고, BEV에 더 또렷한 정보가 맺힙니다.
+
+== Splat: BEV 격자에 흩뿌리기
+
+[source,python]
+----
+def splat_to_bev(points_3d, weighted_features, bev_grid, bev_count):
+    for pt, wf in zip(points_3d, weighted_features):
+        x, y, z = pt
+        if not (-BEV_RANGE <= x < BEV_RANGE and -BEV_RANGE <= y < BEV_RANGE):
+            continue
+        row, col = world_to_bev_idx(x, y)
+        bev_grid[row, col] += wf   # 그 칸에 가중치가 곱해진 특징을 더함
+        bev_count[row, col] += 1
+----
+
+들어올려진 `20`개의 3D 점 각각이, 그 `(x,y)` 위치에 해당하는 BEV 격자 칸에 자신의(가중치가 곱해진) 특징을 더합니다 — 여러 깊이의 점들이 서로 다른 칸에 흩어져 쌓이므로, 이 연산을 "뿌리기(splat)"라고 부릅니다.
+
+== 검증 3: 확신에 찬 예측은 BEV 셀 하나에 에너지가 거의 전부 모인다
+
+[source,python]
+----
+true_row, true_col = world_to_bev_idx(true_position[0], true_position[1])
+cell_energy = np.linalg.norm(bev_grid[true_row, true_col])
+total_energy = np.linalg.norm(feature_test)
+print(cell_energy / total_energy)
+----
+
+[source]
+----
+BEV cell at true object location: [1.  0.5  -0.3]   (원래 feature: [1.0, 0.5, -0.3])
+energy captured at true cell / total feature energy: 1.0
+----
+
+원래 픽셀의 특징 `[1.0, 0.5, -0.3]`이, 참값 위치에 해당하는 BEV 셀 딱 하나에 **100%** 그대로 모였습니다 — 확신에 찬 depth 분포가 사실상 한 점에 모든 확률을 몰아준 덕분에, 이 픽셀의 정보가 손실 없이 정확한 BEV 위치로 전달된 것입니다. depth 예측이 불확실했다면, 이 에너지는 여러 셀에 걸쳐 흐릿하게 퍼졌을 것입니다.
+
+== 검증 4: 특징맵 전체를 BEV로 채우기
+
+[source,python]
+----
+for v in range(0, IMG_H, 2):
+    for u in range(0, IMG_W, 2):
+        assumed_depth = 5.0 + 30.0 * (v / IMG_H)   # 화면 아래쪽일수록 가까운 바닥으로 가정
+        prob = softmax(-50.0 * (depth_values - assumed_depth)**2)
+        pts, wf = lift_pixel(cam, u, v, prob, feature_map[v, u])
+        splat_to_bev(pts, wf, bev_grid_full, bev_count_full)
+----
+
+[source]
+----
+pixels processed: 64   BEV cells touched: 98 / 3600
+----
+
+`64`개의 픽셀(`16×16` 특징맵에서 2칸 간격으로 샘플링)이 BEV 격자의 `98`개 칸(`3600`칸 중)에 정보를 남겼습니다 — 각 픽셀이 광선을 따라 여러 깊이에 걸쳐 퍼지므로, 픽셀 수보다 더 많은 BEV 칸이 채워지는 게 자연스럽습니다.
+
+== "화면 아래쪽 = 가까운 바닥"이라는 가정에 대해
+
+이 실험에서는 `assumed_depth`를 "화면 아래쪽 픽셀일수록 가깝다"는 간단한 규칙으로 미리 정해뒀습니다 — 실제 LSS에서는 이 depth 분포 자체를 작은 신경망이 이미지 특징으로부터 예측합니다(그리고 그 신경망은 학습을 통해 "바닥에 가까운 픽셀은 가깝고, 지평선에 가까운 픽셀은 멀다"는 사실을 스스로 배웁니다). 이 장에서는 그 신경망 부분을 미리 정한 규칙으로 대체해서, LSS의 기하학적인 핵심(깊이 분포를 3D로 들어올리고 BEV에 뿌리는 것)이 실제로 정확하게 작동하는지에만 집중했습니다.
+
+== 직접 해보기
+
+* 검증 1의 확신에 찬 분포를 만들 때 쓴 상수(`-100.0`)를 `-5.0`(훨씬 덜 확신하는 분포)으로 바꾸면, BEV 셀에 모이는 에너지 비율이 `1.0`에서 얼마나 줄어드는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+logits_less_confident = -5.0 * (depth_values - true_object_depth)**2
+depth_prob_less = softmax(logits_less_confident)
+points_3d_less, weighted_feats_less = lift_pixel(cam, u_test, v_test, depth_prob_less, feature_test)
+
+bev_grid_less = np.zeros((BEV_SIZE, BEV_SIZE, BEV_C))
+bev_count_less = np.zeros((BEV_SIZE, BEV_SIZE))
+splat_to_bev(points_3d_less, weighted_feats_less, bev_grid_less, bev_count_less)
+cell_energy_less = np.linalg.norm(bev_grid_less[true_row, true_col])
+print(cell_energy_less / total_energy)
+----
+
+`-100.0`(매우 뾰족한 분포)에서 `-5.0`(훨씬 완만한 분포)으로 바꾸면, 확률이 여러 깊이 구간에 걸쳐 퍼지게 되어 참값 셀에 모이는 에너지 비율이 `1.0`보다 뚜렷하게 낮아집니다 — 나머지 에너지는 참값 주변의 다른 BEV 셀들로 새어나갑니다. 이건 실전 학습에서 "depth 예측 신경망이 아직 잘 학습되지 않았을 때, BEV 표현이 흐릿해지는" 현상을 그대로 재현한 것입니다 — 학습이 진행되며 depth 분포가 점점 뾰족해질수록, BEV 표현도 점점 또렷해집니다.
+====
+
+== 요약
+
+* Lift-Splat-Shoot은 각 카메라 픽셀을 depth 확률분포로 가중된 여러 개의 3D 점(프러스텀)으로 "들어올리고"(Lift), 그 점들을 BEV 격자에 누적해서 "뿌립니다"(Splat).
+* depth 예측이 확신에 찰수록(뾰족한 분포일수록) 3D 점들의 퍼짐이 줄어들고, BEV 격자의 정확한 위치에 특징 에너지가 더 많이(극단적으로는 100%) 모인다는 걸 확인했습니다.
+* 이 장에서는 depth 분포를 예측하는 신경망 부분을 간단한 규칙으로 대체해, LSS의 기하학적 핵심이 실제로 정확하게 작동하는지에 집중했습니다.
+
+다음 장에서는 카메라의 이 "간접적인" 깊이 추정과 달리, 라이다가 이미 정확한 3D 좌표를 알고 있다는 장점을 살려 라이다 점을 BEV 격자에 직접 투영하는 법을 다룹니다.
+// end::body[]

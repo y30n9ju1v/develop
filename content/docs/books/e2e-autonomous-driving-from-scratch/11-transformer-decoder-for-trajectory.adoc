@@ -1,0 +1,139 @@
+---
+title: "11장: Transformer Decoder로 미래 궤적 예측하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "transformer", "trajectory", "pytorch", "book"]
+categories: ["books"]
+description: "학습 가능한 궤적 쿼리가 BEV 컨텍스트를 cross-attention으로 참조하고 인과적 self-attention으로 이전 스텝만 참조하는 Transformer Decoder를 구현해, 10장에서 예견한 대로 델타 좌표 예측이 같은 학습 예산에서 절대 좌표 예측보다 4배 이상 빠르게 수렴한다는 것을 직접 확인하는 11장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-trajectory-as-sequence/[10장: 궤적을 시퀀스로 표현하기] · 다음: link:../12-collision-avoidance-and-multimodal-trajectories/[12장: 충돌 회피와 다중 모드(multi-modal) 궤적]_
+
+'''
+
+10장에서 궤적을 표현하는 두 방식(절대 좌표, 델타 좌표)의 성질을 다졌습니다. 이 장에서는 실제로 BEV 컨텍스트로부터 미래 궤적을 생성하는 Transformer Decoder를 만들고, 그 표현 방식 선택이 정말로 학습 속도에 영향을 미치는지 직접 학습시켜 확인합니다.
+
+== 궤적 쿼리: 각 미래 시점을 담당하는 토큰
+
+[source,python]
+----
+self.query_embed = nn.Parameter(torch.randn(n_future, dim) * 0.1)
+----
+
+9장의 BEV 쿼리가 "이 3D 위치를 담당한다"는 토큰이었다면, 여기서는 `12`개의 학습 가능한 토큰이 "이 미래 시점(`0.5`초 뒤, `1.0`초 뒤, ..., `6`초 뒤)을 담당한다"는 역할을 맡습니다 — GPT 계열 모델에서 각 출력 위치가 토큰으로 표현되는 것과 같은 아이디어를, 시간 축에 적용한 것입니다.
+
+== Decoder 블록: Cross-Attention + 인과적 Self-Attention + FFN
+
+[source,python]
+----
+def forward(self, context_vec):
+    memory = self.context_proj(context_vec).unsqueeze(1).expand(-1, N_MEMORY, -1)
+    q = self.query_embed.unsqueeze(0).expand(B, -1, -1)
+
+    attn_out, _ = self.cross_attn(q, memory, memory)      # 궤적 쿼리가 BEV 컨텍스트를 참조
+    q = self.norm1(q + attn_out)
+
+    self_out, _ = self.self_attn(q, q, q, attn_mask=self.causal_mask)   # 이전 시점만 참조
+    q = self.norm2(q + self_out)
+
+    q = self.norm3(q + self.ffn(q))
+    return self.head(q)
+----
+
+두 종류의 attention이 서로 다른 역할을 합니다 — cross-attention은 "지금 상황(BEV 컨텍스트)이 어떤가"를 참조하고, self-attention은 "미래의 다른 시점들과 어떻게 이어지는가"를 참조합니다. 후자에는 **인과적(causal) 마스크**를 씌웁니다 — `3`번째 미래 시점을 예측할 때, 아직 오지 않은 `5`번째 시점의 정보를 미리 알아서는 안 되기 때문입니다.
+
+[source,python]
+----
+causal_mask = torch.triu(torch.ones(n, n), diagonal=1).bool()
+----
+
+== 검증 1: 인과적 마스크가 실제로 미래 정보를 차단하는가
+
+[source,python]
+----
+out1 = model_test(ctx)
+model_test.query_embed[8] += torch.randn(DIM) * 20.0   # 8번째 미래 스텝의 쿼리를 크게 흔들어봄
+out2 = model_test(ctx)
+diff_before = (out1[:, :8] - out2[:, :8]).abs().max()   # 0~7번째 스텝은 바뀌면 안 됨
+diff_after = (out1[:, 8:] - out2[:, 8:]).abs().max()     # 8번째 이후는 바뀔 수 있음
+----
+
+[source]
+----
+change in earlier steps (should be ~0): 0.0
+change in step-8-and-later:             1.15
+----
+
+`8`번째 미래 시점의 쿼리를 크게 흔들었더니, 그보다 **이전**(`0~7`번째) 시점의 예측은 정확히 `0.0`만큼도 바뀌지 않았지만, `8`번째와 그 이후는 뚜렷하게 바뀌었습니다 — 인과적 마스크가 "미래가 과거에 영향을 주지 못하게" 정확히 차단하고 있다는 검증입니다. (처음 이 검증을 시도했을 때는 `query_embed`에 균일한 상수(`+100`)를 더했는데 변화가 거의 감지되지 않았습니다 — `LayerNorm`이 모든 성분에 똑같이 더해진 상수는 평균을 뺄 때 정확히 상쇄해버리기 때문이었습니다. 무작위 벡터로 흔들자 문제가 해결됐습니다 — 이 시리즈에서 계속 마주쳐온 "정규화가 특정 종류의 섭동을 지워버릴 수 있다"는 교훈이 여기서도 나타났습니다.)
+
+== 검증 2: 델타 표현이 정말로 더 빨리 학습되는가
+
+[source,python]
+----
+model_abs, losses_abs = train_model(predict_delta=False, n_steps=150, seed=10)
+model_delta, losses_delta = train_model(predict_delta=True, n_steps=150, seed=10)
+----
+
+같은 초기화, 같은 배치 순서(`seed=10`으로 고정)로 절대 좌표를 직접 예측하는 모델과, 델타를 예측한 뒤 누적합으로 궤적을 복원하는 모델을 나란히 학습시킵니다.
+
+[source]
+----
+step  10: absolute-target loss=195.13   delta-target loss=134.87
+step  30: absolute-target loss=152.75   delta-target loss=19.47
+step  60: absolute-target loss=92.83    delta-target loss=6.91
+step 100: absolute-target loss=46.29    delta-target loss=3.05
+step 150: absolute-target loss=13.26    delta-target loss=3.02
+----
+
+`150`스텝만 학습시킨 시점에서, 델타 표현의 손실(`3.02`)이 절대 좌표 표현의 손실(`13.26`)보다 `4.4`배나 낮습니다 — 특히 `30`스텝 근방에서 그 격차가 가장 극적입니다(`152.75` vs `19.47`, `7.8`배). 10장에서 확인한 "델타 표현은 값의 범위가 시간에 따라 안정적이다"는 성질이, 실제로 학습 속도에 큰 영향을 준다는 걸 직접 확인했습니다 — 절대 좌표를 예측하는 모델은 먼 미래 시점의 넓은 값 범위를 맞추느라 학습 초반에 애를 먹지만, 델타를 예측하는 모델은 모든 시점이 비슷한 난이도라 훨씬 빠르게 의미 있는 예측을 시작합니다.
+
+== 검증 3: 학습된 모델이 실제로 "의도"를 구별하는가
+
+[source,python]
+----
+ctx_straight = torch.tensor([[1.,0.,0., 0.6]])   # 직진
+ctx_left = torch.tensor([[0.,1.,0., 0.6]])        # 좌회전
+ctx_right = torch.tensor([[0.,0.,1., 0.6]])       # 우회전
+
+traj_straight_pred = model_delta(ctx_straight)[0]
+traj_left_pred = model_delta(ctx_left)[0]
+traj_right_pred = model_delta(ctx_right)[0]
+----
+
+[source]
+----
+final y - straight: -0.23   left: 24.66   right: -25.23
+----
+
+같은 모델에 "직진해라", "좌회전해라", "우회전해라"라는 의도만 다르게(컨텍스트 벡터의 원-핫 부분만 바꿔서) 주면, `6`초 뒤 `y`좌표가 각각 `-0.23`(거의 `0`, 직진), `24.66`(크게 양수, 왼쪽으로 이동), `-25.23`(크게 음수, 오른쪽으로 이동)으로 뚜렷하게 갈립니다 — 모델이 단순히 평균적인 궤적을 외운 게 아니라, 입력된 의도에 따라 실제로 다른 궤적을 생성하도록 학습됐다는 뜻입니다.
+
+== 이 컨텍스트 벡터가 실전에서는 무엇을 대신하는가
+
+이 장의 `context_vec`(직진/좌회전/우회전 원-핫 + 평균 속도)는 실전에서는 9장에서 완성한 BEV 인코더의 출력(수백~수천 차원의 풍부한 공간 표현)으로 대체됩니다 — "의도"를 사람이 미리 정해서 넣어주는 대신, BEV 표현 자체에 "전방에 신호등이 빨간불이다", "왼쪽 차선이 비어있다" 같은 정보가 이미 녹아 있고, Decoder는 그 정보로부터 스스로 적절한 궤적을 끌어내야 합니다. 이 장에서는 그 복잡한 BEV 표현 대신 훨씬 단순한 컨텍스트로 Decoder 구조 자체(cross-attention, 인과적 self-attention, 표현 방식 선택)가 제대로 작동하는지에 집중했습니다.
+
+== 직접 해보기
+
+* `N_MEMORY`(BEV 컨텍스트를 표현하는 메모리 토큰 개수)를 `4`에서 `1`로 줄이면, cross-attention이 여전히 잘 작동하는지 확인해보세요. 메모리 토큰이 하나뿐이면 cross-attention이 사실상 무엇을 하는 것과 같아지는지도 생각해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+model_single_memory = TrajectoryDecoder(DIM, N_FUTURE, predict_delta=True)
+# N_MEMORY=1로 바꾼 버전으로 재정의하고 동일하게 학습
+----
+
+메모리 토큰이 하나뿐이면, cross-attention의 `softmax`가 선택할 대상이 하나뿐이라 가중치가 항상 `1.0`으로 고정됩니다 — 이 경우 cross-attention은 사실상 그 유일한 메모리 토큰을 (attention 없이) 그대로 가져오는 것과 동일해집니다. 이 극단적인 경우에도 이 장의 문제(컨텍스트 벡터 하나로 표현되는 단순한 시나리오)는 잘 풀리는데, 이는 애초에 정보가 압축될 대상이 하나뿐이었기 때문입니다 — 실전 BEV처럼 공간적으로 흩어진 여러 정보(차선, 다른 차량, 신호등이 서로 다른 위치에 있는 것) 사이에서 상황에 따라 다른 곳에 주목해야 하는 경우라면, 메모리 토큰이 여러 개(그리고 진짜 BEV 격자처럼 공간적 의미를 가진 토큰들)여야 cross-attention이 실제로 "선택"하는 역할을 할 수 있습니다.
+====
+
+== 요약
+
+* Transformer Decoder는 미래 시점마다 하나씩의 학습 가능한 쿼리 토큰을 두고, cross-attention으로 컨텍스트(BEV)를 참조하고 인과적 self-attention으로 이전 시점만 참조하도록 만들었습니다.
+* 인과적 마스크가 미래 정보의 유출을 정확히 막는다는 걸 검증했고, 그 과정에서 LayerNorm이 균일한 섭동을 지워버릴 수 있다는 함정도 겪었습니다.
+* 10장에서 예견한 대로, 델타 좌표를 예측하는 모델이 같은 학습 예산(`150`스텝)에서 절대 좌표를 예측하는 모델보다 `4.4`배 낮은 손실에 도달했습니다 — 표현 방식의 선택이 실제로 학습 속도에 큰 영향을 미친다는 걸 직접 확인했습니다.
+* 학습된 모델이 입력된 의도(직진/좌회전/우회전)에 따라 실제로 다른 궤적을 생성한다는 것도 확인했습니다.
+
+다음 장에서는 이 Decoder를 확장해, 하나의 "정답" 궤적이 아니라 여러 개의 그럴듯한 미래(다중 모드)를 동시에 예측하고, 다른 물체와의 충돌을 피하는 궤적을 고르는 법을 다룹니다.
+// end::body[]

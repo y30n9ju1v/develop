@@ -1,0 +1,175 @@
+---
+title: "2장: 다중 카메라 좌표계 통일"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "camera-model", "book"]
+categories: ["books"]
+description: "nuScenes 스타일 6카메라 배치를 자아차량 좌표계 기준으로 구성하고, 정면 20m 점이 전방 카메라 중앙 근처에 투영되면서 후방 카메라에서는 카메라 뒤(음의 depth)로 계산되는 것을 확인한 뒤, depth를 알 때 픽셀에서 3D 점을 정확히 복원하는 역투영 왕복까지 검증하는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-e2e-perception-pipeline-overview/[1장: 자율주행 인지 파이프라인 개관] · 다음: link:../03-lidar-and-sensor-coordinate-transforms/[3장: 라이다 포인트클라우드와 센서 간 좌표 변환]_
+
+'''
+
+자율주행차는 보통 차량을 빙 둘러 여러 대의 카메라를 답니다 — 각 카메라는 서로 다른 위치, 서로 다른 방향을 보고 있습니다. BEV 융합을 하려면, 이 모든 카메라가 보는 것을 **하나의 공통 좌표계**(자아차량 좌표계)로 옮길 수 있어야 합니다. 이 장에서는 1권에서 다진 핀홀 카메라 모델을 여러 대의 카메라로 확장합니다.
+
+== 자아차량 좌표계와 카메라 좌표계 관례
+
+이 책에서는 자아차량 좌표계를 `x=전방, y=왼쪽, z=위`로 둡니다(로봇공학에서 흔한 관례). 반면 카메라 좌표계는 `x=오른쪽, y=아래, z=전방`이 표준입니다(1권에서 다뤘던 그 관례입니다). 이 둘을 잇는 고정 회전이 필요합니다.
+
+[source,python]
+----
+R_ego_to_camconv = np.array([
+    [0, -1, 0],
+    [0,  0, -1],
+    [1,  0, 0],
+])
+----
+
+자아차량의 `x`(전방)가 카메라의 `z`(전방)로, 자아차량의 `y`(왼쪽)가 카메라의 `-x`(왼쪽 = `-`오른쪽)로, 자아차량의 `z`(위)가 카메라의 `-y`(위 = `-`아래)로 바뀝니다.
+
+== 카메라 클래스: 위치와 시선 방향으로 외부 파라미터 만들기
+
+[source,python]
+----
+class Camera:
+    def __init__(self, name, yaw_deg, position_ego, K):
+        self.yaw = np.radians(yaw_deg)
+        self.position = np.array(position_ego)
+        self.K = K
+        R_yaw = rotation_z(self.yaw)
+        self.R = R_ego_to_camconv @ R_yaw.T   # world(ego) -> camera 회전
+        self.t = -self.R @ self.position       # world(ego) -> camera 이동
+
+    def project(self, point_ego):
+        p_cam = self.R @ point_ego + self.t
+        depth = p_cam[2]
+        if depth <= 0:
+            return None, depth   # 카메라 뒤쪽
+        pixel_h = self.K @ p_cam
+        return pixel_h[:2] / pixel_h[2], depth
+----
+
+각 카메라는 자아차량 좌표계에서의 위치(`position_ego`)와, 자아차량 정면 기준으로 얼마나 돌아가 있는지(`yaw_deg`)만 주면, 1권에서 다룬 것과 같은 형태의 외부 파라미터(`R`, `t`)를 스스로 계산합니다.
+
+== nuScenes 스타일 6카메라 배치
+
+[source,python]
+----
+camera_layout = [
+    ("front", 0), ("front_left", 55), ("front_right", -55),
+    ("back_left", 110), ("back_right", -110), ("back", 180),
+]
+cameras = {name: Camera(name, yaw, position_ego=[0,0,1.5], K=K) for name, yaw in camera_layout}
+----
+
+차량 지붕 높이(`z=1.5m`)에서, 정면(`0°`)을 기준으로 좌우로 `55°`, `110°`, 그리고 정반대(`180°`)까지 `6`대가 차량 주위를 거의 빈틈없이 덮습니다 — 실제 nuScenes 데이터셋의 카메라 배치와 같은 아이디어입니다.
+
+== 검증 1: 정면 점은 전방 카메라 중앙에, 후방 카메라에는 아예 안 보인다
+
+[source,python]
+----
+point_ahead = np.array([20.0, 0.0, 1.0])   # 전방 20m
+pixel_front, depth_front = cameras["front"].project(point_ahead)
+pixel_back, depth_back = cameras["back"].project(point_ahead)
+print(pixel_front, depth_front)
+print(pixel_back, depth_back)
+----
+
+[source]
+----
+front camera: [64.  66.5]  depth: 20.0
+back camera:  None         depth: -20.0
+----
+
+전방 카메라에서는 이미지 중앙(`cx=64`) 근처에 정확히 투영되고 깊이도 양수(`20.0`, 실제 거리와 일치)입니다. 후방 카메라에서는 이 점이 카메라가 보는 방향의 **반대편**에 있으므로 깊이가 음수(`-20.0`)로 나오고, `project()`가 `None`을 반환합니다 — 뒤에 있는 물체는 투영할 수 없다는 걸 명시적으로 처리했습니다.
+
+== 검증 2: 옆 차선의 점은 어느 카메라들에서 보이는가
+
+[source,python]
+----
+point_left = np.array([10.0, 5.0, 1.0])   # 왼쪽 차선의 점
+for name, cam in cameras.items():
+    pixel, depth = cam.project(point_left)
+    in_view = pixel is not None and 0 <= pixel[0] < IMG_W and 0 <= pixel[1] < IMG_H
+----
+
+[source]
+----
+front:       depth=10.00  pixel=[14, 69]     in_view=True
+front_left:  depth=9.83   pixel=[118, 69]    in_view=True
+front_right: depth=1.64   pixel=[-610, 94]   in_view=False  (화각 밖)
+back_left:   depth=1.28   pixel=[933, 103]   in_view=False  (화각 밖)
+back_right:  depth=-8.12  pixel=None         in_view=False  (카메라 뒤쪽)
+back:        depth=-10.00 pixel=None         in_view=False  (카메라 뒤쪽)
+----
+
+전방 왼쪽에 있는 점이 `front`와 `front_left` 카메라 둘 다에서 보입니다 — 인접한 카메라들의 화각이 겹치는 건 자연스러운 일이고, 이 겹침이 나중에 카메라 사이의 정보를 서로 보완하는 데 쓰입니다. `depth`가 양수인데도 `in_view=False`인 카메라(`front_right`, `back_left`)가 있다는 것도 눈여겨볼 만합니다 — 카메라 뒤쪽에 있지는 않지만(깊이가 양수), 화각(이미지 범위) 밖으로 벗어나서 안 보이는 경우입니다. "깊이가 양수"와 "실제로 화면 안에 들어온다"는 서로 다른 조건이라는 걸 이 예제가 보여줍니다.
+
+== 검증 3: 좌표계 관례가 실제로 맞게 구현됐는가
+
+[source,python]
+----
+p_center, _ = cam.project([10.0, 0.0, 1.5])   # 카메라와 같은 높이, 정면
+p_right, _  = cam.project([10.0, -2.0, 1.5])   # 자아차량 기준 오른쪽(y가 음수)
+p_below, _  = cam.project([10.0, 0.0, 0.0])     # 카메라보다 낮은 위치
+----
+
+[source]
+----
+center pixel: [64. 64.]   (정확히 이미지 중앙)
+right pixel:  [84. 64.]   (u가 커짐 = 이미지에서 오른쪽으로 이동)
+below pixel:  [64. 79.]   (v가 커짐 = 이미지에서 아래로 이동)
+----
+
+자아차량 기준 오른쪽(`y`가 음수 방향)에 있는 물체는 이미지에서 실제로 오른쪽(더 큰 `u`)으로, 카메라보다 낮은 물체는 이미지에서 실제로 아래(더 큰 `v`)로 나타납니다 — `R_ego_to_camconv`로 심어둔 좌표계 관례가 의도한 대로 정확히 작동한다는 걸 확인했습니다.
+
+== 검증 4: 역투영 왕복 — depth를 알면 3D 점을 정확히 복원할 수 있는가
+
+[source,python]
+----
+K_inv = np.linalg.inv(K)
+ray_cam = K_inv @ [pixel[0], pixel[1], 1.0]
+p_cam_recovered = ray_cam * depth
+p_ego_recovered = cam.R.T @ (p_cam_recovered - cam.t)
+print(test_point, p_ego_recovered)
+----
+
+[source]
+----
+original point:  [15.   3.   0.5]
+recovered point: [15.   3.   0.5]
+----
+
+`K`(내부 파라미터)의 역행렬로 픽셀을 "정규화된 방향 벡터"로 되돌리고, 그 방향에 실제 깊이(`depth`)를 곱한 뒤, 외부 파라미터의 역변환(`R.T`, `-R.T @ t`에 해당하는 계산)으로 다시 자아차량 좌표계로 옮기면, 원래 점이 소수점까지 정확히 복원됩니다. 이 역투영이 바로 다음 장에서 라이다 점을 카메라 특징과 맞춰볼 때, 그리고 4장의 Lift-Splat-Shoot(이미지 픽셀을 3D로 "들어올리는" 연산)에서 핵심적으로 쓰일 연산입니다.
+
+== 직접 해보기
+
+* `front_right`와 `back_left` 카메라의 화각(`IMG_W`, `IMG_H`로 정해지는 범위)을 넓히면(예: `IMG_W`를 `128`에서 `300`으로), 검증 2에서 `in_view=False`였던 점들이 `True`로 바뀌는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+IMG_W_wide = 300
+for name in ["front_right", "back_left"]:
+    cam = cameras[name]
+    pixel, depth = cam.project(point_left)
+    in_view_wide = pixel is not None and 0 <= pixel[0] < IMG_W_wide and 0 <= pixel[1] < IMG_H
+    print(name, in_view_wide)
+----
+
+`front_right`의 픽셀 `u`좌표가 `-610`으로 음수였으므로, `IMG_W`를 아무리 늘려도 이 카메라에서는 여전히 안 보입니다(애초에 이미지 반대쪽 방향에 있다는 뜻이므로) — `back_left`의 `u`좌표(`933`)는 양수라서, `IMG_W`를 `933`보다 크게 늘리면 `in_view=True`가 됩니다. 이 차이는 "화각이 부족해서 못 보는 것"과 "애초에 이 카메라가 보는 방향이 아니라서 못 보는 것"이 다른 문제라는 걸 보여줍니다 — 실전에서 카메라 화각(FOV)을 설계할 때, 단순히 렌즈를 넓히는 것만으로는 해결 안 되는 사각지대(카메라 배치 자체의 문제)가 있을 수 있다는 실전적인 함의입니다.
+====
+
+== 요약
+
+* 자아차량 좌표계(`x=전방, y=왼쪽, z=위`)와 카메라 좌표계(`x=오른쪽, y=아래, z=전방`) 사이의 고정 회전으로, 카메라의 위치와 바라보는 방향만 주면 외부 파라미터를 자동으로 계산할 수 있습니다.
+* `6`대의 카메라가 차량을 둘러싸며, 인접한 카메라끼리는 화각이 겹치고 서로 반대편 카메라에서는 아예 안 보인다는 것을 직접 확인했습니다.
+* "깊이가 양수(카메라 앞쪽)"와 "실제로 화각 안에 들어옴(이미지 범위 안)"은 서로 다른 조건이라는 것을 확인했습니다.
+* `K`의 역행렬과 외부 파라미터의 역변환으로, 픽셀+깊이에서 원래의 3D 점을 정확히 복원하는 역투영을 검증했습니다 — 이 연산이 4장의 Lift-Splat-Shoot의 핵심이 됩니다.
+
+다음 장에서는 라이다 포인트클라우드를 자아차량 좌표계로 가져오고, 카메라와 라이다가 같은 물리적 지점을 정말로 같은 곳으로 가리키는지 교차 검증합니다.
+// end::body[]

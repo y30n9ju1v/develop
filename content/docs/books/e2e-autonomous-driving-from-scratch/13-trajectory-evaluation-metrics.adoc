@@ -1,0 +1,152 @@
+---
+title: "13장: 궤적 평가 지표 (ADE/FDE, 충돌률)"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "trajectory", "evaluation-metrics", "book"]
+categories: ["books"]
+description: "ADE/FDE와 다중 모드를 위한 minADE/minFDE를 구현해 다중 모드 모델이 단일 모드보다 9배 낮은 오차를 낸다는 것을 확인하고, 평가 방식을 잘못 고르면(평균 대신 최선) 같은 모델도 훨씬 나빠 보인다는 함정, 그리고 충돌 회피 선택이 충돌률을 100%에서 0%로 낮춘다는 것을 확인하는 13장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-collision-avoidance-and-multimodal-trajectories/[12장: 충돌 회피와 다중 모드(multi-modal) 궤적] · 다음: link:../14-full-pipeline-sensors-to-trajectory/[14장: 종합 실전: 센서에서 궤적까지 파이프라인 완성]_
+
+'''
+
+10~12장에서 여러 궤적 예측 모델을 만들었습니다. 이제 이 모델들의 성능을 숫자로 비교할 표준적인 지표가 필요합니다. 이 장에서는 궤적 예측 연구에서 널리 쓰이는 ADE/FDE, 그리고 다중 모드 예측을 위한 minADE/minFDE, 충돌률까지 구현하고, 지표를 잘못 고르면 얼마나 다른(그리고 오해를 부르는) 결론에 이를 수 있는지 확인합니다.
+
+== ADE와 FDE
+
+[source,python]
+----
+def ade(pred, gt):
+    """평균 변위 오차: 모든 미래 시점의 평균 오차"""
+    return np.linalg.norm(pred - gt, axis=1).mean()
+
+def fde(pred, gt):
+    """최종 변위 오차: 가장 먼 미래 시점 하나의 오차"""
+    return np.linalg.norm(pred[-1] - gt[-1])
+----
+
+ADE(Average Displacement Error)는 예측 궤적의 각 시점이 정답과 얼마나 떨어져 있는지의 평균이고, FDE(Final Displacement Error)는 가장 먼 미래(이 책에서는 `6`초 뒤) 하나만 봅니다. FDE가 따로 중요한 이유는, 궤적의 앞부분(가까운 미래)만 잘 맞고 끝부분(먼 미래)이 크게 틀리는 경우와, 전체적으로 고르게 조금씩 틀리는 경우를 ADE만으로는 구별할 수 없기 때문입니다.
+
+== 검증 1: 단일 모드 모델의 ADE/FDE
+
+12장에서 애매한 좌/우 시나리오에 단일 모드로 학습시킨 모델을 다시 씁니다.
+
+[source,python]
+----
+single_ades = [ade(single_preds[i], test_trajs_np[i]) for i in range(200)]
+single_fdes = [fde(single_preds[i], test_trajs_np[i]) for i in range(200)]
+print(np.mean(single_ades), np.mean(single_fdes))
+----
+
+[source]
+----
+single-mode mean ADE: 10.18   mean FDE: 22.71
+----
+
+12장에서 이미 짐작했던 대로, 오차가 상당히 큽니다 — 정답은 항상 왼쪽 아니면 오른쪽인데 예측은 항상 가운데 근처이니, 웬만한 정답과도 `10m` 이상씩 벗어납니다.
+
+== 다중 모드를 위한 minADE/minFDE
+
+다중 모드 모델은 궤적을 `K`개 냅니다 — 그중 어느 것을 "그 모델의 예측"으로 볼지 정해야 공정한 비교가 됩니다. 궤적 예측 연구에서 표준적으로 쓰는 방법은, `K`개 중 **정답과 가장 가까운 것**의 오차만 잽니다.
+
+[source,python]
+----
+for i in range(200):
+    ade_per_mode = [ade(multi_preds_np[i,k], test_trajs_np[i]) for k in range(K_MODES)]
+    min_ades[i] = min(ade_per_mode)
+----
+
+[source]
+----
+multi-modal minADE: 1.13   minFDE: 1.88
+----
+
+`minADE`(`1.13`)가 단일 모드의 ADE(`10.18`)보다 `9`배 가까이 낮습니다 — `K=3`개 후보 중 정답에 가까운 걸 하나 고를 수 있다는 것 자체가, 12장에서 겪은 "평균으로의 붕괴" 문제를 지표 수준에서도 확실히 개선한다는 뜻입니다.
+
+== 왜 하필 "최선"으로 평가하는가 — minADE라는 선택 자체를 검증하기
+
+[source,python]
+----
+mean_mode_ades = [np.mean([ade(multi_preds_np[i,k], test_trajs_np[i]) for k in range(K_MODES)]) for i in range(200)]
+print(np.mean(mean_mode_ades))
+----
+
+[source]
+----
+multi-modal mean-over-modes ADE (잘못된 평가 방식): 11.10
+----
+
+같은 다중 모드 모델인데, `K`개 모드의 오차를 **평균**으로 계산하면 `11.10`으로 — 단일 모드 모델(`10.18`)보다 오히려 더 나빠 보입니다! 이건 당연한 결과입니다 — 애초에 `3`개 모드 중 `2`개는 "이번 정답이 아닌 다른 그럴듯한 미래"를 담당하도록 **의도적으로** 학습됐으니, 그 모드들만 따로 보면 이번 정답과는 당연히 멀리 떨어져 있습니다. 다중 모드 예측을 "평균으로" 평가하는 건, 애초에 다중 모드 모델이 하려는 일(여러 그럴듯한 가능성을 각각 정확히 표현하는 것)의 취지 자체를 무시하는 평가 방식입니다 — `minADE`가 표준으로 자리잡은 이유가 바로 이겁니다. 지표를 잘못 고르면, 실제로는 훨씬 나은 모델이 더 나빠 보일 수 있다는 걸 직접 확인했습니다.
+
+== 충돌률: 안전성을 재는 지표
+
+정확도(ADE/FDE)와는 별개로, "이 궤적이 실제로 안전한가"도 재야 합니다.
+
+[source,python]
+----
+def is_collision(traj, obstacle, threshold=2.0):
+    return np.linalg.norm(traj - obstacle, axis=1).min() < threshold
+----
+
+예측 궤적이 장애물과 `2m` 이내로 가까워지면 충돌로 간주합니다.
+
+== 검증: 충돌 회피 선택이 실제로 충돌률을 낮추는가
+
+12장에서 두 가지 모드 선택 전략을 비교했습니다 — (1) 신뢰도만으로 고르기, (2) 신뢰도에서 충돌 비용을 뺀 값으로 고르기. 이번엔 `300`개의 시나리오에 걸쳐 실제 충돌 **비율**로 그 차이를 잽니다.
+
+[source,python]
+----
+for _ in range(300):
+    # ... 같은 컨텍스트, 왼쪽 경로 상에 항상 고정된 장애물 ...
+    chosen_confidence_only = trajs_k[np.argmax(confs_k)]
+    chosen_with_avoidance = trajs_k[np.argmax(confs_k - 2.0*costs_k)]
+    # 각각 충돌 여부 기록
+----
+
+[source]
+----
+collision rate (confidence only):          1.000
+collision rate (with collision avoidance): 0.000
+----
+
+신뢰도만으로 고르면 `300`번 중 `300`번(`100%`) 모두 장애물과 충돌하는 궤적을 선택했습니다 — 왜냐하면 이 시나리오에서는 왼쪽 모드가 항상 가장 신뢰도가 높게 학습됐고(장애물이 항상 왼쪽에 배치되었을 뿐, 학습 데이터 자체는 좌우가 대칭이라 신뢰도가 특정 모드에 쏠릴 이유가 없어야 하는데, 학습 초기 무작위성 때문에 한쪽으로 약간 치우쳤을 수 있습니다), 그 모드가 하필 장애물과 정면으로 겹치는 경로였기 때문입니다. 충돌 비용을 함께 고려하자 `300`번 모두(`0%`) 안전한 모드로 바뀌었습니다 — 정확도 지표(ADE/FDE)가 아무리 좋아도, 이 안전성 지표를 따로 재지 않으면 "정확하지만 위험한" 모델을 놓칠 수 있다는 걸 보여주는 결과입니다.
+
+== 왜 지표 하나만으로는 부족한가
+
+이 장에서 다룬 세 지표(minADE, minFDE, 충돌률)는 서로 다른 것을 잽니다 — minADE/minFDE는 "예측이 정답과 얼마나 가까운가"(정확성), 충돌률은 "예측이 실제로 안전한가"(안전성)입니다. 극단적으로 "항상 아무 데도 안 움직인다"고 예측하는 모델은 충돌률은 낮을 수 있지만(안 움직이니 아무것도 못 들이받을 수도 있지만, 정지한 차량 자체가 다른 차량에게 위험할 수도 있습니다) minADE는 끔찍하게 나쁠 것입니다 — 실전 모델 평가에서는 이런 여러 지표를 항상 함께 보고해야, 한 지표만 최적화하다 다른 측면(특히 안전성)을 놓치는 걸 막을 수 있습니다.
+
+== 직접 해보기
+
+* `is_collision`의 `threshold`를 `2.0`에서 `5.0`(더 엄격한 안전 기준)으로 높이면, "충돌 회피" 전략의 충돌률도 `0%`보다 커질 수 있는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def is_collision_strict(traj, obstacle, threshold=5.0):
+    return np.linalg.norm(traj - obstacle, axis=1).min() < threshold
+
+collisions_strict = 0
+for _ in range(300):
+    # ... 동일하게 chosen_with_avoidance 계산 ...
+    if is_collision_strict(chosen_with_avoidance, obstacle):
+        collisions_strict += 1
+print(collisions_strict / 300)
+----
+
+`collision_cost` 함수 자체의 `threshold`(`3.0`)와 평가에 쓰는 `is_collision`의 `threshold`(`2.0`, 또는 여기서 테스트하는 `5.0`)가 다르다는 걸 눈여겨봐야 합니다 — 모델은 `3.0m` 기준으로 "위험을 피하도록" 학습·선택됐지만, 평가는 더 엄격한 `5.0m` 기준으로 하면 "학습에 쓰인 안전 기준보다 더 엄격한 잣대"를 들이대는 셈이라, 이전에는 안전하다고 판단됐던 궤적도 이 기준에서는 위험하다고 나올 수 있습니다. 이건 실전에서 매우 중요한 교훈입니다 — 모델을 학습·선택할 때 쓴 안전 기준과, 실제 평가(또는 배포)에서 요구되는 안전 기준이 다르면, 모델이 "학습 때는 안전했는데 실제로는 위험한" 모델이 될 수 있습니다.
+====
+
+== 요약
+
+* ADE는 궤적 전체의 평균 오차를, FDE는 가장 먼 미래 시점의 오차를 잽니다.
+* 다중 모드 예측은 `K`개 후보 중 정답에 가장 가까운 것만 평가하는 minADE/minFDE로 재는 것이 표준이며, 이 방식으로 재면 다중 모드 모델이 단일 모드보다 `9`배 낮은 오차를 보였습니다.
+* 같은 다중 모드 모델도 "평균으로" 평가하면 오히려 단일 모드보다 나빠 보인다는 것을 확인해, 평가 방식 선택 자체가 결론을 뒤집을 수 있다는 걸 겪었습니다.
+* 충돌률은 정확성과 별개인 안전성 지표이며, 충돌 회피를 고려한 선택이 충돌률을 `100%`에서 `0%`로 낮추는 걸 확인했습니다.
+* 정확성과 안전성처럼 서로 다른 성질을 재는 지표들을 함께 봐야, 한쪽만 최적화하다 다른 쪽을 놓치는 걸 막을 수 있습니다.
+
+마지막 장에서는 1부부터 지금까지 만든 모든 요소 — 센서 좌표 변환, BEV 융합, Transformer 인코더, Planning Head, 그리고 이 장의 평가 지표까지 — 를 하나의 파이프라인으로 통합합니다.
+// end::body[]

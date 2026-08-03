@@ -1,0 +1,168 @@
+---
+title: "8장: Deformable Attention: BEV 쿼리가 이미지 특징을 참조하는 법"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["autonomous-driving", "transformer", "deformable-attention", "bevformer", "book"]
+categories: ["books"]
+description: "BEV 쿼리의 위치를 카메라 기하학으로 직접 이미지 참조점으로 투영해, 7장에서 위치 임베딩으로 애써 학습해야 했던 '어디를 볼지'를 기하학적 계산 한 번으로 정확히 찾아내는 deformable attention을 구현하고, 물체 위치의 쿼리는 정확히 물체 특징을 가져오지만 엉뚱한 위치의 쿼리는 그러지 못한다는 것을 확인하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-self-attention-basics-in-pytorch/[7장: Self-Attention 기초를 PyTorch로] · 다음: link:../09-bevformer-encoder/[9장: BEVFormer 인코더 조립하기]_
+
+'''
+
+7장에서 self-attention이 "어디를 볼지"를 순전히 학습으로만 알아내야 했고, 위치 정보가 없으면 그 학습 자체가 불가능하다는 걸 확인했습니다. BEV 인코더에는 학습으로 알아낼 필요조차 없는 위치 정보가 이미 있습니다 — BEV 쿼리 하나하나가 "자아차량 기준 몇 미터 앞, 몇 미터 옆"이라는 **정확한 3D 위치**를 갖고 있고, 2장에서 이미 그 3D 위치를 카메라 픽셀로 투영하는 법을 완벽하게 구현해뒀습니다. Deformable attention은 이 기하학적 사실을 적극적으로 활용합니다.
+
+== 쌍선형 보간: 실수 픽셀 좌표에서 특징 읽기
+
+카메라로 투영한 참조점은 정수 픽셀이 아니라 실수 좌표(`[13.33, 18.13]`처럼)로 나옵니다. 이런 위치의 특징을 읽으려면 주변 `4`개 픽셀을 보간해야 합니다.
+
+[source,python]
+----
+def bilinear_sample(feature_map, u, v):
+    u0, v0 = int(np.floor(u)), int(np.floor(v))
+    u1, v1 = u0+1, v0+1
+    du, dv = u-u0, v-v0
+    f00, f01 = feature_map[v0,u0], feature_map[v0,u1]
+    f10, f11 = feature_map[v1,u0], feature_map[v1,u1]
+    top = f00*(1-du) + f01*du
+    bot = f10*(1-du) + f11*du
+    return top*(1-dv) + bot*dv
+----
+
+[source,python]
+----
+sampled = bilinear_sample(grad_feature, 10.5, 5.0)   # u방향으로 선형 증가하는 특징맵에서
+print(sampled[0].item(), 10.5/IMG_W)   # 0.328125  0.328125 -- 정확히 일치
+----
+
+`u`방향으로 선형적으로 증가하도록 만든 특징맵에서 `u=10.5` 지점을 보간하면, 정확히 `10.5/IMG_W`가 나옵니다 — 쌍선형 보간이 정확하게 구현됐다는 검증입니다.
+
+== 핵심 아이디어: 쿼리의 3D 위치가 곧 참조점이다
+
+[source,python]
+----
+object_pos_ego = np.array([15.0, 1.0, 0.7])   # 물체의 실제 위치
+pixel_obj, depth_obj = cam.project(object_pos_ego)   # 2장의 투영 그대로
+print(pixel_obj)   # [13.33, 18.13]
+----
+
+BEV 쿼리가 "나는 자아차량 기준 전방 `15m`, 왼쪽 `1m` 위치를 담당한다"고 하면, 그 위치를 카메라에 투영한 픽셀이 바로 그 쿼리가 "봐야 할" 곳입니다 — 7장처럼 어디를 볼지 데이터로부터 애써 학습할 필요가 없습니다. 카메라의 내부·외부 파라미터(2장)만 알면, 계산 한 번으로 정확한 참조점이 나옵니다.
+
+== 검증: 참조점이 실제로 물체를 정확히 가리키는가
+
+[source,python]
+----
+feature_map = torch.randn(IMG_H, IMG_W, C) * 0.1        # 배경은 약한 노이즈
+object_signature = torch.tensor([5.0, -3.0, 2.0, 1.0])    # 뚜렷한 "물체 특징"
+u_o, v_o = int(np.floor(pixel_obj[0])), int(np.floor(pixel_obj[1]))
+feature_map[v_o:v_o+2, u_o:u_o+2] = object_signature       # 물체가 실제로 투영되는 자리에 신호를 심어둠
+
+bev_query_pos = np.array([15.0, 1.0, 0.7])   # 물체와 같은 위치를 담당하는 쿼리
+ref_pixel, _ = cam.project(bev_query_pos)
+sampled_at_ref = bilinear_sample(feature_map, ref_pixel[0], ref_pixel[1])
+print(sampled_at_ref)
+----
+
+[source]
+----
+feature sampled at query's geometric reference point: [5., -3., 2., 1.]
+----
+
+물체가 있는 위치를 담당하는 BEV 쿼리가, 카메라 특징맵에 심어둔 물체 신호를 **정확히 그대로** 가져왔습니다 — 배경 노이즈와 조금도 섞이지 않고 완벽하게 일치합니다. 이게 기하학적 참조점의 힘입니다 — 6장까지 다진 좌표 변환의 정확성이, 여기서 "어디를 봐야 정확한지"를 보장해주는 것입니다.
+
+== 검증: 엉뚱한 위치의 쿼리는 그 신호를 못 가져온다
+
+[source,python]
+----
+bev_query_empty = np.array([15.0, -5.0, 0.7])   # 물체에서 6m 떨어진 다른 위치
+ref_pixel_empty, _ = cam.project(bev_query_empty)
+sampled_empty = bilinear_sample(feature_map, ref_pixel_empty[0], ref_pixel_empty[1])
+print(sampled_empty)
+----
+
+[source]
+----
+feature at empty query's reference point: [-0.07, 0.09, -0.06, -0.05]
+----
+
+물체와 `6m` 떨어진 위치를 담당하는 쿼리는, 예상대로 배경 노이즈 수준의 값만 가져옵니다 — 이 "음성 대조군"이 확인해주는 것은, 정확한 위치의 쿼리만 정확한 정보를 가져온다는 것, 즉 기하학적 참조가 실제로 위치를 구별하고 있다는 사실입니다.
+
+== Deformable Attention: 참조점 하나로는 부족할 때
+
+물체가 정확히 참조점 한 곳에만 있으리라는 보장은 없습니다 — 물체가 조금 더 크거나, 카메라와 실제 3D 위치 추정 사이에 약간의 오차가 있을 수 있습니다. Deformable attention은 참조점 하나 대신, 그 주변 여러 개의 "오프셋"(학습 가능한 작은 이동량)에서 샘플링하고, 그 샘플들을 학습된 가중치로 합칩니다.
+
+[source,python]
+----
+class DeformableAttention(nn.Module):
+    def __init__(self, dim, n_points=4):
+        super().__init__()
+        self.n_points = n_points
+        self.offset_net = nn.Linear(dim, n_points * 2)   # 쿼리 특징 -> n개의 (du,dv) 오프셋
+        self.weight_net = nn.Linear(dim, n_points)         # 쿼리 특징 -> n개의 가중치
+        self.value_proj = nn.Linear(dim, dim)
+        self.out_proj = nn.Linear(dim, dim)
+
+    def forward(self, query_feat, ref_pixel, feature_map):
+        offsets = self.offset_net(query_feat).view(self.n_points, 2)
+        weights = torch.softmax(self.weight_net(query_feat), dim=0)
+        sampled = torch.stack([
+            bilinear_sample(feature_map, ref_pixel[0]+offsets[i,0].item(), ref_pixel[1]+offsets[i,1].item())
+            for i in range(self.n_points)
+        ])
+        aggregated = (weights.unsqueeze(-1) * sampled).sum(dim=0)
+        return self.out_proj(self.value_proj(aggregated) + aggregated)
+----
+
+`offset_net`이 "참조점에서 정확히 얼마나 벗어난 곳들을 추가로 봐야 하는지"를, `weight_net`이 "그 각각을 얼마나 신뢰할지"를 학습합니다 — 참조점이라는 좋은 **출발점**은 기하학이 공짜로 주고, 그 출발점 근처에서 정확히 어디를 볼지는(물체의 정확한 경계, 크기 등에 맞춰) 학습이 미세 조정하는 구조입니다.
+
+[source,python]
+----
+out = deform_attn(query_feat, ref_pixel, feature_map)
+print(out.shape)   # torch.Size([4])
+----
+
+== 왜 이게 7장의 self-attention보다 나은가
+
+7장의 순수 self-attention은 `N`개 토큰이 서로를 전부 봐야 해서 계산량이 `N²`에 비례했고, "어디를 볼지"를 순전히 데이터로부터 학습해야 했습니다(그리고 위치 임베딩이 없으면 그 학습 자체가 실패했습니다). Deformable attention은 카메라 기하학(항상 정확하고, 학습이 필요 없는 사전 지식)으로 각 쿼리가 "대략 어디를 봐야 하는지"를 미리 알려주고, 학습은 그 주변의 미세한 조정(`n_points`개, 보통 `4~8`개)만 담당합니다 — 계산량도 훨씬 적고(전체가 아니라 몇 개의 점만 봄), 학습해야 할 것도 훨씬 적습니다(어디를 볼지 전부가 아니라 어디서 살짝 벗어날지만). BEVFormer라는 이름이 붙은 실전 모델이 바로 이 아이디어(BEV 쿼리 + deformable attention으로 카메라 특징을 참조)의 핵심입니다.
+
+== 검증: 화각 밖의 쿼리는 안전하게 처리되는가
+
+[source,python]
+----
+bev_query_behind = np.array([-15.0, 0.0, 0.7])   # 카메라 뒤쪽
+ref_pixel_behind, depth_behind = cam.project(bev_query_behind)
+print(ref_pixel_behind, depth_behind)   # None  -15.0
+----
+
+카메라 뒤쪽을 담당하는 BEV 쿼리는 `project()`가 `None`을 반환합니다(2장에서 이미 다룬 방식 그대로) — 실전 구현에서는 이 경우 그 카메라에 대한 attention 자체를 건너뛰고, 다른 카메라(예: 뒤쪽을 보는 카메라)의 참조점을 대신 씁니다.
+
+== 직접 해보기
+
+* `object_signature`를 심는 위치를 정확한 참조점이 아니라 `2`픽셀 옆으로 옮기면, deformable attention의 `offset_net`이 (학습 후에) 그 어긋남을 보정할 수 있을지 생각해보고, 학습 없이 무작위 초기화된 오프셋만으로는 왜 안 되는지 설명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+feature_map_shifted = torch.randn(IMG_H, IMG_W, C) * 0.1
+feature_map_shifted[v_o:v_o+2, u_o+2:u_o+4] = object_signature   # 참조점에서 2픽셀 옆에 신호를 심음
+
+out_untrained = deform_attn(query_feat, ref_pixel, feature_map_shifted)
+print(out_untrained)   # 무작위 초기화된 오프셋으로는 신호를 놓칠 가능성이 높음
+----
+
+`offset_net`이 무작위로 초기화된 상태에서는, `n_points=4`개의 샘플링 위치가 우연히 어긋난 신호 위치(`+2`픽셀)를 맞힐 가능성이 낮습니다 — 학습되지 않은 오프셋은 "어디를 더 봐야 유리한지"에 대한 정보가 전혀 없기 때문입니다. 하지만 이런 어긋남이 데이터셋 전체에서 일관된 패턴(예: 항상 특정 방향으로 물체 중심이 살짝 벗어나 있다면)이라면, 손실 함수를 통한 역전파가 `offset_net`의 가중치를 조정해서 점점 그 방향으로 오프셋을 내도록 학습할 수 있습니다 — 이게 바로 "기하학이 대략적인 방향을 주고, 학습이 미세 조정을 담당한다"는 이 장의 핵심 아이디어가 실제로 작동하는 방식입니다.
+====
+
+== 요약
+
+* 쌍선형 보간으로 실수 픽셀 좌표에서도 정확하게 특징을 읽어올 수 있다는 걸 정확한 값 일치로 검증했습니다.
+* BEV 쿼리의 3D 위치를 카메라에 투영한 참조점이, 실제로 그 위치의 물체 신호를 정확히(배경과 전혀 섞이지 않고) 가져온다는 것을 확인했습니다 — 반대로 엉뚱한 위치의 쿼리는 그 신호를 가져오지 못한다는 음성 대조군도 확인했습니다.
+* Deformable attention은 이 기하학적 참조점을 출발점으로 삼아, 학습 가능한 작은 오프셋과 가중치로 미세 조정합니다 — "어디를 볼지"를 전부 학습해야 했던 7장의 self-attention보다 훨씬 적은 계산과 학습 부담으로 같은 일을 해냅니다.
+* 화각 밖의 쿼리(투영 불가)를 안전하게 건너뛰는 처리도 확인했습니다.
+
+다음 장에서는 이 deformable attention을 여러 카메라, 여러 층에 걸쳐 조립해서 실제 BEVFormer 스타일의 인코더 전체를 완성합니다.
+// end::body[]
