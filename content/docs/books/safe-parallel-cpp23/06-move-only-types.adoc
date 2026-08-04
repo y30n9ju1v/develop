@@ -12,7 +12,7 @@ _link:../[전체 목차] · 이전: link:../05-channels/[5장: 뮤텍스와 채�
 
 '''
 
-2부에서는 `linear-and-session-types` 5~7장의 세션 타입을 타입 상태 패턴으로 흉내냈습니다. 3부에서는 2~4장의 **선형 타입** — "값은 정확히 한 번 쓰여야 한다" — 을 C++의 **이동 전용 타입(move-only type)** 으로 흉내냅니다.
+2부에서는 세션 타입을 타입 상태 패턴으로 흉내냈습니다. 3부에서는 **선형 타입(linear type)** — "값은 정확히 한 번 쓰여야 한다" — 을 C++의 **이동 전용 타입(move-only type)** 으로 흉내냅니다.
 
 == raw pointer는 아무 제약이 없다
 
@@ -41,7 +41,7 @@ SUMMARY: AddressSanitizer: double-free ...
 ==34830==ABORTING
 ----
 
-1장의 ThreadSanitizer가 데이터 경쟁을 잡았듯, AddressSanitizer는 메모리 오용(이중 해제, 버퍼 오버런, use-after-free)을 잡습니다 — 이것도 **런타임에** 잡는 안전망입니다. `linear-and-session-types` 1장이 예로 들었던 바로 그 버그(닫힌 파일을 또 쓰는 것)의 메모리 버전입니다.
+1장의 ThreadSanitizer가 데이터 경쟁을 잡았듯, AddressSanitizer는 메모리 오용(이중 해제, 버퍼 오버런, use-after-free)을 잡습니다 — 이것도 **런타임에** 잡는 안전망입니다. 1장에서 데이터 경쟁을 이야기했던 것과 같은 종류의 버그(닫힌 자원을 또 쓰는 것)의 메모리 버전입니다.
 
 == `std::unique_ptr`: 복사 자체가 컴파일 에러
 
@@ -63,7 +63,7 @@ uptr_nocopy.cpp:4:24: error: call to implicitly-deleted copy constructor of 'std
 'unique_ptr<int>' has a user-declared move constructor
 ----
 
-`std::unique_ptr`의 복사 생성자는 **명시적으로 삭제**되어 있습니다(`unique_ptr(const unique_ptr&) = delete;`, 표준 라이브러리 안에 이렇게 정의되어 있습니다). raw pointer였다면 조용히 컴파일되고 런타임에 ASan이 잡아야 했던 실수가, `unique_ptr`에서는 **그 줄을 적는 순간** 컴파일이 거부됩니다 — 정확히 `linear-and-session-types` 2장의 `var` 규칙이 "이 값을 두 번 참조하는" 시도 자체를 봉쇄했던 것과 같은 효과를, C++은 복사 생성자를 지우는 것으로 냅니다.
+`std::unique_ptr`의 복사 생성자는 **명시적으로 삭제**되어 있습니다(`unique_ptr(const unique_ptr&) = delete;`, 표준 라이브러리 안에 이렇게 정의되어 있습니다). raw pointer였다면 조용히 컴파일되고 런타임에 ASan이 잡아야 했던 실수가, `unique_ptr`에서는 **그 줄을 적는 순간** 컴파일이 거부됩니다 — 선형 타입 이론이 "이 값을 두 번 참조하는" 시도 자체를 타입 규칙으로 봉쇄하는 것과 같은 효과를, C++은 복사 생성자를 지우는 것으로 냅니다.
 
 == 이동은 허용된다 — 그리고 원본은 안전해진다
 

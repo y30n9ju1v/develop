@@ -12,11 +12,11 @@ _link:../[전체 목차] · 이전: link:../08-real-world-resources/[8장: 실�
 
 '''
 
-2~3부는 `linear-and-session-types`의 선형 타입·세션 타입을 옮겼습니다. 4부는 이 사이트의 세 번째 갈래 — 범주론(`category-theory-for-programmers` 등이 다룬 Functor, Monad) — 을 C++23의 **concepts** 로 옮깁니다.
+2~3부는 세션 타입과 선형 타입을 옮겼습니다. 4부는 세 번째 이론 — 범주론(category theory)의 Functor, Monad — 를 C++23의 **concepts** 로 옮깁니다.
 
 == concept으로 "Functor"를 정의하기
 
-`category-theory-for-programmers` 1-7장(Functors)은 Functor를 "구조를 보존하면서 안의 값에 함수를 적용하는 것"이라고 정의했습니다. C++로 옮기면 — "`transform`이라는, 안의 값에 함수를 적용해서 같은 모양의 새 컨테이너를 돌려주는 메서드가 있는 것"입니다.
+범주론에서 Functor는 "구조를 보존하면서 안의 값에 함수를 적용하는 것"이라고 정의됩니다. C++로 옮기면 — "`transform`이라는, 안의 값에 함수를 적용해서 같은 모양의 새 컨테이너를 돌려주는 메서드가 있는 것"입니다.
 
 [source,cpp]
 ----
@@ -62,7 +62,7 @@ expected: 42
 expected error propagated: boom
 ----
 
-`err`(에러 상태)에 `.transform()`을 걸면, 함수는 아예 호출되지 않고 에러가 **그대로 전파**됩니다(`err2.error()`가 원래 `"boom"`을 그대로 갖고 있습니다) — `category-theory-for-programmers`가 Functor를 "구조를 보존한다"고 했던 그 성질입니다. 값이 있으면 값에 함수를 적용하고, 값이 없으면(에러거나 `nullopt`거나) 그 "없음"이라는 구조 자체는 그대로 유지됩니다.
+`err`(에러 상태)에 `.transform()`을 걸면, 함수는 아예 호출되지 않고 에러가 **그대로 전파**됩니다(`err2.error()`가 원래 `"boom"`을 그대로 갖고 있습니다) — 범주론이 Functor를 "구조를 보존한다"고 정의하는 바로 그 성질입니다. 값이 있으면 값에 함수를 적용하고, 값이 없으면(에러거나 `nullopt`거나) 그 "없음"이라는 구조 자체는 그대로 유지됩니다.
 
 == Functor 법칙을 실제로 확인하기
 
@@ -84,7 +84,7 @@ functor identity law holds: 1
 
 == Monad: `and_then`으로 실패를 자동으로 전파하기
 
-Functor보다 한 단계 더 나가면 Monad입니다 — `linear-and-session-types` 서문이 짚었듯, "효과를 값으로 만들고 합성하는" 도구입니다. `std::optional::and_then`이 정확히 이 역할을 합니다.
+Functor보다 한 단계 더 나가면 Monad입니다 — "효과를 값으로 만들고 합성하는" 도구입니다. `std::optional::and_then`이 정확히 이 역할을 합니다.
 
 [source,cpp]
 ----
