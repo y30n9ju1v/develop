@@ -8,7 +8,7 @@ description: "std::async로 진짜 병렬 실행되는 두 작업을 std::expect
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../09-categorical-interfaces/[9장: concepts로 범주론적 인터페이스 짜기] · 다음: link:../11-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../09-categorical-interfaces/[9장: concepts로 범주론적 인터페이스 짜기] · 다음: link:../11-concurrent-separation/[11장: 동시성 분리 논리: 겹치지 않는 메모리 나눠주기]_
 
 '''
 
