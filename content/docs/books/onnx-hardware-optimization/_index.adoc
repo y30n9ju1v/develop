@@ -43,11 +43,12 @@ draft: false
 [start=9]
 . *link:09-kernel-tiling-in-practice/[9장: 커널 타일링 실전]*
 . *link:10-heterogeneous-scheduling/[10장: 이기종 스케줄링]*
+. *link:11-winograd-convolution/[11장: 위노그라드 컨볼루션]*
 
 *맺음말*
 
-[start=11]
-. *link:11-afterword/[맺음말]*
+[start=12]
+. *link:12-afterword/[맺음말]*
 
 '''
 
@@ -95,4 +96,8 @@ include::10-heterogeneous-scheduling.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::11-afterword.adoc[tag=body,leveloffset=+1]
+include::11-winograd-convolution.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-afterword.adoc[tag=body,leveloffset=+1]

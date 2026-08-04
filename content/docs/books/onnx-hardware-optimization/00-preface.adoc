@@ -24,7 +24,7 @@ _link:../[전체 목차] · 다음: link:../01-baseline-profiling/[1장: 기준�
 * **그래프 레벨 최적화** — Conv+BatchNorm+ReLU 같은 연산자 열을 하나로 합치는 연산자 융합, 상수 폴딩. 노드 개수와 실행 시간을 실측으로 비교.
 * **양자화** — FP32 가중치/연산을 INT8로 낮춰서 메모리 대역폭과 연산량을 동시에 줄이는 기법, 그리고 그 대가로 정확도가 얼마나 떨어지는지.
 * **MLIR lowering** — ONNX 그래프가 `torch` dialect에서 `linalg` dialect를 거쳐 `llvm`(CPU)이나 `spirv`(GPU) dialect로 몇 단계에 걸쳐 낮아지는 실제 과정을, 각 단계의 중간 표현(IR)을 직접 눈으로 확인.
-* **커널 최적화와 이기종 스케줄링** — 타일링 같은 하드웨어 맞춤 최적화가 컴파일된 커널에 실제로 어떻게 반영되는지, 그리고 같은 그래프가 CPU용과 GPU용으로 각각 어떻게 다르게 컴파일되는지 비교.
+* **커널 최적화와 이기종 스케줄링** — 타일링 같은 하드웨어 맞춤 최적화가 컴파일된 커널에 실제로 어떻게 반영되는지, 같은 그래프가 CPU용과 GPU용으로 각각 어떻게 다르게 컴파일되는지, 그리고 곱셈 횟수 자체를 줄이는 위노그라드 같은 알고리즘 레벨 최적화가 실제 구현에서 정말 빠른지 비교.
 
 == 이 책의 도구: onnxruntime과 IREE
 
@@ -45,6 +45,6 @@ _link:../[전체 목차] · 다음: link:../01-baseline-profiling/[1장: 기준�
 * 2부: 그래프 레벨 최적화 — link:../03-operator-fusion/[3장], link:../04-constant-folding/[4장]
 * 3부: 양자화 — link:../05-int8-quantization/[5장], link:../06-quantization-tradeoffs/[6장]
 * 4부: MLIR lowering — link:../07-onnx-to-mlir/[7장], link:../08-lowering-to-targets/[8장]
-* 5부: 커널 최적화와 이기종 스케줄링 — link:../09-kernel-tiling-in-practice/[9장], link:../10-heterogeneous-scheduling/[10장]
-* link:../11-afterword/[맺음말]
+* 5부: 커널 최적화와 이기종 스케줄링 — link:../09-kernel-tiling-in-practice/[9장], link:../10-heterogeneous-scheduling/[10장], link:../11-winograd-convolution/[11장]
+* link:../12-afterword/[맺음말]
 // end::body[]

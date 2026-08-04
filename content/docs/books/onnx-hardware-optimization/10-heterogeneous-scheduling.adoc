@@ -4,11 +4,11 @@ date: 2026-08-05T00:00:00+09:00
 draft: false
 tags: ["onnx", "onnxruntime", "coreml", "heterogeneous-computing", "resnet18", "book"]
 categories: ["books"]
-description: "CoreMLExecutionProvider로 ResNet18 그래프 49개 노드 전부를 Apple의 신경망 가속기로 위임해서 CPU 전용(4.36ms)보다 6.5배, 9장의 IREE 범용 컴파일(344.7ms)보다 515배 빠른 0.67ms를 실측하고, 이 책 10개 장이 확인한 모든 숫자를 하나의 의사결정 표로 정리하는 5부의 마지막 장"
+description: "CoreMLExecutionProvider로 ResNet18 그래프 49개 노드 전부를 Apple의 신경망 가속기로 위임해서 CPU 전용(4.36ms)보다 6.5배, 9장의 IREE 범용 컴파일(344.7ms)보다 515배 빠른 0.67ms를 실측하고, 이 책이 여기까지 확인한 숫자를 하나의 의사결정 표로 정리하는 5부의 두 번째 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../09-kernel-tiling-in-practice/[9장: 커널 타일링 실전] · 다음: link:../11-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../09-kernel-tiling-in-practice/[9장: 커널 타일링 실전] · 다음: link:../11-winograd-convolution/[11장: 위노그라드 컨볼루션]_
 
 '''
 
@@ -59,7 +59,7 @@ CoreML + CPU fallback: 0.670ms/inference
 
 **6.5배 더 빨라졌습니다** — 1장의 `onnxruntime` CPU 최적화 경로(4.833ms 안팎)가 이 책에서 가장 빠른 줄 알았는데, Apple Neural Engine/GPU로 위임하니 그보다도 6.5배 빠른 결과가 나왔습니다. 이 책 전체에서 측정한 숫자 중 가장 빠릅니다.
 
-== 이 책 전체의 숫자를 한 줄에 놓고 보기
+== 여기까지의 숫자를 한 줄에 놓고 보기
 
 [cols="2,1"]
 |===

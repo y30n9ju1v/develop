@@ -82,7 +82,7 @@ spirv.ExecutionMode @tiny$async_dispatch_0_matmul_4x16x8_f32 "LocalSize", 2, 4, 
 |타깃별 IR |`llvm-cpu`(ARM NEON 벡터화) 또는 `vulkan-spirv`(워크그룹 배정) — 하드웨어별로 완전히 다른 코드
 |===
 
-같은 `linalg` 표현에서 시작해 CPU와 GPU로 완전히 다른 실행 코드가 나온다는 게 MLIR의 "여러 하드웨어를 하나의 컴파일러 인프라로 지원한다"는 약속의 실체입니다. 5부는 이 lowering 결과를 다시 CPU 실측(9장)과 CPU/GPU 컴파일 결과 비교(10장)로 마무리합니다.
+같은 `linalg` 표현에서 시작해 CPU와 GPU로 완전히 다른 실행 코드가 나온다는 게 MLIR의 "여러 하드웨어를 하나의 컴파일러 인프라로 지원한다"는 약속의 실체입니다. 5부는 이 lowering 결과를 다시 CPU 실측(9장), 이기종 스케줄링(10장), 그리고 알고리즘 자체를 바꾸는 최적화(11장)로 이어갑니다.
 
 == 직접 해보기
 
