@@ -1,14 +1,14 @@
 ---
-title: "11장: 위노그라드 컨볼루션"
+title: "10장: 위노그라드 컨볼루션"
 date: 2026-08-05T00:00:00+09:00
 draft: false
 tags: ["onnx", "winograd", "convolution", "kernel-optimization", "resnet18", "book"]
 categories: ["books"]
-description: "3x3 컨볼루션의 곱셈 횟수를 이론적으로 2.25배 줄이는 위노그라드 알고리즘을 직접 구현해서 정확도(오차 3.5e-4)까지 검증하지만, 순수 NumPy로 짠 구현은 im2col+BLAS 행렬곱보다 오히려 9.5배 느리다는 걸 실측해 '곱셈 횟수를 줄이는 알고리즘'과 '실제로 빠른 구현'이 다른 문제라는 걸 9장의 교훈과 겹쳐서 다시 확인하는 5부의 세 번째 장"
+description: "3x3 컨볼루션의 곱셈 횟수를 이론적으로 2.25배 줄이는 위노그라드 알고리즘을 직접 구현해서 정확도(오차 3.5e-4)까지 검증하지만, 순수 NumPy로 짠 구현은 im2col+BLAS 행렬곱보다 오히려 9.5배 느리다는 걸 실측해 '곱셈 횟수를 줄이는 알고리즘'과 '실제로 빠른 구현'이 다른 문제라는 걸 9장의 교훈과 겹쳐서 다시 확인하는 5부의 두 번째 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../10-heterogeneous-scheduling/[10장: 이기종 스케줄링] · 다음: link:../12-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../09-kernel-tiling-in-practice/[9장: 커널 타일링 실전] · 다음: link:../11-heterogeneous-scheduling/[11장: 이기종 스케줄링]_
 
 '''
 

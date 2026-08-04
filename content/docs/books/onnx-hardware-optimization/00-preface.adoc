@@ -45,6 +45,6 @@ _link:../[전체 목차] · 다음: link:../01-baseline-profiling/[1장: 기준�
 * 2부: 그래프 레벨 최적화 — link:../03-operator-fusion/[3장], link:../04-constant-folding/[4장]
 * 3부: 양자화 — link:../05-int8-quantization/[5장], link:../06-quantization-tradeoffs/[6장]
 * 4부: MLIR lowering — link:../07-onnx-to-mlir/[7장], link:../08-lowering-to-targets/[8장]
-* 5부: 커널 최적화와 이기종 스케줄링 — link:../09-kernel-tiling-in-practice/[9장], link:../10-heterogeneous-scheduling/[10장], link:../11-winograd-convolution/[11장]
+* 5부: 커널 최적화와 이기종 스케줄링 — link:../09-kernel-tiling-in-practice/[9장], link:../10-winograd-convolution/[10장], link:../11-heterogeneous-scheduling/[11장]
 * link:../12-afterword/[맺음말]
 // end::body[]

@@ -42,8 +42,8 @@ draft: false
 
 [start=9]
 . *link:09-kernel-tiling-in-practice/[9장: 커널 타일링 실전]*
-. *link:10-heterogeneous-scheduling/[10장: 이기종 스케줄링]*
-. *link:11-winograd-convolution/[11장: 위노그라드 컨볼루션]*
+. *link:10-winograd-convolution/[10장: 위노그라드 컨볼루션]*
+. *link:11-heterogeneous-scheduling/[11장: 이기종 스케줄링]*
 
 *맺음말*
 
@@ -92,11 +92,11 @@ include::09-kernel-tiling-in-practice.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::10-heterogeneous-scheduling.adoc[tag=body,leveloffset=+1]
+include::10-winograd-convolution.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::11-winograd-convolution.adoc[tag=body,leveloffset=+1]
+include::11-heterogeneous-scheduling.adoc[tag=body,leveloffset=+1]
 
 '''
 
