@@ -1,0 +1,98 @@
+---
+title: "학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다: ONNX 하드웨어 최적화"
+draft: false
+---
+
+같은 ResNet18 하나를 처음부터 끝까지 예제로 써서, 학습이 끝난 ONNX 모델을 실제 하드웨어에 배포하기 직전 어떻게 최적화하는지를 왜 최적화가 필요한가(1부) → 그래프 레벨 최적화(2부) → 양자화(3부) → MLIR lowering(4부) → 커널 최적화와 이기종 스케줄링(5부) 순서로 실측하는 독립적인 입문서입니다. `onnxruntime`과 IREE(MLIR 기반 컴파일러) 두 실제 오픈소스 도구를 씁니다.
+
+이 책의 모든 수치는 이 세션 환경에서 ResNet18을 실제로 export하고, 실제로 컴파일·실행해서 얻은 결과입니다 — 연산자 융합이 겨우 5%만 개선하고 진짜 이득은 레이아웃 변환에서 온다는 것, 동적 양자화가 오히려 17배 느려지는데 정적 양자화는 1.86배 빨라진다는 것, 범용 컴파일러(344.7ms)와 벤더 최적화 라이브러리(4.83ms)와 NPU 위임(0.67ms) 사이에 515배 격차가 있다는 것 — 전부 실측으로 확인하고, 이 책이 검증하지 못한 것(정확도, GPU 런타임 실행)도 정직하게 밝힙니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다]*
+
+*1부: 왜 최적화가 필요한가*
+
+[start=1]
+. *link:01-baseline-profiling/[1장: 기준선 측정하기]*
+. *link:02-where-time-goes/[2장: 시간은 어디로 가는가]*
+
+*2부: 그래프 레벨 최적화*
+
+[start=3]
+. *link:03-operator-fusion/[3장: 연산자 융합]*
+. *link:04-constant-folding/[4장: 상수 폴딩]*
+
+*3부: 양자화*
+
+[start=5]
+. *link:05-int8-quantization/[5장: FP32에서 INT8로]*
+. *link:06-quantization-tradeoffs/[6장: 양자화의 트레이드오프]*
+
+*4부: MLIR lowering*
+
+[start=7]
+. *link:07-onnx-to-mlir/[7장: ONNX에서 MLIR로]*
+. *link:08-lowering-to-targets/[8장: 타깃별로 낮추기]*
+
+*5부: 커널 최적화와 이기종 스케줄링*
+
+[start=9]
+. *link:09-kernel-tiling-in-practice/[9장: 커널 타일링 실전]*
+. *link:10-heterogeneous-scheduling/[10장: 이기종 스케줄링]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-baseline-profiling.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-where-time-goes.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-operator-fusion.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-constant-folding.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-int8-quantization.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-quantization-tradeoffs.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-onnx-to-mlir.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-lowering-to-targets.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-kernel-tiling-in-practice.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-heterogeneous-scheduling.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]

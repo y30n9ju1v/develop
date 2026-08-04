@@ -1,0 +1,106 @@
+---
+title: "10장: 이기종 스케줄링"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "onnxruntime", "coreml", "heterogeneous-computing", "resnet18", "book"]
+categories: ["books"]
+description: "CoreMLExecutionProvider로 ResNet18 그래프 49개 노드 전부를 Apple의 신경망 가속기로 위임해서 CPU 전용(4.36ms)보다 6.5배, 9장의 IREE 범용 컴파일(344.7ms)보다 515배 빠른 0.67ms를 실측하고, 이 책 10개 장이 확인한 모든 숫자를 하나의 의사결정 표로 정리하는 5부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-kernel-tiling-in-practice/[9장: 커널 타일링 실전] · 다음: link:../11-afterword/[맺음말]_
+
+'''
+
+9장은 범용 컴파일러(IREE)의 CPU codegen이 벤더가 튜닝한 라이브러리(`onnxruntime`)를 못 따라간다는 걸 확인했습니다. 이 장은 그 격차를 메우는 실전 전략 — **그래프를 여러 실행 프로바이더(하드웨어별 백엔드)에 나눠 맡기는 이기종 스케줄링** — 을 5장 끝에서 미뤄뒀던 `CoreMLExecutionProvider`로 직접 확인합니다.
+
+== CoreML로 위임하기
+
+이 세션 환경(Apple Silicon)에는 `onnxruntime`이 인식하는 `CoreMLExecutionProvider`가 있습니다 — Apple의 Neural Engine(NPU)과 GPU를 아우르는 CoreML 프레임워크에 그래프(또는 그래프의 일부)를 위임하는 실행 경로입니다.
+
+[source,python]
+----
+so = ort.SessionOptions()
+so.log_severity_level = 1
+sess = ort.InferenceSession("resnet18.onnx", sess_options=so,
+                             providers=["CoreMLExecutionProvider", "CPUExecutionProvider"])
+----
+
+[source]
+----
+CoreMLExecutionProvider::GetCapability, number of partitions supported by CoreML: 1
+number of nodes in the graph: 49  number of nodes supported by CoreML: 49
+----
+
+**49개 노드 전부**가 CoreML로 위임됩니다(파티션 1개, 그래프 전체) — 5장 끝의 "직접 해보기"에서 본 INT8 그래프(151개 중 91개, 파티션 18개로 쪼개짐)와 다르게, 이 FP32 그래프는 CoreML이 완전히 이해하는 표준 연산(Conv, ReLU, Add, Gemm 등)만으로 이루어져 있어서 쪼개짐 없이 통째로 넘어갑니다.
+
+== 실측: 얼마나 빨라지는가
+
+[source,python]
+----
+def bench(providers, name):
+    sess = ort.InferenceSession("resnet18.onnx", providers=providers)
+    x = np.random.rand(1,3,224,224).astype(np.float32)
+    for _ in range(3): sess.run(None, {"input": x})
+    t0 = time.perf_counter()
+    for _ in range(30): sess.run(None, {"input": x})
+    t1 = time.perf_counter()
+    print(f"{name}: {(t1-t0)/30*1000:.3f}ms/inference")
+
+bench(["CPUExecutionProvider"], "CPU only")
+bench(["CoreMLExecutionProvider", "CPUExecutionProvider"], "CoreML + CPU fallback")
+----
+
+[source]
+----
+CPU only:              4.362ms/inference
+CoreML + CPU fallback: 0.670ms/inference
+----
+
+**6.5배 더 빨라졌습니다** — 1장의 `onnxruntime` CPU 최적화 경로(4.833ms 안팎)가 이 책에서 가장 빠른 줄 알았는데, Apple Neural Engine/GPU로 위임하니 그보다도 6.5배 빠른 결과가 나왔습니다. 이 책 전체에서 측정한 숫자 중 가장 빠릅니다.
+
+== 이 책 전체의 숫자를 한 줄에 놓고 보기
+
+[cols="2,1"]
+|===
+|실행 경로 |지연시간(ResNet18, 1장 배치)
+
+|9장: IREE llvm-cpu, 기본 |344.711ms
+|9장: IREE llvm-cpu, 타깃 CPU 명시 |289.512ms
+|1장: PyTorch eager |10.675ms
+|1장: onnxruntime, 최적화 끔 |11.163ms
+|1장: onnxruntime, 기본 최적화(NHWC+융합) |4.833ms
+|10장: onnxruntime + CoreML |0.670ms
+|===
+
+**같은 그래프, 같은 하드웨어인데 최대 515배(344.7ms → 0.67ms) 차이**가 납니다. 이 격차 전부가 "얼마나 정밀하게 최적화했는가"의 스펙트럼입니다 — 그래프 구조를 안 건드린 순진한 실행(9장)에서, 그래프를 최적화하고 하드웨어에 맞는 벤더 라이브러리를 쓴 실행(1장), 마지막으로 CPU가 아니라 이 칩의 신경망 전용 가속기 자체로 넘긴 실행(10장)까지 — 이 책의 여정 자체가 "느리다"에서 "빠르다"로 가는 이 스펙트럼을 한 단계씩 밟아온 것이었습니다.
+
+== 무엇을 어디에 배치할지 정하는 실전 규칙
+
+이 책이 실측한 결과를 근거로, 실전에서 하드웨어별로 무엇을 쓸지 정하는 기준을 정리합니다.
+
+* **주류 하드웨어(x86/ARM CPU, 이 세션처럼 Apple의 CoreML을 쓸 수 있는 GPU/NPU)에 배포한다면** — 벤더가 이미 튜닝해둔 실행 프로바이더(`onnxruntime`의 CoreML/CUDA/TensorRT EP 등)를 우선 시도하십시오. 9~10장에서 봤듯, 범용 컴파일러가 짧은 시간에 그 튜닝을 따라잡기 어렵습니다.
+* **벤더 라이브러리가 없는 새 하드웨어(커스텀 가속기, 이 시리즈의 `nand2npu` 같은 자체 제작 NPU)에 배포한다면** — 4부에서 다룬 MLIR/IREE 같은 컴파일러 인프라가 진가를 발휘합니다. `onnxruntime`이 그 하드웨어를 지원할 때까지 기다릴 필요 없이, `linalg` dialect부터 그 하드웨어의 명령어 집합으로 직접 lowering 경로를 만들 수 있습니다.
+* **양자화는 반드시 대상 하드웨어에서 실측하십시오** — 5~6장에서 봤듯 같은 INT8이라도 방식(동적 vs 정적)과 하드웨어 지원 여부에 따라 17배 느려지거나 1.86배 빨라질 수 있습니다. "양자화하면 빠르다"는 가정 없이, 이 책 전체가 반복한 것처럼 두 버전을 실측해서 비교해야 합니다.
+* **그래프 레벨 최적화(융합, 폴딩)는 공짜에 가까운 최소한의 조치입니다** — 2~4장에서 봤듯 큰 배율은 아니어도(융합 5%, 레이아웃 변환 2.3배) 손해 볼 게 없고, 대부분의 추론 엔진이 기본값으로 이미 해줍니다.
+
+== 직접 해보기
+
+`CoreMLExecutionProvider`만 쓰고 `CPUExecutionProvider`를 폴백으로 아예 안 주면(`providers=["CoreMLExecutionProvider"]`) 어떻게 될까요? 이 장의 그래프는 49개 노드 전부가 CoreML 지원 범위 안이었다는 걸 감안해서 예상해보고 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+sess = ort.InferenceSession("resnet18.onnx", providers=["CoreMLExecutionProvider"])
+----
+
+[source]
+----
+CoreML only (폴백 없음): 0.678ms/inference
+----
+
+본문의 `CoreML + CPU fallback`(0.670ms)과 사실상 같습니다(오차 범위 안) — 이 그래프는 애초에 노드 49개 전부가 CoreML로 넘어갔으니, CPU 폴백이 실제로 쓰일 일이 없었기 때문입니다. 하지만 5장 끝에서 본 INT8 그래프(151개 중 91개만 지원)처럼 일부 노드만 지원되는 경우라면, 폴백을 안 주면 그 순간 `InvalidGraph` 에러로 세션 생성 자체가 실패합니다 — 실전에서는 대상 그래프가 100% 지원되는지 확신할 수 없는 한, `CPUExecutionProvider`를 항상 마지막 폴백으로 남겨두는 게 안전합니다. 이 장의 결과(폴백이 있으나 없으나 속도 차이 없음)와 그 안전성을 같이 고려하면, "폴백을 넣어서 손해 볼 것은 없고 지원 안 되는 그래프를 만났을 때만 도움이 된다"는 게 실전 결론입니다.
+====
+// end::body[]

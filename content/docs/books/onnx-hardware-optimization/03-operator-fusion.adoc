@@ -1,0 +1,100 @@
+---
+title: "3장: 연산자 융합"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "onnxruntime", "operator-fusion", "resnet18", "book"]
+categories: ["books"]
+description: "Conv+ReLU 20쌍 중 9쌍을 실제로 하나의 FusedConv 노드로 합쳐 49개 노드를 40개로 줄였지만 속도는 5%밖에 개선되지 않는 걸 실측하고, 1장에서 본 2.3배 개선의 진짜 원인이 융합이 아니라 레이아웃 변환이라는 걸 정직하게 재확인하는 2부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-where-time-goes/[2장: 시간은 어디로 가는가] · 다음: link:../04-constant-folding/[4장: 상수 폴딩]_
+
+'''
+
+2장은 Conv가 시간의 96.4%를 차지한다는 걸 확인했습니다. 이 장은 "그래프 안의 여러 연산자를 하나로 합치면 빨라진다"는 흔한 주장을 실제로 검증합니다 — 정말로 그런지, 그렇다면 왜, 그리고 1장에서 본 2.3배 개선 중 융합이 실제로 기여한 몫이 얼마인지까지 정직하게 뜯어봅니다.
+
+== 연산자 융합이란
+
+ResNet18의 각 Conv 층 뒤에는 보통 ReLU(`max(x, 0)`)가 붙습니다. 융합 없이 실행하면: Conv가 결과를 전부 메모리에 쓰고, ReLU가 그 메모리를 다시 읽어서 처리한 뒤 또 씁니다 — 중간 결과가 메모리를 한 번 더 왕복합니다. **연산자 융합**은 이 두 연산을 컴파일 타임에 하나의 노드(`FusedConv`)로 합쳐서, Conv가 계산한 값을 메모리에 쓰기 전에 그 자리에서 바로 ReLU까지 적용하게 만듭니다.
+
+== 실제로 몇 개가 합쳐지는가
+
+`onnxruntime`의 `ORT_ENABLE_EXTENDED` 레벨(레이아웃 변환 없이 순수 융합/재작성만 적용)로 최적화한 그래프를 저장해서 노드 구성을 확인합니다.
+
+[source,python]
+----
+so = ort.SessionOptions()
+so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+so.optimized_model_filepath = "resnet18_extended.onnx"
+sess = ort.InferenceSession("resnet18.onnx", sess_options=so, providers=["CPUExecutionProvider"])
+
+m = onnx.load("resnet18_extended.onnx")
+print("op count:", len(m.graph.node))
+print(Counter(n.op_type for n in m.graph.node))
+----
+
+[source]
+----
+원본:    op count: 49   Counter({'Conv': 20, 'Relu': 17, 'Add': 8, 'MaxPool': 1, 'ReduceMean': 1, 'Reshape': 1, 'Gemm': 1})
+EXTENDED: op count: 40   Counter({'Conv': 11, 'FusedConv': 9, 'Add': 8, 'Relu': 8, 'MaxPool': 1, 'ReduceMean': 1, 'Reshape': 1, 'Gemm': 1})
+----
+
+Conv 20개 중 **9개**가 `FusedConv`로 바뀌었고(뒤에 붙은 ReLU를 흡수), 그만큼 독립된 `Relu` 노드가 17개에서 8개로 줄었습니다. 전체 노드 수는 49개 → 40개, 약 18% 감소입니다. (나머지 11개 Conv가 안 합쳐진 이유: ResNet18의 각 residual block 끝 Conv는 ReLU 전에 잔차(Add)를 먼저 거치므로 `Conv → ReLU` 패턴이 아니라 `Conv → Add → ReLU` 패턴이라 이 규칙으로는 안 합쳐집니다.)
+
+== 실측: 이게 얼마나 빨라지는가
+
+[source,python]
+----
+so_basic = ort.SessionOptions()
+so_basic.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC  # 융합 없음
+so_ext = ort.SessionOptions()
+so_ext.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_EXTENDED  # 융합 있음
+# 둘 다 intra_op_num_threads=1
+----
+
+[source]
+----
+ORT_ENABLE_BASIC (융합 없음):    11.815ms/inference
+ORT_ENABLE_EXTENDED (융합 있음): 11.255ms/inference
+----
+
+**5%밖에 안 빨라졌습니다.** 노드를 40개로, 9개나 줄였는데 왜 이 정도밖에 효과가 없을까요 — 답은 2장에 이미 있습니다. ReLU는 전체 노드 실행 시간의 1.9%밖에 안 됩니다(2장 표 참고). 아무리 완벽하게 융합해도, 융합으로 없앨 수 있는 시간의 상한 자체가 원래 작았던 겁니다. **연산자 융합은 "느린 연산 옆의 빠른 연산을 없애는" 최적화이지, 느린 연산(Conv) 자체를 빠르게 만드는 최적화가 아닙니다.**
+
+== 그럼 1장의 2.3배는 어디서 왔는가
+
+1장에서 최적화를 끈 것(11.163ms)과 기본값(`ORT_ENABLE_ALL`, 4.833ms)의 차이는 2.3배였는데, 이 장에서 확인한 순수 융합의 기여는 5%뿐입니다. 나머지는 2장 끝의 "직접 해보기"에서 이미 힌트가 나왔습니다 — `ORT_ENABLE_ALL`은 `ORT_ENABLE_EXTENDED`에 더해 **레이아웃 변환**(NCHW → NHWC, CPU 캐시 접근 패턴에 더 유리한 데이터 배치)까지 적용합니다. 확인해봅니다.
+
+[source]
+----
+ORT_ENABLE_EXTENDED (융합만):        11.255ms/inference
+ORT_ENABLE_ALL (융합 + 레이아웃 변환): 4.833ms/inference
+----
+
+**진짜 큰 이득(11.255ms → 4.833ms, 2.3배)은 레이아웃 변환에서 옵니다**, 순수 연산자 융합(11.815ms → 11.255ms, 5%)이 아닙니다. 이건 이 장을 시작할 때 세운 "연산자를 합치면 빨라진다"는 가설을 정직하게 다시 봐야 한다는 뜻입니다 — 가설 자체가 틀린 건 아니지만(9개가 실제로 합쳐졌고, 그만큼은 빨라졌습니다), **이 특정 모델·하드웨어 조합에서 지배적인 요인은 아니었습니다.** Conv 연산은 메모리에서 데이터를 어떤 순서로 읽고 쓰느냐(레이아웃)에 훨씬 민감한 연산이고, 그건 `heterogeneous-computing-opencl` 책 5~6장에서 본 "메모리 접근 패턴이 병목"이라는 교훈이 여기서도 반복됩니다 — 다만 이번엔 GPU 타일링이 아니라 CPU가 선호하는 채널 순서 문제로 나타난 겁니다.
+
+== 직접 해보기
+
+`ORT_ENABLE_ALL`(융합 + 레이아웃 변환)로 저장한 최적화 그래프의 노드 구성을 확인해서, `NhwcFusedConv`(2장 끝에서 이미 봤던)가 원래 Conv 20개 중 몇 개를 흡수했는지 세어보고, 3장 본문의 순수 융합(9개)과 비교해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+so = ort.SessionOptions()
+so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+so.optimized_model_filepath = "resnet18_all.onnx"
+sess = ort.InferenceSession("resnet18.onnx", sess_options=so, providers=["CPUExecutionProvider"])
+m = onnx.load("resnet18_all.onnx")
+print(Counter(n.op_type for n in m.graph.node))
+----
+
+[source]
+----
+Counter({'Transpose': 18, 'NhwcFusedConv': 17, 'Add': 5, 'Relu': 5, 'FusedConv': 3, 'MaxPool': 1, 'ReduceMean': 1, 'Reshape': 1, 'Gemm': 1})
+----
+
+`NhwcFusedConv` 17개 + `FusedConv` 3개 = **20개 전부**가 융합됐습니다 — 3장 본문(`ORT_ENABLE_EXTENDED`)의 9개보다 훨씬 많습니다. 레이아웃을 NHWC로 통일하고 나면, 원래는 `Conv → Add → ReLU`라서 안 합쳐졌던 residual block 끝의 11개 Conv까지 다른 방식의 융합 규칙(레이아웃 변환 패스가 그래프를 재구성하면서 새로운 융합 기회를 열어줌)으로 합쳐진 것으로 보입니다. 즉 레이아웃 변환은 그 자체로 빠를 뿐 아니라, **다른 최적화(융합)가 더 많이 적용될 수 있는 그래프 형태를 만들어주는 효과**도 있습니다 — 두 최적화가 서로 독립적이지 않고 상호작용한다는 뜻이고, 이건 "최적화 A의 효과 vs 최적화 B의 효과"를 딱 잘라 나누는 게 항상 가능하지는 않다는 것도 보여줍니다.
+====
+// end::body[]

@@ -1,0 +1,107 @@
+---
+title: "5장: FP32에서 INT8로"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "quantization", "int8", "resnet18", "book"]
+categories: ["books"]
+description: "ResNet18을 동적 INT8 양자화해서 모델 크기를 46.7MB에서 11.7MB로 4배 줄이는 데는 성공했지만, 정작 추론 속도는 4.7ms에서 82.5ms로 17배 느려지는 걸 실측하고 프로파일링으로 ConvInteger 커널이 이 환경에서 최적화된 SIMD 경로를 못 타는 게 원인이라는 걸 밝혀 '양자화가 항상 빠르게 만든다'는 통념을 정면으로 반박하는 3부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-constant-folding/[4장: 상수 폴딩] · 다음: link:../06-quantization-tradeoffs/[6장: 양자화의 트레이드오프]_
+
+'''
+
+2부는 그래프의 **구조**를 바꾸는 최적화(융합, 폴딩)를 다뤘습니다. 3부는 숫자의 **정밀도**를 바꾸는 최적화 — 양자화(quantization) — 로 넘어갑니다. FP32(32비트 부동소수점) 가중치와 연산을 INT8(8비트 정수)로 낮추면 메모리는 4분의 1이 되고, 정수 연산은 하드웨어에 따라 부동소수점보다 빠를 수 있습니다. "빠를 수 있다"에 방점을 찍은 이유가 이 장의 핵심입니다.
+
+== 동적 양자화 적용하기
+
+`onnxruntime`은 가중치를 미리 INT8로 바꾸고, 활성값(각 레이어의 중간 출력)은 추론 중에 그때그때 스케일을 계산해서 양자화하는 **동적 양자화**(dynamic quantization)를 표준 도구로 제공합니다. (참고: 양자화 도구의 shape inference 전처리가 1장에서 쓴 export 방식과 안 맞는 경우가 있어, 이 장부터는 `torch.onnx.export(..., dynamo=False)`로 다시 export한 동일한 가중치의 ResNet18을 씁니다 — 그래프 구조와 추론 결과는 동일하고, 이후 벤치마크 숫자도 이 파일 기준입니다.)
+
+[source,python]
+----
+from onnxruntime.quantization import quantize_dynamic, QuantType
+
+quantize_dynamic("resnet18.onnx", "resnet18_int8.onnx", weight_type=QuantType.QInt8)
+----
+
+[source]
+----
+fp32 size: 46.75 MB
+int8 size: 11.74 MB
+----
+
+**모델 크기는 정확히 예상대로 줄었습니다** — 약 4분의 1(46.75MB → 11.74MB). 가중치가 32비트에서 8비트로 줄었으니 당연한 결과입니다. 문제는 속도입니다.
+
+== 실측: 정말로 빨라지는가
+
+[source,python]
+----
+def bench(path, name):
+    sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+    x = np.random.rand(1,3,224,224).astype(np.float32)
+    for _ in range(3): sess.run(None, {"input": x})
+    t0 = time.perf_counter()
+    for _ in range(50): out = sess.run(None, {"input": x})
+    t1 = time.perf_counter()
+    print(f"{name}: {(t1-t0)/50*1000:.3f}ms/inference")
+    return out[0]
+
+y_fp32 = bench("resnet18.onnx", "fp32")
+y_int8 = bench("resnet18_int8.onnx", "int8 (dynamic)")
+----
+
+[source]
+----
+fp32:           4.735ms/inference
+int8 (dynamic): 82.519ms/inference
+----
+
+**17배 느려졌습니다.** "정밀도를 낮추면 빨라진다"는 이 장을 시작할 때 세운 가정이 이 환경에서는 정반대로 뒤집혔습니다 — 모델 크기는 4분의 1이 됐는데, 추론은 17배 느려진 겁니다. 이건 버그가 아닙니다 — 왜 이런 일이 생기는지 2장에서 썼던 프로파일러로 다시 파봅니다.
+
+== 왜 오히려 느려졌는가
+
+[source,python]
+----
+so.enable_profiling = True
+sess = ort.InferenceSession("resnet18_int8.onnx", sess_options=so, providers=["CPUExecutionProvider"])
+# ... 5회 추론 후 프로파일 저장, 2장과 동일한 방식으로 집계
+----
+
+[source]
+----
+ConvInteger           387.458ms  (100 calls)   97.9%
+DynamicQuantizeLinear    2.324ms  (85 calls)    0.6%
+Add                     1.559ms  (140 calls)    0.4%
+Relu                    1.414ms  (85 calls)    0.4%
+Mul                     1.280ms  (200 calls)    0.3%
+----
+
+`ConvInteger`(INT8 Conv 연산)가 전체 시간의 97.9%, 호출 100번(Conv 20개 × 5회 실행)에 387ms — 호출 한 번에 평균 3.87ms입니다. 1장에서 FP32 최적화 버전(`ORT_ENABLE_ALL`)의 전체 추론이 4.83ms였던 것과 비교하면, **INT8 Conv 하나가 FP32 전체 그래프와 맞먹는 시간**을 씁니다. 이유는 명확합니다 — `onnxruntime`의 FP32 Conv 경로는 3장에서 봤듯 NHWC 레이아웃과 융합까지 적용된, 이 하드웨어에 맞춰 고도로 최적화된 경로를 탑니다. 반면 `ConvInteger`는 이 세션 환경(Apple Silicon, macOS용 CPU 실행 provider)에서 그 정도로 최적화된 SIMD 경로를 못 타는 것으로 보입니다 — INT8 연산이 이론적으로 더 적은 비트를 다루니 빨라야 할 것 같지만, **하드웨어가 그 정수 연산을 가속하는 명령어(예: x86의 VNNI, ARM의 dot-product 명령어)를 지원하고 그 커널이 실제로 구현돼 있어야만** 이론적 이득이 실제 속도로 이어집니다.
+
+== 이 장의 핵심 교훈: 양자화는 하드웨어를 가린다
+
+이 장의 결과는 이 책 전체에서 가장 직관에 반하는 실측일 겁니다 — **"비트 수를 줄이면 빨라진다"는 건 하드웨어가 그 낮은 비트 수 연산을 위한 전용 가속 경로를 갖고 있을 때만 성립하는 조건부 명제**입니다. 서버용 x86 CPU(VNNI 지원)나 최신 모바일 NPU(INT8 전용 가속기)에서는 이 장과 정반대로 INT8이 FP32보다 몇 배씩 빠른 게 일반적입니다 — 이 책의 결과가 "양자화는 쓸모없다"는 뜻이 아니라, **"어떤 하드웨어에 배포하는지가 최적화 전략 자체를 바꾼다"**는 이 책 전체의 주제를 가장 극적으로 보여주는 사례입니다. 다음 장에서는 이 트레이드오프(속도, 크기, 정확도)를 정확도 쪽까지 넣어서 정리합니다.
+
+== 직접 해보기
+
+`onnxruntime`이 지원하는 실행 프로바이더 목록(`ort.get_available_providers()`)을 확인하고, `CoreMLExecutionProvider`(이 환경에서 사용 가능한 Apple 전용 프로바이더)로 INT8 모델을 실행하면 속도가 달라지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+print(ort.get_available_providers())
+sess = ort.InferenceSession("resnet18_int8.onnx",
+                             providers=["CoreMLExecutionProvider", "CPUExecutionProvider"])
+----
+
+[source]
+----
+['CoreMLExecutionProvider', 'AzureExecutionProvider', 'CPUExecutionProvider']
+----
+
+`CoreMLExecutionProvider`를 우선순위로 넣으면 `onnxruntime`이 그래프의 일부(또는 전부)를 Apple의 CoreML 프레임워크에 위임할 수 있습니다 — 이건 정확히 이 책 5부에서 다룰 **이기종 실행**(같은 그래프를 다른 하드웨어/런타임에 나눠 맡기는 것)의 실제 사례입니다. 다만 CoreML이 `ConvInteger` 같은 저수준 양자화 연산자를 그대로 지원하지 않을 수 있어서, 지원 안 되는 노드는 자동으로 `CPUExecutionProvider`로 폴백됩니다 — 그래프 전체가 CoreML로 넘어가는지, 일부만 넘어가는지에 따라 결과가 크게 달라질 수 있다는 것 자체가 "프로바이더를 바꾸면 무조건 빨라진다"고 가정하면 안 되는 이유입니다. 이 책은 이 질문을 여기서 던져만 두고, 10장(이기종 스케줄링)에서 왜 이런 폴백이 일어나는지 구조적으로 다시 다룹니다.
+====
+// end::body[]

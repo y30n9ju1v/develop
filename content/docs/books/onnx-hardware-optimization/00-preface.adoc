@@ -1,0 +1,50 @@
+---
+title: "서문: 학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "mlir", "quantization", "onnxruntime", "iree", "book"]
+categories: ["books"]
+description: "ResNet18 하나를 처음부터 끝까지 예제로 삼아, 그래프 최적화(연산자 융합)로 2.3배, MLIR lowering으로 하드웨어별 IR을 실제로 비교하며 학습이 끝난 ONNX 모델을 배포 하드웨어에 맞게 최적화하는 전 과정을 실측으로 검증하는 독립적인 입문서의 서문"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../01-baseline-profiling/[1장: 기준선 측정하기]_
+
+'''
+
+== 이 책이 하려는 것
+
+모델을 학습시키는 법을 다루는 책과 자료는 많습니다. 이 책은 그다음 단계 — **학습이 끝난 모델을 실제 하드웨어에 배포하기 직전, 어떻게 최적화하는가** — 를 다룹니다. 같은 ResNet18 ONNX 그래프라도, 아무 손도 안 댄 채 그냥 돌리는 것과 하드웨어에 맞게 최적화한 것 사이에는 이 책의 1장에서 바로 확인하듯 **2배 이상**의 속도 차이가 납니다. 그 차이가 어디서 오는지 — 연산자를 어떻게 합치는지, 정밀도를 어떻게 낮추는지, 컴파일러가 그래프를 어떤 중간 표현(MLIR)으로 몇 단계에 걸쳐 낮추는지, 커널 하나하나가 하드웨어에 맞게 어떻게 다시 짜이는지, 그리고 CPU와 GPU에 작업을 어떻게 나눠 맡기는지 — 를 이 책 전체가 다룹니다.
+
+이 책은 **ResNet18 하나**를 처음부터 끝까지 예제로 씁니다. `torchvision`에서 사전학습된 가중치를 내려받아 ONNX로 export하고, 그 그래프를 이 책의 모든 장에서 재사용합니다 — 장마다 다른 모델을 쓰면 "이 최적화가 그래서 몇 배 빨라졌는가"를 비교할 축이 사라지기 때문입니다.
+
+== 이 책이 다루는 다섯 기둥
+
+* **왜 최적화가 필요한가** — 학습 프레임워크(PyTorch)가 만든 그래프를 그대로 돌리는 것과 최적화한 것 사이의 실측 차이, 그리고 시간이 어디서 새는지 프로파일링으로 찾는 법.
+* **그래프 레벨 최적화** — Conv+BatchNorm+ReLU 같은 연산자 열을 하나로 합치는 연산자 융합, 상수 폴딩. 노드 개수와 실행 시간을 실측으로 비교.
+* **양자화** — FP32 가중치/연산을 INT8로 낮춰서 메모리 대역폭과 연산량을 동시에 줄이는 기법, 그리고 그 대가로 정확도가 얼마나 떨어지는지.
+* **MLIR lowering** — ONNX 그래프가 `torch` dialect에서 `linalg` dialect를 거쳐 `llvm`(CPU)이나 `spirv`(GPU) dialect로 몇 단계에 걸쳐 낮아지는 실제 과정을, 각 단계의 중간 표현(IR)을 직접 눈으로 확인.
+* **커널 최적화와 이기종 스케줄링** — 타일링 같은 하드웨어 맞춤 최적화가 컴파일된 커널에 실제로 어떻게 반영되는지, 그리고 같은 그래프가 CPU용과 GPU용으로 각각 어떻게 다르게 컴파일되는지 비교.
+
+== 이 책의 도구: onnxruntime과 IREE
+
+이 책은 두 개의 실제 오픈소스 도구를 씁니다.
+
+* **onnxruntime** — 마이크로소프트가 만든 ONNX 추론 엔진입니다. 그래프 최적화(연산자 융합, 상수 폴딩)와 양자화 도구를 표준으로 제공하고, 이 책의 2~3부에서 그 최적화 전후를 실측으로 비교하는 데 씁니다.
+* **IREE**(Intermediate Representation Execution Environment) — MLIR을 실제로 프로덕션에 쓰는 컴파일러 스택입니다. ONNX 그래프를 MLIR의 `torch` dialect로 가져와서(`iree-import-onnx`), 여러 단계의 dialect(`linalg` 등)를 거쳐 최종적으로 CPU(`llvm-cpu`)나 GPU(`vulkan-spirv`, `metal-spirv`) 타깃으로 낮추는 전 과정(`iree-compile`)을 실행할 수 있습니다. 이 책의 4~5부에서 이 도구로 MLIR lowering의 각 단계를 직접 들여다봅니다.
+
+이 책의 모든 수치는 이 세션 환경에서 실제로 ResNet18을 export하고, 실제로 `onnxruntime`과 IREE로 컴파일·실행해서 얻은 결과입니다 — 예를 들어 서문에서 언급한 "2배 이상"은 이 환경에서 그래프 최적화를 끄고(`ORT_DISABLE_ALL`) 켰을 때(`ORT_ENABLE_ALL`) 실측한 `11.16ms`와 `4.83ms`의 차이입니다. GPU 커널 실행은 CPU만큼 이 환경에서 안정적으로 검증하기 어려워서(4~5부에서 다시 짚습니다), GPU 쪽은 **컴파일된 결과(SPIR-V/MLIR IR)를 CPU 버전과 비교하는 데까지**로 범위를 정직하게 제한합니다 — 컴파일이 되는 것과 그 환경에서 실행이 되는 것은 다른 문제이고, 이 책은 실행까지 검증 못 한 것을 검증했다고 말하지 않습니다.
+
+== 읽는 순서
+
+1부부터 5부까지 순서대로 읽는 걸 권합니다 — 같은 ResNet18 그래프가 장을 넘어갈 때마다 한 겹씩 최적화되어 쌓입니다. MLIR이나 컴파일러 배경지식은 가정하지 않습니다 — 4부에서 처음 등장할 때부터 필요한 개념을 그 자리에서 설명합니다.
+
+'''
+
+* 1부: 왜 최적화가 필요한가 — link:../01-baseline-profiling/[1장], link:../02-where-time-goes/[2장]
+* 2부: 그래프 레벨 최적화 — link:../03-operator-fusion/[3장], link:../04-constant-folding/[4장]
+* 3부: 양자화 — link:../05-int8-quantization/[5장], link:../06-quantization-tradeoffs/[6장]
+* 4부: MLIR lowering — link:../07-onnx-to-mlir/[7장], link:../08-lowering-to-targets/[8장]
+* 5부: 커널 최적화와 이기종 스케줄링 — link:../09-kernel-tiling-in-practice/[9장], link:../10-heterogeneous-scheduling/[10장]
+* link:../11-afterword/[맺음말]
+// end::body[]

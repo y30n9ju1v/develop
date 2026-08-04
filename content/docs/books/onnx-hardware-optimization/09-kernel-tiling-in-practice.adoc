@@ -1,0 +1,113 @@
+---
+title: "9장: 커널 타일링 실전"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "mlir", "iree", "kernel-optimization", "resnet18", "book"]
+categories: ["books"]
+description: "8장에서 컴파일만 확인했던 IREE의 llvm-cpu 백엔드로 ResNet18을 실제로 실행해서 344.7ms를 측정하고, 타깃 CPU 명시(289.5ms)와 마이크로커널 활성화(328.9ms, 오히려 소폭 악화)를 차례로 시도해도 1장의 onnxruntime(4.8ms)에는 60배 넘게 못 미친다는 걸 정직하게 확인해, 범용 컴파일러 코드 생성과 벤더 전용 최적화 라이브러리 사이의 실제 격차를 보여주는 5부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-lowering-to-targets/[8장: 타깃별로 낮추기] · 다음: link:../10-heterogeneous-scheduling/[10장: 이기종 스케줄링]_
+
+'''
+
+8장은 IREE가 ResNet18을 `llvm-cpu` 타깃으로 **컴파일**할 수 있다는 것까지 확인했습니다. 이 장은 그 컴파일된 결과를 실제로 **실행**해서, 1장에서 측정한 `onnxruntime`(4.833ms)과 정면으로 비교합니다.
+
+== IREE로 컴파일한 ResNet18 실행하기
+
+[source]
+----
+$ iree-compile --iree-hal-target-backends=llvm-cpu resnet18.mlir -o resnet18_default.vmfb
+----
+
+[source,python]
+----
+import iree.runtime as ireert
+
+config = ireert.Config("local-task")
+ctx = ireert.SystemContext(config=config)
+with open("resnet18_default.vmfb", "rb") as f:
+    vm_module = ireert.VmModule.copy_buffer(config.vm_instance, f.read())
+ctx.add_vm_module(vm_module)
+f = ctx.modules.module["main_graph"]
+
+x = np.random.rand(1,3,224,224).astype(np.float32)
+for _ in range(3): f(x)
+t0 = time.perf_counter()
+for _ in range(30): y = f(x)
+t1 = time.perf_counter()
+print(f"iree llvm-cpu default: {(t1-t0)/30*1000:.3f}ms/inference")
+----
+
+[source]
+----
+iree llvm-cpu default: 344.711ms/inference
+----
+
+1장에서 `onnxruntime`(`ORT_ENABLE_ALL`)이 같은 ResNet18을 **4.833ms**에 처리했던 걸 떠올려보세요. IREE의 기본 컴파일 결과는 **344.711ms** — **71배 느립니다.**
+
+== 타깃을 명시하면 얼마나 나아지는가
+
+8장 끝의 "직접 해보기"에서 `--iree-llvmcpu-target-cpu=host`가 `+dotprod` 같은 이 CPU의 실제 명령어 확장을 컴파일러에 알려준다는 걸 확인했습니다. 실행 속도에 실제로 반영되는지 봅니다.
+
+[source]
+----
+$ iree-compile --iree-hal-target-backends=llvm-cpu \
+    --iree-llvmcpu-target-cpu=host resnet18.mlir -o resnet18_host.vmfb
+----
+
+[source]
+----
+iree llvm-cpu default:          344.711ms/inference
+iree llvm-cpu target-cpu=host:  289.512ms/inference
+----
+
+**16% 개선됐습니다**(344.7ms → 289.5ms) — 8장에서 확인한 명령어 확장 인식이 실제 속도로 이어진다는 증거이지만, `onnxruntime`과의 격차(4.833ms)는 여전히 **60배** 가까이 남아 있습니다.
+
+== 마이크로커널을 켜면 어떨까
+
+IREE는 `Conv`나 `MatMul`처럼 흔한 연산에 대해 컴파일러의 범용 코드 생성 대신 손으로 튜닝된 "마이크로커널(ukernel)"을 링크해 쓸 수 있는 옵션을 제공합니다 — 정확히 `onnxruntime`이 하는 일(벤더가 미리 최적화해둔 커널을 쓰는 것)과 같은 아이디어입니다.
+
+[source]
+----
+$ iree-compile --iree-hal-target-backends=llvm-cpu \
+    --iree-llvmcpu-target-cpu=host \
+    --iree-llvmcpu-enable-ukernels=all resnet18.mlir -o resnet18_ukernel.vmfb
+----
+
+[source]
+----
+iree llvm-cpu host + ukernels: 328.866ms/inference
+----
+
+예상과 다르게, **오히려 소폭 느려졌습니다**(289.5ms → 328.9ms). 마이크로커널을 켜는 게 항상 이득이라고 가정했다면 틀렸던 겁니다 — 이 플래그가 실제로 어떤 연산에 어떤 커널을 적용했는지, 이 그래프의 특정 텐서 모양(shape)에 그 커널이 잘 맞았는지는 이 장의 측정만으로는 알 수 없고, 더 깊은 프로파일링(어떤 dispatch가 ukernel 경로를 탔는지)이 필요합니다 — 이 책은 그 깊이까지는 파지 않고, "이 플래그를 켰다고 무조건 빨라지는 건 아니다"라는 실측 결과까지만 정직하게 남겨둡니다.
+
+== 왜 이렇게 큰 격차가 남는가
+
+세 번 시도해도 `onnxruntime` 근처에도 못 갔다는 사실 자체가 이 장의 핵심 교훈입니다. `onnxruntime`의 FP32 경로(1~3장에서 본 `NhwcFusedConv`)는 이 하드웨어를 위해 수년간 손으로 튜닝된 Conv 커널(내부적으로 Apple의 Accelerate/BNNS 같은 벤더 라이브러리를 쓰거나, 그에 준하는 최적화가 된 자체 구현)을 씁니다. IREE의 `llvm-cpu` codegen 경로는 `linalg.matmul`이나 `linalg.generic` 같은 범용 표현에서 시작해 **컴파일러가 스스로** 타일링, 벡터화, 메모리 접근 순서를 결정합니다 — 이 장에서 시도한 타깃 CPU 명시와 마이크로커널은 그 자동 생성을 돕는 힌트일 뿐, `heterogeneous-computing-opencl` 책 5~6장에서 사람이 직접 실측하며 찾았던 타일 크기 같은 수작업 튜닝을 완전히 대체하지는 못합니다.
+
+이건 IREE나 MLIR이 "실패작"이라는 뜻이 아닙니다 — 이 컴파일러 스택의 진짜 가치는 (8장에서 봤듯) **onnxruntime이 지원 안 하는 새로운 하드웨어**(전용 가속기, 실험적인 GPU 타깃)에 같은 그래프를 이식할 수 있다는 이식성에 있습니다. 이미 벤더가 수년간 튜닝해둔 주류 CPU/GPU 경로에서는, 범용 컴파일러가 그 튜닝을 단기간에 따라잡기 어렵다는 게 이 장의 정직한 결론입니다. 10장에서 이 결론을 바탕으로 "그러면 실전에서는 무엇을 어디에 배치해야 하는가"를 다룹니다.
+
+== 직접 해보기
+
+`iree.runtime.Config("local-task")` 대신 `Config("local-sync")`(스레드 풀 없이 단일 스레드로 동기 실행)를 쓰면 속도가 어떻게 달라질까요? `local-task`가 이미 멀티스레딩을 쓰고 있었는지, 그리고 1장 끝에서 본 "작은 배치에서는 멀티스레딩이 오히려 손해였다"는 패턴이 여기서도 나타나는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+config = ireert.Config("local-sync")
+# ... 나머지는 본문과 동일
+----
+
+[source]
+----
+iree llvm-cpu host, local-task (스레드풀):   313.828ms/inference
+iree llvm-cpu host, local-sync (단일 스레드): 893.005ms/inference
+----
+
+`local-sync`가 **2.85배나 느립니다** — 예상한 방향은 맞았지만(스레드 풀이 없으면 느려질 거라 예상했다면), 그 폭은 훨씬 컸습니다. 이건 1장 끝에서 본 "작은 배치에서 멀티스레딩이 오히려 손해"였던 결과와 정반대 방향입니다. 왜 이렇게 다를까요 — 1장의 `onnxruntime`은 이미 최적화된 빠른 커널(4.8ms)을 쓰고 있어서 스레드를 나누고 다시 모으는 조율 비용이 계산 시간 대비 크게 두드러졌지만, 이 장의 IREE codegen은 훨씬 느린 범용 커널(289~344ms)을 쓰기 때문에 **병렬화로 아낄 수 있는 절대 시간 자체가 훨씬 큽니다** — 조율 비용은 두 경우에 비슷하더라도, 나눌 일감이 훨씬 크면 병렬화가 압도적으로 유리해집니다. 같은 "멀티스레딩을 켜고 끄기"라는 조작이 베이스라인 커널의 속도에 따라 정반대 결론(1장: 손해, 이 장: 2.85배 이득)을 낼 수 있다는 걸 다시 확인했습니다 — 이 책이 반복해서 강조하는 "실측해야 안다"는 원칙이 여기서도, 그것도 아주 극적인 폭으로 유효합니다.
+====
+// end::body[]

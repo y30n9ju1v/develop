@@ -1,0 +1,118 @@
+---
+title: "2장: 시간은 어디로 가는가"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "onnxruntime", "profiling", "resnet18", "book"]
+categories: ["books"]
+description: "onnxruntime의 내장 프로파일러로 ResNet18의 연산자별 실행 시간을 실측해, Conv 연산 20개(전체 49개 노드 중)가 전체 노드 실행 시간의 96.4%를 차지한다는 걸 확인하고 이후 8개 장의 최적화 노력이 왜 전부 Conv를 겨냥하는지 근거를 세우는 1부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-baseline-profiling/[1장: 기준선 측정하기] · 다음: link:../03-operator-fusion/[3장: 연산자 융합]_
+
+'''
+
+1장은 "전체가 얼마나 걸리는가"를 쟀습니다. 이 장은 "그 시간이 그래프 안 어디서 새는가"를 노드 단위로 쪼개서 봅니다 — 최적화는 병목을 모르면 방향을 잡을 수 없기 때문입니다.
+
+== onnxruntime 내장 프로파일러 켜기
+
+`onnxruntime`은 `enable_profiling`을 켜면 실행마다 노드별 시작/종료 시각을 크롬 트레이싱 형식(JSON)으로 저장합니다.
+
+[source,python]
+----
+so = ort.SessionOptions()
+so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL  # 1장 기준선
+so.intra_op_num_threads = 1
+so.enable_profiling = True
+sess = ort.InferenceSession("resnet18.onnx", sess_options=so, providers=["CPUExecutionProvider"])
+
+x = np.random.rand(1,3,224,224).astype(np.float32)
+for _ in range(10):
+    sess.run(None, {"input": x})
+prof_file = sess.end_profiling()
+----
+
+일부러 **최적화를 끈 상태**(`ORT_DISABLE_ALL`)로 프로파일링합니다 — 3장부터 다룰 최적화가 정확히 무엇을 줄이는지 보려면, 최적화 전 "원래 그래프"에서 시간이 어디로 가는지부터 알아야 하기 때문입니다.
+
+== 결과 분석: 연산자별 시간 집계
+
+[source,python]
+----
+import json
+from collections import defaultdict
+
+with open(prof_file) as f:
+    events = json.load(f)
+
+by_op = defaultdict(float)
+by_op_count = defaultdict(int)
+for e in events:
+    if e.get("cat") == "Node" and "op_name" in e.get("args", {}):
+        op = e["args"]["op_name"]
+        by_op[op] += e["dur"]
+        by_op_count[op] += 1
+
+total = sum(by_op.values())
+for op, dur in sorted(by_op.items(), key=lambda kv: -kv[1]):
+    print(f"{op:12s} {dur/1000:8.3f}ms total  ({by_op_count[op]:3d} calls)  {dur/total*100:5.1f}%")
+----
+
+[source]
+----
+Conv                  154.457ms total  (200 calls)   96.4%
+Relu                    2.966ms total  (170 calls)    1.9%
+MaxPool                 1.383ms total  ( 10 calls)    0.9%
+Add                     0.946ms total  ( 80 calls)    0.6%
+Gemm                    0.330ms total  ( 10 calls)    0.2%
+ReduceMean              0.067ms total  ( 10 calls)    0.0%
+Reshape                 0.015ms total  ( 10 calls)    0.0%
+total node time: 160.164 ms
+----
+
+10번 반복 실행(각 반복마다 Conv 노드 20개 → 총 200번 호출)을 합산한 결과, **Conv 연산이 전체 노드 실행 시간의 96.4%를 차지**합니다. 나머지 연산(ReLU, MaxPool, Add, Gemm, ReduceMean, Reshape)을 전부 합쳐도 4%가 안 됩니다.
+
+== 왜 Conv가 압도적인가
+
+ResNet18의 그래프 구조를 보면 이유가 명확합니다 — Conv는 49개 노드 중 20개(41%)뿐이지만, 각 Conv는 커널을 이미지 전체에 슬라이딩하며 곱셈-누적을 반복하는 **연산량이 많은** 연산입니다. 반면 ReLU(`max(x, 0)`)나 Add(원소별 덧셈)는 원소 하나당 연산 하나뿐인 가벼운 연산입니다. `heterogeneous-computing-opencl` 책 1~2장에서 "계산 강도가 낮은 연산은 아무리 많아도 시간을 별로 안 먹는다"고 했던 것과 정확히 같은 패턴이 여기 CNN 그래프 안에서도 나타납니다 — 연산자 **개수**가 아니라 연산자의 **계산량**이 시간을 결정합니다.
+
+== 이 장이 이후 8개 장의 방향을 정한다
+
+이 결과는 이 책의 나머지 구성을 정당화합니다.
+
+* 3장(연산자 융합)이 Conv 뒤에 붙는 BatchNorm/ReLU를 Conv 안으로 합치는 이유 — Conv 자체의 연산량은 안 줄지만, Conv 앞뒤로 데이터를 오가는 오버헤드(메모리 접근, 커널 디스패치)를 줄입니다.
+* 5장(양자화)이 Conv의 가중치와 활성값을 INT8로 낮추는 이유 — 전체 시간의 96%를 차지하는 연산의 정밀도를 낮추는 게, ReLU 같은 가벼운 연산을 낮추는 것보다 훨씬 큰 이득입니다.
+* 9장(커널 타일링)이 Conv 커널의 메모리 접근 패턴에 집중하는 이유 — `heterogeneous-computing-opencl` 5~6장에서 본 행렬곱 타일링과 사실상 같은 문제(Conv는 내부적으로 행렬곱으로 변환되는 경우가 많습니다, im2col 기법)입니다.
+
+이 책의 최적화 대부분이 결국 "Conv를 어떻게 더 싸게 만드는가"로 수렴하는 건 우연이 아니라, 이 장에서 확인한 96.4%라는 숫자가 직접적인 근거입니다.
+
+== 직접 해보기
+
+같은 프로파일링을 `ORT_ENABLE_ALL`(1장의 최적화된 설정)로 다시 해보면, Conv의 비중(96.4%)이 올라갈까 내려갈까? 최적화가 Conv 자체를 더 빠르게 만드는 것과 Conv **주변**의 오버헤드를 줄이는 것 중 어느 쪽에 가까운지 생각해보고 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+so = ort.SessionOptions()
+so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+so.intra_op_num_threads = 1
+so.enable_profiling = True
+sess = ort.InferenceSession("resnet18.onnx", sess_options=so, providers=["CPUExecutionProvider"])
+----
+
+[source]
+----
+NhwcFusedConv        120.862ms total  (170 calls)   90.9%
+Transpose               4.429ms total  (180 calls)    3.3%
+FusedConv                3.905ms total  ( 30 calls)    2.9%
+MaxPool                  1.365ms total  ( 10 calls)    1.0%
+Add                      0.818ms total  ( 50 calls)    0.6%
+Relu                     0.720ms total  ( 50 calls)    0.5%
+Gemm                     0.421ms total  ( 10 calls)    0.3%
+total node time: 132.908ms
+----
+
+Conv 계열(`NhwcFusedConv` + `FusedConv`)의 비중은 96.4%에서 93.8%로 **여전히 압도적**입니다 — 예상대로입니다. 다만 예상 못 한 것도 하나 나왔습니다 — **`Transpose`라는 새 연산자가 3.3%를 차지하며 등장**했습니다. 노드 이름이 `NhwcFusedConv`로 바뀐 데서 알 수 있듯, 최적화는 데이터 배치 순서를 CPU에 더 유리한 형태(NCHW → NHWC)로 바꾸는 레이아웃 변환까지 포함하는데, 그 변환 자체가 `Transpose` 연산으로 그래프에 새로 추가된 겁니다. 즉 최적화가 "노드를 줄이기만" 하는 게 아니라 **"어떤 노드는 없애고, 대신 하드웨어 친화적인 새 노드를 추가하기도 한다"**는 걸 보여줍니다 — 3장에서 이 트레이드오프를 노드 개수 자체로 다시 확인합니다. Conv가 압도적 비중을 차지한다는 이 장의 핵심 결론은 최적화 여부와 무관하게 계속 유효하고, 그래서 3장 이후로도 이 책의 초점은 계속 Conv에 맞춰집니다.
+====
+// end::body[]

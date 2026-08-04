@@ -1,0 +1,116 @@
+---
+title: "8장: 타깃별로 낮추기"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "mlir", "iree", "llvm", "spirv", "heterogeneous-computing", "book"]
+categories: ["books"]
+description: "7장의 linalg dialect까지 낮춘 같은 그래프를 llvm-cpu(arm64, NEON 128비트)와 vulkan-spirv(워크그룹 크기 2x4x1) 두 타깃으로 각각 컴파일해서 실제 생성된 타깃별 IR을 나란히 비교하고, GPU 타깃 프로파일이 이 세션의 실제 M4가 아니라 컴파일 시점 기본값이라는 걸 정직하게 밝히는 4부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-onnx-to-mlir/[7장: ONNX에서 MLIR로] · 다음: link:../09-kernel-tiling-in-practice/[9장: 커널 타일링 실전]_
+
+'''
+
+7장에서 `linalg` dialect까지 낮춘 그래프는 아직 **하드웨어 중립적**이었습니다 — `linalg.matmul`이라는 연산은 CPU에서 돌지 GPU에서 돌지 아직 정해지지 않았습니다. 이 장은 같은 `linalg` 그래프를 `--iree-hal-target-backends` 하나만 바꿔서 CPU용과 GPU용으로 각각 컴파일하고, 실제로 생성된 타깃별 IR을 나란히 비교합니다.
+
+== 같은 명령, 다른 타깃
+
+[source]
+----
+$ iree-compile --iree-hal-target-backends=llvm-cpu tiny.mlir -o tiny_cpu.vmfb
+$ iree-compile --iree-hal-target-backends=vulkan-spirv tiny.mlir -o tiny_vulkan.vmfb
+----
+
+입력(`tiny.mlir`, 7장에서 만든 `torch` dialect 그래프)은 완전히 같습니다 — 바뀐 건 `--iree-hal-target-backends` 플래그 하나뿐입니다. `--compile-to=executable-targets`로 각각 어디까지 낮아졌는지 중간 결과를 들여다봅니다.
+
+== CPU 타깃: llvm-cpu
+
+[source,mlir]
+----
+#hal.executable.target<"llvm-cpu", "embedded-elf-arm_64", {
+  cpu = "", cpu_features = "+reserve-x18",
+  data_layout = "e-m:e-p270:32:32-...-n32:64-S128-Fn32",
+  native_vector_size = 16 : i64,
+  target_triple = "arm64-unknown-unknown-eabi-elf"
+}>
+----
+
+`target_triple = "arm64-unknown-unknown-eabi-elf"`가 이 세션 환경(Apple Silicon)의 실제 CPU 아키텍처를 그대로 반영합니다. `native_vector_size = 16`(바이트)은 128비트 SIMD 레지스터(ARM NEON) 하나에 `float32` 4개가 들어간다는 뜻입니다 — 이 정보를 갖고 있어야 컴파일러가 이후 단계에서 `linalg.generic`의 루프를 SIMD 명령어로 벡터화할 수 있습니다(4개씩 묶어 처리). CPU는 이렇게 **컴파일 시점에 실행 중인 하드웨어를 그대로 조회**해서 정확한 타깃 정보를 얻습니다.
+
+== GPU 타깃: vulkan-spirv
+
+[source,mlir]
+----
+#hal.executable.target<"vulkan-spirv", "vulkan-spirv-fb", {
+  iree_codegen.target_info = #iree_gpu.target<
+    arch = "vp_android_baseline_2022",
+    features = "spirv:v1.3,cap:Shader",
+    wgp = <compute = fp32|int32, storage = b32, subgroup = none,
+           subgroup_size_choices = [64],
+           max_workgroup_sizes = [128, 128, 64],
+           max_thread_count_per_workgroup = 128,
+           max_workgroup_memory_bytes = 16384,
+           max_workgroup_counts = [65535, 65535, 65535]>>
+}>
+----
+
+여기서 이 책이 반드시 짚어야 할 게 있습니다 — `arch = "vp_android_baseline_2022"`라는 이름에서 드러나듯, 이건 **이 세션의 실제 GPU(Apple M4) 사양이 아니라 IREE가 실제 Vulkan 드라이버 없이 컴파일할 때 쓰는 일반적인 기본 프로파일**입니다. `max_workgroup_sizes = [128, 128, 64]`, `max_thread_count_per_workgroup = 128`은 `heterogeneous-computing-opencl` 책 1~3장에서 이 세션의 실제 OpenCL 디바이스로 직접 조회했던 `max_work_group_size = 256`과 **다른 숫자**입니다 — 같은 하드웨어인데 왜 다르냐면, OpenCL 쪽은 실제 디바이스에 질의해서 얻은 값이고, 이 Vulkan 컴파일은 (서문에서 밝혔듯) 실행이 아니라 **컴파일까지만** 검증한 것이라 실제 디바이스 조회 없이 일반적인 기본값을 쓴 것이기 때문입니다. 이 차이 자체가 이 장의 핵심 교훈입니다 — **"컴파일이 된다"와 "이 하드웨어에 맞게 최적으로 컴파일됐다"는 다른 문제**입니다. 실제 배포에서는 반드시 대상 GPU를 컴파일 시점에 명시(`--iree-vulkan-target=...` 같은 플래그)하거나, 그 디바이스가 연결된 환경에서 컴파일해야 이 최적화가 의미 있는 숫자를 반영합니다.
+
+== 워크그룹 크기까지 실제로 배정된다
+
+한 가지는 이 컴파일이 실제로 커널 디스패치까지 구체화했다는 걸 보여줍니다 — `tiny.onnx`의 `MatMul`(4×16×8 크기) 커널에 배정된 워크그룹 크기를 SPIR-V 코드에서 직접 확인할 수 있습니다.
+
+[source]
+----
+spirv.ExecutionMode @tiny$async_dispatch_0_matmul_4x16x8_f32 "LocalSize", 2, 4, 1
+----
+
+이 작은 행렬곱에 `(2, 4, 1)` 크기의 워크그룹이 배정됐습니다 — `heterogeneous-computing-opencl` 책 3장에서 `(TILE, TILE)`처럼 워크그룹 크기를 손으로 골랐던 것과 달리, 여기서는 **컴파일러가 문제 크기(4×16×8)를 보고 자동으로** 워크그룹 크기를 결정했습니다. 이게 MLIR 기반 컴파일러 스택이 하는 일 중 하나입니다 — 그 책에서 사람이 직접 실측하며 찾았던 타일 크기 선택을, 여기서는 컴파일러의 코드 생성(codegen) 패스가 휴리스틱으로 대신합니다(항상 최적이라는 보장은 없습니다 — 9장에서 이 자동 선택과 사람이 직접 튜닝한 값을 비교합니다).
+
+== 4부 정리
+
+7~8장을 거치며 같은 ONNX 그래프가 4단계 표현을 거치는 걸 직접 확인했습니다.
+
+[cols="1,3"]
+|===
+|단계 |표현
+
+|ONNX |`onnx.MatMul`, `onnx.Add`, `onnx.Relu` (프레임워크 특화 이름)
+|MLIR `torch` dialect |`torch.operator "onnx.MatMul"` (형식만 MLIR로 변환)
+|MLIR `linalg` dialect |`linalg.matmul`, `linalg.generic` (하드웨어 중립, 프레임워크 중립)
+|타깃별 IR |`llvm-cpu`(ARM NEON 벡터화) 또는 `vulkan-spirv`(워크그룹 배정) — 하드웨어별로 완전히 다른 코드
+|===
+
+같은 `linalg` 표현에서 시작해 CPU와 GPU로 완전히 다른 실행 코드가 나온다는 게 MLIR의 "여러 하드웨어를 하나의 컴파일러 인프라로 지원한다"는 약속의 실체입니다. 5부는 이 lowering 결과를 다시 CPU 실측(9장)과 CPU/GPU 컴파일 결과 비교(10장)로 마무리합니다.
+
+== 직접 해보기
+
+`llvm-cpu` 타깃에 `--iree-llvmcpu-target-cpu=apple-m1`(또는 `apple-a14`처럼 이 아키텍처 계열의 구체적인 CPU 이름)을 명시하면, `target_triple`이나 `cpu_features`가 기본값(`cpu = ""`)과 어떻게 달라지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source]
+----
+$ iree-compile --iree-hal-target-backends=llvm-cpu \
+    --iree-llvmcpu-target-cpu=apple-m1 \
+    --compile-to=executable-targets tiny.mlir -o tiny_m1.mlir
+----
+
+[source,mlir]
+----
+#hal.executable.target<"llvm-cpu", "embedded-elf-arm_64", {
+  cpu = "apple-m1",
+  cpu_features = "+v8.4a,+aes,+altnzcv,+ccdp,+ccpp,+complxnum,+crc,+dotprod,+flagm,
+                  +fp-armv8,+fp16fml,+fptoint,+fullfp16,+jsconv,+lse,+neon,+pauth,
+                  +perfmon,+predres,+ras,+rcpc,+rdm,+sb,+sha2,+sha3,+specrestrict,
+                  +ssbs,+reserve-x18",
+  native_vector_size = 16 : i64,
+  target_triple = "arm64-unknown-unknown-eabi-elf"
+}>
+----
+
+기본값(`cpu = ""`, `cpu_features = "+reserve-x18"` 하나뿐)과 달리, `cpu = "apple-m1"`을 명시하니 `cpu_features`가 **28개짜리 구체적인 명령어 확장 목록**으로 확 늘어났습니다. 그중 `+dotprod`가 특히 눈에 띕니다 — ARM의 정수 내적(dot-product) 가속 명령어로, 정확히 5장에서 다룬 INT8 양자화 Conv 연산 같은 정수 행렬곱을 빠르게 하기 위한 하드웨어 기능입니다. 기본값 컴파일(`cpu = ""`)에서는 이 기능의 존재 자체를 컴파일러가 몰랐고, 그래서 활용할 수도 없었습니다 — 5장에서 이 세션의 `onnxruntime` 빌드가 `ConvInteger`를 최적화된 경로로 못 태웠던 것과 정확히 같은 종류의 문제(정수 가속 명령어를 실제로 활용하는 코드가 생성되지 않음)가, 컴파일 시점에 타깃 CPU를 명시하지 않으면 IREE의 codegen에서도 똑같이 일어날 수 있다는 뜻입니다. 이게 8장 본문에서 짚은 "컴파일이 된다"와 "이 하드웨어에 맞게 최적으로 컴파일됐다"의 차이를 CPU 쪽에서, 그것도 5장의 INT8 이야기와 직접 연결되는 방식으로 보여주는 사례입니다.
+====
+// end::body[]

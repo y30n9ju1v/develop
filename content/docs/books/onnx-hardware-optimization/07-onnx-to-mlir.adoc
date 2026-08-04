@@ -1,0 +1,139 @@
+---
+title: "7장: ONNX에서 MLIR로"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "mlir", "iree", "torch-dialect", "linalg", "book"]
+categories: ["books"]
+description: "MatMul+Add+ReLU 세 노드짜리 작은 ONNX 그래프를 iree-import-onnx로 MLIR torch dialect로, iree-compile로 linalg dialect까지 실제로 낮춰서, ONNX의 MatMul이 linalg.matmul로, Add+ReLU가 linalg.generic 안의 스칼라 연산으로 바뀌는 과정을 직접 눈으로 확인하는 4부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-quantization-tradeoffs/[6장: 양자화의 트레이드오프] · 다음: link:../08-lowering-to-targets/[8장: 타깃별로 낮추기]_
+
+'''
+
+2~3부는 그래프를 최적화했습니다. 이 최적화들은 여전히 "ONNX 연산자"라는 추상화 수준에서 이루어졌습니다 — 실제 하드웨어는 `Conv`나 `MatMul` 같은 이름을 모릅니다, 명령어와 루프만 압니다. 이 장부터는 ONNX 그래프가 그 격차를 메우기 위해 어떤 중간 단계들을 거치는지, **MLIR**(Multi-Level Intermediate Representation)이라는 실제 컴파일러 인프라로 직접 확인합니다.
+
+== 작은 예제로 시작하기: MatMul + Add + ReLU
+
+ResNet18은 노드가 49개라 MLIR로 낮춘 결과를 한눈에 보기 어렵습니다. 이 장은 아주 작은 그래프 — `y = relu(x @ W + b)` — 로 lowering 과정을 명확하게 봅니다.
+
+[source,python]
+----
+X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [4, 8])
+Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [4, 16])
+W = helper.make_tensor("W", TensorProto.FLOAT, [8,16], np.random.rand(8,16).astype(np.float32).flatten())
+B = helper.make_tensor("B", TensorProto.FLOAT, [16], np.random.rand(16).astype(np.float32).flatten())
+matmul = helper.make_node("MatMul", ["X","W"], ["mm"])
+add = helper.make_node("Add", ["mm","B"], ["add"])
+relu = helper.make_node("Relu", ["add"], ["Y"])
+graph = helper.make_graph([matmul,add,relu], "tiny", [X], [Y], initializer=[W,B])
+model = helper.make_model(graph, opset_imports=[helper.make_opsetid("",17)])
+onnx.save(model, "tiny.onnx")
+----
+
+== 1단계: ONNX → MLIR `torch` dialect
+
+IREE의 `iree-import-onnx` 도구는 ONNX 그래프를 그대로 MLIR로 옮깁니다 — 이 첫 단계는 연산자 이름만 `onnx.` 접두어를 붙여 그대로 유지하는, ONNX와 거의 1:1 대응하는 표현입니다.
+
+[source]
+----
+$ iree-import-onnx tiny.onnx -o tiny.mlir
+$ cat tiny.mlir
+----
+
+[source,mlir]
+----
+module {
+  func.func @tiny(%arg0: !torch.vtensor<[4,8],f32>) -> !torch.vtensor<[4,16],f32> {
+    %0 = torch.operator "onnx.Constant"() {torch.onnx.value = dense<...> : tensor<8x16xf32>}
+         : () -> !torch.vtensor<[8,16],f32>
+    %1 = torch.operator "onnx.Constant"() {torch.onnx.value = dense<[...]> : tensor<16xf32>}
+         : () -> !torch.vtensor<[16],f32>
+    %2 = torch.operator "onnx.MatMul"(%arg0, %0)
+         : (!torch.vtensor<[4,8],f32>, !torch.vtensor<[8,16],f32>) -> !torch.vtensor<[4,16],f32>
+    %3 = torch.operator "onnx.Add"(%2, %1)
+         : (!torch.vtensor<[4,16],f32>, !torch.vtensor<[16],f32>) -> !torch.vtensor<[4,16],f32>
+    %4 = torch.operator "onnx.Relu"(%3) : (!torch.vtensor<[4,16],f32>) -> !torch.vtensor<[4,16],f32>
+    return %4 : !torch.vtensor<[4,16],f32>
+  }
+}
+----
+
+`torch.operator "onnx.MatMul"`처럼 아직 ONNX 이름이 그대로 남아있습니다 — 이 단계는 "ONNX 파일 형식"에서 "MLIR이라는 텍스트 기반 IR 형식"으로 **포맷만 바꾼** 것에 가깝고, 아직 어떤 최적화나 하드웨어 특화도 일어나지 않았습니다. `!torch.vtensor<[4,8],f32>`라는 타입 표기가 MLIR의 특징입니다 — 텐서의 shape(`[4,8]`)와 원소 타입(`f32`)이 타입 시스템 안에 그대로 박혀 있어서, 이후 단계들이 "이 텐서가 몇 차원, 몇 크기인지" 매번 따로 추적하지 않고 타입만 보고 알 수 있습니다.
+
+== 2단계: `torch` dialect → `linalg` dialect
+
+다음 단계(`iree-compile --compile-to=input`)는 `onnx.*` 연산자 이름을 완전히 벗어나, MLIR의 표준 dialect인 **`linalg`**(선형대수 연산을 위한 dialect)로 낮춥니다.
+
+[source]
+----
+$ iree-compile --iree-hal-target-backends=llvm-cpu --compile-to=input tiny.mlir -o tiny_linalg.mlir
+----
+
+[source,mlir]
+----
+%3 = linalg.matmul ins(%0, %cst_0 : tensor<4x8xf32>, tensor<8x16xf32>)
+                    outs(%2 : tensor<4x16xf32>) -> tensor<4x16xf32>
+%4 = linalg.generic {indexing_maps = [...], iterator_types = ["parallel", "parallel"]}
+     ins(%3, %cst_1 : tensor<4x16xf32>, tensor<16xf32>) outs(%1 : tensor<4x16xf32>) {
+  ^bb0(%in: f32, %in_2: f32, %out: f32):
+    %8 = arith.addf %in, %in_2 : f32
+    linalg.yield %8 : f32
+} -> tensor<4x16xf32>
+%5 = linalg.generic {indexing_maps = [...], iterator_types = ["parallel", "parallel"]}
+     ins(%4 : tensor<4x16xf32>) outs(%1 : tensor<4x16xf32>) {
+  ^bb0(%in: f32, %out: f32):
+    %8 = arith.cmpf ugt, %in, %cst : f32
+    %9 = arith.select %8, %in, %cst : f32
+    linalg.yield %9 : f32
+} -> tensor<4x16xf32>
+----
+
+세 연산자가 각각 다른 방식으로 낮아진 걸 볼 수 있습니다.
+
+* **`MatMul`** → `linalg.matmul`이라는 **전용 연산**으로 낮아집니다 — 행렬곱은 워낙 흔하고 최적화 여지가 커서(`heterogeneous-computing-opencl` 책 5~6장에서 본 타일링 같은), `linalg`가 이름 있는 연산으로 따로 취급합니다.
+* **`Add`** → `linalg.generic`이라는 **범용 틀** 안에, "각 원소에 `arith.addf`(부동소수점 덧셈)를 적용하라"는 내용으로 낮아집니다. `indexing_maps`는 두 입력(4×16 텐서와 16 벡터)을 어떻게 짝지어 순회할지 정의합니다 — `Add`의 두 번째 입력이 편향(bias, 16개)이라 브로드캐스팅되는 방식이 여기 인코딩됩니다.
+* **`ReLU`** → 역시 `linalg.generic` 안에, "각 원소가 0보다 크면(`arith.cmpf ugt`) 그 값을, 아니면(`arith.select`) 0을 선택하라"는 내용으로 낮아집니다. `relu(x) = max(x, 0)`이 "비교 후 선택"이라는 더 원초적인 연산 두 개로 풀린 겁니다.
+
+`linalg.matmul`은 이름 있는 특수 연산으로, `Add`/`ReLU`는 `linalg.generic`이라는 범용 순회 틀 안의 스칼라 연산으로 낮아진다는 이 비대칭이 중요합니다 — 컴파일러는 이름 있는 연산(`linalg.matmul`)에 대해서는 전용 최적화(타일링, 블로킹)를 미리 준비해둘 수 있지만, `linalg.generic` 안에 적힌 임의의 스칼라 연산은 그 안의 내용을 분석해서 최적화 여부를 판단해야 합니다.
+
+== 왜 이렇게 여러 단계를 거치는가
+
+ONNX → `torch` dialect → `linalg` dialect라는 두 단계를 거친 이유는, 각 단계가 서로 다른 관심사를 분리해서 다루기 때문입니다.
+
+* `torch` dialect 단계는 "이 그래프가 어떤 프레임워크/포맷에서 왔는가"에 특화된 정보(ONNX 연산자 이름, opset 버전)를 처리합니다.
+* `linalg` dialect 단계부터는 그 출신을 완전히 잊고, "이건 그냥 텐서에 대한 선형대수 연산들의 모음"이라는 **하드웨어 중립적인** 표현으로 통일됩니다.
+
+이 분리 덕분에, PyTorch에서 직접 온 모델이든(`torch-mlir`을 거쳐), TensorFlow에서 온 모델이든, 이 책처럼 ONNX를 거쳐 온 모델이든 — **일단 `linalg` dialect에 도달하면 그 뒤(8장에서 다룰 CPU/GPU로 낮추는 과정)는 완전히 같은 컴파일러 파이프라인을 공유**합니다. 이게 MLIR이라는 이름의 "Multi-Level"이 가리키는 것입니다 — 하나의 IR이 아니라, 관심사별로 분리된 여러 층의 IR(dialect)을 정의해두고, 각 층 사이를 오가는 변환(lowering)을 표준화한 겁니다.
+
+== 직접 해보기
+
+이 장의 `tiny.onnx`에서 `Relu` 대신 `Sigmoid`(`1/(1+e^-x)`)를 쓰면, `linalg` 단계에서 어떻게 낮아질까요? `ReLU`가 "비교+선택"으로 풀렸던 것처럼 `Sigmoid`도 더 원초적인 연산들로 풀릴지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+sigmoid = helper.make_node("Sigmoid", ["add"], ["Y"])
+# ... 나머지는 본문과 동일하게 그래프 구성
+----
+
+[source,mlir]
+----
+%5 = linalg.generic {indexing_maps = [...], iterator_types = ["parallel", "parallel"]}
+     ins(%4 : tensor<4x16xf32>) outs(%1 : tensor<4x16xf32>) {
+  ^bb0(%in: f32, %out: f32):
+    %8 = arith.negf %in : f32
+    %9 = math.exp %8 : f32
+    %cst_2 = arith.constant 1.000000e+00 : f32
+    %10 = arith.addf %9, %cst_2 : f32
+    %11 = arith.divf %cst_2, %10 : f32
+    linalg.yield %11 : f32
+} -> tensor<4x16xf32>
+----
+
+예상대로입니다 — `Sigmoid`도 `linalg.generic` 틀 안에서, `1/(1+e^{-x})`를 그대로 푼 5단계 스칼라 연산(부호 반전 → 지수 → 1 더하기 → 역수)으로 낮아집니다. `ReLU`가 "비교+선택" 2단계였던 것보다 더 많은 단계가 필요한 건 `Sigmoid`가 더 복잡한 수식이기 때문이고, `math.exp`라는 초월함수 전용 연산이 새로 등장한 것도 눈에 띕니다 — `arith` dialect(사칙연산)와 `math` dialect(초월함수)가 나뉘어 있다는 것도, MLIR이 관심사를 세밀하게 dialect별로 쪼개 관리한다는 걸 다시 보여줍니다.
+====
+// end::body[]

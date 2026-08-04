@@ -1,0 +1,112 @@
+---
+title: "4장: 상수 폴딩"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["onnx", "onnxruntime", "constant-folding", "batchnorm", "book"]
+categories: ["books"]
+description: "직접 만든 작은 그래프(x*(2.0*3.0))로 상수 폴딩이 두 상수의 곱을 그래프 실행 전에 미리 계산해 노드를 2개에서 1개로 줄이는 걸 확인하고, 정작 ResNet18에는 이 최적화가 거의 적용될 게 없다는 걸 실측으로 확인해 'PyTorch가 export 시점에 이미 상수 폴딩과 똑같은 일(BatchNorm 흡수)을 해뒀다'는 걸 밝히는 2부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-operator-fusion/[3장: 연산자 융합] · 다음: link:../05-int8-quantization/[5장: FP32에서 INT8로]_
+
+'''
+
+3장은 연산자 융합을 봤습니다. 이 장은 그래프 레벨 최적화의 또 다른 축 — **상수 폴딩(constant folding)** — 을 다룹니다. ResNet18에는 이 최적화가 적용될 여지가 거의 없다는 걸 미리 밝혀둡니다 — 그 "없다"는 사실 자체가 왜 그런지가 이 장의 핵심 내용입니다.
+
+== 상수 폴딩이란: 직접 만든 예제로 확인하기
+
+그래프 안에 **입력과 무관하게 항상 같은 값으로 계산되는 부분**이 있으면, 그래프를 실행할 때마다 매번 다시 계산할 필요 없이 미리 한 번 계산해서 상수로 박아두면 됩니다. `y = x * (2.0 * 3.0)`라는 아주 작은 그래프로 확인합니다 — `2.0 * 3.0`은 `x`와 무관하므로, 실행 전에 `6.0`으로 미리 계산해둘 수 있습니다.
+
+[source,python]
+----
+X = helper.make_tensor_value_info("X", TensorProto.FLOAT, [4])
+Y = helper.make_tensor_value_info("Y", TensorProto.FLOAT, [4])
+c1 = helper.make_tensor("c1", TensorProto.FLOAT, [], [2.0])
+c2 = helper.make_tensor("c2", TensorProto.FLOAT, [], [3.0])
+mul1 = helper.make_node("Mul", ["c1", "c2"], ["c3"])   # 상수끼리의 곱 -- 매번 다시 계산할 필요가 없다
+mul2 = helper.make_node("Mul", ["X", "c3"], ["Y"])
+graph = helper.make_graph([mul1, mul2], "foldtest", [X], [Y], initializer=[c1, c2])
+model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)])
+onnx.save(model, "foldtest.onnx")
+print(len(model.graph.node), "nodes before fold")
+----
+
+[source]
+----
+2 nodes before fold
+----
+
+[source,python]
+----
+so = ort.SessionOptions()
+so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+so.optimized_model_filepath = "foldtest_opt.onnx"
+sess = ort.InferenceSession("foldtest.onnx", sess_options=so, providers=["CPUExecutionProvider"])
+
+m2 = onnx.load("foldtest_opt.onnx")
+print(len(m2.graph.node), "nodes after fold")
+for n in m2.graph.node:
+    print(n.op_type, n.input, n.output)
+
+x = np.array([1, 2, 3, 4], dtype=np.float32)
+print(sess.run(None, {"X": x}))
+----
+
+[source]
+----
+1 nodes after fold
+Mul ['X', 'c3'] ['Y']
+[array([ 6., 12., 18., 24.], dtype=float32)]
+----
+
+`mul1`(`c1 * c2`) 노드가 그래프에서 **완전히 사라졌습니다** — `onnxruntime`이 최적화 시점에 `2.0 * 3.0 = 6.0`을 미리 계산해서 `c3`을 상수 `6.0`으로 바꿔버렸기 때문입니다. 실행 결과(`[6, 12, 18, 24]`)도 `x * 6`과 정확히 일치합니다 — 실행할 때는 `Mul` 노드 **하나만** 돌면 됩니다, 원래는 두 개였는데 말이죠. 그래프가 커서 이런 "미리 계산 가능한 상수 부분식"이 많을수록(예: 여러 스케일 팩터를 곱해서 합치는 전처리 그래프), 이 최적화의 효과가 커집니다.
+
+== ResNet18에는 왜 폴딩할 게 없는가
+
+같은 걸 ResNet18에 적용해봅니다.
+
+[source,python]
+----
+m = onnx.load("resnet18.onnx")
+print("initializers (weights):", len(m.graph.initializer))
+print("Constant-type nodes:", sum(1 for n in m.graph.node if n.op_type == "Constant"))
+----
+
+[source]
+----
+initializers (weights): 44
+Constant-type nodes: 0
+----
+
+ResNet18 그래프에는 **상수를 계산하는 노드가 애초에 하나도 없습니다.** 가중치 44개는 전부 `initializer`(그래프 실행 전에 이미 고정된 값)로 직접 박혀 있고, 이 값들에 대해 "실행 중에 계산해야 하는 상수 부분식" 자체가 없습니다. 왜일까요 — ResNet18은 원래 Conv마다 뒤에 BatchNorm이 붙습니다. BatchNorm은 학습된 평균/분산/스케일/시프트로 `(x - mean) / sqrt(var + eps) * gamma + beta`를 계산하는데, 이 값들은 **추론 시점에는 전부 상수**입니다 — 그래서 `m.eval()`로 모델을 평가 모드로 놓고 `torch.onnx.export`를 부르면, PyTorch가 export 시점에 이미 BatchNorm의 파라미터들을 Conv의 가중치/편향에 수학적으로 합쳐 넣습니다(Conv-BN 융합, 3장의 연산자 융합과는 또 다른, export 단계에서 일어나는 최적화입니다). 그 결과 ONNX 그래프에는 BatchNorm 노드 자체가 아예 없고, 상수 폴딩이 손댈 계산도 남아있지 않은 겁니다.
+
+== 이 장의 결론: 최적화는 파이프라인 앞 단계와 상호작용한다
+
+이 장이 보여주는 건 "상수 폴딩이 쓸모없다"가 아니라, **어떤 최적화가 얼마나 효과적인지는 그 앞 단계(모델을 어떻게 export했는가)에 달려있다**는 겁니다. 만약 `m.eval()`을 빼먹고 export했다면(학습 모드로 export, 실수로 흔히 생기는 버그입니다) BatchNorm의 러닝 통계가 아니라 배치별 통계를 계산하는 노드가 그래프에 남아서, 이번엔 상수 폴딩이 손댈 게 훨씬 많아졌을 수 있습니다. 이 책은 4장까지 오면서 "이 최적화가 몇 %를 개선했다"는 숫자를 계속 쟀는데, 이 장의 결론은 그 숫자 자체가 **모델을 어떻게 준비했는지에 따라 완전히 달라질 수 있다**는 걸 정직하게 짚습니다 — 다음 장(양자화)부터는 그래프 구조가 아니라 숫자의 정밀도 자체를 바꾸는 최적화로 넘어갑니다.
+
+== 직접 해보기
+
+이 장의 `foldtest` 그래프에 `Mul` 대신 `Add`를 두 번 쓰면(`c3 = c1 + c2`, `Y = X + c3`) 상수 폴딩이 똑같이 적용될까요? 상수 폴딩이 특정 연산자에만 국한된 최적화인지, 아니면 일반적인 규칙인지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+add1 = helper.make_node("Add", ["c1", "c2"], ["c3"])
+add2 = helper.make_node("Add", ["X", "c3"], ["Y"])
+# ... 나머지는 본문과 동일하게 그래프 구성
+----
+
+[source]
+----
+2 nodes before fold
+1 nodes after fold
+Add ['X', 'c3'] ['Y']
+[6. 7. 8. 9.]
+----
+
+똑같이 적용됩니다 — `c1+c2=5.0`이 미리 계산되고, 입력 `[1,2,3,4]`에 `x + 5`를 적용한 `[6,7,8,9]`가 정확히 나왔습니다. 그래프에는 `Add` 노드 하나만 남습니다. 상수 폴딩은 `Mul`이나 `Add` 같은 특정 연산자에 대한 규칙이 아니라, **"입력에 의존하지 않는 부분 그래프는 무엇이든 실행 전에 미리 계산한다"는 일반적인 원리**입니다 — `onnxruntime`은 이 규칙을 그래프의 모든 연산자 타입에 대해 일관되게 적용합니다(물론 연산자마다 "미리 계산 가능"을 판단하는 구현이 따로 필요하므로, 아주 드문 커스텀 연산자라면 지원이 안 될 수도 있습니다).
+====
+// end::body[]
