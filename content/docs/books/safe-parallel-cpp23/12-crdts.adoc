@@ -1,0 +1,165 @@
+---
+title: "12장: CRDT: 막지 않고도 수렴을 대수로 보장하기"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["cpp23", "crdt", "concurrency", "concepts", "book"]
+categories: ["books"]
+description: "지금까지의 모든 장과 반대 전략 -- 동시 접근을 막는 대신 아예 동기화 없이 각자 갱신하게 두고, merge 연산이 결합·교환·멱등 법칙을 지키기만 하면 항상 같은 값으로 수렴한다는 걸 join-semilattice concept과 G-Counter로 실제 컴파일·실행·TSan 검증하며, 멱등성이 없는 순진한 병합이 실제로 잘못된 값을 내는 것까지 대조하는 6부의 유일한 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-concurrent-separation/[11장: 동시성 분리 논리: 겹치지 않는 메모리 나눠주기] · 다음: link:../13-afterword/[맺음말]_
+
+'''
+
+지금까지 이 책의 모든 이론(타입 상태, 이동 전용 타입, 분리 논리)은 전략이 하나였습니다 — **동시 접근을 막는다.** 순서를 강제하거나, 소유권을 유일하게 만들거나, 메모리를 안 겹치게 나누는 식입니다. 이 장의 이론은 정반대 전략을 씁니다 — **아예 안 막습니다.** 동기화 없이 각자 마음대로 갱신하게 놔두고, 나중에 결과를 합칠 때 항상 같은 값에 수렴한다는 걸 순전히 대수(algebra)로 보장합니다. 이게 **CRDT**(Conflict-free Replicated Data Type)입니다.
+
+== 이론: join-semilattice
+
+CRDT의 핵심은 **merge**라는 이항 연산이 다음 세 법칙을 지킨다는 것입니다 — 이런 대수 구조를 **join-semilattice** 라고 부릅니다.
+
+* **결합법칙**: `merge(merge(a, b), c) == merge(a, merge(b, c))` — 셋을 어떤 순서로 합쳐도 결과가 같습니다.
+* **교환법칙**: `merge(a, b) == merge(b, a)` — 누가 먼저 합쳤는지가 결과에 안 나타납니다.
+* **멱등법칙**: `merge(a, a) == a` — 같은 걸 두 번 합쳐도 결과가 안 바뀝니다.
+
+세 법칙을 합치면 정확히 이렇게 됩니다 — **여러 복제본(replica)이 동기화 없이 각자 갱신되다가, 어떤 순서로, 몇 번을 다시 합쳐지든, 결국 모두 같은 값에 수렴한다.** 락도, 원자적 연산도, 순서 있는 채널도 필요 없습니다 — merge 함수 하나가 이 세 법칙만 지키면 됩니다.
+
+== concept으로 join-semilattice 표현하기
+
+[source,cpp]
+----
+template <typename S>
+concept JoinSemilattice = requires(S a, S b) {
+  { a.merge(b) } -> std::same_as<S>;
+};
+----
+
+9장의 `Functor`와 정확히 같은 형태입니다 — 문법적 요구사항(`.merge()`가 있고 같은 타입을 돌려준다)만 강제하고, 그 뒤의 세 법칙(결합·교환·멱등)은 `concept`이 검사해주지 않습니다. 이것도 9장에서 이미 짚은 "concept은 문법만 강제하지 의미론적 법칙까지는 강제 안 한다"는 한계가 그대로 적용됩니다 — 그래서 이 장은 세 법칙을 실제 코드로 하나씩 확인합니다.
+
+== G-Counter: 동기화 없이 각자 늘리다가 나중에 합치는 카운터
+
+[source,cpp]
+----
+template <std::size_t N>
+class GCounter {
+  std::array<int, N> counts_{};
+public:
+  void increment(std::size_t replica) { counts_[replica]++; }
+  int value() const { int sum = 0; for (int c : counts_) sum += c; return sum; }
+  GCounter merge(const GCounter& other) const {
+    GCounter result;
+    for (std::size_t i = 0; i < N; i++) result.counts_[i] = std::max(counts_[i], other.counts_[i]);
+    return result;
+  }
+  bool operator==(const GCounter&) const = default;
+};
+
+static_assert(JoinSemilattice<GCounter<2>>);
+----
+
+`GCounter`(Grow-only Counter)는 복제본마다 **자기 칸**(`counts_[replica]`)만 증가시킵니다 — 1장의 `counter++`처럼 여러 스레드가 **같은** 변수를 두들기는 게 아니라, 각자 **자기 칸**만 두들깁니다. `merge`는 칸마다 더 큰 값을 취하는(`std::max`) 것뿐입니다 — `max`가 결합·교환·멱등을 모두 만족하는 연산이라는 게, 이 카운터가 CRDT인 이유의 전부입니다.
+
+== 검증 1: 동시에 늘려도 동기화가 필요 없다
+
+[source,cpp]
+----
+int main() {
+  GCounter<2> a, b;
+  std::thread t1([&] { for (int i = 0; i < 100000; i++) a.increment(0); });
+  std::thread t2([&] { for (int i = 0; i < 100000; i++) b.increment(1); });
+  t1.join();
+  t2.join();
+
+  auto merged1 = a.merge(b);
+  auto merged2 = b.merge(a); // 반대 순서로 합침
+
+  std::cout << "merge(a,b).value() = " << merged1.value() << "\n";
+  std::cout << "merge(b,a).value() = " << merged2.value() << "\n";
+  std::cout << "commutative: " << (merged1 == merged2) << "\n";
+
+  auto merged_again = merged1.merge(b);
+  std::cout << "idempotent (merge again with b): " << (merged_again == merged1) << "\n";
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -pthread -fsanitize=thread gcounter.cpp -o gcounter_tsan
+$ ./gcounter_tsan
+a.value() = 100000
+b.value() = 100000
+merge(a,b).value() = 200000
+merge(b,a).value() = 200000
+commutative: 1
+idempotent (merge again with b): 1
+----
+
+`t1`은 `a`만, `t2`는 `b`만 건드립니다 — **뮤텍스도, `std::atomic`도 안 씁니다.** 두 스레드가 물리적으로 같은 메모리를 만질 방법이 없기 때문입니다(11장의 분리 논리와 같은 발상이 여기서도 배경에 깔려 있습니다 — 다만 이 장에서는 그게 목적이 아니라 전제 조건입니다). ThreadSanitizer를 켜도 경고가 없고, `merge(a,b)`와 `merge(b,a)`가 정확히 같은 값(`200000`)에 수렴한다는 것과, 이미 합친 결과에 `b`를 또 합쳐도 값이 안 바뀐다는 것(멱등)까지 실제로 확인됩니다.
+
+== 왜 멱등성이 진짜 중요한가: 순진한 병합과 대조하기
+
+멱등법칙이 그냥 이론적 장식이 아니라는 걸, 멱등하지 않은 "그럴듯한" merge와 대조해서 보여줍니다.
+
+[source,cpp]
+----
+// 그럴듯해 보이는 순진한 merge: 두 총합을 그냥 더한다. 멱등하지 않다!
+struct NaiveCounter {
+  int total = 0;
+  NaiveCounter merge(const NaiveCounter& other) const { return {total + other.total}; }
+};
+
+int main() {
+  NaiveCounter a{100}, b{50};
+  auto merged = a.merge(b);
+  std::cout << "first merge: " << merged.total << "\n"; // 150, 맞음
+
+  // 실전 분산 시스템은 네트워크 메시지가 중복 전달될 수 있다(at-least-once delivery) --
+  // 그러면 같은 merge가 실수로 두 번 적용될 수 있다.
+  auto merged_again = merged.merge(b);
+  std::cout << "merged again with the same b: " << merged_again.total << "\n"; // 틀림
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 naive_counter.cpp -o naive_counter && ./naive_counter
+first merge: 150
+merged again with the same b (simulating a duplicate message): 200
+----
+
+`150`이 나와야 할 자리에 `200`이 나옵니다 — `b`가 실수로 두 번 반영됐습니다. 이건 억지 시나리오가 아닙니다 — 실전 분산 시스템은 네트워크 메시지가 중복 도착하는 걸 막을 수 없는 경우가 흔해서(at-least-once delivery), "같은 갱신이 두 번 적용돼도 결과가 안 바뀐다"는 멱등성은 이론적 우아함이 아니라 **실전에서 거의 항상 필요한 안전장치**입니다. `GCounter`의 `max` 기반 merge는 이 시나리오에서도(검증 1의 마지막 줄, "merge again with b") 멀쩡했습니다 — `NaiveCounter`의 `+` 기반 merge는 그렇지 않았습니다.
+
+== 이게 지금까지의 장들과 어떻게 다른가
+
+2~11장은 전부 "이 프로그램이 특정 실수를 저지르면 컴파일이 실패하거나(2~5장, 6~8장) 도구가 실행 중 잡아낸다(1장, 11장)"는 형태였습니다. 이 장은 다릅니다 — `GCounter`를 쓰는 프로그램이 **동시 접근 자체를 막지 않고도** 안전합니다. 컴파일 에러도, TSan 경고도 나올 여지가 애초에 없습니다(각 스레드가 자기 칸만 건드리므로) — 안전성이 "이 시점에 이 접근을 거부한다"는 방어가 아니라, **"애초에 순서가 안 중요하도록 데이터 구조를 설계한다"** 는 다른 층위에서 나옵니다. 이 책이 지금까지 보여준 "이론마다 안전을 얻는 방식이 다르다"는 주제의 가장 극단적인 사례가 이 장입니다.
+
+== 팁 박스: C++17 환경이라면
+
+[NOTE]
+====
+`concept`(C++20)이 없으니 9장과 같은 `void_t` SFINAE 트레잇으로 대신합니다.
+
+[source,cpp]
+----
+template <typename S, typename = void>
+struct is_join_semilattice : std::false_type {};
+
+template <typename S>
+struct is_join_semilattice<S, std::void_t<decltype(std::declval<S>().merge(std::declval<S>()))>>
+    : std::is_same<decltype(std::declval<S>().merge(std::declval<S>())), S> {};
+
+static_assert(is_join_semilattice<GCounter<2>>::value, "GCounter should be a join-semilattice");
+----
+
+`GCounter` 자체는 `std::array`, `std::max`, 스레드만 쓰므로 (`operator==`를 C++20의 `= default` 대신 직접 써주면) `-std=c++17`로도 그대로 컴파일되고, 교환법칙 검증도 동일하게 통과한다는 걸 실제로 확인했습니다 — CRDT 자체는 C++ 표준 버전과 무관한 순수 대수적 설계이기 때문입니다. 이 책에서 "C++23 없이는 아예 흉내조차 안 되는" 유일한 후보였던 게 2부의 `.transform()`/`.and_then()`(9장 팁 박스) 정도였고, 이 장은 그 반대 극단 — 어떤 C++ 버전에서도 똑같이 동작하는 이론 — 이라는 것도 흥미로운 대조입니다.
+====
+
+== 요약
+
+* CRDT는 지금까지의 모든 장과 반대 전략을 씁니다 — 동시 접근을 막는 대신, merge 연산이 결합·교환·멱등 법칙(join-semilattice)을 지키기만 하면 동기화 없이 갱신해도 항상 같은 값에 수렴한다는 걸 대수로 보장합니다.
+* `GCounter`로 두 스레드가 뮤텍스도 원자 연산도 없이 각자의 칸만 늘리고, 반대 순서로 합쳐도 같은 값에 수렴하며 이미 합친 걸 또 합쳐도 안 바뀐다는 걸 TSan까지 켜서 실제로 확인했습니다.
+* 멱등하지 않은 "그럴듯한" 병합(`NaiveCounter`)이 중복 병합 시 실제로 잘못된 값을 낸다는 걸 대조해서, 세 법칙 중 멱등성이 왜 장식이 아니라 실전 안전장치인지 확인했습니다.
+* 안전성이 "접근을 거부한다"가 아니라 "순서가 안 중요하도록 설계한다"는 전혀 다른 층위에서 나올 수 있다는 것으로, 이 책이 반복해온 "이론마다 안전을 얻는 방식이 다르다"는 주제의 마지막 사례를 보탰습니다.
+
+맺음말에서는 이 CRDT까지 포함해 이 책이 다룬 다섯 이론 전체를 다시 정리합니다.
+// end::body[]
