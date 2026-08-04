@@ -12,7 +12,7 @@ _link:../[전체 목차] · 이전: link:../08-real-world-resources/[8장: 실�
 
 '''
 
-2~3부는 `linear-and-session-types`의 선형 타입·세션 타입을 옮겼습니다. 마지막 4부는 이 사이트의 세 번째 갈래 — 범주론(`category-theory-for-programmers` 등이 다룬 Functor, Monad) — 을 C++23의 **concepts** 로 옮깁니다.
+2~3부는 `linear-and-session-types`의 선형 타입·세션 타입을 옮겼습니다. 4부는 이 사이트의 세 번째 갈래 — 범주론(`category-theory-for-programmers` 등이 다룬 Functor, Monad) — 을 C++23의 **concepts** 로 옮깁니다.
 
 == concept으로 "Functor"를 정의하기
 
@@ -156,5 +156,5 @@ static_assert(is_functor<MyBox<int>>::value, "MyBox has .transform() so it count
 * `.and_then()`(Monad의 bind)이 실패를 자동으로 전파하며 중첩된 옵셔널을 평평하게 만든다는 걸, 두 번째 나눗셈이 0으로 나누기 때문에 그다음 단계가 정말로 스킵된다는 실행 결과로 확인했습니다.
 * C++17에는 `.transform()`/`.and_then()` 자체가 없어서, `concept` 대신 `void_t` SFINAE 트레잇으로 검사 메커니즘은 흉내 낼 수 있지만 `std::optional`은 그 시절엔 진짜로 Functor가 아니었다는 것까지 실제 코드로 확인했습니다.
 
-마지막 장에서는 이 Functor/Monad 인터페이스로 **병렬** 파이프라인을 합성합니다 — `std::async`/`std::future`와 이 장의 `and_then`을 조합해서, 실패가 안전하게 전파되는 병렬 작업 체인을 짭니다.
+다음 장에서는 이 Functor/Monad 인터페이스로 **병렬** 파이프라인을 합성합니다 — `std::async`/`std::future`와 이 장의 `and_then`을 조합해서, 실패가 안전하게 전파되는 병렬 작업 체인을 짭니다.
 // end::body[]
