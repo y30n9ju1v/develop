@@ -1,0 +1,108 @@
+---
+title: "증명보다 계산이 먼저다: 공업수학을 코드로 다시 배우기"
+draft: false
+---
+
+공업수학 표준 커리큘럼(상미분방정식, 라플라스 변환, 선형대수, 벡터 미적분, 푸리에 해석과 편미분방정식)을 정의-정리-증명 순서 대신 "왜 필요한가 → NumPy/SciPy/SymPy로 계산해서 눈으로 확인 → 그다음에 수식을 읽는다"는 순서로 다시 짓는 독립적인 입문서입니다. 상미분방정식(1부) → 라플라스 변환(2부) → 선형대수(3부) → 벡터 미적분(4부) → 푸리에 해석과 편미분방정식(5부) 순서로 쌓아 올립니다.
+
+이 책의 모든 계산은 실제로 Python(NumPy/SciPy/SymPy)으로 실행해서 검증했습니다 — 손으로 유도한 해석해와 독립적인 수치해(또는 서로 다른 방법으로 유도한 해)를 매 장마다 나란히 놓고 비교하며, 그 차이가 실제로 얼마나 작은지 숫자로 직접 확인합니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 증명보다 계산이 먼저다]*
+
+*1부: 상미분방정식*
+
+[start=1]
+. *link:01-why-odes/[공학자는 왜 상미분방정식을 배우는가]*
+. *link:02-first-order-linear-odes/[1계 선형 ODE, 수치해와 해석해]*
+. *link:03-second-order-odes-and-vibration/[2계 선형 ODE와 감쇠 진동]*
+
+*2부: 라플라스 변환*
+
+[start=4]
+. *link:04-why-laplace/[라플라스 변환이 왜 문제를 쉽게 만드는가]*
+. *link:05-laplace-for-circuits/[라플라스 변환으로 RLC 회로 풀기]*
+
+*3부: 선형대수*
+
+[start=6]
+. *link:06-eigenvalues-and-physical-meaning/[고유값·고유벡터의 물리적 의미]*
+. *link:07-coupled-vibration-and-diagonalization/[대각화와 연성 진동계의 정상 모드]*
+
+*4부: 벡터 미적분*
+
+[start=8]
+. *link:08-gradient-divergence-curl/[gradient·divergence·curl]*
+. *link:09-fluid-and-em-applications/[유체와 전자기장에 적용하기]*
+
+*5부: 푸리에 해석과 편미분방정식*
+
+[start=10]
+. *link:10-fourier-series-and-fft/[푸리에 급수와 FFT]*
+. *link:11-heat-equation/[열방정식]*
+. *link:12-wave-equation/[파동방정식]*
+
+*맺음말*
+
+[start=13]
+. *link:13-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-why-odes.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-first-order-linear-odes.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-second-order-odes-and-vibration.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-why-laplace.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-laplace-for-circuits.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-eigenvalues-and-physical-meaning.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-coupled-vibration-and-diagonalization.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-gradient-divergence-curl.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-fluid-and-em-applications.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-fourier-series-and-fft.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-heat-equation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-wave-equation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-afterword.adoc[tag=body,leveloffset=+1]

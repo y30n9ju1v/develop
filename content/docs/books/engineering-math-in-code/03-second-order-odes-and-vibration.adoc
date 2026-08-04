@@ -1,0 +1,167 @@
+---
+title: "3장: 2계 선형 ODE와 감쇠 진동"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["engineering-math", "ode", "vibration", "characteristic-equation", "book"]
+categories: ["books"]
+description: "질량-스프링-댐퍼 시스템의 감쇠 정도(판별식의 부호)에 따라 부족감쇠·과감쇠·임계감쇠라는 질적으로 다른 세 가지 거동이 나온다는 것을, 특성방정식으로 손으로 유도한 해석해와 solve_ivp의 수치해를 세 경우 모두 기계 정밀도까지 일치시켜 확인하는 1부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-first-order-linear-odes/[2장: 1계 선형 ODE, 수치해와 해석해] · 다음: link:../04-why-laplace/[4장: 라플라스 변환이 왜 문제를 쉽게 만드는가]_
+
+'''
+
+지금까지는 1계 ODE(도함수가 한 번만 등장)만 다뤘습니다. 이 장에서는 도함수가 두 번 등장하는 **2계 ODE**를 다룹니다 — 질량-스프링-댐퍼 시스템입니다.
+
+== 질량-스프링-댐퍼 방정식
+
+질량 `m`이 스프링(강성 `k`)과 댐퍼(감쇠 계수 `c`)에 연결되어 있을 때, 뉴턴의 운동 법칙(`F = ma`)에 스프링의 복원력(`-kx`)과 댐퍼의 저항력(`-cẋ`)을 더하면 이렇게 됩니다.
+
+[stem]
+++++
+m\ddot{x} + c\dot{x} + kx = 0
+++++
+
+가속도($\ddot{x}$), 속도($\dot{x}$), 위치($x$)가 한 방정식에 모두 등장합니다 — 이게 2계인 이유입니다.
+
+== 특성방정식: 지수 함수를 대입해서 대수 문제로 바꾸기
+
+이런 형태의 2계 선형 ODE는 $x(t) = e^{rt}$ 꼴의 해를 시도하는 게 표준 기법입니다. 대입하면($\ddot{x}=r^2 e^{rt}$, $\dot{x}=re^{rt}$) 지수항이 공통으로 나오면서 **특성방정식(characteristic equation)** 이라는 대수 방정식만 남습니다.
+
+[stem]
+++++
+mr^2 + cr + k = 0 \quad\Rightarrow\quad r = \frac{-c \pm \sqrt{c^2 - 4mk}}{2m}
+++++
+
+미분방정식을 푸는 문제가 이차방정식을 푸는 문제로 바뀌었습니다. 그리고 이 근의 판별식($c^2 - 4mk$)의 부호에 따라 **질적으로 다른 세 가지 거동**이 나옵니다 — 이게 이 장의 핵심입니다.
+
+== 경우 1: 부족감쇠(underdamped) — 진동하며 잦아든다
+
+댐핑이 약하면($c^2 < 4mk$) 판별식이 음수라 근이 복소수 켤레 쌍이 됩니다. 오일러 공식으로 정리하면 해는 진동하는 삼각함수에 지수적으로 감쇠하는 포락선(envelope)이 곱해진 모양이 됩니다.
+
+[stem]
+++++
+x(t) = e^{-\zeta\omega_0 t}\left( A\cos(\omega_d t) + B\sin(\omega_d t) \right)
+++++
+
+여기서 $\omega_0 = \sqrt{k/m}$(감쇠 없을 때의 고유 진동수), $\zeta = c / (2\sqrt{mk})$(감쇠비), $\omega_d = \omega_0\sqrt{1-\zeta^2}$(실제로 관측되는 감쇠 진동수)입니다.
+
+[source,python]
+----
+import numpy as np
+from scipy.integrate import solve_ivp
+
+def simulate(m, c, k, x0, v0, t_eval):
+    def f(t, y):
+        x, v = y
+        return [v, -(c/m)*v - (k/m)*x]
+    sol = solve_ivp(f, [0, t_eval[-1]], [x0, v0], t_eval=t_eval, rtol=1e-12, atol=1e-14)
+    return sol.y[0]
+
+t_eval = np.array([0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0])
+
+m, c, k = 1.0, 0.4, 4.0
+x0, v0 = 1.0, 0.0
+omega0 = np.sqrt(k/m)
+zeta = c/(2*np.sqrt(m*k))
+omega_d = omega0*np.sqrt(1-zeta**2)
+A = x0
+B = zeta*omega0*x0/omega_d   # x(0)=x0, ẋ(0)=0 조건에서 유도됨
+analytical = np.exp(-zeta*omega0*t_eval)*(A*np.cos(omega_d*t_eval)+B*np.sin(omega_d*t_eval))
+numeric = simulate(m,c,k,x0,v0,t_eval)
+print("underdamped numeric:   ", numeric)
+print("underdamped analytical:", analytical)
+print("max err:", np.max(np.abs(numeric-analytical)))
+----
+
+(2계 ODE를 `solve_ivp`에 넣으려면 위치 `x`와 속도 `v`를 묶은 벡터 `[x, v]`에 대한 1계 시스템(`ẋ=v`, `v̇=-(c/m)v-(k/m)x`)으로 바꿔야 합니다 — 2계 방정식 하나는 1계 방정식 두 개로 항상 다시 쓸 수 있습니다.)
+
+[source]
+----
+underdamped numeric:    [ 1.          0.56897189 -0.25807026 -0.72013522 -0.4983256   0.50510556 -0.33685168]
+underdamped analytical: [ 1.          0.56897189 -0.25807026 -0.72013522 -0.4983256   0.50510556 -0.33685168]
+max err: 4.334310688136611e-13
+----
+
+`0.5초`에서 `2초`로 갈 때 부호가 두 번 바뀝니다(`0.57 → -0.26 → -0.72 → -0.50`) — 실제로 진동하고 있다는 뜻이고, 진폭은 점점 줄어듭니다(포락선 $e^{-\zeta\omega_0 t}$가 작아지므로) — "진동하며 잦아든다"는 이름 그대로입니다.
+
+== 경우 2: 과감쇠(overdamped) — 진동 없이 서서히 돌아온다
+
+댐핑이 강하면($c^2 > 4mk$) 판별식이 양수라 근이 서로 다른 두 실수가 됩니다. 해는 두 지수 함수의 합입니다.
+
+[stem]
+++++
+x(t) = A e^{r_1 t} + B e^{r_2 t}
+++++
+
+[source,python]
+----
+m, c, k = 1.0, 10.0, 4.0
+disc = c**2-4*m*k
+r1 = (-c + np.sqrt(disc))/(2*m)
+r2 = (-c - np.sqrt(disc))/(2*m)
+A = -r2/(r1-r2)
+B = r1/(r1-r2)
+analytical = A*np.exp(r1*t_eval) + B*np.exp(r2*t_eval)
+numeric = simulate(m,c,k,1.0,0.0,t_eval)
+print("overdamped numeric:   ", numeric)
+print("overdamped analytical:", analytical)
+print("max err:", np.max(np.abs(numeric-analytical)))
+----
+
+[source]
+----
+overdamped discriminant: 84.0 (should be > 0)
+overdamped numeric:    [1.         0.84821614 0.68874041 0.55900409 0.45370386 0.29887349 0.12969321]
+overdamped analytical: [1.         0.84821614 0.68874041 0.55900409 0.45370386 0.29887349 0.12969321]
+max err: 4.1799896877137144e-14
+----
+
+값이 `1 → 0.85 → 0.69 → ...`로 **한 번도 부호가 안 바뀌면서** 단조롭게 0으로 돌아갑니다 — 부족감쇠와 질적으로 다른 그림입니다. 문을 천천히 닫히게 만드는 도어 댐퍼가 정확히 이 경우를 노린 설계입니다(문이 "쾅" 하고 튕기며 진동하면 안 되니까요).
+
+== 경우 3: 임계감쇠(critically damped) — 진동과 과감쇠의 경계
+
+판별식이 정확히 0일 때($c^2 = 4mk$)는 특성방정식의 근이 중근 하나뿐입니다. 이때는 $e^{rt}$ 하나만으로는 두 개의 초기조건(위치, 속도)을 동시에 못 맞추므로, $t e^{rt}$라는 두 번째 독립해가 더 필요합니다.
+
+[stem]
+++++
+x(t) = (A + Bt)\, e^{rt}
+++++
+
+[source,python]
+----
+m, k = 1.0, 4.0
+c = 2*np.sqrt(m*k)   # 판별식이 정확히 0이 되는 c
+r = -c/(2*m)
+A = 1.0
+B = -r*A   # x(0)=1, ẋ(0)=0 조건에서 유도됨
+analytical = (A + B*t_eval)*np.exp(r*t_eval)
+numeric = simulate(m,c,k,1.0,0.0,t_eval)
+print("critical numeric:   ", numeric)
+print("critical analytical:", analytical)
+print("max err:", np.max(np.abs(numeric-analytical)))
+----
+
+[source]
+----
+critically damped discriminant: 0.0 (should be ~0)
+critical numeric:    [1.00000000e+00 7.35758882e-01 4.06005850e-01 1.99148273e-01 9.15781944e-02 1.73512652e-02 4.99399227e-04]
+critical analytical: [1.00000000e+00 7.35758882e-01 4.06005850e-01 1.99148273e-01 9.15781944e-02 1.73512652e-02 4.99399227e-04]
+max err: 4.823919041996305e-14
+----
+
+과감쇠와 비슷하게 진동 없이 돌아오지만, **가장 빨리** 돌아옵니다(`5초`에서 이미 `0.0005`까지 떨어졌습니다 — 과감쇠 경우의 `0.13`보다 훨씬 작습니다). 자동차 서스펜션이나 계기판 바늘을 설계할 때 "가능한 한 빨리, 그런데 흔들리지 않고" 정지시키고 싶다면 정확히 이 지점(임계감쇠)을 노립니다.
+
+== 세 경우가 같은 코드에서 나온다
+
+`simulate` 함수는 세 경우 모두 **똑같습니다** — 바뀐 건 `m`, `c`, `k` 숫자뿐입니다. 판별식 하나(`c**2 - 4*m*k`)의 부호가 완전히 다른 세 가지 물리적 거동(진동하며 잦아듦, 진동 없이 서서히 복귀, 진동 없이 가장 빨리 복귀)을 결정한다는 게, 특성방정식이라는 대수적 도구가 미분방정식의 "질적인 성격"까지 알려준다는 걸 보여줍니다 — 세 경우 모두 수치해와 해석해가 기계 정밀도(`1e-13` 수준)까지 일치했다는 것도 유도가 맞았다는 강한 확인입니다.
+
+== 요약
+
+* 2계 선형 ODE(`m ẍ + c ẋ + kx = 0`)를 특성방정식(`mr² + cr + k = 0`)으로 바꿔서, 판별식의 부호에 따라 부족감쇠·과감쇠·임계감쇠 세 가지 해가 나온다는 걸 유도했습니다.
+* 세 경우 모두 손으로 유도한 해석해와 `solve_ivp`의 수치해(2계 ODE를 1계 시스템으로 바꿔 풀었습니다)를 비교해 기계 정밀도까지 일치한다는 걸 실제로 확인했습니다.
+* 같은 시뮬레이션 함수에 숫자 세 개(`m`, `c`, `k`)만 바꿔 넣었을 뿐인데 진동 여부·수렴 속도가 완전히 달라진다는 걸 눈으로 확인했습니다.
+
+2부에서는 이 2계 ODE를 손으로 풀지 않고 **대수 방정식으로 바꿔서** 푸는 또 다른 도구, 라플라스 변환을 다룹니다.
+// end::body[]

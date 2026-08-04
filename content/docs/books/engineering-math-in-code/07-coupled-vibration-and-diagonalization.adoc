@@ -1,0 +1,164 @@
+---
+title: "7장: 대각화와 연성 진동계의 정상 모드"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["engineering-math", "linear-algebra", "normal-modes", "numpy", "book"]
+categories: ["books"]
+description: "스프링으로 연결된 두 질량이 뒤엉켜 진동하는 문제를 6장의 고유벡터로 분해하면 서로 안 얽히는 두 개의 독립 진동(정상 모드)으로 쪼개진다는 것을, 대칭 모드와 역대칭 모드를 각각 초기조건으로 시뮬레이션해 단일 주파수로만 진동한다는 걸 확인하고, 임의의 초기조건은 두 모드의 중첩이라는 것까지 실제로 검증하는 3부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-eigenvalues-and-physical-meaning/[6장: 고유값·고유벡터의 물리적 의미] · 다음: link:../08-gradient-divergence-curl/[8장: gradient·divergence·curl]_
+
+'''
+
+6장에서 "고유벡터는 행렬을 곱해도 안 꺾이는 특별한 방향"이라는 걸 확인했습니다. 이 장에서는 그 방향이 실제 진동 문제에서 정확히 무엇을 뜻하는지 확인합니다 — 스프링 두 개로 연결된 두 질량이 서로 밀고 당기며 진동하는, 언뜻 보면 뒤엉켜 보이는 문제입니다.
+
+== 연성 진동계: 두 질량이 서로 얽혀 움직인다
+
+벽-스프링-질량1-스프링-질량2-스프링-벽 순서로 놓인 시스템을 생각해봅시다(양쪽 벽에 닿은 스프링의 강성은 `k`, 가운데 스프링의 강성은 `k2`). 뉴턴의 법칙을 각 질량에 적용하면 연립 방정식이 나옵니다.
+
+[stem]
+++++
+m\ddot{x_1} = -(k+k_2)x_1 + k_2 x_2, \qquad m\ddot{x_2} = -(k+k_2)x_2 + k_2 x_1
+++++
+
+`x1`의 운동이 `x2`에 의존하고, `x2`의 운동도 `x1`에 의존합니다 — 서로 얽혀 있어서 어느 쪽도 단독으로 못 풉니다. 이걸 행렬로 묶으면 `m ẍ = -Kx`(`x = [x1, x2]`) 꼴이 되고, 강성 행렬은 이렇게 됩니다.
+
+[source,python]
+----
+import numpy as np
+
+m = 1.0
+k, k2 = 4.0, 1.0
+K = np.array([[k+k2, -k2],
+              [-k2, k+k2]])
+print("K =\n", K)
+----
+
+[source]
+----
+K =
+ [[ 5. -1.]
+ [-1.  5.]]
+----
+
+== 고유벡터 방향에서는 얽힘이 풀린다
+
+6장에서 배운 대로 `K`의 고유벡터를 구해봅니다.
+
+[source,python]
+----
+eigvals, eigvecs = np.linalg.eigh(K/m)
+print("eigenvalues (omega^2):", eigvals)
+print("omegas:", np.sqrt(eigvals))
+print("eigenvectors:\n", eigvecs)
+----
+
+[source]
+----
+eigenvalues (omega^2): [4. 6.]
+omegas: [2.         2.44948974]
+eigenvectors:
+ [[-0.70710678 -0.70710678]
+ [-0.70710678  0.70710678]]
+----
+
+두 고유벡터가 각각 `[1,1]` 방향(부호는 반대로 나왔지만 방향은 같습니다)과 `[1,-1]` 방향입니다 — **두 질량이 같은 방향으로 함께 움직이는 것**과 **정반대 방향으로 움직이는 것**입니다. 이 두 방향이 정확히 "얽힘이 풀리는" 특별한 방향이라는 걸 시뮬레이션으로 확인합니다.
+
+== 대칭 모드: 두 질량이 함께 움직이면 서로 영향을 안 준다
+
+`x1(0)=x2(0)=1`(둘 다 같은 방향으로 당겨놓고 놓기)로 시작하면 어떻게 될까요.
+
+[source,python]
+----
+from scipy.integrate import solve_ivp
+
+def f(t, y):
+    x1, x2, v1, v2 = y
+    a1 = -(k+k2)/m*x1 + k2/m*x2
+    a2 = -(k+k2)/m*x2 + k2/m*x1
+    return [v1, v2, a1, a2]
+
+t_eval = np.linspace(0, 6, 7)
+sol_sym = solve_ivp(f, [0,6], [1,1,0,0], t_eval=t_eval, rtol=1e-12, atol=1e-14)
+print("x1:", sol_sym.y[0])
+print("x2:", sol_sym.y[1])
+print("x1==x2 always?", np.allclose(sol_sym.y[0], sol_sym.y[1]))
+
+omega_sym = np.sqrt(k/m)   # 가운데 스프링은 아예 안 늘어나므로 k2는 등장하지 않는다
+analytical_sym = np.cos(omega_sym*t_eval)
+print("match with cos(sqrt(k/m) t)?", np.allclose(sol_sym.y[0], analytical_sym, atol=1e-6))
+----
+
+[source]
+----
+x1: [ 1.         -0.41614684 -0.65364362  0.96017029 -0.14550003 -0.83907153  0.84385396]
+x2: [ 1.         -0.41614684 -0.65364362  0.96017029 -0.14550003 -0.83907153  0.84385396]
+x1==x2 always? True
+match with cos(sqrt(k/m) t)? True
+----
+
+`x1`과 `x2`가 **항상 정확히 같습니다** — 두 질량이 완전히 같은 위상으로 함께 진동합니다. 물리적으로도 말이 됩니다 — 둘이 항상 같이 움직이면 가운데 스프링은 아예 안 늘어나거나 줄어들지 않으니, 마치 `k2`가 없는 것처럼(가운데 스프링이 있는데도!) `ω = √(k/m)`이라는 단순한 단일 진동수로만 진동합니다.
+
+== 역대칭 모드: 반대로 움직이면 다른 주파수로 진동한다
+
+이번엔 `x1(0)=1, x2(0)=-1`(정반대 방향으로 당겨놓기)로 시작합니다.
+
+[source,python]
+----
+sol_anti = solve_ivp(f, [0,6], [1,-1,0,0], t_eval=t_eval, rtol=1e-12, atol=1e-14)
+print("x1:", sol_anti.y[0])
+print("x2:", sol_anti.y[1])
+print("x1==-x2 always?", np.allclose(sol_anti.y[0], -sol_anti.y[1]))
+
+omega_anti = np.sqrt((k+2*k2)/m)
+analytical_anti = np.cos(omega_anti*t_eval)
+print("match with cos(sqrt((k+2k2)/m) t)?", np.allclose(sol_anti.y[0], analytical_anti, atol=1e-6))
+----
+
+[source]
+----
+x1: [ 1.         -0.76990573  0.18550967  0.48425582 -0.93117233  0.949574   -0.5309926 ]
+x2: [-1.          0.76990573 -0.18550967 -0.48425582  0.93117233 -0.949574    0.5309926 ]
+x1==-x2 always? True
+match with cos(sqrt((k+2k2)/m) t)? True
+----
+
+이번엔 `x1 = -x2`가 항상 유지되고, 진동수는 `ω = √((k+2k2)/m)`으로 아까와 **다릅니다** — 가운데 스프링이 두 질량이 서로 멀어지고 가까워지는 걸 이중으로 거스르므로(양쪽에서 다 늘었다 줄었다 하니까), 더 뻣뻣하게 느껴져서 더 빨리 진동합니다.
+
+== 임의의 초기조건은 두 모드의 중첩일 뿐이다
+
+이제 물리적으로 훨씬 흔한 경우 — 질량 1만 당기고 질량 2는 가만히 둔 채(`x1(0)=1, x2(0)=0`) 시작하면 어떻게 될까요. 6장에서 구한 고유벡터 기저로 이 초기조건을 분해해봅니다.
+
+[source,python]
+----
+x0 = np.array([1.0, 0.0])
+c = np.linalg.solve(eigvecs, x0)  # x0 = eigvecs @ c 를 만족하는 계수 c
+print("decomposition coefficients:", c)
+
+omegas = np.sqrt(eigvals)
+def superposition(t):
+    return eigvecs @ (c * np.cos(omegas*t))   # 각 모드가 자기 고유 진동수로 독립적으로 진동
+
+sol_generic = solve_ivp(f, [0,6], [1,0,0,0], t_eval=t_eval, rtol=1e-12, atol=1e-14)
+analytical_generic = np.array([superposition(tv) for tv in t_eval]).T
+print("match:", np.allclose(sol_generic.y[[0,1]], analytical_generic, atol=1e-6))
+----
+
+[source]
+----
+decomposition coefficients: [-0.70710678 -0.70710678]
+match: True
+----
+
+`x1`만 당긴 "뒤섞인" 초기조건이 정확히 **대칭 모드와 역대칭 모드를 절반씩 섞은 것**으로 분해되고, 그 두 모드를 각자의 진동수로 따로 진동시킨 뒤 더한 값(`superposition`)이 실제 시뮬레이션(`solve_ivp`)과 정확히 일치합니다. 이게 **대각화**가 실제로 하는 일입니다 — 서로 얽힌 연립방정식을, 고유벡터 기저로 좌표를 바꾸면 완전히 독립적인 방정식 여러 개로 쪼갤 수 있고(대각행렬이 되므로), 각각 따로 풀어서 다시 더하면 원래 답이 나옵니다.
+
+== 요약
+
+* 스프링으로 연결된 두 질량의 운동이 겉보기엔 서로 얽혀 있지만, 강성 행렬 `K`의 고유벡터 방향(대칭 모드 `[1,1]`, 역대칭 모드 `[1,-1]`)에서는 완전히 독립적인 단일 진동수 운동이 된다는 걸 시뮬레이션으로 확인했습니다.
+* 두 모드가 서로 다른 진동수(`√(k/m)` vs `√((k+2k2)/m)`)를 갖는다는 것과, 그 이유(가운데 스프링이 늘어나는지 아닌지)를 물리적으로 확인했습니다.
+* 임의의 "뒤섞인" 초기조건도 고유벡터 기저로 분해하면 두 정상 모드의 단순한 중첩일 뿐이라는 걸, 분해→개별 진동→합산의 결과가 직접 시뮬레이션과 정확히 일치하는 것으로 검증했습니다 — 이게 대각화가 연립 미분방정식을 실제로 어떻게 단순화하는지 보여주는 구체적인 그림입니다.
+
+4부에서는 미지수가 유한 개인 시스템에서 벗어나, 공간 전체에 퍼져 있는 양(유체의 속도장, 전자기장)을 다루는 벡터 미적분을 시작합니다.
+// end::body[]

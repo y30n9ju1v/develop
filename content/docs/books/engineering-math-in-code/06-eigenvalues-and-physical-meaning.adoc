@@ -1,0 +1,119 @@
+---
+title: "6장: 고유값·고유벡터의 물리적 의미"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["engineering-math", "linear-algebra", "eigenvalues", "numpy", "book"]
+categories: ["books"]
+description: "행렬을 곱하면 대부분의 벡터는 방향이 꺾이는데, 딱 두 특별한 방향(고유벡터)만은 꺾이지 않고 길이만 바뀐다는 것을 각도를 직접 계산해서 확인하며 고유값 문제의 정의(Av=λv)를 특성방정식이 아니라 이 기하학적 그림으로 먼저 이해하는 3부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-laplace-for-circuits/[5장: 라플라스 변환으로 RLC 회로 풀기] · 다음: link:../07-coupled-vibration-and-diagonalization/[7장: 대각화와 연성 진동계의 정상 모드]_
+
+'''
+
+1~2부는 미지수가 하나뿐인 문제(전압 하나, 위치 하나)만 다뤘습니다. 3부에서는 미지수가 여러 개 서로 얽혀 움직이는 시스템을 다룰 준비를 합니다 — 그 핵심 도구가 **고유값(eigenvalue)** 과 **고유벡터(eigenvector)** 입니다.
+
+== 행렬을 곱하면 보통 방향이 꺾인다
+
+행렬 `A`를 벡터 `v`에 곱하는 건 기하학적으로 "`v`를 회전시키고 늘이거나 줄이는" 변환입니다. 어떤 대칭행렬 하나를 예로 들어봅니다.
+
+[source,python]
+----
+import numpy as np
+
+A = np.array([[3.0, 1.0],
+              [1.0, 2.0]])
+
+w = np.array([1.0, 1.0])
+Aw = A @ w
+print("w =", w)
+print("A@w =", Aw)
+
+def angle_between(u, v):
+    cos_theta = np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v))
+    return np.degrees(np.arccos(np.clip(cos_theta, -1, 1)))
+
+print("angle between w and A@w (deg):", angle_between(w, Aw))
+----
+
+[source]
+----
+w = [1. 1.]
+A@w = [4. 3.]
+angle between w and A@w (deg): 8.130102354156005
+----
+
+`w=[1,1]`을 `A`에 곱했더니 `[4,3]`이 나왔고, 원래 방향에서 `8.13도` 꺾였습니다 — `A`를 곱하는 게 단순히 "늘이기"가 아니라 "방향도 바꾸는" 변환이라는 뜻입니다.
+
+== 딱 두 방향만은 꺾이지 않는다
+
+그런데 모든 벡터가 이렇게 꺾이는 건 아닙니다. `A`마다 **꺾이지 않는 특별한 방향**이 (보통 2×2 행렬이면 두 개) 존재합니다. `numpy.linalg.eigh`(대칭행렬 전용, 고유값이 항상 실수임을 보장)로 이 방향들을 구해봅니다.
+
+[source,python]
+----
+eigvals, eigvecs = np.linalg.eigh(A)
+print("eigenvalues:", eigvals)
+print("eigenvectors (columns):\n", eigvecs)
+
+for i in range(2):
+    v = eigvecs[:, i]
+    Av = A @ v
+    ang = angle_between(v, Av)
+    print(f"angle between eigenvector {i} and A@eigenvector{i} (deg):", ang)
+----
+
+[source]
+----
+eigenvalues: [1.38196601 3.61803399]
+eigenvectors (columns):
+ [[ 0.52573111 -0.85065081]
+ [-0.85065081 -0.52573111]]
+angle between eigenvector 0 and A@eigenvector0 (deg): 0.0
+angle between eigenvector 1 and A@eigenvector1 (deg): 0.0
+----
+
+각도가 정확히 `0.0도`입니다 — 임의로 고른 `w=[1,1]`은 `8.13도` 꺾였는데, `eigh`가 찾아준 이 두 방향은 `A`를 곱해도 **전혀 안 꺾입니다.** 이게 고유벡터의 정의 그 자체입니다 — "$A$를 곱해도 방향이 안 바뀌는 벡터". 그 방향을 따라 얼마나 늘어나는지(또는 줄어드는지)를 나타내는 배율이 고유값입니다.
+
+[stem]
+++++
+Av = \lambda v
+++++
+
+방금 확인한 사실이 정확히 이 식입니다 — `A`를 `v`(고유벡터)에 곱한 결과가, 그냥 `v`를 `λ`(고유값)배 한 것과 같습니다.
+
+[source,python]
+----
+for i in range(2):
+    v = eigvecs[:, i]
+    lam = eigvals[i]
+    Av = A @ v
+    print("A@v      =", Av)
+    print("lambda*v =", lam*v)
+    print("match:", np.allclose(Av, lam*v))
+----
+
+[source]
+----
+A@v      = [ 0.72654253 -1.1755705 ]
+lambda*v = [ 0.72654253 -1.1755705 ]
+match: True
+A@v      = [-3.07768354 -1.90211303]
+lambda*v = [-3.07768354 -1.90211303]
+match: True
+----
+
+두 고유벡터 모두 `A@v`와 `λ*v`가 정확히 같습니다.
+
+== 왜 공학에서 이게 중요한가
+
+행렬 `A`가 "여러 변수가 서로 어떻게 영향을 주는가"를 나타낸다면(예: 스프링 두 개로 연결된 두 질량이 서로를 당기는 정도), 고유벡터가 가리키는 방향은 **"이 방향으로만 움직이면 서로 얽히지 않고 독립적으로 움직인다"는 특별한 방향**입니다. 임의의 초기 움직임은 복잡하게 뒤섞여 보이지만, 그 움직임을 고유벡터 방향의 성분으로 나눠보면 각 성분은 마치 서로 무관한 것처럼 독립적으로 거동합니다. 다음 장에서 이걸 실제 연성 진동 문제로 확인합니다 — 지금은 "행렬을 곱해도 안 꺾이는 특별한 방향이 있고, 그 방향에서는 문제가 훨씬 단순해진다"는 그림만 기억하면 됩니다.
+
+== 요약
+
+* 행렬 `A`를 임의의 벡터에 곱하면 보통 방향이 꺾인다는 걸 각도로 직접 계산해 확인했습니다(`8.13도`).
+* `A`를 곱해도 방향이 전혀 안 꺾이는(각도 `0도`) 특별한 방향이 존재하고, 그게 고유벡터라는 걸 확인했습니다 — `numpy.linalg.eigh`가 그 방향들과 각 방향의 배율(고유값)을 계산해줍니다.
+* `Av = λv`라는 정의가 방금 확인한 "안 꺾이고 배율만 바뀐다"는 기하학적 사실을 그대로 적은 식이라는 걸, 특성방정식을 풀지 않고도 숫자로 확인했습니다.
+
+다음 장에서는 이 고유벡터가 실제 물리 문제(스프링으로 연결된 두 질량계)에서 왜 "서로 안 얽히는 특별한 진동 방식"을 뜻하는지, 대각화라는 도구로 확인합니다.
+// end::body[]
