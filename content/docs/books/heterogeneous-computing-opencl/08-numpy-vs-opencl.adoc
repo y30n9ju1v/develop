@@ -1,0 +1,123 @@
+---
+title: "8장: NumPy와 속도 비교"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "3dgs", "tiling", "spatial-culling", "book"]
+categories: ["books"]
+description: "6장의 타일링 아이디어를 래스터라이제이션에 그대로 적용해 화면을 타일로 나누고 각 타일에 실제로 닿는 점만 미리 걸러(공간 컬링) 7장의 gather 커널보다 23.8배, NumPy 대비로는 수백 배까지 빨라지는 걸 실측하며 3DGS 가속 파트를 마무리하는 4부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-point-cloud-rasterization/[7장: 점군 래스터라이제이션 커널] · 다음: link:../09-realtime-simulation-loop/[9장: 실시간 시뮬레이션 루프]_
+
+'''
+
+7장의 GPU 커널은 픽셀마다 점 **전체**(N개)를 훑었습니다 — 대부분의 점은 `d2 < (3σ)²` 조건에서 걸러지지만, 걸러지기 전에 일단 거리 계산은 해야 합니다. 화면이 커지고 점이 늘어날수록 이 낭비가 누적됩니다. 이 장은 6장에서 배운 타일링 아이디어를 여기 그대로 적용합니다 — "각 픽셀이 전체 점을 다 보는" 대신 "각 타일에 실제로 닿는 점만 미리 걸러서 그 타일의 픽셀들에게 알려준다"로 바꿉니다.
+
+== 공간 컬링: 타일마다 점 목록을 미리 만든다
+
+화면을 `TILE×TILE`(16×16) 크기의 타일로 나눕니다. 점 하나는 자기 반경(`3σ`)이 걸치는 타일에만 영향을 줄 수 있으므로, 호스트에서 미리 **"이 타일에는 어떤 점들이 닿는가"** 목록을 만들어둘 수 있습니다. 이건 GPU 픽셀 셰이더가 매번 다시 계산할 필요가 없는, 씬(scene)이 바뀔 때만 다시 만들면 되는 정보입니다.
+
+[source,python]
+----
+TILE = 16
+ntx, nty = (W+TILE-1)//TILE, (H+TILE-1)//TILE
+tile_lists = [[] for _ in range(ntx*nty)]
+for i in range(N):
+    r = 3*sigmas[i]
+    tx0 = max(0, int((xs[i]-r)//TILE)); tx1 = min(ntx-1, int((xs[i]+r)//TILE))
+    ty0 = max(0, int((ys[i]-r)//TILE)); ty1 = min(nty-1, int((ys[i]+r)//TILE))
+    for ty in range(ty0, ty1+1):
+        for tx in range(tx0, tx1+1):
+            tile_lists[ty*ntx+tx].append(i)
+
+# CSR(Compressed Sparse Row) 형태로 GPU에 넘길 수 있게 평탄화
+offsets = np.zeros(ntx*nty+1, dtype=np.int32)
+for t in range(ntx*nty):
+    offsets[t+1] = offsets[t] + len(tile_lists[t])
+indices = np.zeros(offsets[-1], dtype=np.int32)
+for t in range(ntx*nty):
+    indices[offsets[t]:offsets[t+1]] = tile_lists[t]
+----
+
+`offsets`와 `indices`는 그래프 알고리즘에서 흔히 쓰는 **CSR(Compressed Sparse Row)** 형태입니다 — `indices[offsets[t]:offsets[t+1]]`이 타일 `t`에 닿는 점들의 인덱스 목록입니다. 512×512 화면(32×32=1024개 타일), 점 2만 개로 실제로 얼마나 걸러지는지 세어봅니다.
+
+[source]
+----
+avg points per tile: 72.7 (vs N=20000 for naive)
+----
+
+타일 하나가 평균 **72.7개**의 점만 신경 쓰면 됩니다 — 7장의 gather 커널이 매 픽셀마다 훑던 20,000개의 0.4%도 안 됩니다.
+
+== 타일 목록을 쓰는 커널
+
+[source,python]
+----
+prg_tiled = cl.Program(ctx, f"""
+#define TILE {TILE}
+__kernel void rasterize_tiled(__global const float* xs, __global const float* ys,
+                               __global const float* sigmas, __global const float* colors,
+                               __global const int* offsets, __global const int* indices,
+                               __global float* img, int W, int ntx) {{
+    int px = get_global_id(0);
+    int py = get_global_id(1);
+    int tx = px / TILE;
+    int ty = py / TILE;
+    int tile_id = ty*ntx + tx;
+    int start = offsets[tile_id];
+    int end = offsets[tile_id+1];
+    float sum = 0.0f;
+    for (int j = start; j < end; j++) {{
+        int i = indices[j];
+        float dx = px - xs[i];
+        float dy = py - ys[i];
+        float s = sigmas[i];
+        float d2 = dx*dx + dy*dy;
+        if (d2 < (3*s)*(3*s)) {{ sum += colors[i] * exp(-d2 / (2.0f*s*s)); }}
+    }}
+    img[py*W + px] = sum;
+}}
+""").build()
+----
+
+각 스레드(픽셀)는 자기가 속한 타일(`tx = px/TILE`, `ty = py/TILE`)을 계산하고, `offsets`/`indices`로 그 타일의 점 목록만 훑습니다 — 워크그룹 크기를 `(TILE, TILE)`로 맞추면(3장에서 다룬 대로), 같은 워크그룹의 스레드는 전부 같은 타일에 속하므로 `offsets[tile_id]`/`offsets[tile_id+1]` 조회도 사실상 같은 값을 반복해서 읽습니다.
+
+[source]
+----
+naive gather (512x512, N=20000):     50.69ms
+tile-culled  (512x512, N=20000):      2.13ms
+max abs error vs naive:               0.0
+speedup vs naive gather:              23.8x
+----
+
+**23.8배 빨라졌고, 오차는 정확히 0**입니다 — 7장의 결과와 달리 이번엔 오차가 없는데, 그 이유는 두 커널이 같은 순서(점 인덱스 오름차순)로 같은 값들을 더하기 때문입니다(타일 목록의 `indices`가 원본 점 인덱스 순서를 그대로 보존합니다). 반면 7장에서는 CPU(패치 단위)와 GPU(픽셀 단위 gather)가 서로 다른 계산 경로를 거쳐서 부동소수점 누적 순서가 달랐던 것과 대조적입니다.
+
+== 4부 정리: NumPy 대비 얼마나 빨라졌는가
+
+4부 전체의 숫자를 한 줄로 모으면:
+
+* NumPy(패치 단위, 7장): 점 2만 개, 256×256 화면 기준 214.75ms
+* GPU gather(7장): 13.65ms (NumPy 대비 15.7배)
+* GPU 타일 컬링(이 장, 512×512로 화면을 4배 키웠는데도): 2.13ms
+
+화면을 4배 더 키웠는데도(256×256 → 512×512) 타일 컬링 버전이 NumPy 패치 버전보다 오히려 훨씬 빠릅니다 — 정확한 배율을 매기려면 같은 조건(같은 화면 크기)에서 다시 재야 공정하지만, 이 정도만으로도 방향은 분명합니다. **1장에서 배운 계산 강도, 2장에서 배운 전송 손익분기점, 3~4장에서 배운 워크그룹과 동기화, 5~6장에서 배운 메모리 계층과 타일링** — 이 5개 도구를 전부 실제로 조합해야 "GPU라서 빠르다"가 아니라 "이렇게 짰기 때문에 23.8배 빠르다"는 구체적인 이유를 댈 수 있게 됩니다.
+
+== 직접 해보기
+
+타일 크기를 16 대신 32로 바꾸면(단, 워크그룹 크기 제한 때문에 `local_size`는 `(16,16)`으로 유지하고 커널 안의 `TILE` 상수만 32로 바꿔서 한 워크그룹이 타일 절반씩 담당하게 하거나, 더 간단히는 `TILE=8`로 줄여보세요) 타일당 평균 점 개수와 속도가 어떻게 바뀌는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+`TILE=8`로 바꾸면 워크그룹도 `(8,8)=64`로 맞춰 실행합니다.
+
+[source]
+----
+avg points per tile (TILE=8): 41.3 (vs 72.7 for TILE=16)
+tile-culled (TILE=8): 2.07ms  (vs 2.13ms for TILE=16)
+max abs error vs naive: 0.0
+----
+
+두 가지가 예상과 다릅니다. 첫째, 타일당 점 개수가 **정확히 4분의 1로 줄지 않았습니다**(72.7 → 41.3, 약 1.76분의 1) — 타일 넓이는 정말로 4분의 1이 됐지만, 점의 반경(`3σ`, 최대 12픽셀 안팎)이 8픽셀 타일보다 커서 여러 타일에 걸치는 경우가 늘었기 때문입니다. 타일이 반경보다 작아지면 "타일을 잘게 쪼갠 만큼 컬링 효과가 비례해서 좋아진다"는 가정이 깨집니다. 둘째, 속도는 6장의 행렬곱 타일링과 달리 **거의 그대로**입니다(2.13ms → 2.07ms, 오차 범위 안) — 이 장의 병목은 이미 워크그룹 점유율보다 "타일당 점 개수"가 지배적이어서, 컬링 효과가 계속 (약하게나마) 개선되는 한 워크그룹이 작아지는 손해를 상쇄한 것으로 보입니다. 6장에서 본 "작게 쪼갤수록 무조건 나쁘다"가 이 커널에는 그대로 적용되지 않는다는 것 자체가, 최적 타일 크기는 커널마다 실측해서 찾아야지 다른 커널에서 배운 규칙을 그대로 옮길 수 없다는 걸 보여줍니다.
+====
+// end::body[]

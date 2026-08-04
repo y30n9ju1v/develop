@@ -1,0 +1,98 @@
+---
+title: "OpenCL로 배우는 헤테로지니어스 컴퓨팅: 3DGS와 디지털 트윈까지"
+draft: false
+---
+
+CPU 한 개로는 안 되는 계산(3D Gaussian Splatting, 실시간 시뮬레이션)을 GPU로 가속하는 법을, 호스트-디바이스 분리(1부) → 워크그룹과 SIMT 실행 모델(2부) → 메모리 계층구조(3부) → 3DGS 점군 래스터라이제이션(4부) → 실시간 시뮬레이션 루프(5부) 순서로 쌓아 올리는 독립적인 입문서입니다. CUDA(NVIDIA 전용)나 Metal(Apple 전용) 대신 어떤 GPU에서나 동작하는 개방 표준 **OpenCL**을 씁니다.
+
+이 책의 모든 커널은 이 세션 환경에 실제로 있는 GPU(Apple M4, OpenCL "Apple" 플랫폼)에서 실제로 컴파일되고 실행됩니다. 속도 비교는 전부 `time.perf_counter()`로 실측한 숫자이고, 배리어를 빠뜨리면 실제로 어떻게 틀린 값이 나오는지, 분기가 갈리면 실제로 얼마나 느려지는지, 타일링으로 메모리 접근을 줄이면 실측 속도가 얼마나 개선되는지 — 전부 실제 실행 결과를 그대로 싣습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: CPU 한 개로는 안 되는 이야기]*
+
+*1부: 왜 호스트와 디바이스를 나누는가*
+
+[start=1]
+. *link:01-why-cpu-is-slow/[1장: CPU로는 왜 느린가]*
+. *link:02-memory-transfer-bottleneck/[2장: 메모리 전송이 병목인 이유]*
+
+*2부: 커널과 실행 모델*
+
+[start=3]
+. *link:03-workgroups-and-simt/[3장: 워크그룹과 SIMT]*
+. *link:04-synchronization-and-barriers/[4장: 동기화와 배리어]*
+
+*3부: 메모리 계층구조*
+
+[start=5]
+. *link:05-memory-hierarchy/[5장: 전역/공유/로컬 메모리]*
+. *link:06-tiling-and-cache/[6장: 타일링과 캐시 활용]*
+
+*4부: 3DGS 가속하기*
+
+[start=7]
+. *link:07-point-cloud-rasterization/[7장: 점군 래스터라이제이션 커널]*
+. *link:08-numpy-vs-opencl/[8장: NumPy와 속도 비교]*
+
+*5부: 디지털 트윈을 향해*
+
+[start=9]
+. *link:09-realtime-simulation-loop/[9장: 실시간 시뮬레이션 루프]*
+. *link:10-full-pipeline/[10장: 종합 파이프라인]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-why-cpu-is-slow.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-memory-transfer-bottleneck.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-workgroups-and-simt.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-synchronization-and-barriers.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-memory-hierarchy.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-tiling-and-cache.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-point-cloud-rasterization.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-numpy-vs-opencl.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-realtime-simulation-loop.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-full-pipeline.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]

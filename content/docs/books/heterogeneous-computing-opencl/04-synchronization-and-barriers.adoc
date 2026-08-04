@@ -1,0 +1,148 @@
+---
+title: "4장: 동기화와 배리어"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "barrier", "local-memory", "reduction", "book"]
+categories: ["books"]
+description: "워크그룹 안의 스레드가 로컬 메모리를 공유하며 협력하는 병렬 합산(reduction) 커널을 barrier()로 올바르게 짜고, 배리어를 뺐을 때 실제로 틀린 값(461872 vs 정답 523776)이 나오는 걸 직접 재현해서 SIMT 병렬성이 공짜가 아니라는 걸 보여주는 2부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-workgroups-and-simt/[3장: 워크그룹과 SIMT] · 다음: link:../05-memory-hierarchy/[5장: 전역/공유/로컬 메모리]_
+
+'''
+
+3장은 워크그룹이 스레드를 어떻게 묶는지 봤습니다. 이 장은 그 묶인 스레드들이 **서로 협력**하는 첫 사례 — 병렬 합산(reduction) — 을 다루면서, 협력에는 반드시 동기화가 필요하다는 것과, 그 동기화를 빼먹으면 정확히 어떻게 틀리는지를 실제 값으로 확인합니다.
+
+== 문제: 배열의 합을 병렬로 구하기
+
+배열 전체의 합을 구하는 건 순차적으로는 쉽습니다(`for`로 누적). 병렬로 하려면 다르게 접근해야 합니다 — **트리 형태로 절반씩 접어가며** 더합니다. 워크그룹 크기가 256이면: 처음엔 256개 값을 128쌍으로 나눠 각 쌍을 더해 128개로 줄이고, 그다음 64쌍을 더해 64개로, 이렇게 `log2(256)=8`단계 만에 값 하나로 줄입니다.
+
+문제는 이 "절반씩 접기"가 **워크그룹 안의 스레드들이 서로의 중간 결과를 읽어야** 한다는 점입니다 — 2단계에서 128개로 줄인 값을 읽으려면, 1단계의 256→128 계산이 **전체 스레드에 대해 다 끝나야** 합니다. 한 스레드만 빨리 끝내고 다음 단계로 넘어가 버리면, 아직 안 끝난 다른 스레드의 옛날 값을 읽게 됩니다.
+
+== `barrier()`로 올바르게 짜기
+
+[source,python]
+----
+prg_ok = cl.Program(ctx, """
+__kernel void reduce_ok(__global const float* a, __global float* partial, __local float* buf) {
+    int gid = get_global_id(0);
+    int lid = get_local_id(0);
+    int lsize = get_local_size(0);
+    buf[lid] = a[gid];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int stride = lsize/2; stride > 0; stride /= 2) {
+        if (lid < stride) {
+            buf[lid] += buf[lid + stride];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    if (lid == 0) partial[get_group_id(0)] = buf[0];
+}
+""").build()
+----
+
+세 가지가 새롭습니다.
+
+* `__local float* buf` — **로컬 메모리**입니다(자세한 성질은 5장에서 다룹니다). 지금은 "같은 워크그룹의 모든 스레드가 읽고 쓸 수 있는 공유 스크래치패드"라고만 알아두면 됩니다. 호스트에서 `cl.LocalMemory(LOCAL * 4)`(플로트 256개 = 1024바이트)로 크기만 지정해서 넘깁니다.
+* `barrier(CLK_LOCAL_MEM_FENCE)` — "이 워크그룹의 모든 스레드가 여기 도착할 때까지 기다려라"는 동기화 지점입니다. 한 스레드도 이 줄을 지나칠 수 없습니다 — 전부 도착해야 다 같이 다음 줄로 넘어갑니다. `CLK_LOCAL_MEM_FENCE`는 "로컬 메모리에 대한 쓰기가 다른 스레드에게도 보이도록 순서를 맞춘다"는 뜻입니다.
+* 루프 안에서 `stride`가 128 → 64 → ... → 1로 줄어들며, 매 단계마다 `barrier`를 다시 부릅니다 — 한 단계가 끝날 때마다 전원이 모여야 다음 단계가 안전합니다.
+
+원소 1024개(워크그룹 크기 256, 그룹 4개)로 검증합니다.
+
+[source,python]
+----
+N, LOCAL = 1024, 256
+a = np.arange(N, dtype=np.float32)  # 0+1+...+1023 = 523776
+
+a_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=a)
+n_groups = N // LOCAL
+partial = np.zeros(n_groups, dtype=np.float32)
+partial_buf = cl.Buffer(ctx, mf.WRITE_ONLY, partial.nbytes)
+local_buf = cl.LocalMemory(LOCAL * 4)
+
+prg_ok.reduce_ok(q, (N,), (LOCAL,), a_buf, partial_buf, local_buf)
+cl.enqueue_copy(q, partial, partial_buf)
+q.finish()
+print("with barrier, sum:", partial.sum(), " expected:", a.sum())
+----
+
+[source]
+----
+with barrier, sum: 523776.0  expected: 523776.0
+----
+
+각 워크그룹이 자기 몫(256개)의 합을 `partial` 배열에 하나씩 써주고(그룹 4개니까 `partial`은 원소 4개), 그 4개를 호스트에서 NumPy로 마저 더해서 최종 합을 구합니다 — 워크그룹 간에는 로컬 메모리를 공유하지 않으므로, 그룹과 그룹 사이의 합산은 이렇게 호스트(또는 커널을 한 번 더 부르는 2단계 리덕션)에서 처리합니다.
+
+== 배리어를 빼면 실제로 무슨 일이 생기는가
+
+이론상 "동기화가 없으면 경쟁 조건(race condition)이 생긴다"는 건 알지만, GPU에서 실제로 그게 눈에 보이는 틀린 숫자로 나타나는 걸 확인해봅니다. `barrier` 호출 두 곳을 전부 지운 커널을 만듭니다.
+
+[source,python]
+----
+prg_bad = cl.Program(ctx, """
+__kernel void reduce_bad(__global const float* a, __global float* partial, __local float* buf) {
+    int gid = get_global_id(0);
+    int lid = get_local_id(0);
+    int lsize = get_local_size(0);
+    buf[lid] = a[gid];
+    // 배리어 없음 -- 어떤 스레드는 buf에 다 쓰기도 전에 다른 스레드가 읽어버릴 수 있다
+    for (int stride = lsize/2; stride > 0; stride /= 2) {
+        if (lid < stride) {
+            buf[lid] += buf[lid + stride];
+        }
+        // 여기도 배리어 없음
+    }
+    if (lid == 0) partial[get_group_id(0)] = buf[0];
+}
+""").build()
+----
+
+[source]
+----
+without barrier, sum: 461872.0  expected: 523776.0
+----
+
+**틀린 값(461872)이 나왔습니다** — 정답(523776)보다 61904가 적습니다. 배리어가 없으니 어떤 스레드는 `buf[lid + stride]`를 다른 스레드가 아직 새 값을 쓰기 전(옛 값 또는 정의되지 않은 값)에 읽어버렸고, 그 결과 일부 값이 합산에서 누락되거나 중복되거나 초기화 안 된 값이 섞였습니다. 중요한 건 — **이 커널은 컴파일 에러도, 런타임 에러도 안 냅니다.** 그냥 조용히 틀린 숫자를 돌려줍니다. 이게 병렬 프로그래밍에서 동기화 버그가 위험한 이유입니다 — 매번 똑같이 틀리는 것도 아니고(스레드 스케줄링에 따라 다른 값이 나올 수 있습니다), 프로그램이 죽지도 않습니다.
+
+== 왜 3장의 "락스텝"과 모순되지 않는가
+
+3장에서 "같은 락스텝 그룹(warp) 안의 스레드는 정말로 동시에 실행된다"고 했는데, 그럼 이 장의 배리어는 왜 필요할까 — 답은 **워크그룹 하나가 보통 여러 개의 락스텝 그룹으로 이루어진다**는 데 있습니다. 이 장의 워크그룹 크기(256)는 전형적인 락스텝 그룹 크기(32)의 8배입니다 — 즉 워크그룹 하나 안에도 서로 독립적으로 스케줄링되는 락스텝 그룹이 8개 있고, 그 8개 사이의 순서는 하드웨어가 보장해주지 않습니다. `barrier()`는 바로 이 "워크그룹 안에서 락스텝 그룹들 사이의 순서"를 강제로 맞추는 도구입니다.
+
+== 직접 해보기
+
+두 번째 `barrier`(루프 안, `stride` 갱신 후)만 지우고 첫 번째 `barrier`(초기 `buf[lid] = a[gid]` 직후)는 남겨두면 결과가 맞을까요, 틀릴까요? 예상을 세우고 실제로 실행해서 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+prg_half = cl.Program(ctx, """
+__kernel void reduce_half(__global const float* a, __global float* partial, __local float* buf) {
+    int gid = get_global_id(0);
+    int lid = get_local_id(0);
+    int lsize = get_local_size(0);
+    buf[lid] = a[gid];
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int stride = lsize/2; stride > 0; stride /= 2) {
+        if (lid < stride) {
+            buf[lid] += buf[lid + stride];
+        }
+        // 루프 안 배리어만 제거
+    }
+    if (lid == 0) partial[get_group_id(0)] = buf[0];
+}
+""").build()
+----
+
+[source]
+----
+with only first barrier, sum: 523776.0  expected: 523776.0
+----
+
+실제로 돌려보면 예상과 다른 결과가 나옵니다 — **이 실행에서는 맞았습니다.** OpenCL 명세상 이 코드는 여전히 **정의되지 않은 동작(undefined behavior)** 입니다 — 루프의 각 단계(256→128→64→...)가 이전 단계에 의존하는데 단계 사이에 동기화가 없으니, 표준이 정확성을 보장해주지 않습니다. 그런데도 이 세션의 하드웨어/드라이버에서는 우연히 맞는 값이 나왔습니다 — 워크그룹 크기(256)와 이 GPU의 락스텝 그룹 스케줄링 방식이 맞물려서, 이 특정 실행 순서에서는 각 단계가 실제로 다음 단계 전에 다 끝나버렸을 가능성이 높습니다.
+
+**이게 바로 동기화 버그가 진짜 위험한 이유입니다.** 본문의 "배리어를 아예 다 뺀" 버전은 확실히 틀린 값을 냈지만, 이 절반짜리 버전은 이 하드웨어/이 실행에서 우연히 맞았습니다 — 다른 GPU, 다른 드라이버 버전, 다른 워크그룹 크기, 혹은 같은 하드웨어라도 다른 실행 시점(GPU가 바쁠 때 스케줄링이 달라지면)에는 얼마든지 틀릴 수 있습니다. "지금 이 환경에서 맞는 값이 나왔다"는 "코드가 옳다"와 같은 말이 아닙니다 — OpenCL 표준을 따르지 않는 코드는, 지금 우연히 통과하더라도 프로덕션에서 절대 신뢰할 수 없습니다. 루프 안의 각 단계는 이전 단계의 결과에 의존하므로, 명세대로 안전하게 짜려면 **단계마다 매번** 배리어가 필요합니다.
+====
+// end::body[]

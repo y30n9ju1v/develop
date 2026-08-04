@@ -1,0 +1,118 @@
+---
+title: "10장: 종합 파이프라인"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "digital-twin", "pipeline", "book"]
+categories: ["books"]
+description: "입자 5000개의 물리 시뮬레이션과 3DGS 스타일 래스터라이제이션을 한 프레임 안에서 이어 붙여 초당 215프레임을 실측하고, 9장과 달리 이번엔 매 프레임 읽어오나 10프레임에 한 번만 읽어오나 속도 차이가 거의 없다는 걸 확인해 '병목은 고정된 게 아니라 파이프라인마다 다시 재야 한다'로 5부와 책 전체를 마무리하는 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-realtime-simulation-loop/[9장: 실시간 시뮬레이션 루프] · 다음: link:../11-afterword/[맺음말]_
+
+'''
+
+9장은 물리 시뮬레이션만, 7~8장은 래스터라이제이션만 다뤘습니다. 실제 디지털 트윈은 이 둘을 한 프레임 안에서 이어 붙입니다 — **시뮬레이션으로 상태를 갱신하고, 그 상태를 화면에 그린다.** 이 장은 그 파이프라인을 직접 짜서 실측하고, 이 책 전체에서 배운 "병목을 진단하는 법"을 마지막으로 한 번 더 적용해봅니다.
+
+== 파이프라인: 물리 스텝 → 래스터라이즈
+
+입자 5000개가 중력을 받으며 튕기는 9장의 물리 커널에, 7~8장의 래스터라이제이션 커널을 그대로 이어 붙입니다. 입자의 위치(`px`, `py`)가 물리 커널의 출력이자 래스터라이제이션 커널의 입력입니다 — **GPU 버퍼를 그대로 넘기면 되고, 중간에 CPU로 갔다 올 필요가 없습니다.**
+
+[source,python]
+----
+step_prg = cl.Program(ctx, """
+__kernel void step(__global float* px, __global float* py,
+                    __global float* vx, __global float* vy, float dt) {
+    int i = get_global_id(0);
+    float x = px[i], y = py[i];
+    float u = vx[i], v = vy[i];
+    v -= 0.5f * dt;
+    x += u * dt; y += v * dt;
+    if (y < -1.0f) { y = -1.0f; v = -v * 0.8f; }
+    if (x < -1.0f || x > 1.0f) { u = -u; x = clamp(x, -1.0f, 1.0f); }
+    px[i] = x; py[i] = y; vx[i] = u; vy[i] = v;
+}
+""").build()
+
+raster_prg = cl.Program(ctx, """
+__kernel void rasterize(__global const float* px, __global const float* py,
+                         __global const float* sigmas, __global const float* colors,
+                         __global float* img, int N, int W, int H) {
+    int gx = get_global_id(0);
+    int gy = get_global_id(1);
+    float sum = 0.0f;
+    for (int i = 0; i < N; i++) {
+        float sx = (px[i]+1.0f)*0.5f*W;   // 월드 좌표[-1,1] -> 픽셀 좌표
+        float sy = (py[i]+1.0f)*0.5f*H;
+        float dx = gx - sx, dy = gy - sy;
+        float s = sigmas[i];
+        float d2 = dx*dx+dy*dy;
+        if (d2 < (3*s)*(3*s)) sum += colors[i]*exp(-d2/(2.0f*s*s));
+    }
+    img[gy*W+gx] = sum;
+}
+""").build()
+----
+
+매 프레임의 루프는 두 커널을 순서대로 부르기만 하면 됩니다.
+
+[source,python]
+----
+for f in range(FRAMES):
+    step(q, (N,), None, px_buf, py_buf, vx_buf, vy_buf, np.float32(DT))
+    rasterize(q, (W,H), None, px_buf, py_buf, s_buf, c_buf, img_buf,
+              np.int32(N), np.int32(W), np.int32(H))
+    if f % 10 == 0:   # 실제 앱이라면 화면 표시 주기(예: 물리는 60Hz, 표시는 6Hz)
+        img = np.empty((H,W), dtype=np.float32)
+        cl.enqueue_copy(q, img, img_buf)
+        q.finish()
+----
+
+이 순서 — `step`이 `px_buf`를 갱신하고, 그다음 줄의 `rasterize`가 같은 `px_buf`를 읽는 것 — 이 안전한 이유는 OpenCL의 **커맨드 큐가 기본적으로 순서를 보장**하기 때문입니다(in-order queue, 이 책에서 계속 써온 `cl.CommandQueue(ctx)`의 기본 동작). `step`이 GPU에서 다 끝나기 전에 `rasterize`가 먼저 시작될 걱정을 안 해도 됩니다.
+
+== 실측: 초당 몇 프레임인가
+
+원소 5000개, 256×256 화면, 60프레임을 (10프레임마다 한 번 화면에 표시한다고 가정하고) 실행합니다.
+
+[source]
+----
+full GPU pipeline (60 frames, sim+raster, display every 10th): 279.65ms, 4.661ms/frame
+achievable FPS: 215
+----
+
+**초당 215프레임**이 나옵니다 — 9장에서 언급한 60FPS 목표(프레임당 16.6ms)에 여유가 있습니다. 이 예산 안에서 입자를 훨씬 더 늘리거나(8장의 타일 컬링을 이 래스터라이제이션에도 적용하면), 화면 해상도를 키우거나, 물리를 더 정교하게 만들 여지가 남아있다는 뜻입니다.
+
+== 9장과 다른 결론: 이번엔 표시 주기가 속도에 거의 안 미친다
+
+9장에서는 "매 프레임 CPU로 읽어오기" vs "GPU에 남겨두고 마지막에만 읽기"가 6.3배 차이를 냈습니다. 이 장에서 같은 비교를 해보면 어떨까요 — 매 프레임 `img`를 읽어오는 것과, 10프레임에 한 번만 읽어오는 것을 비교합니다.
+
+[source]
+----
+readback+finish every frame:                  264.50ms, 4.408ms/frame
+display every 10th (본문 결과):                279.65ms, 4.661ms/frame
+ratio: 0.95x (거의 차이 없음, 오히려 매 프레임 읽는 쪽이 약간 더 빠르게 측정됨)
+----
+
+9장과 정반대 결과입니다 — 이번엔 **거의 차이가 없습니다**(오차 범위 안). 왜일까요. 9장의 물리 커널(`step`)은 입자당 몇 번의 산술 연산만 하는 극히 가벼운 커널이라, 프레임당 실제 계산 시간이 동기화 오버헤드보다 작았습니다 — 그래서 "동기화 횟수를 줄이는 것"이 압도적으로 중요했습니다. 이 장은 `step` 뒤에 **래스터라이제이션**(7~8장에서 봤듯 픽셀마다 점을 훑는, 훨씬 무거운 커널)이 붙어 있어서, 프레임당 계산 시간 자체가 동기화 오버헤드보다 훨씬 커졌습니다 — 그러니 "몇 번 동기화하는가"는 이제 병목이 아니고, "래스터라이제이션 자체를 얼마나 빠르게 짜는가"(8장의 타일 컬링 같은)가 다시 병목입니다.
+
+이게 이 책 전체를 관통하는 마지막 교훈입니다 — **"무엇이 병목인가"는 워크로드마다 다시 재야 합니다.** 2장은 계산 강도로, 5~6장은 메모리 접근 패턴으로, 9장은 동기화 횟수로 병목이 갈렸는데, 이 장은 그 세 가지를 합쳤더니 병목이 또 바뀌었습니다. "GPU 프로그래밍의 법칙"이라고 외울 만한 단일 규칙은 없습니다 — 있는 건 "실측해서 무엇이 시간을 먹는지 확인하고, 그 자리를 고친다"는 방법론뿐이고, 이 책의 10개 장이 전부 그 방법론을 반복해서 보여준 사례들입니다.
+
+== 직접 해보기
+
+이 장의 파이프라인에서 `rasterize` 커널을 8장의 타일 컬링 버전으로 바꾸면(입자 5000개, 256×256 화면), 프레임당 시간과 달성 가능한 FPS가 얼마나 개선될지 예상해보고 실제로 바꿔서 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+8장의 CSR(`offsets`/`indices`) 타일 목록을 이 장의 입자 위치로 매 프레임 다시 만드는 건 호스트 파이썬 루프라서 비용이 크므로(입자가 매 프레임 움직이니 타일 소속도 매번 바뀝니다), 여기서는 "정적 장면"(입자가 안 움직인다고 가정)에서만 순수 래스터라이제이션 속도 이득을 확인합니다 — 실전에서 매 프레임 타일 목록을 GPU에서 다시 만드는 법은 이 책의 범위를 넘어서는 다음 단계입니다.
+
+[source]
+----
+naive rasterize only (5000 particles, 256x256, 60 frames):        298.89ms, 4.981ms/frame
+tile-culled rasterize only (5000 particles, 256x256, 60 frames):   17.14ms, 0.286ms/frame
+speedup: 17.4x
+----
+
+래스터라이제이션만 놓고 보면 17.4배 빨라집니다 — 8장에서 본 패턴 그대로입니다. 다만 본문에서 짚었듯, 타일 목록을 매 프레임 다시 만드는 비용(이 실험에서는 뺀 비용)까지 더하면 실제 파이프라인 전체 이득은 이보다 작아질 겁니다 — "커널 자체는 빨라졌지만 그걸 준비하는 비용이 새로 생겼다"는 것도, 이 책 마지막까지 유효한 "병목은 다시 재봐야 한다"는 교훈의 또 다른 사례입니다.
+====
+// end::body[]

@@ -1,0 +1,190 @@
+---
+title: "2장: 메모리 전송이 병목인 이유"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "memory-transfer", "book"]
+categories: ["books"]
+description: "GPU 커널 호출을 업로드-실행-다운로드로 쪼개 각 단계의 시간을 실측하고, 데이터 크기를 100개부터 2000만 개까지 바꿔가며 CPU 대비 GPU 왕복 시간의 비율이 626배 손해에서 6배 손해로 좁혀지는 걸 확인해, '작은 작업은 GPU로 보내지 마라'는 규칙을 데이터로 세우는 1부의 두 번째 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-why-cpu-is-slow/[1장: CPU로는 왜 느린가] · 다음: link:../03-workgroups-and-simt/[3장: 워크그룹과 SIMT]_
+
+'''
+
+1장 끝에서 힌트를 남겼습니다 — GPU로 계산을 보내려면 데이터를 옮겨야 하고, 그 전송 자체에 시간이 걸립니다. 이 장은 그 전송 시간을 계산 시간과 따로 떼어 실측해서, "언제 GPU로 보내면 손해인가"를 데이터로 확인합니다.
+
+== GPU 호출 한 번은 사실 세 단계다
+
+`prg.kernel(...)` 한 줄처럼 보이지만, 실제로는 세 단계입니다.
+
+1. **호스트 → 디바이스 전송** — CPU 메모리에 있는 배열을 GPU가 접근할 수 있는 메모리로 복사 (`cl.Buffer(..., COPY_HOST_PTR, ...)`)
+2. **커널 실행** — GPU에서 실제 계산
+3. **디바이스 → 호스트 전송** — 결과를 다시 CPU 메모리로 복사 (`cl.enqueue_copy`)
+
+세 단계를 따로 시간을 재봅니다. 원소 400만 개(`float32`, 16MB)짜리 배열로 단순한 `c[i] = a[i] + 1` 커널을 돌립니다.
+
+[source,python]
+----
+import time
+import numpy as np
+import pyopencl as cl
+
+ctx = cl.Context(dev_type=cl.device_type.ALL)
+q = cl.CommandQueue(ctx)
+mf = cl.mem_flags
+
+N = 4_000_000
+a = np.random.rand(N).astype(np.float32)
+
+prg = cl.Program(ctx, """
+__kernel void addone(__global const float* a, __global float* c) {
+    int i = get_global_id(0);
+    c[i] = a[i] + 1.0f;
+}
+""").build()
+addone = cl.Kernel(prg, "addone")
+
+t0 = time.perf_counter()
+a_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=a)
+q.finish()
+t1 = time.perf_counter()
+print(f"host->device transfer (16MB): {(t1-t0)*1000:.3f}ms")
+
+c_buf = cl.Buffer(ctx, mf.WRITE_ONLY, a.nbytes)
+addone(q, a.shape, None, a_buf, c_buf)  # 워밍업
+q.finish()
+
+t0 = time.perf_counter()
+addone(q, a.shape, None, a_buf, c_buf)
+q.finish()
+t1 = time.perf_counter()
+print(f"kernel execution: {(t1-t0)*1000:.4f}ms")
+
+c = np.empty_like(a)
+t0 = time.perf_counter()
+cl.enqueue_copy(q, c, c_buf)
+q.finish()
+t1 = time.perf_counter()
+print(f"device->host transfer (16MB): {(t1-t0)*1000:.3f}ms")
+----
+
+[source]
+----
+host->device transfer (16MB): 0.067ms
+kernel execution: 1.4636ms
+device->host transfer (16MB): 2.008ms
+----
+
+여기서 눈여겨볼 게 있습니다 — 호스트→디바이스 전송이 겨우 `0.067ms`로 거의 공짜에 가깝습니다. 디스크리트(별도 카드로 꽂는) NVIDIA GPU였다면 PCIe 버스를 거쳐야 해서 16MB 전송에 보통 1ms 안팎이 걸립니다. 이 세션 환경의 GPU(Apple M4)는 **통합 메모리(unified memory)** 구조라서 CPU와 GPU가 물리적으로 같은 DRAM을 공유합니다 — `COPY_HOST_PTR`이 하는 일이 실제 데이터 복사가 아니라 대부분 페이지 매핑에 가까워서 이례적으로 빠릅니다. 디바이스→호스트 전송(`2.008ms`)이 오히려 더 느린 건, 이 방향은 GPU 커널이 쓴 결과를 CPU 캐시와 일관되게 맞추는 동기화 비용이 더 들기 때문입니다. **이 책의 숫자는 이 특정 환경(통합 메모리 GPU) 기준이라는 걸 기억해두세요** — 디스크리트 GPU를 쓰는 환경이라면 호스트↔디바이스 전송이 이 장의 숫자보다 훨씬 크게 나타날 겁니다.
+
+== 데이터 크기를 바꿔가며: 언제 GPU가 손해인가
+
+전송 비용이 통합 메모리 덕에 작더라도, 커널 호출 자체(디바이스 큐에 명령을 넣고 스케줄링하는)에는 고정 오버헤드가 있습니다. 데이터 크기를 100개부터 2000만 개까지 바꿔가며 "업로드+실행+다운로드"를 한 세트로 100번 반복해 평균 시간을 재고, 같은 계산을 NumPy로 했을 때와 비교합니다.
+
+[source,python]
+----
+def run_case(N, iters=100):
+    a = np.random.rand(N).astype(np.float32)
+    a_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=a)
+    c_buf = cl.Buffer(ctx, mf.WRITE_ONLY, a.nbytes)
+    c = np.empty_like(a)
+    addone(q, a.shape, None, a_buf, c_buf); q.finish()  # 워밍업
+
+    t0 = time.perf_counter()
+    for _ in range(iters):
+        a_buf2 = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=a)
+        addone(q, a.shape, None, a_buf2, c_buf)
+        cl.enqueue_copy(q, c, c_buf)
+    q.finish()
+    gpu_time = (time.perf_counter() - t0) / iters
+
+    t0 = time.perf_counter()
+    for _ in range(iters):
+        cnp = a + 1.0
+    cpu_time = (time.perf_counter() - t0) / iters
+
+    print(f"N={N:>10}: CPU {cpu_time*1e6:8.2f}us  "
+          f"GPU(왕복) {gpu_time*1e6:8.2f}us  "
+          f"GPU/CPU {gpu_time/cpu_time:6.1f}x")
+
+for N in [100, 10_000, 1_000_000, 20_000_000]:
+    run_case(N)
+----
+
+[source]
+----
+N=       100: CPU     0.53us  GPU(왕복)   329.21us  GPU/CPU  626.1x
+N=     10000: CPU     1.26us  GPU(왕복)   302.02us  GPU/CPU  239.9x
+N=   1000000: CPU    62.29us  GPU(왕복)  1016.81us  GPU/CPU   16.3x
+N=  20000000: CPU  2048.22us  GPU(왕복) 12590.89us  GPU/CPU    6.1x
+----
+
+패턴이 뚜렷합니다. 원소 100개짜리 배열에서 GPU 왕복은 CPU보다 **626배** 느립니다 — 계산량 자체가 너무 적어서(덧셈 100번), 커널 큐잉/디스패치라는 고정 비용(대략 300us 안팎, 데이터 크기와 거의 무관하게 유지되는 걸 보면 확인됩니다)이 전체 시간을 지배합니다. 데이터가 커질수록 GPU 쪽 시간에서 고정 비용이 차지하는 비중이 줄어들고, "손해 비율"이 626배 → 240배 → 16배 → 6배로 좁혀집니다. 이 실험은 애초에 계산량이 적은 `+1` 커널을 썼기 때문에 GPU가 CPU를 완전히 역전하는 지점까지는 안 갔습니다 — 1장의 `heavy` 커널(삼각함수·제곱근 섞은)이었다면 훨씬 일찍 역전됐을 겁니다. 즉 GPU가 유리해지는 조건은 "데이터가 크다"가 아니라 **"원소당 계산량이 전송/디스패치 오버헤드를 상쇄할 만큼 크다"** 입니다.
+
+== 규칙: 계산 강도(arithmetic intensity)로 판단하라
+
+이 장 실험을 한 문장으로 요약하면 — GPU로 보낼지 말지는 데이터 크기가 아니라 **계산 강도**(데이터 1바이트당 몇 번의 연산을 하는가)로 판단해야 합니다.
+
+* 계산 강도가 낮은 작업(단순 덧셈, 복사, 필터링) → 데이터가 아주 크지 않은 한 CPU/NumPy가 유리하거나 비슷합니다. 이 장의 200만~2000만 원소 구간에서도 여전히 CPU가 6~16배 빠릅니다.
+* 계산 강도가 높은 작업(삼각함수·행렬곱·컨볼루션처럼 원소당 연산이 많은 것) → 1장에서 봤듯 GPU가 압도적으로 유리해집니다.
+
+4부에서 다룰 3DGS 점군 래스터라이제이션은 점 하나당 여러 픽셀에 걸쳐 반복 계산을 하는, 계산 강도가 높은 작업입니다 — 그래서 GPU 가속의 좋은 표적입니다. 반대로 "배열을 그냥 복사만 하는" 작업을 GPU로 보내는 건 이 장의 100개짜리 실험처럼 손해일 뿐입니다.
+
+== 직접 해보기
+
+이 장의 `run_case` 함수를 그대로 쓰되, 커널을 1장의 `heavy`(삼각함수·제곱근 섞은 식)로 바꿔서 같은 N 목록(100, 10,000, 1,000,000, 20,000,000)에 대해 GPU/CPU 비율이 어떻게 달라지는지 확인해보세요. 몇 번째 N부터 GPU가 CPU를 역전할까요?
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+prg2 = cl.Program(ctx, """
+__kernel void heavy(__global const float* a, __global float* c) {
+    int i = get_global_id(0);
+    float x = a[i];
+    c[i] = sin(x) * cos(x) + sqrt(fabs(x)) * sin(x*2.0f);
+}
+""").build()
+heavy = cl.Kernel(prg2, "heavy")
+
+def run_case_heavy(N, iters=100):
+    a = np.random.rand(N).astype(np.float32)
+    a_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=a)
+    c_buf = cl.Buffer(ctx, mf.WRITE_ONLY, a.nbytes)
+    c = np.empty_like(a)
+    heavy(q, a.shape, None, a_buf, c_buf); q.finish()
+
+    t0 = time.perf_counter()
+    for _ in range(iters):
+        a_buf2 = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=a)
+        heavy(q, a.shape, None, a_buf2, c_buf)
+        cl.enqueue_copy(q, c, c_buf)
+    q.finish()
+    gpu_time = (time.perf_counter() - t0) / iters
+
+    t0 = time.perf_counter()
+    for _ in range(iters):
+        cnp = np.sin(a) * np.cos(a) + np.sqrt(np.abs(a)) * np.sin(a*2.0)
+    cpu_time = (time.perf_counter() - t0) / iters
+
+    print(f"N={N:>10}: CPU {cpu_time*1e6:9.2f}us  "
+          f"GPU(왕복) {gpu_time*1e6:9.2f}us  "
+          f"GPU/CPU {gpu_time/cpu_time:6.2f}x")
+
+for N in [100, 10_000, 1_000_000, 20_000_000]:
+    run_case_heavy(N)
+----
+
+[source]
+----
+N=       100: CPU      2.21us  GPU(왕복)    234.64us  GPU/CPU 106.31x
+N=     10000: CPU     36.70us  GPU(왕복)    241.90us  GPU/CPU   6.59x
+N=   1000000: CPU   3520.98us  GPU(왕복)   1298.52us  GPU/CPU   0.37x
+N=  20000000: CPU  75765.73us  GPU(왕복)  11690.23us  GPU/CPU   0.15x
+----
+
+원소 100만 개(`N=1,000,000`)부터 GPU가 CPU를 역전합니다(비율이 1.0 밑으로 떨어져 GPU가 오히려 2.7배 빨라집니다) — 단순 덧셈 커널이었던 본문 실험은 2000만 개에서도 CPU가 6배 더 빨랐던 것과 뚜렷이 대조됩니다. 계산 강도가 높을수록 GPU가 유리해지는 손익분기점이 훨씬 작은 데이터 크기에서 온다는 게 실측으로 확인됩니다. (절대 시간값은 실행할 때마다 시스템 부하에 따라 조금씩 달라질 수 있지만, 손익분기점이 100만 원소 부근이라는 패턴 자체는 반복 실행해도 일관됩니다.)
+====
+// end::body[]

@@ -1,0 +1,136 @@
+---
+title: "7장: 점군 래스터라이제이션 커널"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "3dgs", "rasterization", "gaussian-splatting", "book"]
+categories: ["books"]
+description: "2D 가우시안 점 5000개를 화면에 뿌리는 래스터라이제이션을 '점마다 패치에 쓰기(CPU)'와 '픽셀마다 전체 점을 모으기(GPU)' 두 전략으로 각각 짜서 실행하고, 9.1배 속도 개선과 함께 float32 누적 순서 차이로 생기는 작은 오차까지 정직하게 짚는 4부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-tiling-and-cache/[6장: 타일링과 캐시 활용] · 다음: link:../08-numpy-vs-opencl/[8장: NumPy와 속도 비교]_
+
+'''
+
+1~3부에서 다진 도구(호스트-디바이스 분리, 워크그룹, 메모리 계층)를 이제 실제 문제에 씁니다 — 3D Gaussian Splatting(3DGS)의 핵심 연산인 **래스터라이제이션**입니다. 3DGS는 3D 공간에 흩어진 가우시안 점들을 카메라 시점으로 투영해서 화면에 "뿌리는" 방식으로 이미지를 만듭니다. 이 장은 3D 투영은 생략하고(이미 2D로 투영됐다고 가정), 2D 평면 위의 가우시안 점들을 화면에 래스터라이즈하는 핵심 커널에 집중합니다.
+
+== 문제: 점 5000개를 256×256 화면에 뿌리기
+
+점 하나는 위치 `(x, y)`, 퍼짐 정도 `sigma`, 밝기 `color`(그레이스케일로 단순화)로 표현됩니다. 각 픽셀의 최종 값은 "그 픽셀에 영향을 주는 모든 점의 가우시안 기여도 합"입니다 — 점과 픽셀 사이 거리가 멀수록 기여도가 `exp(-거리²/2σ²)`로 지수적으로 줄어듭니다.
+
+[source,python]
+----
+np.random.seed(0)
+W, H = 256, 256
+N = 5000
+xs = (np.random.rand(N) * W).astype(np.float32)
+ys = (np.random.rand(N) * H).astype(np.float32)
+sigmas = (np.random.rand(N) * 3 + 1).astype(np.float32)
+colors = np.random.rand(N).astype(np.float32)
+----
+
+== 전략 1: 점마다 자기 패치에 쓰기 (CPU/NumPy)
+
+가장 자연스러운 접근은 점의 관점에서 생각하는 겁니다 — 점 하나가 영향을 주는 범위(반경 `3σ` 안쪽)만 계산해서 그 작은 패치에 더합니다.
+
+[source,python]
+----
+def cpu_rasterize(xs, ys, sigmas, colors, W, H):
+    img = np.zeros((H, W), dtype=np.float32)
+    for i in range(N):
+        x, y, s, c = xs[i], ys[i], sigmas[i], colors[i]
+        r = int(3*s) + 1
+        x0, x1 = max(0, int(x-r)), min(W, int(x+r))
+        y0, y1 = max(0, int(y-r)), min(H, int(y+r))
+        if x0 >= x1 or y0 >= y1:
+            continue
+        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        d2 = (xx-x)**2 + (yy-y)**2
+        mask = d2 < (3*s)**2
+        w = np.where(mask, np.exp(-d2/(2*s*s)), 0.0)
+        img[y0:y1, x0:x1] += c * w
+    return img
+----
+
+[source]
+----
+CPU rasterize: 52.64ms
+----
+
+각 점의 작은 패치 안에서는 NumPy로 벡터화했지만, 점 5000개에 대한 바깥 `for` 루프는 파이썬 루프 그대로입니다 — 점마다 새 배열(`mgrid`, `d2`, `mask`, `w`)을 만드는 오버헤드도 매번 듭니다.
+
+== 전략 2: 픽셀마다 전체 점을 모으기 (GPU)
+
+GPU에서는 반대 관점이 자연스럽습니다 — 픽셀의 관점에서, "이 픽셀에 영향을 주는 점을 전부 훑어서 더한다"로 짭니다. 이렇게 하면 여러 스레드(픽셀)가 같은 결과 위치에 동시에 쓰는 문제(경쟁 조건)가 애초에 생기지 않습니다 — 픽셀 하나(스레드 하나)가 자기 값만 쓰기 때문입니다.
+
+[source,python]
+----
+prg = cl.Program(ctx, """
+__kernel void rasterize(__global const float* xs, __global const float* ys,
+                         __global const float* sigmas, __global const float* colors,
+                         __global float* img, int N, int W) {
+    int px = get_global_id(0);
+    int py = get_global_id(1);
+    float sum = 0.0f;
+    for (int i = 0; i < N; i++) {
+        float dx = px - xs[i];
+        float dy = py - ys[i];
+        float s = sigmas[i];
+        float d2 = dx*dx + dy*dy;
+        if (d2 < (3*s)*(3*s)) {
+            sum += colors[i] * exp(-d2 / (2.0f*s*s));
+        }
+    }
+    img[py*W + px] = sum;
+}
+""").build()
+----
+
+호출은 `(W, H)` 크기의 2차원 global size로, 픽셀 하나당 스레드 하나입니다. 각 스레드가 점 5000개를 전부 훑는 건 낭비처럼 보이지만(대부분의 점은 `d2 < (3σ)²` 조건에서 걸러집니다), 이 단순한 "gather" 방식이 원자적 쓰기(atomic write)나 동기화 없이도 정확하다는 장점이 있습니다 — 4장에서 봤던 동기화 버그 걱정이 이 설계에는 애초에 없습니다.
+
+[source,python]
+----
+xs_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=xs)
+ys_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=ys)
+s_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=sigmas)
+c_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=colors)
+img_buf = cl.Buffer(ctx, mf.WRITE_ONLY, W*H*4)
+
+k(q, (W, H), None, xs_buf, ys_buf, s_buf, c_buf, img_buf, np.int32(N), np.int32(W))
+q.finish()
+
+t0 = time.perf_counter()
+k(q, (W, H), None, xs_buf, ys_buf, s_buf, c_buf, img_buf, np.int32(N), np.int32(W))
+img_gpu = np.empty((H, W), dtype=np.float32)
+cl.enqueue_copy(q, img_gpu, img_buf)
+q.finish()
+t1 = time.perf_counter()
+----
+
+[source]
+----
+GPU rasterize: 5.79ms
+speedup: 9.1x
+max abs error: 0.08676875
+mean abs error: 0.00245
+----
+
+**9.1배 빨라졌습니다.** 다만 이전 장들과 달리 오차가 정확히 0이 아닙니다 — 최대 오차 `0.087`(픽셀 값이 최대 `5.16`까지 가는 걸 감안하면 상대오차 약 1.7%), 평균 오차는 `0.0025`로 훨씬 작습니다. 이건 버그가 아니라 **덧셈 순서 차이**에서 오는 정상적인 부동소수점 오차입니다 — 한 픽셀에 점 여러 개가 겹쳐 기여할 때, CPU 버전은 점의 순서대로(`i=0,1,2,...`) 더하고 GPU 버전도 점의 순서대로 더하지만, 중간에 쓰는 임시 배열(`np.where`, 패치 슬라이싱)의 계산 경로가 달라서 `float32`의 반올림이 미세하게 다르게 누적됩니다. 이런 종류의 오차는 이미지 렌더링에서는 눈으로 구별이 안 될 수준(평균 0.0025)이지만, "GPU와 CPU가 항상 비트 단위로 똑같은 결과를 낸다"고 가정하면 안 된다는 걸 보여주는 실제 사례입니다.
+
+== 직접 해보기
+
+점 개수를 5000개에서 20000개로 늘리면 speedup이 커질까 작아질까? CPU 쪽은 바깥 루프가 점 개수에 비례해서 늘고, GPU 쪽은 각 픽셀이 훑는 점 개수가 늘어난다는 걸 감안해서 예상해보고 실행해서 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source]
+----
+CPU rasterize (N=20000): 214.75ms
+GPU rasterize (N=20000): 13.65ms
+speedup: 15.7x
+----
+
+speedup이 9.1배에서 **15.7배로 더 커졌습니다**. 두 구현 모두 점 개수에 거의 선형으로 시간이 늘지만(CPU 52.64→214.75ms, 약 4.1배 / GPU 5.79→13.65ms, 약 2.4배), GPU 쪽이 점당 오버헤드가 상대적으로 훨씬 덜 늘어서 격차가 크게 벌어집니다 — GPU는 픽셀(65536개)마다 이미 병렬로 도는 스레드가 점 루프만 조금 더 길게 도는 것뿐이라, 점이 늘어도 "스레드를 새로 만드는" 오버헤드가 없기 때문입니다. 반면 CPU는 점마다 파이썬 루프 반복 자체(배열 슬라이싱, 임시 배열 생성)의 오버헤드가 점 개수만큼 그대로 곱해집니다.
+====
+// end::body[]

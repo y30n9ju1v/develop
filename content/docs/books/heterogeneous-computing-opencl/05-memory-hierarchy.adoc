@@ -1,0 +1,117 @@
+---
+title: "5장: 전역/공유/로컬 메모리"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "global-memory", "local-memory", "matmul", "book"]
+categories: ["books"]
+description: "1024x1024 행렬곱을 순진하게 짠 OpenCL 커널이 NumPy(BLAS)보다 오히려 4배 가까이 느린 걸 실측하고, 그 원인이 계산량이 아니라 같은 데이터를 전역 메모리에서 반복해서 읽는 메모리 대역폭 병목이라는 걸 산술 강도로 짚는 3부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-synchronization-and-barriers/[4장: 동기화와 배리어] · 다음: link:../06-tiling-and-cache/[6장: 타일링과 캐시 활용]_
+
+'''
+
+지금까지의 커널은 전부 `__global` 메모리(GPU 메모리 전체, 모든 워크그룹이 접근 가능)만 썼고, 4장에서 딱 한 번 `__local` 메모리(워크그룹 하나가 공유하는 스크래치패드)를 맛봤습니다. 이 장은 이 두 메모리의 성질 차이를 행렬곱이라는 구체적인 예제로 파헤칩니다 — 그리고 "GPU에 올리면 무조건 빠르다"는 게 왜 틀린 말인지, 순진하게 짠 GPU 행렬곱이 CPU(NumPy)보다 **더 느린** 실제 사례로 보여줍니다.
+
+== 순진한 행렬곱 커널
+
+[source,python]
+----
+prg = cl.Program(ctx, """
+__kernel void matmul_naive(__global const float* A, __global const float* B,
+                            __global float* C, int M) {
+    int row = get_global_id(0);
+    int col = get_global_id(1);
+    float sum = 0.0f;
+    for (int k = 0; k < M; k++) {
+        sum += A[row*M + k] * B[k*M + col];
+    }
+    C[row*M + col] = sum;
+}
+""").build()
+----
+
+2차원 global size `(M, M)`로 호출하면, 출력 행렬 `C`의 원소 하나(`row`, `col`)마다 스레드 하나가 배정됩니다. 각 스레드는 `A`의 `row`번째 행 전체와 `B`의 `col`번째 열 전체를 곱해서 더합니다 — 딱 교과서의 행렬곱 정의 그대로입니다.
+
+1024×1024 행렬로 NumPy와 비교합니다.
+
+[source,python]
+----
+M = 1024
+A = np.random.rand(M, M).astype(np.float32)
+B = np.random.rand(M, M).astype(np.float32)
+
+t0 = time.perf_counter()
+C_np = A @ B
+t1 = time.perf_counter()
+print(f"numpy matmul {M}x{M}: {(t1-t0)*1000:.2f}ms")
+
+A_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=A)
+B_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=B)
+C_buf = cl.Buffer(ctx, mf.WRITE_ONLY, C_np.nbytes)
+k = cl.Kernel(prg, "matmul_naive")
+k(q, (M, M), None, A_buf, B_buf, C_buf, np.int32(M))
+q.finish()
+
+t0 = time.perf_counter()
+k(q, (M, M), None, A_buf, B_buf, C_buf, np.int32(M))
+C_gpu = np.empty((M, M), dtype=np.float32)
+cl.enqueue_copy(q, C_gpu, C_buf)
+q.finish()
+t1 = time.perf_counter()
+print(f"opencl naive matmul {M}x{M}: {(t1-t0)*1000:.2f}ms")
+print("max abs error:", np.max(np.abs(C_gpu - C_np)))
+----
+
+[source]
+----
+numpy matmul 1024x1024: 4.31ms
+opencl naive matmul 1024x1024: 16.66ms
+max abs error: 0.0
+----
+
+**GPU가 CPU보다 3.9배 느립니다.** 결과는 정확합니다(오차 0.0) — 하지만 이 장의 요점은 정확성이 아니라 속도입니다. NumPy의 `@`는 내부적으로 Apple의 Accelerate 프레임워크(BLAS 구현)를 쓰는데, 이건 수십 년에 걸쳐 캐시 크기에 맞춰 정교하게 최적화된 코드입니다. 반면 이 장의 `matmul_naive`는 GPU의 원초적인 연산 능력(1장에서 확인한 삼각함수 계산에서 14배 이겼던 그 힘)을 전혀 못 씁니다 — 왜인지 산술 강도를 계산해보면 나옵니다.
+
+== 산술 강도로 진단하기
+
+2장에서 "GPU가 유리한 조건은 데이터 크기가 아니라 계산 강도(원소당 연산량)"라고 했습니다. 이 커널의 계산 강도를 직접 세어봅니다.
+
+스레드 하나(`row`, `col` 고정)가 하는 일: `k`가 0부터 `M-1`(1024번)까지 도는 루프 안에서 매번 **전역 메모리 읽기 2번**(`A[row*M+k]`, `B[k*M+col]`)과 **곱셈+덧셈 1번**을 합니다. 즉 전역 메모리 읽기 2048번당 곱셈-덧셈 1024번 — 메모리 접근과 연산이 거의 1:1입니다. 1장의 `heavy` 커널(메모리 읽기 1번당 삼각함수·제곱근 여러 번)과 정반대입니다. 이런 걸 **메모리 대역폭 병목(memory-bound)** 작업이라고 부릅니다 — GPU의 연산 유닛이 놀고 있는 시간 대부분을 전역 메모리에서 데이터가 오길 기다리는 데 씁니다.
+
+더 나쁜 소식이 있습니다 — 이 읽기들은 **낭비가 심합니다.** `row=0` 행을 계산하는 1024개 스레드(`col=0..1023`) 전부가 `A`의 0번째 행(`A[0*M+0..1023]`)을 **각자 따로** 전역 메모리에서 읽습니다 — 완전히 같은 데이터를 1024번 중복해서 읽는 겁니다. `B`도 마찬가지로, 같은 열을 계산하는 스레드들이 같은 데이터를 중복해서 읽습니다. 이 중복 읽기가 전역 메모리 대역폭을 낭비하고, 결과적으로 GPU의 연산 능력을 다 못 씁니다.
+
+== 왜 전역 메모리는 느리고 로컬 메모리는 빠른가
+
+이 세션 환경의 GPU(Apple M4)를 기준으로 두 메모리의 성질을 비교하면:
+
+* **전역 메모리(`__global`)** — GPU 메모리 전체(19GB, 1장 참고)에 걸쳐 있고, 모든 워크그룹이 접근할 수 있습니다. 용량은 크지만, 물리적으로 연산 유닛에서 멀리 떨어져 있어 접근 지연(latency)이 큽니다.
+* **로컬 메모리(`__local`)** — 4장에서 리덕션에 썼던 그 메모리입니다. 워크그룹 하나(연산 유닛 하나에 배정됨)에만 속하고, 용량은 작지만(보통 수십 KB) 연산 유닛 바로 옆에 있어서 훨씬 빠르게 접근할 수 있습니다.
+
+이 장의 커널이 낭비하는 것 — "여러 스레드가 같은 데이터를 전역 메모리에서 중복해서 읽는다" — 은 정확히 로컬 메모리가 해결하도록 설계된 문제입니다. 워크그룹이 필요한 데이터 조각을 **한 번만** 전역 메모리에서 읽어 로컬 메모리에 저장해두면, 그 워크그룹의 모든 스레드가 전역 메모리를 다시 안 가고 빠른 로컬 메모리에서 나눠 씁니다. 이 기법을 **타일링(tiling)** 이라고 부르고, 다음 장에서 이 행렬곱 커널에 직접 적용해 실측으로 개선합니다.
+
+== 직접 해보기
+
+이 장의 `matmul_naive` 커널을 512×512 행렬로 돌리면 (1024×1024 대비 계산량은 8배 적습니다 — `M`이 절반이면 원소 수는 1/4, 원소당 루프도 절반) NumPy 대비 배율이 어떻게 달라질까요?
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+M = 512
+A = np.random.rand(M, M).astype(np.float32)
+B = np.random.rand(M, M).astype(np.float32)
+# ... (본문과 동일한 방식으로 측정)
+----
+
+[source]
+----
+numpy matmul 512x512: 0.24ms
+opencl naive matmul 512x512: 4.85ms
+ratio (GPU/CPU): 20.1x
+----
+
+오히려 배율이 1024×1024일 때(3.9배)보다 **더 나빠졌습니다**(20.1배). 두 가지가 겹쳐서 이렇게 됩니다 — (1) 산술 강도(원소당 연산/메모리 접근 비율)는 행렬 크기와 무관하게 그대로 나쁘므로 GPU 쪽 시간은 비율상 별로 안 줄고, (2) 행렬이 작아질수록 NumPy(BLAS)가 CPU 캐시에 데이터를 더 잘 담아서 상대적으로 더 유리해집니다(512×512 `float32` 행렬 하나는 1MB로, CPU의 L2 캐시 안에 통째로 들어갈 만한 크기입니다). 즉 "메모리 읽기 2번당 연산 1번"이라는 GPU 커널의 근본적인 비효율은 행렬 크기와 무관하게 그대로 남아있는데, 비교 대상인 CPU 쪽이 작은 행렬에서 캐시 덕을 더 크게 보면서 격차가 오히려 벌어진 것입니다. 이 문제는 다음 장의 타일링으로 고칩니다.
+====
+// end::body[]

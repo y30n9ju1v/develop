@@ -1,0 +1,181 @@
+---
+title: "1장: CPU로는 왜 느린가"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "numpy", "simd", "book"]
+categories: ["books"]
+description: "순수 파이썬 루프, NumPy 벡터화, OpenCL GPU 커널 세 가지로 같은 계산을 실제로 실행해서 시간을 재고, 코어 개수와 SIMT 병렬성이라는 구조적 차이가 왜 14배 이상의 속도차로 이어지는지 확인하는 1부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../02-memory-transfer-bottleneck/[2장: 메모리 전송이 병목인 이유]_
+
+'''
+
+"GPU가 빠르다"는 말은 어디서나 듣지만, 정확히 *왜* 빠른지는 잘 안 알려줍니다. 이 장은 같은 계산을 세 가지 방식(순수 파이썬 루프, NumPy 벡터화, OpenCL GPU 커널)으로 실제로 실행해서 시간을 재고, 그 차이가 어디서 오는지 구조적으로 설명합니다.
+
+== 실험 1: 순수 파이썬 루프 vs NumPy
+
+배열 두 개(원소 200만 개씩)를 더하는 가장 단순한 계산부터 봅니다.
+
+[source,python]
+----
+import time
+import numpy as np
+
+N = 2_000_000
+a = np.random.rand(N).astype(np.float32)
+b = np.random.rand(N).astype(np.float32)
+
+t0 = time.perf_counter()
+c_loop = [0.0] * N
+for i in range(N):
+    c_loop[i] = a[i] + b[i]
+t1 = time.perf_counter()
+print(f"pure python loop: {t1-t0:.4f}s")
+
+t0 = time.perf_counter()
+c_np = a + b
+t1 = time.perf_counter()
+print(f"numpy vectorized: {t1-t0:.6f}s")
+----
+
+[source]
+----
+pure python loop: 0.2629s
+numpy vectorized: 0.000652s
+----
+
+**403배** 차이가 납니다. 이 차이는 GPU와는 아무 상관이 없습니다 — 둘 다 CPU에서 돈 코드입니다. 차이는 순수하게 **인터프리터 오버헤드**에서 옵니다. 파이썬의 `for` 루프는 매 반복마다 `a[i]`를 파이썬 객체(`float`)로 꺼내고, `+` 연산자를 다시 파싱하고, 결과를 다시 파이썬 객체로 포장해서 리스트에 넣습니다. `a + b`(NumPy)는 이 과정을 딱 한 번, C로 컴파일된 반복문 안에서 처리합니다 — 게다가 CPU의 **SIMD**(Single Instruction Multiple Data, 레지스터 하나에 실수 여러 개를 담아 명령어 하나로 한꺼번에 더하는 기능) 명령어까지 씁니다.
+
+여기서 이미 이 책 전체를 관통할 교훈 하나가 나옵니다 — **"느리다"의 상당 부분은 알고리즘이 아니라 오버헤드 문제**입니다. GPU로 넘어가기 전에도, 인터프리터 루프를 벡터화 연산으로 바꾸는 것만으로 이미 수백 배를 법니다.
+
+== 실험 2: NumPy(CPU) vs OpenCL(GPU) — 계산량을 늘려보기
+
+단순 덧셈은 계산량이 너무 적어서(원소당 덧셈 한 번) CPU도 순식간에 끝납니다. GPU와의 차이가 드러나려면 원소당 계산량을 늘려야 합니다. 원소 400만 개에 삼각함수·제곱근을 섞은 식을 10번 반복해서 계산해봅니다.
+
+[source,python]
+----
+gpu_kernel_src = """
+__kernel void heavy(__global const float* a, __global float* c) {
+    int i = get_global_id(0);
+    float x = a[i];
+    c[i] = sin(x) * cos(x) + sqrt(fabs(x)) * sin(x*2.0f);
+}
+"""
+----
+
+CPU 쪽은 NumPy로 같은 식을 씁니다.
+
+[source,python]
+----
+import time
+import numpy as np
+import pyopencl as cl
+
+N = 4_000_000
+a = np.random.rand(N).astype(np.float32)
+
+t0 = time.perf_counter()
+for _ in range(10):
+    cpu_result = np.sin(a) * np.cos(a) + np.sqrt(np.abs(a)) * np.sin(a*2.0)
+t1 = time.perf_counter()
+cpu_time = t1 - t0
+print(f"CPU (numpy, 10 iterations): {cpu_time:.4f}s")
+
+ctx = cl.Context(dev_type=cl.device_type.ALL)
+q = cl.CommandQueue(ctx)
+mf = cl.mem_flags
+
+prg = cl.Program(ctx, gpu_kernel_src).build()
+heavy = cl.Kernel(prg, "heavy")
+
+a_buf = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=a)
+c_buf = cl.Buffer(ctx, mf.WRITE_ONLY, a.nbytes)
+
+heavy(q, a.shape, None, a_buf, c_buf)  # 워밍업 (커널 컴파일/캐싱 시간 제외)
+q.finish()
+
+t0 = time.perf_counter()
+for _ in range(10):
+    heavy(q, a.shape, None, a_buf, c_buf)
+gpu_result = np.empty_like(a)
+cl.enqueue_copy(q, gpu_result, c_buf)  # 결과를 GPU에서 CPU로 읽어오는 것까지 포함
+t1 = time.perf_counter()
+gpu_time = t1 - t0
+print(f"GPU (OpenCL, 10 iterations incl. readback): {gpu_time:.4f}s")
+print(f"speedup: {cpu_time/gpu_time:.1f}x")
+print("max abs error vs numpy:", np.max(np.abs(gpu_result - cpu_result)))
+----
+
+[source]
+----
+CPU (numpy, 10 iterations): 0.1494s
+GPU (OpenCL, 10 iterations incl. readback): 0.0105s
+speedup: 14.2x
+max abs error vs numpy: 2.3841858e-07
+----
+
+이 세션 환경의 실제 GPU(Apple M4, OpenCL 디바이스로는 "Apple" 플랫폼)에서 **14.2배** 빨라졌습니다. 오차(`2.38e-7`)는 GPU와 CPU가 부동소수점 연산 순서를 미묘하게 다르게 처리해서 생기는 반올림 오차 수준이며, `float32`의 유효자릿수(약 7자리) 안에 들어가므로 결과가 같다고 봐도 됩니다.
+
+== 왜 14배 차이가 나는가 — 코어 개수와 SIMT
+
+이 GPU(Apple M4)는 OpenCL이 보고하는 compute unit이 10개입니다.
+
+[source,python]
+----
+import pyopencl as cl
+d = cl.get_platforms()[0].get_devices()[0]
+print(d.name, d.max_compute_units, d.max_work_group_size)
+----
+
+[source]
+----
+Apple M4 10 256
+----
+
+`max_compute_units` 10개, `max_work_group_size` 256이라는 두 숫자를 곱하면 안 됩니다 — 이건 나중 장(3~4장)에서 다룰 워크그룹 구조와 관련된 숫자이지, "코어 2560개가 동시에 논다"는 뜻이 아닙니다. 지금 짚어야 할 핵심은 구조 차이입니다.
+
+* **CPU**: 범용 코어 소수(이 환경은 M4 계열, 고성능 코어와 고효율 코어를 합쳐도 10개 안팎)가 각각 복잡한 분기 예측, 비순차 실행, 큰 캐시를 갖고 "무엇이든 빠르게" 실행하도록 설계되어 있습니다. NumPy는 그중 SIMD를 씁니다(코어 하나가 한 명령어로 값 여러 개를 처리) — 이 장 실험 1의 403배가 여기서 나옵니다.
+* **GPU**: 각 compute unit이 훨씬 단순한 연산 유닛을 대량으로 품고 있고, 같은 명령어를 수백~수천 개의 "스레드"가 동시에 실행하는 **SIMT**(Single Instruction Multiple Thread) 모델로 동작합니다 — 분기 예측이나 비순차 실행 같은 "똑똑한" 기능은 최소화하고, 대신 "단순한 계산을 엄청나게 많이 동시에" 하는 데 실리콘을 몰아줍니다.
+
+이 장의 커널(`__kernel void heavy`)에서 `get_global_id(0)`이 스레드마다 다른 인덱스 `i`를 돌려주는 게 SIMT의 핵심입니다 — 커널 코드는 한 벌만 쓰지만, 실제로는 원소 400만 개 각각에 대해 이 코드가 (개념적으로) 동시에 실행됩니다. CPU의 SIMD가 "레지스터 하나 안에서 값 몇 개(보통 4~8개)를 한 명령어로" 처리하는 것과 달리, GPU의 SIMT는 "완전히 별개의 실행 흐름 수천 개를 동시에" 돌립니다 — 이 규모의 차이가 삼각함수·제곱근처럼 계산량이 많은 작업에서 14배라는 격차로 나타납니다.
+
+이 SIMT 모델과 워크그룹의 자세한 구조는 3장에서 커널을 직접 짜며 다룹니다. 지금은 "GPU가 빠른 이유는 코어 하나하나가 CPU 코어보다 똑똑해서가 아니라, 단순한 코어를 훨씬 많이 동시에 굴리기 때문"이라는 것만 붙잡고 넘어가면 됩니다.
+
+== 그런데 왜 항상 GPU를 쓰지 않는가
+
+이 장의 실험은 GPU가 압도적으로 유리한 경우(계산량이 많고, 각 원소가 독립적)를 골랐습니다. 그런데 실험 1에서 이미 힌트가 있었습니다 — GPU 실험의 `heavy` 커널을 부르기 전에 데이터를 GPU 메모리로 옮기고(`COPY_HOST_PTR`), 끝나고 결과를 다시 CPU로 읽어옵니다(`enqueue_copy`). 이 전송 자체에 시간이 걸립니다. 계산량이 적은 작업(실험 1의 단순 덧셈 같은)을 GPU로 보내면, 전송 시간이 계산 시간보다 커져서 오히려 CPU보다 느려지는 경우가 흔합니다. 다음 장에서 바로 이 문제 — 메모리 전송 병목 — 를 실측으로 확인합니다.
+
+== 직접 해보기
+
+이 장의 `heavy` 커널에서 `sin`/`cos`/`sqrt` 세 개를 각각 한 번씩 더 반복해서(`sin(sin(x))`처럼) 연산량을 두 배로 늘리면, CPU 대비 speedup이 커질까 작아질까? 예상을 먼저 세우고 실제로 실행해서 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+"전송 시간 비중이 줄어드니 speedup이 커질 것"이라는 예상을 세우고 실제로 돌려보면, 예상과 다른 결과가 나옵니다.
+
+[source,python]
+----
+prg = cl.Program(ctx, """
+__kernel void heavy2x(__global const float* a, __global float* c) {
+    int i = get_global_id(0);
+    float x = a[i];
+    float y = sin(x) * cos(x) + sqrt(fabs(x)) * sin(x*2.0f);
+    c[i] = sin(y) * cos(y) + sqrt(fabs(y)) * sin(y*2.0f);
+}
+""").build()
+----
+
+[source]
+----
+CPU (numpy, 10 iterations): 0.2943s
+GPU (OpenCL, 10 iterations incl. readback): 0.0206s
+speedup: 14.3x
+max abs error vs numpy: 8.34465e-07
+----
+
+speedup은 14.2배 → 14.3배로 **거의 그대로**입니다. 이 장의 실험은 전송할 데이터 크기(400만 개 `float32`, 약 16MB)를 그대로 두고 커널 안의 연산만 두 배로 늘렸습니다 — 그런데 CPU 쪽 계산 시간도 GPU 쪽 계산 시간도 거의 같은 비율로 늘어났기 때문에(둘 다 원소당 연산이 두 배가 됐으니), 둘의 비율인 speedup은 크게 안 바뀐 겁니다. "전송 비중이 줄면 speedup이 커진다"는 예상이 성립하려면 **전송 시간은 고정한 채 계산량만 늘려야** 하는데, 이 실험은 전송 시간이 원래도 전체 GPU 시간(0.0105s)에서 아주 작은 비중이었을 가능성이 높습니다 — 정말로 전송이 병목인지 아닌지는 다음 장에서 전송 시간만 따로 떼어 측정하며 확인합니다.
+====
+// end::body[]

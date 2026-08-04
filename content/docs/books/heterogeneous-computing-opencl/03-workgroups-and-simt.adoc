@@ -1,0 +1,173 @@
+---
+title: "3장: 워크그룹과 SIMT"
+date: 2026-08-05T00:00:00+09:00
+draft: false
+tags: ["opencl", "gpu", "simt", "workgroup", "branch-divergence", "book"]
+categories: ["books"]
+description: "global_id/local_id/group_id 세 좌표계를 직접 커널로 찍어 워크그룹 구조를 확인하고, 조건 분기가 워크그룹 경계와 맞을 때와 어긋날 때(체커보드 패턴)의 실행 시간을 실측 비교해서 SIMT 락스텝 실행이 왜 분기 발산에 비용을 매기는지 확인하는 2부의 첫 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-memory-transfer-bottleneck/[2장: 메모리 전송이 병목인 이유] · 다음: link:../04-synchronization-and-barriers/[4장: 동기화와 배리어]_
+
+'''
+
+1장에서 GPU가 "같은 명령어를 스레드 수천 개가 동시에 실행하는 SIMT 모델"이라고 말했습니다. 이 장은 그 스레드들이 실제로 어떻게 묶이는지(워크그룹), 그리고 "동시에 실행한다"는 말이 정확히 어떤 제약을 거는지(락스텝과 분기 발산)를 커널로 직접 찍어서 확인합니다.
+
+== 세 가지 좌표: global_id, local_id, group_id
+
+OpenCL 커널 안에서 스레드 하나는 자신을 가리키는 좌표를 세 가지 방식으로 물어볼 수 있습니다.
+
+[source,python]
+----
+prg = cl.Program(ctx, """
+__kernel void ids(__global int* gid, __global int* lid, __global int* grp) {
+    int i = get_global_id(0);
+    gid[i] = i;
+    lid[i] = get_local_id(0);
+    grp[i] = get_group_id(0);
+}
+""").build()
+
+N = 16
+LOCAL = 4
+gid = np.zeros(N, dtype=np.int32)
+lid = np.zeros(N, dtype=np.int32)
+grp = np.zeros(N, dtype=np.int32)
+gid_buf = cl.Buffer(ctx, mf.WRITE_ONLY, gid.nbytes)
+lid_buf = cl.Buffer(ctx, mf.WRITE_ONLY, lid.nbytes)
+grp_buf = cl.Buffer(ctx, mf.WRITE_ONLY, grp.nbytes)
+
+prg.ids(q, (N,), (LOCAL,), gid_buf, lid_buf, grp_buf)
+cl.enqueue_copy(q, gid, gid_buf)
+cl.enqueue_copy(q, lid, lid_buf)
+cl.enqueue_copy(q, grp, grp_buf)
+q.finish()
+print("global_id:", gid)
+print("local_id: ", lid)
+print("group_id: ", grp)
+----
+
+[source]
+----
+global_id: [ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15]
+local_id:  [0 1 2 3 0 1 2 3 0 1 2 3 0 1 2 3]
+group_id:  [0 0 0 0 1 1 1 1 2 2 2 2 3 3 3 3]
+----
+
+`prg.ids(q, (N,), (LOCAL,), ...)`에서 `(N,)`은 전체 스레드 개수(global size, 16개), `(LOCAL,)`은 워크그룹 하나의 크기(local size, 4개)입니다 — 이 호출은 스레드 16개를 4개씩 **워크그룹 4개**로 나눕니다. 출력을 보면 세 좌표의 관계가 그대로 드러납니다.
+
+* `global_id`는 0부터 15까지 전체를 관통하는 고유 번호입니다.
+* `local_id`는 워크그룹 안에서의 번호(0~3)로, 그룹이 바뀔 때마다 0부터 다시 시작합니다.
+* `group_id`는 어느 워크그룹에 속하는지(0~3)를 나타내고, `global_id = group_id * LOCAL + local_id` 관계가 성립합니다(예: `global_id=9`는 `group_id=2`, `local_id=1` → `2*4+1=9`).
+
+이 세 좌표가 왜 필요한가는 5장(메모리 계층구조)에서 바로 씁니다 — 워크그룹 하나는 (뒤에서 다룰) **로컬 메모리**를 공유하기 때문에, "같은 워크그룹에 속한 스레드끼리 협력한다"는 게 GPU 프로그래밍의 핵심 패턴입니다. `group_id`로 "내가 어느 협력 단위에 속하는가"를, `local_id`로 "그 단위 안에서 내 위치가 어디인가"를 알아내는 겁니다.
+
+== SIMT는 "락스텝"이다 — 분기가 있으면 무슨 일이 생기는가
+
+1장에서 SIMT를 "같은 명령어를 스레드 여러 개가 동시에"라고 설명했는데, 여기 숨은 함정이 있습니다 — 워크그룹 안의 스레드들은 실제로는 더 작은 단위(하드웨어마다 다르지만 보통 32개, NVIDIA는 "warp", AMD는 "wavefront"라고 부릅니다)로 묶여서 **정말로 같은 명령어를 한 클럭에 같이** 실행합니다. 이걸 락스텝(lockstep) 실행이라고 합니다. 그런데 커널 코드에 `if`가 있고, 같은 락스텝 그룹 안에서 어떤 스레드는 `if`를 타고 어떤 스레드는 `else`를 타면 어떻게 될까요 — 하드웨어는 두 갈래를 **순차적으로 둘 다** 실행하고, 각 스레드는 자기 갈래가 아닐 때 그냥 아무것도 안 하고 기다립니다(마스킹). 이걸 **분기 발산(branch divergence)** 이라고 부르고, 최악의 경우 두 갈래 시간을 합친 만큼 손해를 봅니다.
+
+이걸 실측으로 확인합니다. 무거운 계산(삼각함수 50번 반복)을 조건부로 넣은 커널 세 가지를 비교합니다 — 전부 heavy 갈래, 체커보드 패턴(`i&1`, 락스텝 그룹 안에서 매번 발산), 그리고 앞쪽 절반/뒤쪽 절반으로 나눈 패턴(대부분의 락스텝 그룹은 발산 없이 한쪽 갈래만 탐).
+
+[source,python]
+----
+prg_uniform = cl.Program(ctx, """
+__kernel void uniform_heavy(__global const float* a, __global float* c) {
+    int i = get_global_id(0);
+    float x = a[i];
+    for (int k = 0; k < 50; k++) { x = sin(x) * cos(x) + sqrt(fabs(x)); }
+    c[i] = x;
+}
+""").build()
+
+prg_div = cl.Program(ctx, """
+__kernel void divergent(__global const float* a, __global float* c) {
+    int i = get_global_id(0);
+    float x = a[i];
+    if ((i & 1) == 0) {
+        for (int k = 0; k < 50; k++) { x = sin(x) * cos(x) + sqrt(fabs(x)); }
+    } else {
+        x = x + 1.0f;
+    }
+    c[i] = x;
+}
+""").build()
+
+prg_block = cl.Program(ctx, """
+__kernel void blocked(__global const float* a, __global float* c, int half_n) {
+    int i = get_global_id(0);
+    float x = a[i];
+    if (i < half_n) {
+        for (int k = 0; k < 50; k++) { x = sin(x) * cos(x) + sqrt(fabs(x)); }
+    } else {
+        x = x + 1.0f;
+    }
+    c[i] = x;
+}
+""").build()
+----
+
+세 커널 모두 "값 절반은 무거운 반복 계산, 절반은 가벼운 덧셈 하나"로 **총 작업량은 완전히 동일**합니다 — 다른 건 오직 어떤 스레드가 무거운 갈래를 타는지의 **패턴**뿐입니다. 원소 800만 개로 각각 20회 반복해 평균 시간을 잽니다.
+
+[source]
+----
+uniform (all threads heavy):                          13.2707ms
+divergent (checkerboard i&1):                          13.3176ms
+blocked (first half heavy, no intra-warp divergence):   7.0662ms
+----
+
+결과가 분기 발산을 명확하게 보여줍니다.
+
+* **체커보드(`divergent`)** 는 `uniform`(전부 무거운 갈래)과 시간이 **거의 같습니다**(13.32ms vs 13.27ms) — 짝수/홀수 인덱스가 같은 락스텝 그룹(warp) 안에 섞여 있어서, 매 락스텝 그룹마다 무거운 갈래와 가벼운 갈래를 **둘 다 순차적으로** 실행해야 합니다. 절반은 가벼운 작업인데도 "전부 무거운 작업을 한 것"과 비슷한 시간이 걸린 겁니다 — 가벼운 절반의 "공짜여야 할 시간"이 발산 비용으로 사라졌습니다.
+* **블록(`blocked`)** 은 **7.07ms로 거의 절반**입니다 — 인덱스를 앞/뒤 절반으로 나누면, 대부분의 락스텝 그룹은 전부 무거운 갈래거나 전부 가벼운 갈래로 통일됩니다(경계에 걸친 그룹 한두 개만 발산). 총 작업량은 `divergent`와 완전히 같은데, **패턴만 바꿔서** 시간을 거의 절반으로 줄인 겁니다.
+
+이 실험의 교훈은 실전적입니다 — GPU 커널에서 조건 분기 자체가 나쁜 게 아니라, **락스텝 그룹 경계와 어긋나는 분기**가 나쁩니다. 데이터를 미리 정렬해서 "비슷한 조건을 가진 원소끼리 인접하게" 배치할 수 있다면(이 실험의 `blocked`처럼), 같은 로직도 훨씬 빨라집니다. 4부의 3DGS 래스터라이제이션에서 점을 화면 타일 단위로 정렬하는 이유도 근본적으로 이것과 같습니다.
+
+== 팁 박스: 워크그룹 크기가 안 맞으면 어떻게 되는가
+
+[NOTE]
+====
+이 장의 `ids` 예제는 `N=16`, `LOCAL=4`로 나누어떨어지게 골랐습니다. 만약 `N`이 `LOCAL`로 안 나누어떨어지면(예: `N=15`), `q.finish()`를 부르기도 전에 `pyopencl.Program.build`가 아니라 **커널 실행 호출 자체**에서 `INVALID_WORK_GROUP_SIZE` 에러가 납니다 — global size가 local size의 배수여야 한다는 게 OpenCL 1.x의 규칙이기 때문입니다. 실전에서는 데이터 크기가 워크그룹 크기의 배수가 아닌 경우가 흔하므로, global size를 워크그룹 크기의 배수로 올림하고 커널 안에서 `if (i >= real_n) return;`으로 초과분을 걸러내는 패턴을 씁니다. 이 패턴은 5장(메모리 계층구조)의 타일링 커널에서 실제로 씁니다.
+====
+
+== 직접 해보기
+
+이 장의 `divergent`/`blocked` 커널에서 무거운 반복 횟수를 50 대신 5로 줄이면, 두 커널의 시간 차이는 어떻게 될까요? 분기 발산의 비용이 절대적인지, 아니면 "무거운 작업 대비 상대적"인지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+prg_div5 = cl.Program(ctx, """
+__kernel void divergent5(__global const float* a, __global float* c) {
+    int i = get_global_id(0);
+    float x = a[i];
+    if ((i & 1) == 0) {
+        for (int k = 0; k < 5; k++) { x = sin(x) * cos(x) + sqrt(fabs(x)); }
+    } else { x = x + 1.0f; }
+    c[i] = x;
+}
+""").build()
+
+prg_block5 = cl.Program(ctx, """
+__kernel void blocked5(__global const float* a, __global float* c, int half_n) {
+    int i = get_global_id(0);
+    float x = a[i];
+    if (i < half_n) {
+        for (int k = 0; k < 5; k++) { x = sin(x) * cos(x) + sqrt(fabs(x)); }
+    } else { x = x + 1.0f; }
+    c[i] = x;
+}
+""").build()
+----
+
+[source]
+----
+divergent (checkerboard, 5 iters): 1.5931ms
+blocked   (5 iters):               1.1295ms
+----
+
+반복 횟수를 50에서 5로 줄여도 `divergent`가 `blocked`보다 **여전히 약 1.41배 느립니다**(50회일 때는 약 1.88배) — 발산 비용은 무거운 갈래의 실행 시간에 비례해서 붙기 때문에, 반복 횟수를 줄여도 "발산이 손해"라는 방향 자체는 바뀌지 않습니다. 다만 가벼운 갈래(`x + 1.0f`, 발산과 무관하게 항상 드는 고정 비용)가 전체에서 차지하는 비중이 커지면서 배율 자체는 조금 줄어듭니다 — 무거운 작업이 작을수록 분기 패턴보다 커널 호출 자체의 고정 오버헤드가 상대적으로 더 크게 보이기 시작하는 것입니다.
+====
+// end::body[]
