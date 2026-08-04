@@ -1,18 +1,18 @@
 ---
-title: "8장: gradient·divergence·curl"
+title: "10장: gradient·divergence·curl"
 date: 2026-08-04T00:00:00+09:00
 draft: false
 tags: ["engineering-math", "vector-calculus", "gradient", "divergence", "curl", "book"]
 categories: ["books"]
-description: "스칼라장의 gradient와 벡터장의 divergence·curl을 중심차분(finite difference)으로 직접 계산해서 손으로 유도한 해석적 도함수와 소수점 8자리 넘게 일치시켜 검증하고, 세 연산자가 각각 '어느 방향으로 가장 빨리 커지는가', '이 점에서 얼마나 뿜어져 나오는가', '이 점 주변이 얼마나 회전하는가'라는 서로 다른 질문에 답한다는 걸 확인하는 4부의 첫 장"
+description: "스칼라장의 gradient와 벡터장의 divergence·curl을 중심차분(finite difference)으로 직접 계산해서 손으로 유도한 해석적 도함수와 소수점 8자리 넘게 일치시켜 검증하고, 세 연산자가 각각 '어느 방향으로 가장 빨리 커지는가', '이 점에서 얼마나 뿜어져 나오는가', '이 점 주변이 얼마나 회전하는가'라는 서로 다른 질문에 답한다는 걸 확인하는 5부의 첫 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../07-coupled-vibration-and-diagonalization/[7장: 대각화와 연성 진동계의 정상 모드] · 다음: link:../09-fluid-and-em-applications/[9장: 유체와 전자기장에 적용하기]_
+_link:../[전체 목차] · 이전: link:../09-coupled-vibration-and-diagonalization/[9장: 대각화와 연성 진동계의 정상 모드] · 다음: link:../11-fluid-and-em-applications/[11장: 유체와 전자기장에 적용하기]_
 
 '''
 
-지금까지는 유한 개의 미지수(전압 하나, 위치 하나, 질량 두 개의 변위)만 다뤘습니다. 4부에서는 **공간 전체에 퍼져 있는 양**을 다룹니다 — 방 안 모든 점마다 온도가 다르거나(스칼라장), 파이프 안 모든 점마다 유속과 방향이 다른(벡터장) 경우입니다. 이 장에서는 이런 장(field)을 다루는 세 가지 기본 연산자 — gradient, divergence, curl — 을 각각 유한차분으로 직접 계산해서 확인합니다.
+지금까지는 유한 개의 미지수(전압 하나, 위치 하나, 질량 두 개의 변위)만 다뤘습니다. 5부에서는 **공간 전체에 퍼져 있는 양**을 다룹니다 — 방 안 모든 점마다 온도가 다르거나(스칼라장), 파이프 안 모든 점마다 유속과 방향이 다른(벡터장) 경우입니다. 이 장에서는 이런 장(field)을 다루는 세 가지 기본 연산자 — gradient, divergence, curl — 을 각각 유한차분으로 직접 계산해서 확인합니다.
 
 == Gradient: 어느 방향으로 가장 빨리 커지는가
 
@@ -125,6 +125,32 @@ curl numeric: [-2. -3. -1.]  analytical: [-2. -3. -1.]
 * **curl**: 벡터장에 적용, 벡터를 돌려준다 — "여기서 얼마나, 어느 축으로 회전하는가?"
 
 세 연산자 모두 편미분을 특정한 방식으로 조합한 것뿐이고, 유한차분(`(f(x+h)-f(x-h))/(2h)`)으로 그 조합을 그대로 계산하면 손으로 유도한 해석적 결과와 일치한다는 걸 이번 장에서 확인했습니다.
+
+== 직접 해보기
+
+* 다음 장에서 다룰 `curl(grad f) = 0`과 짝을 이루는 또 다른 항등식이 있습니다 — **`div(curl F) = 0`** (어떤 벡터장의 curl을 취한 결과는 항상 divergence가 0입니다). 이 장의 `F(x,y,z)=(xy,yz,zx)`로 먼저 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def curl_F(x, y, z, h=1e-3):
+    return curl_numeric(F, x, y, z, h)
+
+for p in [(1,2,3), (0.5,-1,2)]:
+    d = divergence_numeric(curl_F, *p, h=1e-3)
+    print("point", p, "div(curl F):", d)
+----
+
+[source]
+----
+point (1, 2, 3) div(curl F): 0.0
+point (0.5, -1, 2) div(curl F): 0.0
+----
+
+이번엔 근사 오차조차 없이 정확히 `0.0`이 나옵니다. `curl F`가 "이 점 주변에 회전이 얼마나 있는가"를 나타내는 벡터장이라면, `div(curl F)=0`은 "그 회전이라는 양 자체는 어디선가 새로 생기거나 사라지지 않는다"는 뜻입니다 — 다음 장에서 다룰 `curl(grad f)=0`이라는 짝지어진 항등식과 함께, "임의의 벡터장이 다른 벡터장의 curl로 표현 가능한가"를 판단할 때(그러려면 최소한 divergence가 0이어야 하므로) 실전에서 바로 쓰이는 필요조건입니다.
+====
 
 == 요약
 

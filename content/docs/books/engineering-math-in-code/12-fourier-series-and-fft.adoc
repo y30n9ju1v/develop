@@ -1,14 +1,14 @@
 ---
-title: "10장: 푸리에 급수와 FFT"
+title: "12장: 푸리에 급수와 FFT"
 date: 2026-08-04T00:00:00+09:00
 draft: false
 tags: ["engineering-math", "fourier-series", "fft", "numpy", "book"]
 categories: ["books"]
-description: "사각파를 사인파 몇 개의 합으로 근사하는 푸리에 급수의 항을 하나씩 늘려가며 오차가 실제로 줄어드는 것을 확인하고, 두 개의 사인파를 섞은 신호에 np.fft.fft를 걸어 원래 신호의 주파수와 진폭을 소수점까지 정확히 복원한다는 것까지 실제로 계산해 확인하는 5부의 첫 장"
+description: "사각파를 사인파 몇 개의 합으로 근사하는 푸리에 급수의 항을 하나씩 늘려가며 오차가 실제로 줄어드는 것을 확인하고, 두 개의 사인파를 섞은 신호에 np.fft.fft를 걸어 원래 신호의 주파수와 진폭을 소수점까지 정확히 복원한다는 것까지 실제로 계산해 확인하는 6부의 첫 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../09-fluid-and-em-applications/[9장: 유체와 전자기장에 적용하기] · 다음: link:../11-heat-equation/[11장: 열방정식]_
+_link:../[전체 목차] · 이전: link:../11-fluid-and-em-applications/[11장: 유체와 전자기장에 적용하기] · 다음: link:../13-heat-equation/[13장: 열방정식]_
 
 '''
 
@@ -109,6 +109,43 @@ freq near 20Hz (should be near 0): 20.0 amplitude: 8.48577616763636e-16
 == 왜 이게 공학에서 중요한가
 
 진동 센서로 측정한 기계의 떨림 신호에 특정 주파수 성분이 강하게 나타나면 베어링 손상이나 불균형 같은 특정 고장의 징후일 수 있습니다 — 시간 영역 신호만 보면 그냥 복잡한 파형이지만, FFT로 주파수 영역으로 옮기면 "어느 주파수가 유독 강한가"가 한눈에 보입니다. 오디오 압축(특정 주파수 성분을 얼마나 남길지 결정), 통신(신호를 여러 주파수 대역으로 나눠 동시에 보내기)도 같은 원리 위에 있습니다.
+
+== 직접 해보기
+
+* 삼각파(triangle wave, `f(t) = (2/π)arcsin(sin t)` — 사각파처럼 뚝 끊어지지 않고 매끄럽게 오르내리는 파형)의 푸리에 급수는 `(8/π²)Σ(-1)^k sin((2k+1)t)/(2k+1)²`입니다. 사각파 때와 같은 방식으로 항 개수를 늘려가며 오차가 얼마나 빨리 줄어드는지 확인하고, 사각파의 수렴 속도와 비교해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def triangle_wave(t):
+    return (2/np.pi)*np.arcsin(np.sin(t))
+
+def triangle_approx(t, N):
+    s = np.zeros_like(t)
+    for k in range(N):
+        n = 2*k+1
+        s += (8/np.pi**2) * ((-1)**k) * np.sin(n*t) / n**2
+    return s
+
+t = np.linspace(0.01, 2*np.pi-0.01, 500)
+true = triangle_wave(t)
+for N in [1, 3, 10]:
+    approx = triangle_approx(t, N)
+    err = np.mean((approx-true)**2)
+    print(f"N={N} terms, mean squared error: {err:.8f}")
+----
+
+[source]
+----
+N=1 terms, mean squared error: 0.00482688
+N=3 terms, mean squared error: 0.00024061
+N=10 terms, mean squared error: 0.00000674
+----
+
+항을 딱 `10`개만 썼는데 오차가 `6.7e-6`까지 떨어집니다 — 사각파는 `500`개 항을 써도 오차가 `0.000065` 수준이었는데(본문 참고), 삼각파는 `10`개 항으로 그보다도 훨씬 작은 오차를 냅니다. 이유는 사각파와 삼각파의 근본적인 차이에 있습니다 — 사각파는 값이 뚝 끊어지는 **불연속점**이 있지만 삼각파는 어디서도 안 끊어지고 매끄럽게 이어집니다. 함수가 매끄러울수록 그 함수를 표현하는 데 필요한 고주파(큰 `n`) 성분의 비중이 급격히 작아진다는 게(사각파의 계수는 `1/n`로, 삼각파의 계수는 `1/n²`로 줄어듭니다) 이 수렴 속도 차이의 이유입니다.
+====
 
 == 요약
 

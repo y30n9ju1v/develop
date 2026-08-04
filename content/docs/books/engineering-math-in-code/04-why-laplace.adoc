@@ -114,6 +114,42 @@ t=5: 8.93935848
 
 2장에서 `solve_ivp`와 적분 인자법으로 얻었던 바로 그 숫자들(`5.68908503`, `7.78198245`, ...)이 소수점 8자리까지 그대로 다시 나옵니다 — **세 가지 완전히 다른 방법**(수치적분, 적분 인자법, 라플라스 변환)이 같은 답에 도달했습니다. 하나의 방법만 썼다면 "계산 실수가 없었나"라는 의심이 남지만, 세 방법이 독립적으로 일치하면 그 답을 신뢰할 근거가 훨씬 단단해집니다.
 
+== 직접 해보기
+
+* 이 장 전체가 의존한 핵심 성질 $\mathcal{L}\{f'(t)\} = sF(s) - f(0)$을 직접 확인해보세요 — `f(t) = e^{-at}`를 정하고, `f'(t)`를 SymPy로 직접 라플라스 변환한 결과와, `F(s)`를 먼저 구한 뒤 `sF(s) - f(0)` 공식을 적용한 결과가 정말로 같은지 비교하세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+import sympy as sp
+
+t, s, a = sp.symbols('t s a', positive=True)
+f = sp.exp(-a*t)
+fprime = sp.diff(f, t)
+
+F = sp.laplace_transform(f, t, s, noconds=True)
+Fprime_direct = sp.laplace_transform(fprime, t, s, noconds=True)
+Fprime_via_property = s*F - f.subs(t, 0)
+
+print("F(s) =", F)
+print("L{f'(t)} 직접 계산:", sp.simplify(Fprime_direct))
+print("s*F(s) - f(0):", sp.simplify(Fprime_via_property))
+print("match:", sp.simplify(Fprime_direct - Fprime_via_property) == 0)
+----
+
+[source]
+----
+F(s) = 1/(a + s)
+L{f'(t)} 직접 계산: -a/(a + s)
+s*F(s) - f(0): -a/(a + s)
+match: True
+----
+
+`f'(t) = -a e^{-at}`를 SymPy가 처음부터 다시 라플라스 변환한 결과와, `F(s)=1/(a+s)`에 미분 성질 공식(`sF(s)-f(0)`)을 그냥 대입한 결과가 정확히 같습니다 — 이 장에서 "미분이 곱셈으로 바뀐다"고 설명했던 그 성질을, 정의(적분)로 직접 확인한 것입니다.
+====
+
 == 요약
 
 * 라플라스 변환의 핵심 성질($\mathcal{L}\{f'(t)\} = sF(s) - f(0)$)이 미분을 곱셈으로 바꿔서, 미분방정식을 대수 방정식으로 만든다는 걸 확인했습니다.

@@ -1,0 +1,119 @@
+---
+title: "16장: 등각사상과 유수 정리로 적분 계산하기"
+date: 2026-08-04T00:00:00+09:00
+draft: false
+tags: ["engineering-math", "complex-analysis", "residue-theorem", "sympy", "book"]
+categories: ["books"]
+description: "실수 적분표에 없는 정적분을, 복소평면 위의 극점에서 유수(residue)를 구해 2πi를 곱하는 것만으로 계산하는 유수 정리를 SymPy로 실제 적용해서 scipy.integrate.quad의 직접 수치적분과 소수점까지 일치시키고, 극점이 두 개인 더 어려운 적분까지 같은 방법으로 검증하는 7부의 마지막 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../15-complex-functions-and-cauchy-riemann/[15장: 복소함수와 코시-리만 방정식] · 다음: link:../17-afterword/[맺음말]_
+
+'''
+
+15장에서 "해석적"이라는 성질을 확인했습니다. 이 장에서는 그 성질이 왜 실용적으로 강력한지 확인합니다 — 실수 범위에서는 초등함수로 답을 못 구하는 정적분도, 복소평면으로 넘어가면 극점 몇 개의 값만 알면 즉시 계산됩니다.
+
+== 유수 정리: 적분을 극점에서의 "잔여물"의 합으로 바꾼다
+
+함수 `f(z)`가 어떤 점(극점, pole)에서만 정의가 안 되고 나머지에서는 해석적이라면, 그 극점을 둘러싼 폐곡선을 따라 적분한 값은 그 극점의 **유수(residue)** 라는 숫자 하나로 정해집니다.
+
+[stem]
+++++
+\oint_C f(z)\, dz = 2\pi i \sum (\text{둘러싼 극점들의 유수})
+++++
+
+경로를 따라 적분이라는 어려운 계산이, "극점이 어디 있고 그 유수가 뭔지"만 알면 되는 문제로 줄어듭니다. 그리고 이 정리는 실수 정적분을 계산하는 데도 쓰입니다 — 실수축을 큰 반원으로 닫아서 복소평면의 폐곡선으로 만들면, 반원 부분의 기여가 0으로 사라지는 경우가 많아서 실수축 위의 적분이 곧 그 폐곡선 적분과 같아지기 때문입니다.
+
+== 실전에 적용하기: $\int_{-\infty}^{\infty} \frac{1}{1+x^2}dx$
+
+이 적분은 사실 $\arctan(x)$로 초등함수 안에서도 풀립니다(답은 $\pi$) — 유수 정리로 같은 답이 나오는지 확인하며 방법을 익힙니다. `1/(1+z^2)`은 `z=i`와 `z=-i`에서 극점을 갖고, 실수축을 위로 닫는 반원을 그리면 `z=i`만 안에 들어옵니다.
+
+[source,python]
+----
+import sympy as sp
+import numpy as np
+from scipy.integrate import quad
+
+z = sp.symbols('z')
+f = 1/(1+z**2)
+res_at_i = sp.residue(f, z, sp.I)
+print("residue at z=i:", res_at_i)
+
+integral_by_residue = sp.simplify(2*sp.pi*sp.I*res_at_i)
+print("2*pi*i * residue =", integral_by_residue)
+
+val, err = quad(lambda x: 1/(1+x**2), -np.inf, np.inf)
+print("scipy.integrate.quad:", val, "(est. err:", err, ")")
+----
+
+[source]
+----
+residue at z=i: -I/2
+2*pi*i * residue = pi
+scipy.integrate.quad: 3.141592653589793 (est. err: 5.155583041103855e-10)
+----
+
+`sp.residue`가 자동으로 계산한 유수(`-i/2`)를 유수 정리 공식에 넣으니 정확히 `π`가 나오고, `scipy.integrate.quad`가 실수축을 따라 직접 수치적분한 값(`3.14159265...`)과 일치합니다.
+
+== 더 어려운 적분: $\int_{-\infty}^{\infty} \frac{1}{x^4+1}dx$
+
+이번엔 초등함수로 바로 안 풀리는 적분입니다. `1/(z^4+1)`은 극점이 네 개(`z^4=-1`의 네 근) 있는데, 그중 위쪽 반평면에 있는 두 개만 반원 경로 안에 들어갑니다.
+
+[source,python]
+----
+f2 = 1/(z**4+1)
+poles = sp.solve(z**4+1, z)
+upper_poles = [p for p in poles if sp.im(p) > 0]
+print("poles:", poles)
+print("upper half plane poles:", upper_poles)
+
+total_res = sum(sp.residue(f2, z, p) for p in upper_poles)
+integral2 = sp.simplify(2*sp.pi*sp.I*total_res)
+print("2*pi*i * sum(residues) =", integral2)
+
+val2, err2 = quad(lambda x: 1/(x**4+1), -np.inf, np.inf)
+print("scipy.integrate.quad:", val2)
+print("pi/sqrt(2) =", np.pi/np.sqrt(2))
+----
+
+[source]
+----
+poles: [-sqrt(2)/2 - sqrt(2)*I/2, -sqrt(2)/2 + sqrt(2)*I/2, sqrt(2)/2 - sqrt(2)*I/2, sqrt(2)/2 + sqrt(2)*I/2]
+upper half plane poles: [-sqrt(2)/2 + sqrt(2)*I/2, sqrt(2)/2 + sqrt(2)*I/2]
+2*pi*i * sum(residues) = sqrt(2)*pi/2
+scipy.integrate.quad: 2.2214414690791835
+pi/sqrt(2) = 2.221441469079183
+----
+
+네 극점 중 위쪽 두 개만 골라 유수를 더했더니 $\sqrt{2}\pi/2 = \pi/\sqrt{2}$가 나왔고, 이건 `quad`의 직접 수치적분 결과와 소수점까지 일치합니다. 이 적분은 부정적분을 초등함수로 손쉽게 못 찾지만, 복소평면의 극점 두 개 위치만 알면 몇 줄로 끝납니다.
+
+== 직접 해보기
+
+* $\int_{-\infty}^{\infty} \frac{1}{x^2+4}dx$를 유수 정리로 계산해보세요(극점은 `z=2i`와 `z=-2i`이고, 위쪽 반평면엔 `z=2i`만 있습니다). `scipy.integrate.quad`의 직접 수치적분과 비교해서 맞는지 확인하세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+f3 = 1/(z**2+4)
+res = sp.residue(f3, z, 2*sp.I)
+integral3 = sp.simplify(2*sp.pi*sp.I*res)
+print("residue theorem:", integral3)   # pi/2
+
+val3, _ = quad(lambda x: 1/(x**2+4), -np.inf, np.inf)
+print("quad:", val3)
+----
+
+`sp.residue`로 구한 유수는 `1/(4i)`이고, `2πi`를 곱하면 `π/2`가 됩니다. `quad`도 `1.5707963...`(`π/2`)를 주므로 일치합니다 — 이 적분은 `(1/2)arctan(x/2)`로 손으로도 풀리는 경우라, 직접 초등함수로 검산해봐도 같은 답이 나온다는 걸 추가로 확인할 수 있습니다.
+====
+
+== 요약
+
+* 유수 정리(폐곡선 적분 = `2πi × 극점들의 유수 합`)를 SymPy로 실제 적용해서, $\int 1/(1+x^2)dx = \pi$라는 이미 알려진 결과를 재현하고 `scipy.integrate.quad`의 직접 수치적분과 일치시켰습니다.
+* 초등함수로는 손쉽게 안 풀리는 $\int 1/(x^4+1)dx$도 극점 두 개의 유수만으로 계산해 $\pi/\sqrt{2}$를 얻었고, 이 값도 수치적분과 소수점까지 일치한다는 걸 확인했습니다.
+* "복소평면으로 넘어가서 극점만 찾으면 어려운 실수 적분이 대수 계산으로 바뀐다"는 게, 15장에서 확인한 "해석적 함수"라는 성질이 실용적으로 왜 강력한지 보여주는 구체적인 사례였습니다.
+
+맺음말에서는 이 책 7부 전체(ODE, 라플라스 변환, 선형연립방정식, 고유값·대각화, 벡터 미적분, 푸리에/PDE, 복소해석)를 돌아보고, 이 책이 다루지 않은 것과 다음으로 어디를 볼지 정리합니다.
+// end::body[]
