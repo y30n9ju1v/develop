@@ -92,7 +92,7 @@ $ iree-compile --iree-hal-target-backends=llvm-cpu --compile-to=input tiny.mlir 
 
 세 연산자가 각각 다른 방식으로 낮아진 걸 볼 수 있습니다.
 
-* **`MatMul`** → `linalg.matmul`이라는 **전용 연산**으로 낮아집니다 — 행렬곱은 워낙 흔하고 최적화 여지가 커서(`heterogeneous-computing-opencl` 책 5~6장에서 본 타일링 같은), `linalg`가 이름 있는 연산으로 따로 취급합니다.
+* **`MatMul`** → `linalg.matmul`이라는 **전용 연산**으로 낮아집니다 — 행렬곱은 워낙 흔하고, 데이터를 작은 블록(타일) 단위로 쪼개 캐시에 맞게 재배치하는 식으로 최적화할 여지가 커서, `linalg`가 이름 있는 연산으로 따로 취급합니다.
 * **`Add`** → `linalg.generic`이라는 **범용 틀** 안에, "각 원소에 `arith.addf`(부동소수점 덧셈)를 적용하라"는 내용으로 낮아집니다. `indexing_maps`는 두 입력(4×16 텐서와 16 벡터)을 어떻게 짝지어 순회할지 정의합니다 — `Add`의 두 번째 입력이 편향(bias, 16개)이라 브로드캐스팅되는 방식이 여기 인코딩됩니다.
 * **`ReLU`** → 역시 `linalg.generic` 안에, "각 원소가 0보다 크면(`arith.cmpf ugt`) 그 값을, 아니면(`arith.select`) 0을 선택하라"는 내용으로 낮아집니다. `relu(x) = max(x, 0)`이 "비교 후 선택"이라는 더 원초적인 연산 두 개로 풀린 겁니다.
 
