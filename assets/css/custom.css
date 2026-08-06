@@ -62,3 +62,157 @@
 .dark .rouge .s, .dark .rouge .s1, .dark .rouge .s2, .dark .rouge .sb, .dark .rouge .sc, .dark .rouge .sd, .dark .rouge .se, .dark .rouge .sh, .dark .rouge .si, .dark .rouge .sx, .dark .rouge .sr, .dark .rouge .ss { color: #a5d6ff }
 .dark .rouge .m, .dark .rouge .mf, .dark .rouge .mh, .dark .rouge .mi, .dark .rouge .mo, .dark .rouge .il { color: #79c0ff }
 .dark .rouge .err { color: #f85149; background-color: transparent }
+
+/* AsciiDoc admonitions ([NOTE]/[TIP]/[IMPORTANT]/[WARNING]/[CAUTION]) styled
+   like Hextra's own callout boxes (.hextra-alert) instead of Asciidoctor's
+   default bare <table>. */
+.content .admonitionblock {
+  margin: 1.5rem 0;
+}
+
+.content .admonitionblock > table {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid;
+  padding: 1rem 1.25rem;
+  background: none;
+}
+
+.content .admonitionblock > table > tbody,
+.content .admonitionblock > table > tbody > tr {
+  display: contents;
+}
+
+.content .admonitionblock td.icon {
+  flex-shrink: 0;
+  width: auto;
+  padding: 0;
+  border: none;
+}
+
+.content .admonitionblock td.icon .title {
+  font-family: inherit;
+  font-style: normal;
+  font-size: 0.8em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 0;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.content .admonitionblock td.content {
+  padding: 0;
+  border: none;
+  color: inherit;
+}
+
+.content .admonitionblock td.content > :last-child {
+  margin-bottom: 0;
+}
+
+/* NOTE: blue */
+.content .admonitionblock.note > table { border-color: #bfdbfe; background-color: #eff6ff; }
+.content .admonitionblock.note td.icon .title { background-color: #bfdbfe; color: #1e3a8a; }
+.dark .content .admonitionblock.note > table { border-color: rgba(147, 197, 253, 0.25); background-color: rgba(30, 58, 138, 0.18); }
+.dark .content .admonitionblock.note td.icon .title { background-color: rgba(147, 197, 253, 0.25); color: #bfdbfe; }
+
+/* TIP: green */
+.content .admonitionblock.tip > table { border-color: #bbf7d0; background-color: #f0fdf4; }
+.content .admonitionblock.tip td.icon .title { background-color: #bbf7d0; color: #14532d; }
+.dark .content .admonitionblock.tip > table { border-color: rgba(134, 239, 172, 0.25); background-color: rgba(20, 83, 45, 0.18); }
+.dark .content .admonitionblock.tip td.icon .title { background-color: rgba(134, 239, 172, 0.25); color: #bbf7d0; }
+
+/* IMPORTANT: purple */
+.content .admonitionblock.important > table { border-color: #e9d5ff; background-color: #faf5ff; }
+.content .admonitionblock.important td.icon .title { background-color: #e9d5ff; color: #581c87; }
+.dark .content .admonitionblock.important > table { border-color: rgba(216, 180, 254, 0.25); background-color: rgba(88, 28, 135, 0.18); }
+.dark .content .admonitionblock.important td.icon .title { background-color: rgba(216, 180, 254, 0.25); color: #e9d5ff; }
+
+/* WARNING: amber */
+.content .admonitionblock.warning > table { border-color: #fde68a; background-color: #fffbeb; }
+.content .admonitionblock.warning td.icon .title { background-color: #fde68a; color: #78350f; }
+.dark .content .admonitionblock.warning > table { border-color: rgba(252, 211, 77, 0.25); background-color: rgba(120, 53, 15, 0.18); }
+.dark .content .admonitionblock.warning td.icon .title { background-color: rgba(252, 211, 77, 0.25); color: #fde68a; }
+
+/* CAUTION: red */
+.content .admonitionblock.caution > table { border-color: #fecaca; background-color: #fef2f2; }
+.content .admonitionblock.caution td.icon .title { background-color: #fecaca; color: #7f1d1d; }
+.dark .content .admonitionblock.caution > table { border-color: rgba(252, 165, 165, 0.25); background-color: rgba(127, 29, 29, 0.18); }
+.dark .content .admonitionblock.caution td.icon .title { background-color: rgba(252, 165, 165, 0.25); color: #fecaca; }
+
+/* AsciiDoc collapsible blocks ([%collapsible], used for "해답 보기" answers)
+   styled as a rounded disclosure card instead of a bare <details>. */
+.content details {
+  margin: 1.25rem 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 0.75rem;
+  padding: 0;
+  background-color: rgba(0, 0, 0, 0.015);
+}
+
+.dark .content details {
+  border-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.content details > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 0.75rem 1.25rem;
+  font-weight: 600;
+  font-size: 0.95em;
+  border-radius: 0.75rem;
+  user-select: none;
+}
+
+.content details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.content details > summary::before {
+  content: "▸";
+  display: inline-block;
+  margin-right: 0.5em;
+  transition: transform 0.15s ease;
+  color: var(--tw-prose-links, #6366f1);
+}
+
+.content details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.content details[open] > summary {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.dark .content details[open] > summary {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.content details > summary:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.dark .content details > summary:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.content details > .content {
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.content details > .content > :first-child {
+  margin-top: 0 !important;
+}
+
+.content details > .content > :last-child {
+  margin-bottom: 0;
+}
