@@ -3,7 +3,7 @@ title: "증명보다 계산이 먼저다: 공업수학을 코드로 다시 배�
 draft: false
 ---
 
-공업수학 표준 커리큘럼(상미분방정식, 라플라스 변환, 선형연립방정식, 고유값과 대각화, 벡터 미적분, 푸리에 해석과 편미분방정식, 복소해석)을 정의-정리-증명 순서 대신 "왜 필요한가 → NumPy/SciPy/SymPy로 계산해서 눈으로 확인 → 그다음에 수식을 읽는다"는 순서로 다시 짓는 독립적인 입문서입니다. 상미분방정식(1부) → 라플라스 변환(2부) → 선형연립방정식(3부) → 고유값과 대각화(4부) → 벡터 미적분(5부) → 푸리에 해석과 편미분방정식(6부) → 복소해석(7부) 순서로 쌓아 올립니다.
+공업수학 표준 커리큘럼(상미분방정식, 라플라스 변환, 선형연립방정식, 고유값과 대각화, 벡터 미적분, 푸리에 해석과 편미분방정식, 복소해석)을 정의-정리-증명 순서 대신 "왜 필요한가 → NumPy/SciPy/SymPy로 계산해서 눈으로 확인 → 그다음에 수식을 읽는다"는 순서로 다시 짓는 독립적인 입문서입니다. 미분·지수함수·벡터/행렬·복소수라는 이 책 전체에서 반복해서 쓰는 최소한의 기호부터 아주 천천히 짚는 수학 준비운동(0부) → 상미분방정식(1부) → 라플라스 변환(2부) → 선형연립방정식(3부) → 고유값과 대각화(4부) → 벡터 미적분(5부) → 푸리에 해석과 편미분방정식(6부) → 복소해석(7부) 순서로 쌓아 올립니다.
 
 이 책의 모든 계산은 실제로 Python(NumPy/SciPy/SymPy)으로 실행해서 검증했습니다 — 손으로 유도한 해석해와 독립적인 수치해(또는 서로 다른 방법으로 유도한 해)를 매 장마다 나란히 놓고 비교하며, 그 차이가 실제로 얼마나 작은지 숫자로 직접 확인합니다. 각 장 끝에는 "직접 해보기" 연습문제를 두어, 본문과 같은 도구로 직접 계산해서 확인한 실제 검증 결과를 해답으로 제공합니다.
 
@@ -13,6 +13,13 @@ draft: false
 
 [start=0]
 . *link:00-preface/[서문: 증명보다 계산이 먼저다]*
+
+*0부: 수학 준비운동*
+
+. *link:00a-primer-derivatives/[0-1장: 미분이란 무엇인가]*
+. *link:00b-primer-exponentials/[0-2장: 지수함수와 자연상수 e]*
+. *link:00c-primer-vectors-and-matrices/[0-3장: 벡터와 행렬을 표로 이해하기]*
+. *link:00d-primer-complex-numbers/[0-4장: 복소수 기초]*
 
 *1부: 상미분방정식*
 
@@ -66,6 +73,22 @@ draft: false
 '''
 
 include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::00a-primer-derivatives.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::00b-primer-exponentials.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::00c-primer-vectors-and-matrices.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::00d-primer-complex-numbers.adoc[tag=body,leveloffset=+1]
 
 '''
 
