@@ -1,0 +1,189 @@
+---
+title: "6장: 폼과 서버사이드 검증"
+date: 2026-08-09T00:00:00+09:00
+draft: false
+tags: ["go", "templ", "htmx", "form", "validation", "book"]
+categories: ["books"]
+description: "hx-target=\"this\"로 폼 자신을 갱신 대상으로 삼아, 검증에 실패하면 입력값과 에러 메시지를 채운 같은 폼을, 성공하면 완료 화면을 돌려주는 서버사이드 검증 패턴을 curl로 검증하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-targets-and-swaps/[5장: 타겟과 스왑] · 다음: link:../07-templ-component-design/[7장: templ 컴포넌트 설계]_
+
+'''
+
+SPA에서는 흔히 클라이언트 자바스크립트로 폼을 검증합니다(입력할 때마다 정규식으로 이메일 형식을 확인하는 식). 하이퍼미디어 방식에서는 검증도 서버가 맡습니다 — 이 장에서는 회원가입 폼을 예로, 검증에 실패하면 **입력했던 값과 에러 메시지를 채운 같은 폼**을, 성공하면 완료 화면을 돌려주는 패턴을 만듭니다.
+
+== hx-target="this": 폼 자신을 갱신 대상으로
+
+지금까지는 `hx-target`에 다른 요소의 `id`를 지정했습니다. `this`라는 특수값을 쓰면 "이 요청을 보낸 요소 자신"이 타겟이 됩니다 — 폼이 스스로를 갱신하는 흔한 패턴입니다.
+
+[source,templ]
+----
+package main
+
+import "strings"
+
+templ SignupForm(name string, email string, errors map[string]string) {
+	<form id="signup-form" hx-post="/signup" hx-target="this" hx-swap="outerHTML">
+		<div>
+			<label>이름</label>
+			<input type="text" name="name" value={ name }/>
+			if errors["name"] != "" {
+				<p class="error">{ errors["name"] }</p>
+			}
+		</div>
+		<div>
+			<label>이메일</label>
+			<input type="text" name="email" value={ email }/>
+			if errors["email"] != "" {
+				<p class="error">{ errors["email"] }</p>
+			}
+		</div>
+		<button type="submit">가입</button>
+	</form>
+}
+
+templ SignupSuccess(name string) {
+	<div id="signup-form">
+		<p>{ name }님, 가입이 완료되었습니다!</p>
+	</div>
+}
+----
+
+`SignupForm`은 `errors` 맵을 받아, 각 필드 아래에 `if errors["name"] != "" { ... }`처럼 조건부로 에러 메시지를 렌더링합니다 — templ은 `{ }` 안의 Go 표현식뿐 아니라 `if`, `for` 같은 제어 구문도 템플릿 안에서 그대로 씁니다.
+
+== 검증 로직과 핸들러
+
+[source,go]
+----
+func validate(name, email string) map[string]string {
+	errs := map[string]string{}
+	if strings.TrimSpace(name) == "" {
+		errs["name"] = "이름을 입력해주세요."
+	}
+	if !strings.Contains(email, "@") {
+		errs["email"] = "올바른 이메일 형식이 아닙니다."
+	}
+	return errs
+}
+----
+
+[source,go]
+----
+package main
+
+import (
+	"context"
+	"net/http"
+)
+
+func signupHandler(w http.ResponseWriter, r *http.Request) {
+	r.ParseForm()
+	name := r.FormValue("name")
+	email := r.FormValue("email")
+
+	errs := validate(name, email)
+	if len(errs) > 0 {
+		SignupForm(name, email, errs).Render(context.Background(), w)   // 실패: 입력값 + 에러를 채운 폼
+		return
+	}
+	SignupSuccess(name).Render(context.Background(), w)   // 성공: 완료 화면
+}
+----
+
+== 검증 실패와 성공 경로를 각각 확인
+
+=== 실패: 빈 이름 + 잘못된 이메일
+
+[source,bash]
+----
+curl -s -X POST "http://localhost:8080/signup" -H "HX-Request: true" \
+  --data-urlencode "name=" --data-urlencode "email=bademail"
+----
+
+[source]
+----
+<form id="signup-form" hx-post="/signup" hx-target="this" hx-swap="outerHTML">
+  <div><label>이름</label> <input type="text" name="name" value="">
+    <p class="error">이름을 입력해주세요.</p></div>
+  <div><label>이메일</label> <input type="text" name="email" value="bademail">
+    <p class="error">올바른 이메일 형식이 아닙니다.</p></div>
+  <button type="submit">가입</button>
+</form>
+----
+
+응답이 **같은 폼**입니다 — `hx-target="this"` 덕분에, 브라우저에서 이 응답을 받으면 원래 폼이 있던 자리에 이 새 폼(에러 메시지가 추가된)이 그대로 들어갑니다. 주목할 점은 이메일 필드에 `value="bademail"`처럼 사용자가 입력했던 값이 그대로 남아 있다는 것입니다 — 검증에 실패했다고 사용자가 입력한 내용을 통째로 날려버리면 안 되니, 서버가 그 값을 다시 채워 응답해야 합니다.
+
+=== 성공: 올바른 입력
+
+[source,bash]
+----
+curl -s -X POST "http://localhost:8080/signup" -H "HX-Request: true" \
+  --data-urlencode "name=김민준" --data-urlencode "email=min@example.com"
+----
+
+[source]
+----
+<div id="signup-form"><p>김민준님, 가입이 완료되었습니다!</p></div>
+----
+
+이번엔 `<form>`이 아니라 `<div id="signup-form">`이 응답으로 왔습니다 — `hx-target="this"`가 가리키는 건 "요청을 보낸 폼 요소가 있던 자리"이지 "폼이라는 태그"가 아니므로, 같은 `id`(`signup-form`)를 가진 전혀 다른 태그(`<div>`)로 교체해도 문제없이 동작합니다. 폼이 완료 메시지로 완전히 바뀐 것입니다.
+
+== 왜 클라이언트 검증이 아니라 서버 검증인가
+
+클라이언트 자바스크립트로 미리 검증하면 사용자 경험이 조금 더 즉각적일 수 있지만(입력하는 즉시 피드백), **서버 검증은 절대 생략할 수 없습니다** — 클라이언트 검증은 우회할 수 있고(개발자 도구로 직접 요청을 보내거나, `curl`로 우리가 방금 한 것처럼), 최종적으로 데이터베이스에 잘못된 값이 들어가지 않게 막는 건 항상 서버의 책임입니다. 이 책은 클라이언트 검증을 아예 다루지 않는데, htmx의 `hx-trigger` 옵션(예: `keyup changed delay:300ms`)으로 입력 중에도 서버에 검증 요청을 보내 "즉각적인 피드백"을 서버 검증만으로 흉내 낼 수 있기 때문입니다 — 이는 9장(목록·검색)에서 실시간 검색을 다룰 때 같은 기법으로 다시 만납니다.
+
+== 직접 해보기
+
+* `errors` 맵에 필드별 에러뿐 아니라, 특정 필드에 속하지 않는 전역 에러(예: "이미 가입된 이메일입니다")를 추가하고, 이를 폼 상단에 표시해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,templ]
+----
+templ SignupForm(name string, email string, errors map[string]string) {
+	<form id="signup-form" hx-post="/signup" hx-target="this" hx-swap="outerHTML">
+		if errors["_global"] != "" {
+			<p class="error global-error">{ errors["_global"] }</p>
+		}
+		<div>
+			<label>이름</label>
+			<input type="text" name="name" value={ name }/>
+			if errors["name"] != "" {
+				<p class="error">{ errors["name"] }</p>
+			}
+		</div>
+		// ... 이메일 필드도 동일 ...
+		<button type="submit">가입</button>
+	</form>
+}
+----
+
+[source,go]
+----
+func validate(name, email string, existingEmails map[string]bool) map[string]string {
+	errs := map[string]string{}
+	if strings.TrimSpace(name) == "" {
+		errs["name"] = "이름을 입력해주세요."
+	}
+	if !strings.Contains(email, "@") {
+		errs["email"] = "올바른 이메일 형식이 아닙니다."
+	} else if existingEmails[email] {
+		errs["_global"] = "이미 가입된 이메일입니다."
+	}
+	return errs
+}
+----
+
+`"_global"`이라는, 실제 입력 필드 이름과 겹치지 않는 특수 키를 하나 약속해서 필드별 에러와 구분합니다. 이렇게 "여러 필드에 걸친 에러"(이메일 중복 확인처럼 단일 필드의 형식만으로는 판단할 수 없는 검증)를 다루는 패턴은 8장에서 데이터베이스를 실제로 조회해 중복을 확인할 때 그대로 이어집니다.
+====
+
+== 요약
+
+* `hx-target="this"`는 요청을 보낸 요소 자신을 갱신 대상으로 삼으며, 응답으로 다른 태그(예: `<form>` 대신 `<div>`)를 돌려줘도 같은 `id`만 유지하면 자연스럽게 교체됩니다.
+* 검증 실패 시 서버는 사용자가 입력했던 값과 필드별 에러 메시지를 채운 같은 폼을 다시 렌더링해 응답하고, 성공 시에는 완전히 다른 내용(완료 화면)을 응답합니다.
+* 클라이언트 검증은 우회 가능하므로 서버 검증이 항상 최종 방어선이며, htmx의 트리거 옵션으로 서버 검증만으로도 즉각적인 피드백을 흉내 낼 수 있습니다.
+* 다음 장에서는 지금까지 하나의 파일에 몰아 쓴 templ 컴포넌트들을, 레이아웃과 재사용 가능한 조각으로 나누는 설계를 다룹니다.
+// end::body[]

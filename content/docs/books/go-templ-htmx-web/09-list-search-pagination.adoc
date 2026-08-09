@@ -1,0 +1,194 @@
+---
+title: "9장: 목록·검색·페이지네이션"
+date: 2026-08-09T00:00:00+09:00
+draft: false
+tags: ["go", "templ", "htmx", "search", "pagination", "book"]
+categories: ["books"]
+description: "hx-trigger=\"keyup changed delay:300ms\"로 입력할 때마다 서버에 검색 요청을 보내는 실시간 검색과, SQL의 LIMIT/OFFSET으로 다음 페이지를 불러오는 페이지네이션을 SQLite 쿼리와 curl로 검증하는 9장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-database-with-sqlite/[8장: 데이터베이스 연동] · 다음: link:../10-sessions-and-authentication/[10장: 세션과 인증]_
+
+'''
+
+8장에서 SQLite에 데이터를 저장했으니, 이제 데이터가 많아졌을 때 필요한 두 가지 — **입력할 때마다 갱신되는 검색**과 **한 번에 일부만 불러오는 페이지네이션**을 만듭니다. 두 기능 모두 클라이언트에 자바스크립트를 쓰지 않고, htmx의 트리거 옵션과 SQL 쿼리만으로 구현합니다.
+
+== SQL로 검색과 페이지네이션 구현하기
+
+`LIKE`로 부분 문자열 검색을, `LIMIT`/`OFFSET`으로 페이지네이션을 처리합니다.
+
+[source,go]
+----
+package main
+
+import "database/sql"
+
+func searchTodos(db *sql.DB, query string, limit, offset int) ([]Todo, error) {
+	rows, err := db.Query(
+		`SELECT id, text, done FROM todos WHERE text LIKE ? ORDER BY id LIMIT ? OFFSET ?`,
+		"%"+query+"%", limit, offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var todos []Todo
+	for rows.Next() {
+		var t Todo
+		if err := rows.Scan(&t.ID, &t.Text, &t.Done); err != nil {
+			return nil, err
+		}
+		todos = append(todos, t)
+	}
+	return todos, rows.Err()
+}
+----
+
+`query`가 빈 문자열이면 `"%%"`가 되어 모든 행이 `LIKE` 조건을 통과하므로, 이 함수 하나로 "검색어 없이 전체 목록"과 "검색어로 필터링"을 둘 다 처리할 수 있습니다.
+
+=== 검색과 페이지네이션이 실제로 동작하는지 확인
+
+[source,go]
+----
+words := []string{"우유 사기", "책 읽기", "우유 배달 확인", "청소하기", "우유팩 버리기"}
+for _, w := range words {
+	insertTodo(db, w)
+}
+
+results, _ := searchTodos(db, "우유", 10, 0)
+for _, r := range results {
+	fmt.Println(r.Text)
+}
+
+page1, _ := searchTodos(db, "", 2, 0)   // 1페이지: 앞 2개
+page2, _ := searchTodos(db, "", 2, 2)   // 2페이지: 그다음 2개
+----
+
+[source]
+----
+우유 사기
+우유 배달 확인
+우유팩 버리기
+
+page1: [{1 우유 사기 false} {2 책 읽기 false}]
+page2: [{3 우유 배달 확인 false} {4 청소하기 false}]
+----
+
+`"우유"`로 검색하니 5개 항목 중 3개만 걸러졌고, `LIMIT 2 OFFSET 0`(1페이지)과 `LIMIT 2 OFFSET 2`(2페이지)가 서로 겹치지 않는 다른 항목들을 정확히 반환했습니다.
+
+== 실시간 검색: hx-trigger로 입력을 감지하기
+
+지금까지는 `hx-get`/`hx-post`가 클릭이나 제출에 반응했습니다. `hx-trigger`로 어떤 이벤트에 반응할지, 얼마나 기다렸다 요청을 보낼지 직접 지정할 수 있습니다.
+
+[source,templ]
+----
+package main
+
+templ SearchPage() {
+	<html>
+	<head><script src="https://unpkg.com/htmx.org@2.0.3"></script></head>
+	<body>
+		<input type="text" name="q"
+			hx-get="/search"
+			hx-trigger="keyup changed delay:300ms"
+			hx-target="#results"
+			hx-swap="innerHTML"
+		/>
+		<div id="results"></div>
+	</body>
+	</html>
+}
+
+templ SearchResults(todos []Todo) {
+	<ul id="results">
+		for _, t := range todos {
+			<li>{ t.Text }</li>
+		}
+	</ul>
+}
+----
+
+`hx-trigger="keyup changed delay:300ms"`를 뜯어보면 — `keyup`(키를 뗄 때마다), `changed`(값이 실제로 바뀌었을 때만, 예를 들어 화살표 키만 눌렀다면 요청하지 않음), `delay:300ms`(마지막 키 입력 후 `300ms` 동안 추가 입력이 없으면 요청, 흔히 "디바운스"라고 부르는 기법). 이 세 조건 덕분에 사용자가 빠르게 타이핑하는 동안에는 요청을 보내지 않다가, 타이핑을 멈추면 그때 딱 한 번 요청을 보냅니다.
+
+=== 서버 핸들러와 실제 요청 확인
+
+[source,go]
+----
+mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	const pageSize = 2
+	todos, _ := searchTodos(db, q, pageSize, page*pageSize)
+	SearchResults(todos).Render(context.Background(), w)
+})
+----
+
+[source,bash]
+----
+curl -s -G "http://localhost:8080/search" --data-urlencode "q=우유" -H "HX-Request: true"
+----
+
+[source]
+----
+<ul id="results"><li>우유 사기</li><li>우유 배달 확인</li></ul>
+----
+
+`input` 요소 자체가 `hx-get`을 갖고 있으므로, htmx가 입력 필드의 `name="q"` 값을 자동으로 쿼리 파라미터에 담아 보냅니다(폼 없이 단일 입력 요소만으로도 이렇게 동작합니다). 사용자가 타이핑을 멈출 때마다 이 요청이 자동으로 나가고, `#results`가 매번 최신 검색 결과로 갱신됩니다.
+
+== 페이지네이션: 다음 페이지를 불러오는 버튼
+
+[source,templ]
+----
+templ Pagination(query string, page int, hasNext bool) {
+	<div id="pagination" hx-swap-oob="true">
+		if hasNext {
+			<button
+				hx-get={ fmt.Sprintf("/search?q=%s&page=%d", query, page+1) }
+				hx-target="#results"
+				hx-swap="innerHTML"
+			>다음</button>
+		}
+	</div>
+}
+----
+
+5장에서 배운 OOB 스왑을 다시 씁니다 — `SearchResults`(검색 결과 목록)와 `Pagination`(다음 페이지 버튼, 검색어와 다음 페이지 번호가 이미 인코딩됨)을 한 응답에 함께 담아, 검색 결과와 페이지네이션 버튼을 동시에 최신 상태로 유지합니다. `hasNext`가 `false`면(더 가져올 데이터가 없으면) 버튼 자체를 렌더링하지 않아, "다음" 버튼이 자연스럽게 사라집니다.
+
+== 왜 검색어 상태를 서버가 들고 있지 않는가
+
+이 장의 검색과 페이지네이션 모두, 서버는 "지금까지 어떤 검색어로 몇 페이지째 보고 있었는지"를 세션이나 메모리에 저장하지 않습니다 — 매 요청의 쿼리 파라미터(`q`, `page`)에 필요한 모든 정보가 담겨 있고, 응답(다음 페이지 버튼의 `hx-get` URL)에도 다음 요청에 필요한 정보가 미리 인코딩되어 있습니다. 이게 4장에서 처음 언급했던 "서버가 상태를 어디에 두고 있는가" 원칙의 확장입니다 — 여러 사용자가 동시에 서로 다른 검색어로 검색해도, 서버가 "누가 무엇을 검색했는지" 따로 추적할 필요가 없습니다. 다음 장에서 로그인한 사용자별로 다른 데이터를 보여줘야 할 때는 이 원칙에 예외가 필요해지는데, 그때 세션이 등장합니다.
+
+== 직접 해보기
+
+* 검색 결과가 하나도 없을 때(`len(todos) == 0`) "검색 결과가 없습니다"라는 안내 문구가 보이도록 `SearchResults` 컴포넌트를 고쳐보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,templ]
+----
+templ SearchResults(todos []Todo) {
+	<ul id="results">
+		if len(todos) == 0 {
+			<li class="empty">검색 결과가 없습니다.</li>
+		} else {
+			for _, t := range todos {
+				<li>{ t.Text }</li>
+			}
+		}
+	</ul>
+}
+----
+
+`len(todos) == 0`을 조건으로 `if`/`else`를 분기하는 것만으로 빈 상태를 처리할 수 있습니다. 사소해 보이지만, 이런 "데이터가 없을 때 무엇을 보여줄 것인가"를 챙기지 않으면 사용자가 빈 화면을 보고 "검색이 안 되나?"라고 오해하기 쉽습니다 — 1장 연습문제에서 다뤘던 "파라미터가 없을 때의 기본값" 챙기기와 같은 종류의 습관입니다.
+====
+
+== 요약
+
+* SQL의 `LIKE`와 `LIMIT`/`OFFSET`으로 검색과 페이지네이션을 데이터베이스 쿼리 수준에서 처리해, Go 코드가 불필요하게 많은 데이터를 메모리에 올릴 필요가 없습니다.
+* `hx-trigger="keyup changed delay:300ms"`로 사용자가 타이핑을 멈출 때만 서버에 요청을 보내는 실시간 검색을, 자바스크립트 없이 만들었습니다.
+* OOB 스왑으로 검색 결과 목록과 페이지네이션 버튼을 한 응답에서 함께 갱신했습니다.
+* 검색어와 페이지 번호 같은 상태는 서버가 별도로 저장하지 않고 매 요청의 파라미터와 응답 HTML에 인코딩되며, 다음 장에서 로그인이 필요한 상황에서는 이 원칙에 예외(세션)가 필요해집니다.
+// end::body[]

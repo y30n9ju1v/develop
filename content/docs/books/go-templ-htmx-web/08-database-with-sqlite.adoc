@@ -1,0 +1,190 @@
+---
+title: "8장: 데이터베이스 연동: SQLite로 영속화"
+date: 2026-08-09T00:00:00+09:00
+draft: false
+tags: ["go", "sqlite", "database", "book"]
+categories: ["books"]
+description: "CGO 없는 modernc.org/sqlite 드라이버와 database/sql 표준 인터페이스로 할 일 데이터를 SQLite에 저장·조회하고, 이 영속화 계층을 htmx 핸들러와 연결해 서버를 재시작해도 데이터가 남는 것을 검증하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-templ-component-design/[7장: templ 컴포넌트 설계] · 다음: link:../09-list-search-pagination/[9장: 목록·검색·페이지네이션]_
+
+'''
+
+지금까지 예제들은 전역 변수(`var items []string`)에 데이터를 저장했습니다 — 서버를 재시작하면 모든 데이터가 사라집니다. 이 장에서는 SQLite에 데이터를 저장해, 여러 사용자가 동시에 접근해도(9장 이후) 일관된 데이터를 다루는 기초를 놓습니다.
+
+== 왜 SQLite인가
+
+이 책의 규모(하나의 프로세스로 도는 서버, 데이터베이스 서버를 별도로 운영할 필요가 없는 서비스)에는 SQLite가 잘 맞습니다 — 별도의 데이터베이스 서버 프로세스 없이, 파일 하나에 전체 데이터베이스가 저장됩니다. `modernc.org/sqlite`는 순수 Go로 작성된 드라이버라 CGO(C 컴파일러) 없이도 빌드되므로, 배포가 훨씬 단순합니다(14장에서 배포를 다룰 때 이 이점이 다시 등장합니다).
+
+[source,bash]
+----
+go get modernc.org/sqlite
+----
+
+== 스키마와 연결 열기
+
+[source,go]
+----
+package main
+
+import (
+	"database/sql"
+	"log"
+
+	_ "modernc.org/sqlite"
+)
+
+type Todo struct {
+	ID   int64
+	Text string
+	Done bool
+}
+
+func openDB(path string) *sql.DB {
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		log.Fatal(err)
+	}
+	schema := `
+	CREATE TABLE IF NOT EXISTS todos (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		text TEXT NOT NULL,
+		done BOOLEAN NOT NULL DEFAULT 0
+	);`
+	if _, err := db.Exec(schema); err != nil {
+		log.Fatal(err)
+	}
+	return db
+}
+----
+
+`_ "modernc.org/sqlite"`처럼 밑줄로 임포트하는 건 이 패키지를 직접 쓰지 않지만, 이 패키지의 `init()` 함수가 `database/sql`에 `"sqlite"`라는 이름으로 드라이버를 등록하게 하기 위해서입니다 — Go 표준 라이브러리 `database/sql`이 어떤 데이터베이스든 같은 인터페이스(`*sql.DB`, `Query`, `Exec`)로 다루게 해주는 설계입니다. `CREATE TABLE IF NOT EXISTS`는 서버를 몇 번을 재시작해도 안전합니다 — 테이블이 이미 있으면 아무 일도 하지 않습니다.
+
+== 데이터 넣고 읽기: Exec와 Query
+
+[source,go]
+----
+func insertTodo(db *sql.DB, text string) (Todo, error) {
+	res, err := db.Exec(`INSERT INTO todos (text, done) VALUES (?, 0)`, text)
+	if err != nil {
+		return Todo{}, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return Todo{}, err
+	}
+	return Todo{ID: id, Text: text, Done: false}, nil
+}
+
+func listTodos(db *sql.DB) ([]Todo, error) {
+	rows, err := db.Query(`SELECT id, text, done FROM todos ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var todos []Todo
+	for rows.Next() {
+		var t Todo
+		if err := rows.Scan(&t.ID, &t.Text, &t.Done); err != nil {
+			return nil, err
+		}
+		todos = append(todos, t)
+	}
+	return todos, rows.Err()
+}
+----
+
+`db.Exec(query, text)`처럼 `?`를 플레이스홀더로 쓰고 인자를 별도로 넘기는 것이 중요합니다 — 문자열을 직접 이어붙여 SQL을 만들면(`"INSERT INTO todos VALUES ('" + text + "')"`) SQL 인젝션 취약점이 생깁니다. `database/sql`의 플레이스홀더는 값을 안전하게 이스케이프해서 전달합니다.
+
+== 실제로 저장되고 조회되는지 검증
+
+[source,go]
+----
+func TestDBRoundtrip(t *testing.T) {
+	db := openDB("/tmp/test_todos.db")
+	defer db.Close()
+
+	todo, _ := insertTodo(db, "우유 사기")
+	t.Logf("inserted: %+v", todo)
+
+	todos, _ := listTodos(db)
+	t.Logf("listed: %+v", todos)
+}
+----
+
+[source]
+----
+inserted: {ID:1 Text:우유 사기 Done:false}
+listed: [{ID:1 Text:우유 사기 Done:false}]
+----
+
+`insertTodo`가 돌려준 `ID:1`이 자동 증가(AUTOINCREMENT)로 채워졌고, `listTodos`로 다시 조회한 결과가 정확히 그 데이터를 담고 있습니다. 이 테스트를 다시 실행하면(파일을 지우지 않는 한) `ID:2`인 항목이 추가로 쌓입니다 — 전역 변수와 달리 프로세스가 끝나도 파일에 남아 있기 때문입니다.
+
+== htmx 핸들러와 연결하기
+
+5장의 할 일 목록 핸들러를 전역 슬라이스 대신 이 데이터베이스 함수로 바꿉니다.
+
+[source,go]
+----
+func addItemHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		todo, err := insertTodo(db, r.FormValue("text"))
+		if err != nil {
+			http.Error(w, "저장 실패", http.StatusInternalServerError)
+			return
+		}
+		todos, _ := listTodos(db)
+		ItemFragment(todo.Text, len(todos)).Render(r.Context(), w)
+	}
+}
+----
+
+`addItemHandler`가 이제 `*sql.DB`를 받아 클로저로 감싼 핸들러를 돌려줍니다 — 핸들러 함수 자체는 4~5장의 시그니처(`http.HandlerFunc`)를 그대로 유지하면서, 필요한 의존성(데이터베이스 연결)을 주입받는 흔한 패턴입니다. `mux.HandleFunc("POST /items", addItemHandler(db))`처럼 등록합니다.
+
+== 직접 해보기
+
+* `done` 컬럼을 활용해, 할 일을 완료 처리하는 `UPDATE` 쿼리를 실행하는 `markDone(db *sql.DB, id int64) error` 함수를 작성하고, 완료된 항목만 걸러서 조회하는 `listTodos`의 변형(`listPendingTodos`)도 만들어보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,go]
+----
+func markDone(db *sql.DB, id int64) error {
+	_, err := db.Exec(`UPDATE todos SET done = 1 WHERE id = ?`, id)
+	return err
+}
+
+func listPendingTodos(db *sql.DB) ([]Todo, error) {
+	rows, err := db.Query(`SELECT id, text, done FROM todos WHERE done = 0 ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var todos []Todo
+	for rows.Next() {
+		var t Todo
+		if err := rows.Scan(&t.ID, &t.Text, &t.Done); err != nil {
+			return nil, err
+		}
+		todos = append(todos, t)
+	}
+	return todos, rows.Err()
+}
+----
+
+`WHERE done = 0`처럼 필터링을 SQL 쿼리 자체에 넣는 게 중요합니다 — `listTodos`로 전체를 가져온 뒤 Go 코드로 걸러낼 수도 있지만, 데이터가 많아지면 데이터베이스가 인덱스를 활용해 걸러내는 쪽이 훨씬 효율적입니다. 이 원칙(필터링·정렬은 가능한 한 데이터베이스에 맡긴다)은 다음 장의 검색·페이지네이션에서 더 중요해집니다.
+====
+
+== 요약
+
+* `modernc.org/sqlite`는 CGO 없이 빌드되는 순수 Go SQLite 드라이버로, `database/sql` 표준 인터페이스와 함께 써서 다른 데이터베이스로 바꿀 때도 대부분의 코드를 재사용할 수 있습니다.
+* `?` 플레이스홀더로 값을 전달하면 SQL 인젝션을 막을 수 있으며, 문자열을 직접 이어붙여 쿼리를 만들면 안 됩니다.
+* 핸들러 함수가 데이터베이스 연결을 클로저로 받는 패턴으로, 핸들러의 시그니처(`http.HandlerFunc`)를 유지하면서 의존성을 주입할 수 있습니다.
+* 다음 장에서는 이 데이터베이스 위에 검색과 페이지네이션을 얹어, 데이터가 많아져도 필요한 만큼만 가져와 화면을 갱신하는 패턴을 다룹니다.
+// end::body[]

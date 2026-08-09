@@ -1,0 +1,154 @@
+---
+title: "11장: 실시간 갱신: SSE"
+date: 2026-08-09T00:00:00+09:00
+draft: false
+tags: ["go", "htmx", "sse", "server-sent-events", "book"]
+categories: ["books"]
+description: "text/event-stream 응답으로 서버가 클라이언트에 이벤트를 밀어 보내는 SSE 핸들러를 Go http.Flusher로 구현하고, htmx SSE 확장이 이를 어떻게 화면에 반영하는지, curl로 실제 스트림을 직접 확인하는 11장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-sessions-and-authentication/[10장: 세션과 인증] · 다음: link:../12-testing-with-httptest/[12장: 테스트: httptest로 핸들러 검증]_
+
+'''
+
+지금까지 모든 상호작용은 클라이언트가 먼저 요청을 보내야 시작됐습니다(버튼 클릭, 타이핑, 폼 제출). 그런데 "다른 사용자가 방금 새 댓글을 남겼다", "백그라운드 작업이 끝났다"처럼 **서버가 먼저 알려줘야 하는** 경우도 있습니다. 이 장에서는 SSE(Server-Sent Events)로 서버가 클라이언트에 지속적으로 이벤트를 밀어 보내는 방법을 다룹니다.
+
+== SSE란 무엇인가
+
+SSE는 서버가 `Content-Type: text/event-stream`으로 응답하면서, 연결을 끊지 않고 계속 `event: 이름\ndata: 내용\n\n` 형식의 텍스트를 흘려보내는 단순한 프로토콜입니다. 웹소켓과 달리 **서버 → 클라이언트 단방향**이고, 브라우저의 `EventSource` API(또는 htmx의 SSE 확장)가 표준으로 지원해 별도 라이브러리 없이 다룰 수 있습니다.
+
+== Go에서 이벤트 스트림 만들기: http.Flusher
+
+일반적인 핸들러는 응답을 한 번에 다 쓰고 끝나지만, SSE 핸들러는 연결을 계속 열어둔 채 여러 번에 걸쳐 씁니다. 이때 `http.Flusher`로 지금까지 쓴 내용을 즉시 클라이언트로 내보내야 합니다.
+
+[source,go]
+----
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"net/http"
+	"time"
+)
+
+func sseHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	count := 0
+	for {
+		select {
+		case <-r.Context().Done():
+			return   // 클라이언트가 연결을 끊으면 고루틴도 종료
+		case t := <-ticker.C:
+			count++
+			var buf bytes.Buffer
+			TickFragment(count, t).Render(context.Background(), &buf)
+
+			fmt.Fprintf(w, "event: tick\n")
+			for _, line := range bytes.Split(buf.Bytes(), []byte("\n")) {
+				fmt.Fprintf(w, "data: %s\n", line)
+			}
+			fmt.Fprintf(w, "\n")
+			flusher.Flush()
+		}
+	}
+}
+----
+
+[source,templ]
+----
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+templ TickFragment(count int, t time.Time) {
+	<div id="tick">{ fmt.Sprintf("#%d at %s", count, t.Format("15:04:05")) }</div>
+}
+----
+
+몇 가지 중요한 부분이 있습니다. `r.Context().Done()`을 `select`로 함께 감시하는 게 핵심입니다 — 클라이언트가 브라우저 탭을 닫거나 연결을 끊으면 `r.Context()`가 취소되는데, 이걸 감시하지 않으면 이 고루틴이 이미 아무도 듣지 않는 연결에 계속 데이터를 쓰려고 시도하며 영원히 남아있는(고루틴 누수) 문제가 생깁니다. `data:` 줄은 SSE 프로토콜상 개행 문자를 포함할 수 없으므로, 여러 줄로 이루어진 HTML(templ이 렌더링한 결과)을 줄 단위로 쪼개 각 줄 앞에 `data: `를 붙였습니다.
+
+== curl로 실제 스트림 확인하기
+
+브라우저 없이도, `curl -N`(응답 버퍼링을 끄는 옵션)으로 SSE 스트림을 실시간으로 볼 수 있습니다.
+
+[source,bash]
+----
+curl -s -N --max-time 3.5 "http://localhost:8080/events"
+----
+
+[source]
+----
+event: tick
+data: <div id="tick">#1 at 15:15:50</div>
+
+event: tick
+data: <div id="tick">#2 at 15:15:51</div>
+
+event: tick
+data: <div id="tick">#3 at 15:15:52</div>
+----
+
+`3.5`초 동안 연결을 열어뒀더니 `1`초 간격으로 세 개의 이벤트가 도착했습니다 — 클라이언트가 아무것도 요청하지 않았는데도 서버가 스스로 데이터를 계속 흘려보냈습니다. `--max-time`으로 지정한 시간이 지나면 `curl`이 연결을 끊는데, 이게 바로 앞서 만든 `r.Context().Done()` 처리를 실제로 발동시키는 상황입니다(서버 쪽 로그를 켜보면 이 시점에 고루틴이 정상 종료되는 것을 확인할 수 있습니다).
+
+== htmx에서 SSE 받기: hx-ext="sse"
+
+htmx는 핵심 기능에 SSE를 포함하지 않고, 별도의 확장(extension)으로 제공합니다.
+
+[source,html]
+----
+<script src="https://unpkg.com/htmx.org@2.0.3"></script>
+<script src="https://unpkg.com/htmx-ext-sse@2.2.2"></script>
+
+<div hx-ext="sse" sse-connect="/events">
+	<div id="tick" sse-swap="tick">대기 중...</div>
+</div>
+----
+
+`hx-ext="sse"`가 이 요소 아래에서 SSE 확장을 활성화하고, `sse-connect="/events"`가 그 경로로 `EventSource` 연결을 엽니다. `sse-swap="tick"`이 붙은 요소는, 서버가 `event: tick`으로 보낸 데이터를 받을 때마다 자신을 그 내용으로 교체합니다(`hx-swap`과 마찬가지로 `sse-swap`도 스왑 전략을 지정할 수 있습니다). 지금까지 이 책에서 만든 부분 갱신(4~5장)이 항상 클라이언트의 요청으로 시작됐다면, 이번엔 서버가 주도권을 쥐고 클라이언트 화면을 갱신한다는 게 다릅니다.
+
+== 언제 SSE를 쓰는가
+
+이 장의 예제(매초 시간 갱신)는 인위적이지만, 실전에서는 알림("새 메시지가 도착했습니다"), 진행률 표시(오래 걸리는 백그라운드 작업의 진행 상황), 실시간 대시보드(다른 사용자의 활동을 보여주는 화면) 등에 SSE가 자연스럽게 맞습니다. 반대로 클라이언트도 서버에 자주 데이터를 보내야 하는 양방향 상호작용(채팅, 실시간 협업 편집)이라면 웹소켓이 더 적합할 수 있습니다 — SSE는 정확히 "서버가 클라이언트에게 알려주기만 하면 되는" 상황을 위한 도구입니다.
+
+== 직접 해보기
+
+* 여러 클라이언트가 동시에 연결했을 때 모두에게 같은 이벤트를 보내려면, 지금처럼 각 연결이 독립적으로 `ticker`를 도는 방식으로는 부족합니다(각자 다른 시각에 연결했으니 카운트가 어긋납니다). 모든 연결이 공유하는 하나의 브로드캐스터(채널을 구독하는 클라이언트 목록을 관리하는 구조체)를 설계해보세요. 정답 코드 없이, 어떤 자료구조(연결된 클라이언트를 어떻게 추적할지)와 동시성 문제(클라이언트가 연결/해제될 때의 경쟁 상태)를 고민해야 하는지 목록으로 정리해보는 것으로 충분합니다.
+
+.힌트 보기
+[%collapsible]
+====
+최소한 다음을 고려해야 합니다.
+
+* 연결된 각 클라이언트에게 개별적으로 이벤트를 전달할 `chan string`(또는 그와 비슷한 것) 하나씩을 두고, 이를 등록/해제할 수 있는 맵으로 관리합니다.
+* 클라이언트가 연결·해제될 때 이 맵을 안전하게 수정하려면 10장에서 썼던 것과 같은 `sync.Mutex`가 필요합니다.
+* 브로드캐스트할 때 어떤 클라이언트의 채널이 가득 차 있으면(그 클라이언트가 느리게 읽고 있으면) 전체 브로드캐스트가 막히지 않도록, 채널에 버퍼를 두거나 `select`의 `default` 절로 느린 클라이언트를 건너뛰는 것도 고려해야 합니다.
+
+이런 브로드캐스트 패턴은 이 책의 범위를 넘어서지만, `r.Context().Done()`으로 연결 해제를 감지하는 이 장의 기법과 10장의 동시성 안전 패턴을 그대로 확장한 것이라는 점을 기억해두면, 필요할 때 직접 구현하거나 관련 라이브러리를 이해하는 데 도움이 됩니다.
+====
+
+== 요약
+
+* SSE는 `text/event-stream` 응답을 연결을 끊지 않고 계속 흘려보내는 단방향(서버 → 클라이언트) 프로토콜이며, Go에서는 `http.Flusher`로 지금까지 쓴 내용을 즉시 클라이언트에 내보냅니다.
+* `r.Context().Done()`을 감시해 클라이언트 연결 해제를 감지하지 않으면 고루틴이 누수됩니다.
+* htmx의 SSE 확장(`hx-ext="sse"`, `sse-connect`, `sse-swap`)으로, 서버가 주도해서 화면을 갱신하는 상호작용을 자바스크립트 없이 만들 수 있습니다.
+* SSE는 서버가 클라이언트에게 일방적으로 알려주기만 하면 되는 상황(알림, 진행률, 대시보드)에 적합하며, 양방향 상호작용이 필요하면 웹소켓을 고려해야 합니다.
+* 다음 장에서는 지금까지 `curl`로 손으로 확인해온 것들을, `httptest`로 자동화된 테스트로 만드는 법을 다룹니다.
+// end::body[]

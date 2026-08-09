@@ -1,0 +1,175 @@
+---
+title: "2장: Go net/http로 웹 서버 기초"
+date: 2026-08-09T00:00:00+09:00
+draft: false
+tags: ["go", "net-http", "routing", "middleware", "book"]
+categories: ["books"]
+description: "Go 1.22+ ServeMux의 메서드/경로 패턴 라우팅, PathValue로 경로 변수 읽기, 미들웨어로 요청 로깅 감싸기를 실제 서버를 띄우고 curl로 검증하며 배우는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-why-hypermedia/[1장: 왜 하이퍼미디어인가] · 다음: link:../03-templ-basics/[3장: templ로 타입 안전한 HTML 만들기]_
+
+'''
+
+1장에서 가장 단순한 형태의 서버를 봤습니다. 이 장에서는 이 책 나머지 부분에서 계속 쓸 `net/http`의 세 가지 기능 — **메서드/경로 기반 라우팅**, **경로 변수**, **미들웨어** — 를 다집니다. 외부 라우팅 라이브러리(gorilla/mux 같은) 없이도, Go 1.22부터 표준 라이브러리만으로 충분합니다.
+
+== 메서드와 경로 패턴으로 라우팅하기
+
+`http.NewServeMux()`에 등록하는 패턴에 HTTP 메서드와 경로 변수(`{id}`)를 함께 쓸 수 있습니다.
+
+[source,go]
+----
+package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+func userHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	fmt.Fprintf(w, "<p>user id = %s</p>", id)
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", userHandler)
+	mux.HandleFunc("POST /users/{id}", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "<p>updated user %s</p>", r.PathValue("id"))
+	})
+
+	http.ListenAndServe(":8080", mux)
+}
+----
+
+`"GET /users/{id}"`처럼 패턴 앞에 메서드를 붙이면, 같은 경로라도 `GET`과 `POST`를 서로 다른 핸들러로 보낼 수 있습니다. `{id}` 부분은 `r.PathValue("id")`로 꺼냅니다.
+
+[source,bash]
+----
+curl "http://localhost:8080/users/42"
+curl -X POST "http://localhost:8080/users/42"
+----
+
+[source]
+----
+<p>user id = 42</p>
+<p>updated user 42</p>
+----
+
+같은 `/users/42` 경로인데도 요청 메서드에 따라 다른 핸들러가 응답했습니다 — 이 패턴은 나중에 "이 자원을 보여줘"(`GET`)와 "이 자원을 바꿔줘"(`POST`/`PUT`/`DELETE`)를 구분하는 데 계속 쓰입니다.
+
+== 미들웨어: 핸들러를 감싸는 함수
+
+미들웨어는 "핸들러를 받아서 새 핸들러를 돌려주는 함수"입니다. 모든 요청에 공통으로 적용하고 싶은 로직(로깅, 인증 확인, 에러 복구)을 한 곳에 모을 수 있습니다.
+
+[source,go]
+----
+import (
+	"log"
+	"net/http"
+	"time"
+)
+
+func loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+	})
+}
+----
+
+`loggingMiddleware`는 `next`(원래 처리해야 할 핸들러)를 받아, 그 앞뒤로 로직(여기서는 시작 시각 기록과 처리 후 로그 출력)을 끼워 넣은 새 핸들러를 돌려줍니다. `mux` 전체를 이 미들웨어로 감싸면 모든 라우트에 적용됩니다.
+
+[source,go]
+----
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", userHandler)
+
+	handler := loggingMiddleware(mux)
+	http.ListenAndServe(":8080", handler)
+}
+----
+
+[source,bash]
+----
+curl "http://localhost:8080/users/42"
+----
+
+[source]
+----
+2026/08/09 15:01:05 GET /users/42 26.834µs
+<p>user id = 42</p>
+----
+
+서버 콘솔에 요청 로그(`GET /users/42 26.834µs`)가 찍히고, 클라이언트는 여전히 원래 응답만 받습니다 — 미들웨어의 로직이 요청 처리 흐름에 "끼어들었을 뿐" 핸들러 자체의 응답 내용은 건드리지 않았습니다.
+
+== 미들웨어를 여러 개 쌓기
+
+미들웨어 함수는 `http.Handler`를 받아 `http.Handler`를 돌려주는 같은 타입이므로, 여러 개를 순서대로 감쌀 수 있습니다.
+
+[source,go]
+----
+func recoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("panic recovered: %v", err)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /users/{id}", userHandler)
+
+	handler := recoverMiddleware(loggingMiddleware(mux))
+	http.ListenAndServe(":8080", handler)
+}
+----
+
+`recoverMiddleware(loggingMiddleware(mux))`처럼 안쪽부터 바깥쪽으로 감싸면, 요청이 들어올 때는 `recoverMiddleware → loggingMiddleware → mux` 순서로, 응답이 나갈 때는 반대 순서로 지나갑니다. `recoverMiddleware`를 가장 바깥에 두는 게 중요합니다 — 안쪽 어디서 패닉이 나든 가장 바깥의 `recover()`가 잡아낼 수 있어야 서버 전체가 죽지 않습니다.
+
+== 왜 프레임워크 없이 시작하는가
+
+`net/http`만으로 라우팅과 미들웨어를 직접 다뤄보는 이유는, 이 책 나머지 부분(특히 4장 이후 htmx와 결합할 때)에서 "요청이 어떤 경로를 거쳐 어떤 핸들러에 도달하는가"를 정확히 알아야 하기 때문입니다. Gin이나 Echo 같은 프레임워크를 쓰면 더 짧게 쓸 수 있는 부분도 있지만, 그 편의 뒤에 숨겨진 라우팅·미들웨어 동작 방식을 먼저 표준 라이브러리로 이해해두면, 나중에 어떤 프레임워크를 쓰더라도 그 위에서 무슨 일이 일어나는지 헷갈리지 않습니다.
+
+== 직접 해보기
+
+* `recoverMiddleware`가 실제로 패닉을 잡아내는지 확인하기 위해, `userHandler` 안에 `panic("boom")`을 일부러 넣고 `curl`로 요청했을 때 서버가 죽지 않고 `500` 응답을 돌려주는지, 그리고 다음 요청이 정상적으로 처리되는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,go]
+----
+func userHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "boom" {
+		panic("intentional panic for testing")
+	}
+	fmt.Fprintf(w, "<p>user id = %s</p>", id)
+}
+----
+
+[source,bash]
+----
+curl -i "http://localhost:8080/users/boom"
+curl "http://localhost:8080/users/42"
+----
+
+`/users/boom` 요청은 `500 Internal Server Error`를 받지만 서버 프로세스는 죽지 않고, 이어지는 `/users/42` 요청은 정상적으로 처리됩니다 — `recoverMiddleware`가 각 요청마다 독립적으로 패닉을 잡아내기 때문입니다(Go의 각 HTTP 요청은 별도의 고루틴에서 처리되므로, 한 요청의 패닉이 다른 요청이나 서버 전체에 영향을 주지 않도록 각 고루틴에서 개별적으로 복구해야 합니다).
+====
+
+== 요약
+
+* Go 1.22부터 `http.NewServeMux()`는 `"GET /users/{id}"`처럼 메서드와 경로 변수를 포함한 패턴을 직접 지원하며, 경로 변수는 `r.PathValue("id")`로 읽습니다.
+* 미들웨어는 `http.Handler`를 받아 `http.Handler`를 돌려주는 함수로, 로깅이나 패닉 복구처럼 여러 라우트에 공통으로 적용할 로직을 한 곳에 모으는 데 씁니다.
+* 여러 미들웨어를 감쌀 때는 순서가 중요하며, 패닉 복구처럼 "무엇이 일어나도 마지막 방어선이 되어야 하는" 미들웨어는 가장 바깥에 둡니다.
+* 다음 장에서는 지금까지 `fmt.Fprintf`로 직접 조립하던 HTML을, 컴파일 타임에 타입 검사를 받는 templ로 옮깁니다.
+// end::body[]

@@ -1,0 +1,186 @@
+---
+title: "12장: 테스트: httptest로 핸들러 검증"
+date: 2026-08-09T00:00:00+09:00
+draft: false
+tags: ["go", "testing", "httptest", "book"]
+categories: ["books"]
+description: "httptest.NewRequest/NewRecorder로 서버를 실제로 띄우지 않고도 핸들러를 직접 호출해, 테이블 기반 테스트로 성공·실패 경로를 함께 검증하는 법을 실제 go test 실행 결과로 확인하는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-server-sent-events/[11장: 실시간 갱신: SSE] · 다음: link:../13-building-a-todo-app/[13장: 종합 실전: TODO 앱 처음부터 끝까지]_
+
+'''
+
+이 책 전체에서 `curl`로 서버를 직접 띄우고 손으로 확인해왔습니다. 이 방식은 배우기엔 좋지만, 코드를 고칠 때마다 서버를 재시작하고 매번 같은 `curl` 명령을 반복하는 건 지치는 일입니다. 이 장에서는 서버를 띄우지 않고도 핸들러를 직접 테스트하는 `net/http/httptest`를 다룹니다.
+
+== httptest.NewRequest와 NewRecorder
+
+`http.HandlerFunc`는 그냥 `func(http.ResponseWriter, *http.Request)` 타입이므로, 진짜 HTTP 서버 없이도 가짜 요청과 가짜 응답 기록기를 만들어 직접 호출할 수 있습니다.
+
+[source,go]
+----
+package main
+
+import (
+	"context"
+	"database/sql"
+	"net/http"
+)
+
+func incrementHandlerFor(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.ParseForm()
+		text := r.FormValue("text")
+		if text == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		todo, err := insertTodo(db, text)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		ItemFragment2(todo).Render(context.Background(), w)
+	}
+}
+----
+
+8장의 핸들러를 조금 더 방어적으로 다듬었습니다 — 빈 텍스트는 `400 Bad Request`로 거부합니다. 이 새 분기를 매번 `curl`로 확인하는 대신 테스트로 자동화합니다.
+
+== 테이블 기반 테스트: 성공과 실패를 한 번에
+
+Go에서 자주 쓰는 패턴 — 입력과 기대값의 목록(테이블)을 만들고 반복문으로 모두 검증합니다.
+
+[source,go]
+----
+package main
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+)
+
+func TestIncrementHandler(t *testing.T) {
+	db := openDB("/tmp/test_handler.db")
+	defer db.Close()
+	handler := incrementHandlerFor(db)
+
+	tests := []struct {
+		name       string
+		formText   string
+		wantStatus int
+		wantBody   string
+	}{
+		{"정상 추가", "우유 사기", http.StatusOK, "우유 사기"},
+		{"빈 텍스트는 거부", "", http.StatusBadRequest, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			form := url.Values{"text": {tt.formText}}
+			req := httptest.NewRequest(http.MethodPost, "/items", strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			rec := httptest.NewRecorder()
+
+			handler(rec, req)
+
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if tt.wantBody != "" && !strings.Contains(rec.Body.String(), tt.wantBody) {
+				t.Errorf("body = %q, want to contain %q", rec.Body.String(), tt.wantBody)
+			}
+		})
+	}
+}
+----
+
+`httptest.NewRequest`가 진짜 네트워크 연결 없이 `*http.Request`를 만들고, `httptest.NewRecorder`가 핸들러가 `w`에 쓰는 내용(상태 코드, 본문, 헤더)을 기록하는 가짜 `http.ResponseWriter` 역할을 합니다. `t.Run(tt.name, ...)`으로 각 케이스를 이름 붙은 서브테스트로 실행하면, 어느 케이스가 실패했는지 정확히 알 수 있습니다.
+
+[source,bash]
+----
+go test -v .
+----
+
+[source]
+----
+=== RUN   TestIncrementHandler
+=== RUN   TestIncrementHandler/정상_추가
+=== RUN   TestIncrementHandler/빈_텍스트는_거부
+--- PASS: TestIncrementHandler (0.00s)
+    --- PASS: TestIncrementHandler/정상_추가 (0.00s)
+    --- PASS: TestIncrementHandler/빈_텍스트는_거부 (0.00s)
+PASS
+----
+
+두 케이스(정상 추가, 빈 텍스트 거부)가 각각 독립된 서브테스트로 실행되어 모두 통과했습니다. 이제 8장의 검증 로직을 고칠 때마다, `curl`을 여러 번 실행하고 눈으로 응답을 확인하는 대신 `go test`를 한 번 실행하면 됩니다.
+
+== 어떤 층위를 테스트할 것인가
+
+이 책에서 다룬 코드는 크게 세 층위로 나눌 수 있고, 각각 테스트하는 방식이 다릅니다.
+
+* **순수 함수**(8장의 `validate`, 9장의 `searchTodos`): 입력을 주고 출력을 확인하는 가장 단순한 단위 테스트로 충분합니다.
+* **핸들러**(이 장의 `incrementHandlerFor`): `httptest.NewRequest`/`NewRecorder`로 직접 호출해, 상태 코드와 응답 본문을 확인합니다.
+* **여러 핸들러가 얽힌 흐름**(10장의 로그인 → 대시보드 접근): `httptest.NewServer`로 실제 서버를 띄우고 `cookiejar`를 가진 클라이언트로 전체 흐름을 검증합니다(10장에서 이미 이 방식을 썼습니다).
+
+이 장의 예제처럼 핸들러를 직접 호출하는 방식이 가장 빠르고(진짜 네트워크 연결이 없으므로) 대부분의 경우에 충분하지만, 쿠키나 리다이렉트처럼 "여러 요청에 걸친 상태"를 검증해야 한다면 10장처럼 `httptest.NewServer`가 필요합니다.
+
+== templ 컴포넌트도 함께 테스트된다
+
+`incrementHandlerFor`의 `wantBody` 검증은 사실 `ItemFragment2` 컴포넌트가 올바른 HTML을 만드는지도 함께 확인하고 있습니다 — 핸들러 테스트와 컴포넌트 테스트를 따로 만들 필요 없이, 핸들러가 실제로 조립해 내보내는 최종 HTML을 검사하는 것으로 둘 다 커버됩니다. 컴포넌트의 렌더링 로직만 따로 세밀하게 검증하고 싶다면(예: 여러 입력값에 대한 HTML 구조 차이), 7장에서 했던 것처럼 `Component.Render(ctx, &buf)`를 직접 호출해 `buf.String()`을 검사하는 별도 테스트를 추가할 수도 있습니다.
+
+== 직접 해보기
+
+* 10장의 `requireAuth` 미들웨어를, `httptest.NewServer` 없이 `httptest.NewRecorder`만으로 테스트해보세요 — 세션 쿠키가 없는 요청은 `303 See Other`(리다이렉트)를, 유효한 세션 쿠키가 있는 요청은 원래 핸들러의 응답을 받는지 확인합니다.
+
+.해답 보기
+[%collapsible]
+====
+[source,go]
+----
+func TestRequireAuth(t *testing.T) {
+	store := NewSessionStore()
+	sid := store.Create(1)
+
+	protected := requireAuth(store, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+
+	t.Run("세션 없음 -> 리다이렉트", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+		rec := httptest.NewRecorder()
+		protected(rec, req)
+		if rec.Code != http.StatusSeeOther {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusSeeOther)
+		}
+	})
+
+	t.Run("유효한 세션 -> 통과", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sid})
+		rec := httptest.NewRecorder()
+		protected(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+	})
+}
+----
+
+`req.AddCookie(...)`로 `httptest.NewRequest`가 만든 가짜 요청에 쿠키를 직접 실어 보낼 수 있습니다 — 진짜 브라우저나 `cookiejar` 없이도, 10장의 `currentUserID`가 이 쿠키를 어떻게 읽는지 그대로 재현할 수 있습니다. 이렇게 미들웨어를 그 자체로 독립적으로 테스트해두면, 나중에 `requireAuth`의 리다이렉트 경로를 바꾸는 등 로직을 수정할 때 이 미들웨어를 쓰는 모든 라우트를 일일이 다시 확인하지 않아도 됩니다.
+====
+
+== 요약
+
+* `httptest.NewRequest`와 `httptest.NewRecorder`로 진짜 네트워크 연결 없이 핸들러를 직접 호출해 테스트할 수 있습니다.
+* 테이블 기반 테스트와 `t.Run`으로 여러 입력·기대값 조합을 하나의 테스트 함수 안에서 이름 붙은 서브테스트로 관리합니다.
+* 핸들러 테스트가 그 안에서 렌더링되는 templ 컴포넌트의 출력까지 함께 검증하므로, 별도의 컴포넌트 테스트가 항상 필요하지는 않습니다.
+* 쿠키나 리다이렉트처럼 여러 요청에 걸친 상태가 필요한 경우엔 `httptest.NewServer`(10장)를, 단일 핸들러 호출로 충분한 경우엔 이 장의 `NewRecorder` 방식을 선택합니다.
+* 다음 장에서는 이 책 전체에서 다진 모든 도구(templ, htmx, SQLite, 세션, 테스트)를 하나로 묶어, 할 일 관리 앱을 처음부터 끝까지 완성합니다.
+// end::body[]

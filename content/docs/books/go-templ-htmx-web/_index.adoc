@@ -1,0 +1,109 @@
+---
+title: "자바스크립트 없이도 상호작용하는 웹: Go, templ, htmx로 만드는 하이퍼미디어 서비스"
+draft: false
+---
+
+Go의 표준 라이브러리 `net/http`, 컴파일 타임 타입 검사를 받는 템플릿 라이브러리 `templ`, HTML 속성만으로 부분 갱신을 만드는 `htmx`를 조합해, SPA 프레임워크 없이 상호작용하는 웹 서비스를 서버 중심으로 만드는 법을 실습하는 입문서입니다. 기초 다지기(1부) → htmx로 상호작용 만들기(2부) → 실전 패턴: 컴포넌트 설계·데이터베이스·검색·인증(3부) → 완성과 배포: 실시간 갱신·테스트·종합 실전(4부) 순서로 쌓아 올립니다.
+
+이 책의 모든 코드는 실제로 `go build`/`go run`으로 실행하고, `curl`로 실제 HTTP 요청·응답을 눈으로 확인하며 검증합니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 자바스크립트 없이도 상호작용하는 웹]*
+
+*1부: 기초 다지기*
+
+[start=1]
+. *link:01-why-hypermedia/[왜 하이퍼미디어인가]*
+. *link:02-go-net-http-basics/[Go net/http로 웹 서버 기초]*
+. *link:03-templ-basics/[templ로 타입 안전한 HTML 만들기]*
+
+*2부: htmx로 상호작용 만들기*
+
+[start=4]
+. *link:04-htmx-basics/[htmx 기초]*
+. *link:05-targets-and-swaps/[타겟과 스왑: hx-target, hx-swap, OOB 스왑]*
+. *link:06-forms-and-validation/[폼과 서버사이드 검증]*
+
+*3부: 실전 패턴*
+
+[start=7]
+. *link:07-templ-component-design/[templ 컴포넌트 설계: 레이아웃과 재사용]*
+. *link:08-database-with-sqlite/[데이터베이스 연동: SQLite로 영속화]*
+. *link:09-list-search-pagination/[목록·검색·페이지네이션]*
+. *link:10-sessions-and-authentication/[세션과 인증]*
+
+*4부: 완성과 배포*
+
+[start=11]
+. *link:11-server-sent-events/[실시간 갱신: SSE]*
+. *link:12-testing-with-httptest/[테스트: httptest로 핸들러 검증]*
+. *link:13-building-a-todo-app/[종합 실전: TODO 앱 처음부터 끝까지]*
+
+*맺음말*
+
+[start=14]
+. *link:14-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-why-hypermedia.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-go-net-http-basics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-templ-basics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-htmx-basics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-targets-and-swaps.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-forms-and-validation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-templ-component-design.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-database-with-sqlite.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-list-search-pagination.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-sessions-and-authentication.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-server-sent-events.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-testing-with-httptest.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-building-a-todo-app.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-afterword.adoc[tag=body,leveloffset=+1]
