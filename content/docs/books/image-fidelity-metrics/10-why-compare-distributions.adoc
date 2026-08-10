@@ -1,0 +1,155 @@
+---
+title: "10장: 한 장으로는 부족하다: 분포 비교가 필요한 이유"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["image-quality", "distribution", "mode-collapse", "numpy", "book"]
+categories: ["books"]
+description: "생성된 이미지 하나하나는 실제 이미지 중 하나와 매우 가까워 보여도, 생성된 이미지 전체의 다양성이 실제보다 훨씬 떨어지는 모드 붕괴(mode collapse)를 개별 이미지 비교로는 전혀 잡아내지 못하고 집합 전체의 통계로만 드러난다는 것을 NumPy로 확인하는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-toy-perceptual-metric/[9장: 간단한 특징 추출기로 지각 지표 흉내내기] · 다음: link:../11-fid-idea/[11장: FID 아이디어: 두 분포 사이의 거리]_
+
+'''
+
+1~9장에서 다룬 모든 지표(MSE, PSNR, SSIM, LPIPS 아이디어)는 공통점이 하나 있습니다 — **정확히 짝지어진 두 이미지**(원본과 렌더링, 정답과 생성 결과)를 비교합니다. 그런데 항상 이렇게 짝을 지을 수 있는 건 아닙니다. 생성 모델이 완전히 새로운 이미지 `1000`장을 만들어냈다면, 그 각각에 대응하는 "정답 이미지"가 애초에 존재하지 않을 수 있습니다. 이 장에서는 이런 상황에서 필요한 관점 — 이미지 한 장이 아니라 **이미지 뭉치 전체**를 평가하는 것 — 이 왜 필요한지, 개별 이미지 비교로는 절대 볼 수 없는 문제를 통해 확인합니다.
+
+== 실험 설계: "실제" 사각형들과 "생성된" 사각형들
+
+실제 이미지 집합을 흉내 내어, 위치와 크기가 저마다 다른 사각형 이미지 `30`장을 만듭니다.
+
+[source,python]
+----
+import numpy as np
+from scipy.ndimage import gaussian_filter
+
+def make_square_image(N, cx, cy, size, brightness=1.0):
+    img = np.zeros((N, N))
+    half = size // 2
+    img[cy - half:cy + half, cx - half:cx + half] = brightness
+    return np.stack([gaussian_filter(img, sigma=1.0)] * 3, axis=2)
+
+N = 48
+rng = np.random.default_rng(5)
+
+real_set = []
+for _ in range(30):
+    cx, cy = rng.integers(15, 33), rng.integers(15, 33)
+    size = rng.integers(10, 20)
+    real_set.append(make_square_image(N, cx, cy, size))
+----
+
+이제 "생성 모델"을 흉내 내어, **거의 같은 사각형만 반복해서** 만드는 집합을 만듭니다 — 생성 모델이 실패하는 대표적인 방식 중 하나인 **모드 붕괴(mode collapse)**를 인위적으로 재현한 것입니다. 모드 붕괴는 모델이 다양한 결과를 만드는 대신, 그럴듯해 보이는 몇 가지 패턴에만 "붕괴"해서 그것만 반복 생성하는 실패입니다.
+
+[source,python]
+----
+base_img = make_square_image(N, 24, 24, 15)
+
+collapsed_set = []
+for _ in range(30):
+    noise = rng.normal(0, 0.01, base_img.shape)   # 아주 미세한 잡음만 다름
+    collapsed_set.append(np.clip(base_img + noise, 0, 1))
+----
+
+`collapsed_set`의 `30`장은 사실상 다 똑같은 사각형이고, 아주 미세한 노이즈(표준편차 `0.01`, 3장에서 확인했듯 눈에 거의 안 띄는 수준)만 다릅니다.
+
+== 개별 비교로는 이 문제가 보이지 않는다
+
+`collapsed_set`의 각 이미지를, `real_set` 중 **가장 가까운** 이미지와 비교해봅니다(9장의 특징 추출기로 특징 벡터를 뽑고, 유클리드 거리로 "가까움"을 잽니다).
+
+[source,python]
+----
+real_feats = np.array([block_features(im) for im in real_set])          # 9장의 block_features 재사용
+collapsed_feats = np.array([block_features(im) for im in collapsed_set])
+
+nn_dists = [np.linalg.norm(real_feats - gf, axis=1).min() for gf in collapsed_feats]
+print("생성 이미지들의 평균 최근접 거리:", np.mean(nn_dists))
+----
+
+[source]
+----
+생성 이미지들의 평균 최근접 거리: 0.3957
+----
+
+이 숫자가 좋은 건지 나쁜 건지 판단하려면 비교 기준이 필요합니다 — `real_set` 안의 이미지들끼리는 서로 얼마나 가까운지 재봅니다.
+
+[source,python]
+----
+nn_within_real = []
+for i in range(len(real_feats)):
+    others = np.delete(real_feats, i, axis=0)
+    nn_within_real.append(np.linalg.norm(others - real_feats[i], axis=1).min())
+print("실제 이미지들끼리의 평균 최근접 거리:", np.mean(nn_within_real))
+----
+
+[source]
+----
+실제 이미지들끼리의 평균 최근접 거리: 0.3912
+----
+
+두 숫자(`0.3957`과 `0.3912`)가 **거의 같습니다**. 생성된 이미지가 "가장 가까운 실제 이미지"와 떨어진 정도가, 실제 이미지들끼리 서로 떨어진 정도와 별 차이가 없다는 뜻입니다 — 개별 이미지 단위로만 보면, "생성된 이미지들은 각각 그럴듯한 실제 이미지 하나씩과 충분히 닮았다"고 판단하게 됩니다.
+
+== 집합 전체를 보면 완전히 다른 이야기가 나온다
+
+이번엔 각 집합 **내부**의 다양성(분산)을 재봅니다 — 특징 벡터들이 서로 얼마나 흩어져 있는가입니다.
+
+[source,python]
+----
+print("실제 집합의 특징 분산:", real_feats.var(axis=0).mean())
+print("생성 집합의 특징 분산:", collapsed_feats.var(axis=0).mean())
+----
+
+[source]
+----
+실제 집합의 특징 분산: 0.024928
+생성 집합의 특징 분산: 0.000251
+----
+
+실제 집합의 분산이 생성 집합보다 **약 `100`배** 큽니다. 개별 비교에서는 전혀 드러나지 않았던 문제 — 생성된 `30`장이 사실상 전부 같은 이미지의 복제품이라는 것 — 이 이 통계 하나로 명확하게 드러났습니다.
+
+== 왜 개별 비교가 이걸 놓치는가
+
+"가장 가까운 실제 이미지와 비교한다"는 방법은 애초에 **다양성을 평가하도록 설계되지 않았습니다** — 생성된 이미지 하나하나가 "그럴듯한 실제 이미지 어딘가"에 가깝기만 하면 좋은 점수를 받습니다. 모드 붕괴는 정확히 이 허점을 정면으로 파고듭니다 — 그럴듯한 이미지 하나만 찾아서 계속 복제하면, 각각의 최근접 거리는 항상 작게 유지되기 때문입니다. 이 문제를 잡아내려면 "이 이미지가 그럴듯한가"가 아니라 "이 집합 전체가 실제 데이터가 가진 만큼의 다양성을 보여주는가"라는, 근본적으로 다른 질문을 던져야 합니다.
+
+== 이것이 실무에서 왜 중요한가
+
+3D Gaussian Splatting 같은 렌더링을 평가할 때도 비슷한 상황이 생길 수 있습니다 — 특정 시점(학습에 쓰인 카메라 각도와 아주 가까운 시점)에서는 렌더링이 훌륭한데, 학습 궤적에서 조금만 벗어난 새로운 시점들에서는 전부 비슷비슷하게 흐릿해지거나 특정 패턴으로 뭉개지는 경우, 각 렌더링을 개별적으로 "그럴듯한가?"라고 물으면 놓치기 쉽지만, 여러 새로운 시점의 렌더링을 하나의 집합으로 놓고 "이 집합이 실제 장면이 가진 만큼의 다양한 디테일을 보여주는가"라고 물으면 문제가 더 명확하게 드러날 수 있습니다. 다음 장에서 다룰 FID가 정확히 이런 질문에 답하도록 설계된 지표입니다.
+
+== 직접 해보기
+
+* `collapsed_set`에 아주 미세한 노이즈 대신, 사각형의 중심 위치를 `±jitter` 픽셀만큼 무작위로 흔드는 방식으로 "다양성"을 서서히 늘려가며, 집합 분산이 얼마나 커지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+rng2 = np.random.default_rng(7)
+for jitter in [0, 1, 3, 6]:
+    s = []
+    for _ in range(30):
+        dx = rng2.integers(-jitter, jitter + 1) if jitter > 0 else 0
+        dy = rng2.integers(-jitter, jitter + 1) if jitter > 0 else 0
+        s.append(make_square_image(N, 24 + dx, 24 + dy, 15))
+    f = np.array([block_features(im) for im in s])
+    print(f"jitter={jitter}: 분산 =", f.var(axis=0).mean())
+----
+
+[source]
+----
+jitter=0: 분산 = 0.0000000000
+jitter=1: 분산 = 0.0005839
+jitter=3: 분산 = 0.0033469
+jitter=6: 분산 = 0.0150058
+----
+
+`jitter=0`(위치가 전혀 안 흔들림)은 분산이 정확히 `0`이고, 흔드는 범위를 넓힐수록 분산이 뚜렷하게, 그리고 거의 비례해서 커집니다(`jitter=6`에서는 실제 집합의 분산 `0.0249`의 `60%`가량까지 도달했습니다). 흥미롭게도 앞서 시도했을 법한 "픽셀에 무작위 노이즈를 더하는" 방식과 달리, 위치를 흔드는 방식은 분산을 훨씬 예측 가능하고 일관되게 늘립니다 — 노이즈는 이미지 전체에 흩어지면서 여러 특징(색 평균, 방향 히스토그램)에 서로 다른, 때로는 상쇄되는 방식으로 영향을 주는 반면, 위치 이동은 "사각형이 어디에 있는가"라는 하나의 명확한 축을 따라 특징을 일관되게 바꾸기 때문입니다. 이건 "다양성을 늘린다"는 것도 그 방법에 따라 특징 공간에 미치는 영향이 크게 다를 수 있다는 걸 보여줍니다 — 다음 장의 FID도 이런 미묘한 차이에서 완전히 자유롭지는 않습니다.
+====
+
+== 요약
+
+* 생성된 이미지 각각을 가장 가까운 실제 이미지와 비교하는 방식(개별 비교)은, 모드 붕괴(다양성 없이 비슷한 이미지만 반복 생성)를 전혀 잡아내지 못합니다 — 실험에서 개별 최근접 거리는 실제 이미지들끼리의 거리와 거의 같았습니다.
+* 반면 각 집합 내부의 특징 분산을 비교하면, 생성 집합의 다양성이 실제 집합보다 `100`배 가까이 부족하다는 게 명확하게 드러납니다.
+* 이는 "이 이미지가 그럴듯한가"(개별 비교)와 "이 집합이 실제만큼 다양한가"(분포 비교)가 서로 다른 질문이며, 하나가 다른 하나를 대신할 수 없다는 것을 보여줍니다.
+* 다음 장에서는 이 "분포 비교"를 정식으로 하나의 숫자로 요약하는 FID(Fréchet Inception Distance)의 아이디어를 다룹니다.
+// end::body[]

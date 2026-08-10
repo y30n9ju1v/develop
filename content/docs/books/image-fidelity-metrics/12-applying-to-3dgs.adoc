@@ -1,0 +1,156 @@
+---
+title: "12장: 3DGS 품질을 검증하는 법: 어떤 지표를, 어떻게 조합해서"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["image-quality", "3dgs", "psnr", "ssim", "book"]
+categories: ["books"]
+description: "3D Gaussian Splatting에서 학습에 쓰인 시점과 아주 새로운 시점의 렌더링 품질이 크게 다를 수 있다는 것을, 전체 평균 PSNR 하나만 보면 그 차이가 완전히 가려진다는 것을 시뮬레이션으로 확인하고 시점 유형별로 나눠 보고해야 하는 이유를 보이는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-fid-idea/[11장: FID 아이디어] · 다음: link:../13-comprehensive-evaluation/[13장: 종합 실전: 여러 지표로 "이 렌더링, 진짜와 같은가?" 판정하기]_
+
+'''
+
+지금까지 배운 지표들을 3D Gaussian Splatting(3DGS) 렌더링 품질 검증이라는 실전 문제에 적용합니다. 3DGS는 여러 장의 사진으로부터 장면을 재구성해, **학습에 쓰이지 않은 새로운 카메라 시점**에서도 그럴듯한 이미지를 만들어내는 기술입니다. 이 장에서는 "학습에 쓰인 시점과 가까운 새 시점"과 "학습 궤적에서 많이 벗어난 새 시점"의 렌더링 품질이 실제로는 크게 다를 수 있는데, 전체 평균 하나만 본다면 이 차이가 완전히 가려질 수 있다는 것을 확인합니다.
+
+== 시뮬레이션 설계: 보간 시점 vs 외삽 시점
+
+실제 3DGS 학습·렌더링 없이도, 이 책에서 이미 만든 지표들로 핵심 현상을 재현할 수 있습니다. `10`개의 카메라 시점에서 찍은 "정답" 이미지를 만들고, 각 시점을 렌더링할 때 **보간 시점**(학습에 쓰인 카메라들 사이, 정보가 충분한 영역)은 아주 살짝만 흐리게, **외삽 시점**(학습 카메라 범위를 벗어난, 정보가 부족한 영역)은 훨씬 심하게 흐리게 만들어 "3DGS가 학습 범위를 벗어난 시점에서 품질이 떨어진다"는 잘 알려진 현상을 흉내 냅니다.
+
+[source,python]
+----
+import numpy as np
+from scipy.ndimage import gaussian_filter, uniform_filter
+
+def make_view(N, cx, cy, size):
+    img = np.zeros((N, N))
+    half = size // 2
+    img[cy - half:cy + half, cx - half:cx + half] = 1.0
+    return gaussian_filter(img, sigma=1.0)
+
+N = 48
+n_views = 10
+gt_views = []
+for k in range(n_views):
+    cx = 24 + int(3 * np.sin(k))   # 카메라 시점이 바뀔 때마다 물체가 조금씩 다르게 보인다고 가정
+    cy = 24 + int(2 * np.cos(k))
+    gt_views.append(make_view(N, cx, cy, size=16))
+----
+
+[source,python]
+----
+rng = np.random.default_rng(3)
+
+def render_view(gt, quality_sigma):
+    return np.clip(gaussian_filter(gt, sigma=quality_sigma) + rng.normal(0, 0.01, gt.shape), 0, 1)
+
+interp_idx = range(0, 7)    # 시점 0~6: 보간(학습 카메라 근처)
+extrap_idx = range(7, 10)   # 시점 7~9: 외삽(학습 범위 밖)
+----
+
+== 시점마다 PSNR/SSIM 계산하기
+
+1~9장의 함수들을 그대로 재사용해, 각 시점에서 "정답 vs 렌더링"의 PSNR과 windowed SSIM을 구합니다.
+
+[source,python]
+----
+psnrs, ssims = [], []
+for k, gt in enumerate(gt_views):
+    q_sigma = 0.3 if k in interp_idx else 1.5   # 외삽 시점은 훨씬 흐리게 렌더링된다고 가정
+    rendered = render_view(gt, q_sigma)
+    psnrs.append(psnr(gt, rendered))
+    ssims.append(windowed_ssim(gt, rendered))
+    kind = "보간" if k in interp_idx else "외삽"
+    print(f"시점 {k} ({kind}): PSNR={psnrs[-1]:.2f}, SSIM={ssims[-1]:.4f}")
+----
+
+[source]
+----
+시점 0 (보간): PSNR=42.42, SSIM=0.8625
+시점 1 (보간): PSNR=42.71, SSIM=0.8762
+시점 2 (보간): PSNR=42.10, SSIM=0.8631
+시점 3 (보간): PSNR=42.72, SSIM=0.8794
+시점 4 (보간): PSNR=42.30, SSIM=0.8674
+시점 5 (보간): PSNR=42.54, SSIM=0.8747
+시점 6 (보간): PSNR=42.83, SSIM=0.8819
+시점 7 (외삽): PSNR=27.19, SSIM=0.7960
+시점 8 (외삽): PSNR=27.01, SSIM=0.7908
+시점 9 (외삽): PSNR=27.12, SSIM=0.7894
+----
+
+보간 시점(`42`dB대)과 외삽 시점(`27`dB대)의 PSNR이 `15`dB 넘게 차이 납니다 — 3장에서 배운 규칙("표준편차가 `10`배면 `PSNR` `20`dB 차이")을 떠올리면, 이건 노이즈 강도가 대략 `5~6`배 차이 나는 수준의, 결코 작지 않은 품질 격차입니다.
+
+== 전체 평균 하나만 보면 무엇을 놓치는가
+
+실전에서 회귀 테스트 리포트에 흔히 등장하는 숫자 — "이번 모델의 평균 PSNR은 몇 dB"라는 하나의 요약값을 계산해봅니다.
+
+[source,python]
+----
+overall_avg = np.mean(psnrs)
+interp_avg = np.mean([psnrs[i] for i in interp_idx])
+extrap_avg = np.mean([psnrs[i] for i in extrap_idx])
+
+print("전체 평균 PSNR:", overall_avg)
+print("보간 시점 평균 PSNR:", interp_avg)
+print("외삽 시점 평균 PSNR:", extrap_avg)
+----
+
+[source]
+----
+전체 평균 PSNR: 37.89
+보간 시점 평균 PSNR: 42.52
+외삽 시점 평균 PSNR: 27.11
+----
+
+전체 평균(`37.89`dB)만 보면 "그럭저럭 준수한 렌더링"이라는 인상을 줍니다. 하지만 이 하나의 숫자 뒤에는 "학습 범위 안에서는 훌륭하지만, 조금만 벗어나면 품질이 크게 떨어진다"는, 실전에서 매우 중요한 문제가 완전히 숨어 있습니다. 만약 회귀 테스트가 "이번 버전의 평균 PSNR이 지난 버전보다 낮아지지 않았는가"만 확인한다면, 외삽 시점에서만 발생하는 심각한 퇴화를 완전히 놓칠 수 있습니다 — 보간 시점의 점수가 계속 좋다면 평균은 여전히 준수해 보일 수 있기 때문입니다.
+
+== 실전 회귀 테스트에 적용할 때의 원칙
+
+이 시뮬레이션에서 나오는 실무적 원칙은 명확합니다.
+
+* **시나리오별로 나눠 보고하라**: 전체 평균 하나가 아니라, 최소한 "보간 시점"과 "외삽 시점"을 나눠서(더 세밀하게는 카메라 각도·거리·조명 조건별로) 지표를 따로 집계해야, 특정 조건에서만 발생하는 퇴화를 놓치지 않습니다.
+* **여러 지표를 함께 본다**: 4장·7장에서 확인했듯 PSNR과 SSIM은 서로 다른 종류의 문제(전체적인 노이즈 vs 구조적 손상, 미세한 정렬 오차)에 다르게 반응합니다. 하나만 보고 "품질이 좋다/나쁘다"를 판단하면 그 지표가 놓치는 문제를 그대로 놓치게 됩니다.
+* **정렬 오차를 별도로 의심하라**: 7장에서 확인했듯 카메라 자세 추정이 아주 살짝만 틀려도 SSIM 같은 지표는 크게 떨어질 수 있습니다. 렌더링 품질 자체의 문제인지, 정렬(카메라 자세) 문제인지 구분하지 않으면 엉뚱한 곳에서 원인을 찾게 됩니다.
+* **집합 단위 지표(FID류)로 다양성도 함께 확인하라**: 10~11장에서 확인했듯, 개별 시점 지표가 모두 좋아 보여도 렌더링 결과 전체의 다양성이 실제 장면보다 부족할 수 있습니다(예: 여러 시점에서 비슷비슷하게 뭉개지는 디테일).
+
+== 직접 해보기
+
+* 외삽 시점의 개수를 `3`개에서 `1`개로 줄이면(`n_views`는 그대로 `10`, `extrap_idx`를 `range(9,10)`으로), 전체 평균 PSNR이 보간 시점 평균에 얼마나 더 가까워지는지 확인해보세요. 이게 "문제를 감지하기가 더 어려워진다"는 것과 어떻게 연결되는지도 생각해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+extrap_idx_small = range(9, 10)
+interp_idx_large = range(0, 9)
+
+rng2 = np.random.default_rng(3)
+def render_view2(gt, quality_sigma):
+    return np.clip(gaussian_filter(gt, sigma=quality_sigma) + rng2.normal(0, 0.01, gt.shape), 0, 1)
+
+psnrs2 = []
+for k, gt in enumerate(gt_views):
+    q_sigma = 0.3 if k in interp_idx_large else 1.5
+    psnrs2.append(psnr(gt, render_view2(gt, q_sigma)))
+
+print("전체 평균 PSNR (외삽 1개뿐):", np.mean(psnrs2))
+----
+
+[source]
+----
+전체 평균 PSNR (외삽 1개뿐): 40.97
+----
+
+외삽 시점이 `3`개에서 `1`개로 줄어드니 전체 평균이 `37.89`dB에서 `40.97`dB로, 보간 시점 평균(`42.52`dB)에 훨씬 가까워졌습니다 — 문제가 되는 시점의 "비중"이 작아질수록, 전체 평균이라는 하나의 숫자는 그 문제를 점점 더 잘 숨겨줍니다. 실전에서 테스트 시나리오 구성 자체가 결과 해석에 영향을 준다는 뜻입니다 — 회귀 테스트 세트에 외삽 시점(어려운 케이스)이 충분히 포함되어 있지 않다면, 실제로는 심각한 문제가 있는 모델도 전체 평균 지표로는 계속 "합격점"을 받을 수 있습니다. 테스트 세트를 설계할 때 "쉬운 케이스와 어려운 케이스의 비율"이 결과에 어떤 영향을 주는지 항상 염두에 둬야 하는 이유입니다.
+====
+
+== 요약
+
+* 학습 카메라 범위 안(보간)과 밖(외삽)의 렌더링 품질은 크게 다를 수 있으며, 이 시뮬레이션에서는 PSNR 기준 `15`dB 이상 차이가 났습니다.
+* 전체 평균이라는 단일 숫자는 이 차이를 완전히 가릴 수 있으므로, 회귀 테스트는 시나리오(보간/외삽, 카메라 각도 등)별로 지표를 나눠 집계해야 합니다.
+* 이 책에서 다룬 여러 지표(PSNR, SSIM, 지각적 지표, FID)는 서로 다른 종류의 문제에 반응하므로, 하나만으로 품질을 판단하면 그 지표가 놓치는 문제를 그대로 놓치게 됩니다.
+* 테스트 세트에 어려운 시나리오(외삽 시점)가 충분히 포함되지 않으면, 전체 평균 지표가 실제 문제를 계속 숨긴 채 "합격"을 내줄 수 있습니다.
+* 다음 장에서는 이 책의 모든 지표를 하나의 종합 판정 파이프라인으로 묶어, "이 렌더링이 진짜와 같은가?"라는 처음 질문에 실전적으로 답해봅니다.
+// end::body[]
