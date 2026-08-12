@@ -1,0 +1,103 @@
+---
+title: "8장: 3D Gaussian Splats 시각화"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["viser", "3d-visualization", "3dgs", "gaussian-splatting", "book"]
+categories: ["books"]
+description: "add_gaussian_splats로 중심(centers)·공분산(covariances)·색(rgbs)·불투명도(opacities) 배열을 직접 구성해 3D Gaussian Splatting 결과물을 렌더링하고, 공분산 행렬이 대칭·양의 준정부호(PSD)를 만족하는지 검증하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-large-point-clouds-and-batching/[7장: 대량 포인트클라우드와 배치 렌더링] · 다음: link:../09-playback-and-streaming/[9장: 시간에 따른 재생과 스트리밍]_
+
+'''
+
+이 시리즈의 다른 책들에서 3D Gaussian Splatting(3DGS)의 수학과 렌더링 원리를 다뤘다면, 이 장에서는 그 결과물 — 수천~수백만 개의 3D 가우시안 — 을 Viser로 직접 브라우저에 띄우는 법을 다룹니다. `add_gaussian_splats`는 실험적(experimental) API지만, 3DGS 결과를 별도의 뷰어 없이 파이썬만으로 확인할 수 있게 해줍니다.
+
+== 가우시안 하나 = 중심 + 공분산 + 색 + 불투명도
+
+3DGS의 각 가우시안은 네 가지로 정의됩니다: 3D 공간상의 중심(`centers`), 그 가우시안이 퍼진 모양과 방향을 나타내는 공분산 행렬(`covariances`), 색(`rgbs`), 불투명도(`opacities`). 공분산은 스케일 `s = (sx, sy, sz)`와 회전 `R`로부터 `Σ = R·diag(s²)·Rᵀ` 공식으로 구성하는 게 표준적인 3DGS 파라미터화입니다 — 이렇게 하면 공분산이 항상 유효한 타원체(양의 준정부호 대칭 행렬)를 이룹니다.
+
+[source,python]
+----
+import numpy as np
+import viser
+from scipy.spatial.transform import Rotation
+
+server = viser.ViserServer()
+server.scene.world_axes.visible = True
+
+rng = np.random.default_rng(seed=1)
+
+num_gaussians = 2_000
+centers = rng.normal(0.0, 0.6, size=(num_gaussians, 3)).astype(np.float32)
+
+scales = rng.uniform(0.01, 0.05, size=(num_gaussians, 3))
+random_rotations = Rotation.random(num_gaussians, random_state=rng)
+rotation_matrices = random_rotations.as_matrix()
+
+covariances = np.einsum(
+    "nij,njk,nlk->nil",
+    rotation_matrices,
+    np.eye(3)[None, :, :] * (scales[:, None, :] ** 2),
+    rotation_matrices,
+).astype(np.float32)
+----
+
+`np.einsum("nij,njk,nlk->nil", R, D, R)`는 배치(`n`)마다 `R @ D @ Rᵀ`를 계산하는 표현입니다 — 마지막 인자에서 `R`의 아래 두 축을 `lk`로 지정해 사실상 전치를 적용한 셈입니다. `D`는 `diag(s²)`를 `(N, 3, 3)` 배치로 만든 것으로, 대각선에 스케일의 제곱이 들어갑니다. 여기서는 실제 3DGS 학습 결과 대신, 원점 근처에 무작위로 흩뿌린 작은 가우시안 `2,000`개로 장난감 예제를 만들었습니다 — 실전에서는 이 `centers`/`scales`/`rotation_matrices`가 학습된 체크포인트에서 나옵니다.
+
+== 공분산이 유효한 타원체인지 검증하기
+
+[source,python]
+----
+sample = covariances[0]
+assert np.allclose(sample, sample.T, atol=1e-6)
+eigenvalues = np.linalg.eigvalsh(sample)
+assert np.all(eigenvalues >= -1e-8)
+----
+
+`Σ = R·diag(s²)·Rᵀ` 형태로 구성한 행렬은 이론상 항상 **대칭**(`Σ = Σᵀ`)이고 **양의 준정부호**(모든 고유값이 `0` 이상)여야 합니다 — 이 두 조건이 깨지면 그 "공분산"은 더 이상 실제 타원체를 나타내지 않고, 렌더러가 이상한 모양을 그리거나 아예 깨지게 됩니다. 3DGS 파이프라인에서 공분산을 최적화 파라미터로 직접 다루다 실수로 이 조건을 깨뜨리는 경우가 있는데, 이런 `assert`를 학습 루프 중간에 심어두면 문제를 조기에 잡을 수 있습니다.
+
+== 색과 불투명도 구성하기
+
+[source,python]
+----
+distance = np.linalg.norm(centers, axis=1)
+opacities = np.clip(1.0 - distance / distance.max(), 0.1, 1.0).reshape(-1, 1).astype(np.float32)
+
+rgbs = ((centers - centers.min()) / (centers.max() - centers.min())).astype(np.float32)
+
+splat_handle = server.scene.add_gaussian_splats(
+    "/toy_splats",
+    centers=centers,
+    covariances=covariances,
+    rgbs=rgbs,
+    opacities=opacities,
+)
+
+assert splat_handle.name == "/toy_splats"
+----
+
+`opacities`는 `(N, 1)` 형태여야 합니다(색이 `(N, 3)`인 것과 다르다는 점에 주의하세요). 여기서는 원점에서 멀어질수록 불투명도가 낮아지도록(`1.0 - distance/최대거리`) 구성해, 바깥쪽 가우시안이 안쪽보다 흐릿하게 보이도록 했습니다. `rgbs`는 중심 좌표를 `[0, 1]` 범위로 정규화해 그대로 색으로 썼습니다 — 실제 3DGS 결과라면 학습된 구면조화(spherical harmonics) 계수에서 뽑아낸 RGB를 넣게 됩니다.
+
+== 실전에서: 학습 체크포인트를 그대로 띄우기
+
+`.ply`나 `.npz`로 저장된 3DGS 체크포인트를 읽어 `centers`, `scales`, `rotations`(쿼터니언), `opacities`, `sh_coeffs`(0차 구면조화 계수를 RGB로 변환) 배열을 만들었다면, 이 장의 코드에서 `rng.normal`/`Rotation.random` 대신 그 배열들을 넣기만 하면 됩니다. 학습이 끝날 때마다(또는 N 이터레이션마다) 이 장의 스크립트로 결과를 띄워보면, 손실 곡선만으로는 안 보이는 문제 — 특정 영역의 가우시안이 비정상적으로 커지거나, 색이 튀는 등 — 를 눈으로 바로 잡아낼 수 있습니다.
+
+== 전체 코드
+[%collapsible]
+====
+[source,python]
+----
+include::08-gaussian-splats.py[]
+----
+====
+
+== 요약
+
+* `add_gaussian_splats(centers, covariances, rgbs, opacities)`는 각각 `(N,3)`, `(N,3,3)`, `(N,3)`, `(N,1)` 형태의 배열을 받아 3DGS 결과를 렌더링합니다.
+* 공분산은 `Σ = R·diag(s²)·Rᵀ`로 구성하면 항상 대칭·양의 준정부호를 만족하는 유효한 타원체가 되고, 이 성질은 `assert`로 미리 검증할 수 있습니다.
+* 학습된 3DGS 체크포인트의 파라미터를 이 장의 배열 형태로만 맞추면, 별도의 뷰어 없이 파이썬 스크립트 하나로 결과를 확인할 수 있습니다.
+
+다음 장에서는 정적인 스냅샷을 넘어, 시간에 따라 변하는 로봇 궤적이나 센서 로그를 씬에서 재생하는 법을 다룹니다.
+// end::body[]

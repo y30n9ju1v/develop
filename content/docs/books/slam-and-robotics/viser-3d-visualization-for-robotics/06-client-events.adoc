@@ -1,0 +1,112 @@
+---
+title: "6장: 클라이언트 이벤트와 클릭 콜백"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["viser", "3d-visualization", "gui", "multi-client", "book"]
+categories: ["books"]
+description: "scene 물체의 on_click 콜백으로 씬 안의 클릭 이벤트를 처리하고, server.on_client_connect/on_client_disconnect로 여러 브라우저가 동시에 접속하는 상황에서 클라이언트별 카메라와 상태를 다루는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-gui-basics/[5장: GUI 패널로 상호작용하기] · 다음: link:../07-large-point-clouds-and-batching/[7장: 대량 포인트클라우드와 배치 렌더링]_
+
+'''
+
+5장에서는 사이드바 GUI를 다뤘습니다. 이 장에서는 3D 장면 **안**에서 일어나는 이벤트 — 물체를 직접 클릭하는 것, 그리고 여러 사람이 동시에 같은 서버에 접속하는 것 — 을 다룹니다. Viser 서버 하나는 처음부터 다중 클라이언트를 염두에 두고 설계되어 있습니다.
+
+== 씬 물체를 클릭 가능하게 만들기
+
+메시나 아이코스피어처럼 씬에 추가한 물체 대부분은 `on_click` 콜백을 지원합니다.
+
+[source,python]
+----
+import viser
+
+server = viser.ViserServer()
+server.scene.world_axes.visible = True
+
+sphere = server.scene.add_icosphere(
+    "/target",
+    radius=0.3,
+    color=(90, 200, 255),
+    position=(0.0, 0.0, 0.0),
+)
+
+status_text = server.gui.add_text("Status", initial_value="waiting for click")
+
+
+@sphere.on_click
+def _(event: viser.SceneNodePointerEvent) -> None:
+    status_text.value = f"clicked by client {event.client_id}"
+----
+
+브라우저에서 사용자가 이 구를 클릭하면 `event`에 클릭한 클라이언트의 ID, 클릭한 지점의 3D 좌표(레이캐스팅 결과) 등이 담겨 콜백으로 전달됩니다. 여기서는 클릭이 있었다는 사실을 GUI 텍스트에 그대로 표시하도록 연결했습니다 — 실무에서는 이 좌표를 이용해 "포인트클라우드에서 특정 점을 클릭해 라벨을 붙인다"거나 "메시의 특정 부분을 선택해 정보를 보여준다" 같은 상호작용을 만들 수 있습니다.
+
+== 클라이언트 접속/해제 감지하기
+
+Viser는 하나의 서버에 여러 브라우저 탭이 동시에 접속할 수 있습니다. 각 클라이언트가 접속하거나 떠날 때 실행할 콜백을 등록할 수 있습니다.
+
+[source,python]
+----
+connected_clients: list[int] = []
+
+
+@server.on_client_connect
+def _(client: viser.ClientHandle) -> None:
+    connected_clients.append(client.client_id)
+    # 새로 접속한 클라이언트만 원하는 초기 시점으로 카메라를 옮긴다
+    client.camera.position = (2.0, 2.0, 2.0)
+    client.camera.look_at = (0.0, 0.0, 0.0)
+    client.add_notification(
+        title="Connected",
+        body="씬에 접속했습니다.",
+        auto_close=3000,
+    )
+
+
+disconnected_clients: list[int] = []
+
+
+@server.on_client_disconnect
+def _(client: viser.ClientHandle) -> None:
+    disconnected_clients.append(client.client_id)
+----
+
+`server.scene`으로 만든 물체는 **모든** 클라이언트에 공통으로 보이지만, `client.camera`는 **그 클라이언트에만** 적용되는 개별 카메라 상태입니다. `on_client_connect` 콜백 안에서 `client.camera.position`/`look_at`을 설정하면, 새로 들어온 사람에게만 원하는 초기 시점을 보여주고 이미 접속해서 이리저리 둘러보고 있는 다른 사람의 카메라는 건드리지 않습니다. `add_notification`은 그 클라이언트의 화면 구석에만 뜨는 토스트 알림입니다.
+
+== 클라이언트가 없어도 배선을 검증할 수 있다
+
+브라우저를 열지 않은 상태에서도, 콜백이 정상적으로 등록되었는지와 서버가 빈 상태로 시작하는지는 확인할 수 있습니다.
+
+[source,python]
+----
+assert callable(sphere.on_click)
+assert server.get_clients() == {}
+assert connected_clients == []
+assert disconnected_clients == []
+assert status_text.value == "waiting for click"
+----
+
+`server.get_clients()`는 현재 접속 중인 클라이언트를 `{client_id: ClientHandle}` 형태의 딕셔너리로 돌려줍니다 — 접속한 브라우저가 없으므로 빈 딕셔너리입니다. 실제 클릭이나 접속 이벤트는 진짜 브라우저가 웹소켓으로 연결되어야 발생하므로 이 장의 자동 검증은 "콜백이 예외 없이 등록되고, 초기 상태가 예상대로인가"까지만 확인합니다 — 실제 클릭 동작은 서버를 계속 띄워두고(1장에서 다룬 `while True: time.sleep(1.0)`) 브라우저로 직접 클릭해 확인하세요.
+
+== 실전에서: 여러 명이 같은 재구성 결과를 함께 본다
+
+`on_client_connect`와 `server.get_clients()`를 조합하면, 예를 들어 팀원 여러 명이 같은 뷰어 서버에 접속해 3DGS 재구성 결과를 동시에 살펴보면서, 한 사람이 특정 지점을 클릭하면 다른 모든 클라이언트의 GUI 텍스트에도 그 좌표가 표시되게 만드는 식의 협업 뷰어를 만들 수 있습니다 — `for client in server.get_clients().values(): ...`로 모든 클라이언트를 순회하며 같은 상태를 밀어주면 됩니다.
+
+== 전체 코드
+[%collapsible]
+====
+[source,python]
+----
+include::06-client-events.py[]
+----
+====
+
+== 요약
+
+* 씬 물체의 `@handle.on_click`으로 브라우저에서 그 물체를 클릭했을 때 실행할 콜백을 등록할 수 있고, 이벤트에는 클릭한 클라이언트 ID와 3D 좌표가 담깁니다.
+* `server.scene`의 물체는 모든 클라이언트에 공통이지만, `client.camera`는 클라이언트별로 독립적인 상태입니다 — `on_client_connect`에서 신규 접속자에게만 카메라를 설정할 수 있습니다.
+* `server.get_clients()`로 현재 접속 중인 클라이언트 목록을 얻어 다중 사용자 협업 뷰어를 구성할 수 있습니다.
+
+다음 장에서는 물체 몇 개가 아니라 수만~수십만 개의 데이터를 다룰 때 필요한 성능 기법, 대량 포인트클라우드와 배치 렌더링을 다룹니다.
+// end::body[]

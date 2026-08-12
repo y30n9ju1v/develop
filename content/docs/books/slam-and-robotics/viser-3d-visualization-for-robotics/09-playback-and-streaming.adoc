@@ -1,0 +1,138 @@
+---
+title: "9장: 시간에 따른 재생과 스트리밍"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["viser", "3d-visualization", "playback", "robotics", "book"]
+categories: ["books"]
+description: "타임스텝 슬라이더로 로봇 궤적을 스크러빙하고, 백그라운드 스레드로 전체 궤적을 순차 재생하는 Play 버튼을 만들어 SLAM 로그나 센서 스캔처럼 시간에 따라 변하는 데이터를 Viser에서 재생하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-gaussian-splats/[8장: 3D Gaussian Splats 시각화] · 다음: link:../10-capstone/[10장: 종합 실전 — 재구성 결과 뷰어 앱]_
+
+'''
+
+지금까지의 장면은 대부분 정적이었습니다. SLAM 로그나 센서 스캔은 시간에 따라 변하는 데이터입니다 — 이 장에서는 미리 계산해둔 궤적을 슬라이더로 스크러빙하고, 버튼 하나로 처음부터 끝까지 자동 재생하는 법을 다룹니다.
+
+== 타임스텝별 자세를 미리 계산해두기
+
+[source,python]
+----
+import numpy as np
+import viser
+
+server = viser.ViserServer()
+server.scene.world_axes.visible = True
+
+rng = np.random.default_rng(seed=2)
+
+num_steps = 50
+angles = np.linspace(0, 2 * np.pi, num_steps, endpoint=False)
+trajectory_positions = np.stack(
+    [3.0 * np.cos(angles), 3.0 * np.sin(angles), np.zeros(num_steps)], axis=1
+)
+
+local_scan = rng.normal(0.0, 0.15, size=(300, 3))
+
+robot_frame = server.scene.add_frame(
+    "/robot",
+    axes_length=0.3,
+    axes_radius=0.02,
+    position=tuple(trajectory_positions[0]),
+)
+scan_cloud = server.scene.add_point_cloud(
+    "/robot/local_scan",
+    points=local_scan,
+    colors=(80, 200, 120),
+    point_size=0.02,
+)
+----
+
+원형 궤적을 따라 `50`개 타임스텝의 로봇 위치를 미리 배열로 계산해두었습니다. `local_scan`은 2장에서 배운 것처럼 이름을 `/robot/local_scan`으로 지어 `/robot` 프레임의 **자식**으로 붙였습니다 — 이렇게 하면 "로봇 주변에서 관측된 점들"이라는 의미가 씬 트리 구조 자체에 드러나고, 로봇이 이동할 때마다 스캔 점들의 세계 좌표를 다시 계산해 넣을 필요 없이 부모 프레임만 옮기면 됩니다.
+
+== 슬라이더로 특정 타임스텝을 스크러빙하기
+
+[source,python]
+----
+frame_slider = server.gui.add_slider(
+    "Timestep", min=0, max=num_steps - 1, step=1, initial_value=0
+)
+
+
+def set_timestep(index: int) -> None:
+    robot_frame.position = tuple(trajectory_positions[index])
+
+
+@frame_slider.on_update
+def _(_event) -> None:
+    set_timestep(frame_slider.value)
+----
+
+5장에서 배운 슬라이더 콜백 패턴 그대로입니다 — 슬라이더 값이 바뀌면 `set_timestep`이 그 타임스텝에 해당하는 위치로 `robot_frame.position`을 갱신합니다. 동영상 플레이어의 탐색 바(seek bar)와 똑같은 역할입니다.
+
+== 전체 궤적을 자동 재생하기
+
+[source,python]
+----
+import threading
+
+play_button = server.gui.add_button("Play")
+
+playback_log: list[int] = []
+
+
+def play_all_steps() -> None:
+    for i in range(num_steps):
+        frame_slider.value = i
+        playback_log.append(i)
+
+
+@play_button.on_click
+def _(_event) -> None:
+    thread = threading.Thread(target=play_all_steps, daemon=True)
+    thread.start()
+    thread.join(timeout=5.0)
+----
+
+`Play` 버튼을 누르면 `play_all_steps`가 별도의 스레드에서 실행되어 `0`부터 `num_steps - 1`까지 슬라이더 값을 순서대로 바꿉니다 — 슬라이더 값이 바뀔 때마다 앞서 등록한 `on_update` 콜백이 매번 호출되어 로봇 프레임이 그 타임스텝 위치로 이동합니다. 실전에서는 각 스텝 사이에 `time.sleep(1.0 / fps)`를 넣어 원하는 속도로 재생하는데, 이 장의 검증 코드에서는 재생이 끝났는지를 빠르게 확인하기 위해 슬립 없이 최대한 빠르게 돌렸습니다(스레드로 분리한 이유는 재생 중에도 서버가 다른 클라이언트의 요청에 계속 응답할 수 있어야 하기 때문입니다 — 메인 스레드를 오래 블로킹하면 그 사이 다른 GUI 조작이 먹통이 됩니다).
+
+== 재생이 실제로 궤적 전체를 거쳤는지 검증하기
+
+[source,python]
+----
+frame_slider.value = 10
+assert np.allclose(robot_frame.position, trajectory_positions[10], atol=1e-10)
+
+frame_slider.value = 25
+assert np.allclose(robot_frame.position, trajectory_positions[25], atol=1e-10)
+
+play_button.value = True
+assert playback_log == list(range(num_steps))
+assert np.allclose(robot_frame.position, trajectory_positions[-1], atol=1e-10)
+
+assert scan_cloud.name == "/robot/local_scan"
+----
+
+먼저 슬라이더를 임의의 타임스텝(`10`, `25`)으로 옮겨 그 순간 로봇 프레임이 정확히 해당 궤적 위치로 이동하는지 확인했습니다. 그다음 `play_button.value = True`로 버튼을 "누르면"(5장에서 다뤘듯 코드에서 `.value`를 대입해도 클릭과 동일하게 콜백이 발동합니다) 재생 스레드가 끝날 때까지 기다린 뒤, `playback_log`가 `0`부터 `num_steps-1`까지 빠짐없이 순서대로 기록되었는지, 그리고 로봇이 궤적의 마지막 위치에 정확히 도달했는지까지 검증했습니다.
+
+== 실전에서: 실시간 센서 로그 스트리밍
+
+이 장의 패턴(미리 계산한 배열을 순회하며 씬을 갱신)을 조금만 바꾸면, 저장된 로그가 아니라 **실시간으로 들어오는** 센서 데이터를 스트리밍하는 데도 그대로 쓸 수 있습니다 — 로그 파일을 순회하는 `for` 루프 대신 ROS 토픽 콜백이나 소켓 수신 루프 안에서 `robot_frame.position = ...`, `scan_cloud.points = ...`를 호출하면 됩니다. 씬 물체의 속성 대입이 곧바로 모든 클라이언트에 갱신을 전파하는 Viser의 모델 덕분에, "새 데이터가 들어올 때마다 씬을 갱신한다"는 로직이 재생이든 실시간 스트리밍이든 똑같습니다.
+
+== 전체 코드
+[%collapsible]
+====
+[source,python]
+----
+include::09-playback-and-streaming.py[]
+----
+====
+
+== 요약
+
+* 타임스텝별 자세를 미리 배열로 계산해두고, 슬라이더의 `on_update` 콜백에서 그 배열을 인덱싱해 씬 물체를 갱신하면 탐색 바처럼 스크러빙할 수 있습니다.
+* 별도 스레드에서 슬라이더 값을 순차적으로 바꾸면 전체 궤적을 자동 재생하는 Play 버튼을 만들 수 있고, 스레드로 분리해야 재생 중에도 서버가 다른 요청에 계속 응답합니다.
+* 이 재생 패턴은 저장된 로그뿐 아니라 실시간 센서 스트리밍에도 그대로 적용됩니다 — 데이터가 들어올 때마다 씬 물체 속성을 대입하기만 하면 됩니다.
+
+마지막 장에서는 지금까지 배운 프레임, 프러스텀, 포인트클라우드, GUI, 재생 기능을 하나로 묶어 작은 재구성 결과 뷰어 앱을 만듭니다.
+// end::body[]

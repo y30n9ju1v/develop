@@ -1,0 +1,119 @@
+---
+title: "5장: GUI 패널로 상호작용하기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["viser", "3d-visualization", "gui", "book"]
+categories: ["books"]
+description: "server.gui의 add_slider/add_rgb/add_button으로 브라우저 사이드바에 컨트롤을 만들고, on_update/on_click 콜백으로 슬라이더 값 변경이 씬의 물체 속성을 실시간으로 갱신하도록 연결하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-meshes-and-lighting/[4장: 메시와 조명] · 다음: link:../06-client-events/[6장: 클라이언트 이벤트와 클릭 콜백]_
+
+'''
+
+지금까지 만든 장면은 파이썬 코드가 실행되는 순간에 고정됩니다. 이 장에서는 브라우저 화면 옆에 나타나는 GUI 패널로 사용자가 실시간으로 값을 바꾸고, 그 변화가 즉시 씬에 반영되도록 만듭니다.
+
+== 씬 물체와 GUI 컨트롤을 나란히 만들기
+
+`server.scene`이 3D 물체를 관리하듯, `server.gui`는 사이드바에 뜨는 컨트롤(슬라이더, 버튼, 색상 선택기 등)을 관리합니다.
+
+[source,python]
+----
+import viser
+
+server = viser.ViserServer()
+server.scene.world_axes.visible = True
+
+sphere = server.scene.add_icosphere(
+    "/sphere",
+    radius=0.3,
+    color=(90, 200, 255),
+    position=(0.0, 0.0, 0.0),
+)
+
+radius_slider = server.gui.add_slider(
+    "Radius",
+    min=0.1,
+    max=1.0,
+    step=0.05,
+    initial_value=0.3,
+)
+
+color_slider = server.gui.add_rgb(
+    "Color",
+    initial_value=(90, 200, 255),
+)
+
+reset_button = server.gui.add_button("Reset")
+----
+
+`add_slider(label, min, max, step, initial_value)`는 지정한 범위 안에서 움직이는 슬라이더를, `add_rgb`는 색상 선택기를, `add_button`은 누르면 이벤트를 발생시키는 버튼을 만듭니다. 이 시점에는 아직 슬라이더를 움직여도 구(sphere)가 반응하지 않습니다 — 컨트롤과 물체는 아직 연결되어 있지 않기 때문입니다.
+
+== 콜백으로 컨트롤과 물체를 연결하기
+
+[source,python]
+----
+event_log = []
+
+
+@radius_slider.on_update
+def _(_event) -> None:
+    sphere.radius = radius_slider.value
+    event_log.append(("radius", radius_slider.value))
+
+
+@color_slider.on_update
+def _(_event) -> None:
+    sphere.color = color_slider.value
+    event_log.append(("color", color_slider.value))
+
+
+@reset_button.on_click
+def _(_event) -> None:
+    radius_slider.value = 0.3
+    color_slider.value = (90, 200, 255)
+    event_log.append(("reset", None))
+----
+
+`@radius_slider.on_update` 데코레이터가 붙은 함수는 슬라이더 값이 바뀔 때마다(사용자가 브라우저에서 드래그하든, 코드에서 `.value`를 대입하든) 자동으로 호출됩니다. 함수 안에서 `sphere.radius = radius_slider.value`처럼 핸들의 속성에 값을 대입하면 그 즉시 모든 연결된 브라우저 클라이언트에 갱신 명령이 전송됩니다 — 여러분이 직접 웹소켓 메시지를 만들 필요가 없습니다. `event_log`는 콜백이 정확히 언제 호출되는지 이 장의 검증 코드에서 확인하기 위한 보조 장치입니다.
+
+== 콜백이 실제로 동작하는지 코드로 검증하기
+
+Viser의 유용한 특징 하나는, 핸들의 `.value`(또는 `.radius`, `.color` 같은 속성)에 파이썬 코드에서 직접 값을 대입해도 마치 사용자가 브라우저에서 조작한 것과 동일하게 콜백이 발동한다는 점입니다. 덕분에 브라우저 클라이언트 없이도 GUI 로직을 검증할 수 있습니다.
+
+[source,python]
+----
+radius_slider.value = 0.6
+assert np.isclose(sphere.radius, 0.6)
+assert event_log[-1] == ("radius", 0.6)
+
+color_slider.value = (255, 0, 0)
+assert sphere.color == (255, 0, 0)
+assert event_log[-1] == ("color", (255, 0, 0))
+
+reset_button.value = True
+assert np.isclose(radius_slider.value, 0.3)
+assert color_slider.value == (90, 200, 255)
+assert event_log[-1] == ("reset", None)
+----
+
+`radius_slider.value = 0.6`을 실행하면 `on_update` 콜백이 호출되어 `sphere.radius`가 `0.6`으로 바뀌는지, `reset_button.value = True`(버튼을 코드로 "누르는" 방법)를 실행하면 슬라이더들이 초기값으로 되돌아가는지까지 전부 `assert`로 확인했습니다. 이런 식으로 GUI 로직을 스크립트 안에서 미리 검증해두면, 브라우저를 열어 마우스로 일일이 클릭해보지 않아도 콜백 배선이 맞는지 확신할 수 있습니다.
+
+== 전체 코드
+[%collapsible]
+====
+[source,python]
+----
+include::05-gui-basics.py[]
+----
+====
+
+== 요약
+
+* `server.gui.add_slider`/`add_rgb`/`add_button`으로 브라우저 사이드바에 컨트롤을 만들고, `server.scene`의 물체 핸들과는 독립적으로 존재합니다.
+* `@handle.on_update`/`@handle.on_click` 데코레이터로 컨트롤의 변화를 씬 물체의 속성 대입으로 연결하면, 값이 바뀔 때마다 모든 클라이언트에 자동으로 갱신됩니다.
+* 핸들의 `.value` 같은 속성에 파이썬 코드로 직접 값을 대입해도 콜백이 똑같이 발동하므로, 브라우저 없이도 GUI 로직을 `assert`로 검증할 수 있습니다.
+
+다음 장에서는 GUI 패널을 넘어, 3D 장면 안의 물체를 직접 클릭하는 이벤트와 여러 클라이언트가 동시에 접속했을 때의 상태 관리를 다룹니다.
+// end::body[]

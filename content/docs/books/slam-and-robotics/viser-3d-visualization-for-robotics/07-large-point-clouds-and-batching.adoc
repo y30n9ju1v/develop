@@ -1,0 +1,122 @@
+---
+title: "7장: 대량 포인트클라우드와 배치 렌더링"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["viser", "3d-visualization", "point-cloud", "performance", "book"]
+categories: ["books"]
+description: "라이다 스캔 규모(10만 점)의 포인트클라우드를 add_point_cloud로 렌더링하고, add_batched_axes로 로봇 궤적처럼 반복되는 물체 수백 개를 개별 add_frame 호출 없이 한 번에 인스턴싱하는 성능 기법을 다루는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-client-events/[6장: 클라이언트 이벤트와 클릭 콜백] · 다음: link:../08-gaussian-splats/[8장: 3D Gaussian Splats 시각화]_
+
+'''
+
+지금까지 다룬 예제는 점 수백 개, 프레임 몇 개 수준이었습니다. 실제 라이다 스캔이나 SLAM 궤적은 점 수만~수십만 개, 프레임 수백 개 규모입니다. 이 장에서는 그 규모에서도 Viser가 어떻게 빠르게 동작하는지, 그리고 반복되는 물체를 효율적으로 그리는 배치(batched) API를 다룹니다.
+
+== 10만 점짜리 "가짜 라이다 스캔"
+
+[source,python]
+----
+import time
+
+import numpy as np
+import viser
+
+server = viser.ViserServer()
+server.scene.world_axes.visible = True
+
+rng = np.random.default_rng(seed=0)
+
+num_points = 100_000
+theta = rng.uniform(0, np.pi, num_points)
+phi = rng.uniform(0, 2 * np.pi, num_points)
+radius = 3.0 + rng.normal(0, 0.05, num_points)
+
+x = radius * np.sin(theta) * np.cos(phi)
+y = radius * np.sin(theta) * np.sin(phi)
+z = radius * np.cos(theta)
+points = np.stack([x, y, z], axis=1).astype(np.float32)
+----
+
+구면 좌표계(`theta`, `phi`, `radius`)로 점을 생성한 뒤 직교좌표로 변환하는 방식으로, 반지름 `3.0` 근처에 노이즈가 섞인 구형 표면 — 실제 라이다가 벽이나 구조물을 스캔했을 때 나올 법한 형태 — 를 흉내 냈습니다. 점 개수가 많을 때는 `float32`로 명시적으로 캐스팅해 메모리를 아끼는 습관을 들이는 게 좋습니다.
+
+== 높이로 색을 입히고, 갱신 시간을 재본다
+
+[source,python]
+----
+z_normalized = (z - z.min()) / (z.max() - z.min())
+colors = np.zeros((num_points, 3), dtype=np.uint8)
+colors[:, 0] = (255 * z_normalized).astype(np.uint8)
+colors[:, 2] = (255 * (1.0 - z_normalized)).astype(np.uint8)
+
+start = time.perf_counter()
+cloud = server.scene.add_point_cloud(
+    "/lidar_scan",
+    points=points,
+    colors=colors,
+    point_size=0.01,
+    point_shape="circle",
+)
+elapsed = time.perf_counter() - start
+
+assert cloud.points.shape == (num_points, 3)
+assert cloud.colors.shape == (num_points, 3)
+print(f"scene update for {num_points} points took {elapsed * 1000:.1f} ms")
+----
+
+높이(`z`)를 `[0, 1]`로 정규화해 빨강(높음)-파랑(낮음) 그러데이션을 입혔습니다 — 색만으로도 스캔의 위아래 구조가 한눈에 구분됩니다. `add_point_cloud` 호출 자체는 씬 상태를 갱신하는 것일 뿐이라 10만 점이어도 밀리초 단위로 끝납니다(실제 브라우저에서 그 갱신을 받아 렌더링하는 시간은 별도입니다) — `point_size`를 작게(`0.01`), `point_shape`를 `"circle"`로 주면 점이 뭉치지 않고 표면처럼 보입니다.
+
+== 반복되는 물체는 배치 API로 한 번에
+
+로봇 궤적을 따라 좌표 프레임을 수백 개 그려야 한다면, 2장에서 배운 `add_frame`을 프레임마다 호출하는 건 비효율적입니다 — 물체 하나마다 씬 트리 노드가 하나씩 생기고, 갱신할 때마다 그 개수만큼 메시지가 오갑니다. `add_batched_axes`는 여러 개의 위치/방향을 **하나의 물체**로 묶어 한 번에 그립니다.
+
+[source,python]
+----
+num_frames = 100
+trajectory_angle = np.linspace(0, 4 * np.pi, num_frames)
+trajectory_positions = np.stack(
+    [
+        4.0 * np.cos(trajectory_angle),
+        4.0 * np.sin(trajectory_angle),
+        np.linspace(0.0, 2.0, num_frames),
+    ],
+    axis=1,
+)
+identity_wxyzs = np.tile(np.array([1.0, 0.0, 0.0, 0.0]), (num_frames, 1))
+
+batched = server.scene.add_batched_axes(
+    "/trajectory_frames",
+    batched_wxyzs=identity_wxyzs,
+    batched_positions=trajectory_positions,
+    axes_length=0.15,
+    axes_radius=0.01,
+)
+
+assert batched.batched_positions.shape == (num_frames, 3)
+assert batched.batched_wxyzs.shape == (num_frames, 4)
+----
+
+`batched_positions`는 `(N, 3)`, `batched_wxyzs`는 `(N, 4)` 형태의 배열로, 각 행이 인스턴스 하나의 위치와 방향입니다 — `add_frame`을 100번 호출하는 대신 배열 하나로 100개를 동시에 전달합니다. 나선형으로 위로 올라가는 궤적(`trajectory_angle`을 `4π`까지 돌리면서 `z`를 선형으로 증가시킴)을 예로 들었는데, 실제로는 SLAM이나 포즈 그래프 최적화가 추정한 프레임별 자세 배열을 그대로 이 형태로 넣으면 됩니다. 회전이 전부 단위 쿼터니언(`identity_wxyzs`)인 이유는 이 예제에서 궤적의 위치만 강조하고 싶었기 때문이고, 실제 궤적을 그릴 때는 각 프레임의 진행 방향에 맞춘 회전을 넣는 게 자연스럽습니다.
+
+== 언제 배치 API를 쓰나
+
+물체 개수가 수십 개를 넘어가고, 그 물체들이 "같은 종류인데 위치/방향만 다른" 경우라면 배치 API(`add_batched_axes`, `add_batched_glb`, `add_batched_meshes_simple` 등)를 우선 고려하세요. 반대로 물체마다 클릭 콜백을 다르게 걸어야 하거나 서로 독립적으로 보이기/숨기기를 제어해야 한다면, 배치로 묶으면 개별 제어가 어려워지므로 6장에서 다룬 개별 `add_frame`/`add_icosphere` 방식이 더 적합합니다.
+
+== 전체 코드
+[%collapsible]
+====
+[source,python]
+----
+include::07-large-point-clouds-and-batching.py[]
+----
+====
+
+== 요약
+
+* `add_point_cloud`는 `points`/`colors` 배열을 그대로 전달하는 방식이라 수만~수십만 점 규모에서도 갱신 자체는 빠릅니다. `point_size`와 `point_shape`로 점이 뭉쳐 보이는 것을 조절할 수 있습니다.
+* 반복되는 같은 종류의 물체(궤적을 따라 놓인 프레임 등)는 `add_batched_axes`처럼 `(N, 3)`/`(N, 4)` 배열을 받는 배치 API로 한 번에 그리는 게 개별 호출보다 효율적입니다.
+* 물체별 개별 제어(클릭 콜백, 보이기/숨기기)가 필요하면 배치 대신 개별 호출을 유지하세요 — 성능과 제어 유연성은 트레이드오프입니다.
+
+다음 장에서는 이 시리즈의 핵심 주제인 3D Gaussian Splatting 결과물을 Viser로 직접 시각화하는 `add_gaussian_splats`를 다룹니다.
+// end::body[]

@@ -1,0 +1,130 @@
+---
+title: "4장: 메시와 조명"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["viser", "3d-visualization", "mesh", "lighting", "book"]
+categories: ["books"]
+description: "정점·면 배열로 삼각형 메시를 직접 정의해 add_mesh_simple로 렌더링하고, 면 법선 방향을 외적으로 검증한 뒤 add_light_directional로 표면의 굴곡이 드러나도록 조명을 구성하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-camera-frustums/[3장: 카메라 프러스텀 시각화] · 다음: link:../05-gui-basics/[5장: GUI 패널로 상호작용하기]_
+
+'''
+
+지금까지는 점과 좌표축만 다뤘습니다. 이 장에서는 실제 표면을 가진 **메시**를 직접 정의하고, 그 표면이 조명 아래에서 입체적으로 보이도록 만듭니다.
+
+== 메시 = 정점 배열 + 면 배열
+
+메시는 두 개의 배열로 정의됩니다: 3D 위치들의 목록(`vertices`)과, 어떤 세 정점이 삼각형을 이루는지를 나타내는 인덱스 목록(`faces`). 정사면체(네 개의 삼각형 면을 가진 가장 단순한 3D 다면체)를 직접 정의해보겠습니다.
+
+[source,python]
+----
+import numpy as np
+import viser
+
+server = viser.ViserServer()
+server.scene.world_axes.visible = True
+
+vertices = np.array(
+    [
+        [1.0, 1.0, 1.0],
+        [1.0, -1.0, -1.0],
+        [-1.0, 1.0, -1.0],
+        [-1.0, -1.0, 1.0],
+    ]
+)
+faces = np.array(
+    [
+        [0, 1, 2],
+        [0, 3, 1],
+        [0, 2, 3],
+        [1, 3, 2],
+    ]
+)
+
+mesh_handle = server.scene.add_mesh_simple(
+    "/tetrahedron",
+    vertices=vertices,
+    faces=faces,
+    color=(90, 200, 255),
+    position=(0.0, 0.0, 0.0),
+)
+----
+
+`faces`의 각 행 `[0, 1, 2]`는 "정점 0, 1, 2가 삼각형 하나를 이룬다"는 뜻입니다. 정점 4개로 삼각형 4개(정사면체의 네 면)를 표현할 수 있는 이유는, 각 정점이 여러 삼각형에 공유되기 때문입니다 — 정점 배열을 늘어놓기만 하는 포인트클라우드와 달리, 메시는 이 공유 구조 덕분에 "속이 빈 표면"을 표현합니다.
+
+== 배열 형태와 인덱스 범위 검증
+
+[source,python]
+----
+assert mesh_handle.vertices.shape == (4, 3)
+assert mesh_handle.faces.shape == (4, 3)
+assert faces.max() < len(vertices)
+----
+
+`faces`에 정점 개수보다 크거나 같은 인덱스가 하나라도 있으면 렌더러가 존재하지 않는 정점을 참조하게 되어 에러가 나거나 메시가 깨집니다 — `faces.max() < len(vertices)`는 이런 실수를 코드 레벨에서 바로 잡아내는 가장 기본적인 검증입니다.
+
+== 면의 방향: 법선이 바깥을 향하는가
+
+삼각형의 세 정점을 어떤 순서로 나열하느냐가 그 면이 "어느 쪽을 향하는 면"인지를 결정합니다. 오른손 법칙에 따라, 정점을 반시계 방향으로 나열하면 법선(면에 수직인 벡터)은 그 순서로 감아쥔 오른손 엄지가 가리키는 방향을 향합니다.
+
+[source,python]
+----
+def triangle_normal(v0, v1, v2):
+    return np.cross(v1 - v0, v2 - v0)
+
+
+centroid = vertices.mean(axis=0)
+for face in faces:
+    v0, v1, v2 = vertices[face]
+    normal = triangle_normal(v0, v1, v2)
+    face_center = (v0 + v1 + v2) / 3.0
+    outward = face_center - centroid
+    assert np.dot(normal, outward) > 0.0
+----
+
+`np.cross(v1-v0, v2-v0)`가 삼각형의 법선을 계산하는 공식입니다(두 변 벡터의 외적은 그 두 벡터가 이루는 평면에 수직인 벡터를 만듭니다). 이 법선과 "무게중심에서 면의 중심으로 향하는 방향"의 내적이 양수라는 것은 법선이 바깥쪽을 향한다는 뜻입니다 — 이 검증을 통과하지 못하면 `add_mesh_simple`의 `side="front"`(기본값) 설정에서 그 면이 안쪽에서만 보이거나 아예 안 보이는 문제가 생깁니다. 실무에서 메시가 "구멍이 뚫린 것처럼" 보이는 버그의 상당수가 바로 이 법선 방향 문제입니다.
+
+== 조명 없이는 굴곡이 안 보인다
+
+[source,python]
+----
+server.scene.configure_default_lights(enabled=False)
+light = server.scene.add_light_directional(
+    "/sun",
+    color=(255, 255, 255),
+    intensity=2.0,
+    position=(3.0, 3.0, 5.0),
+)
+
+box_handle = server.scene.add_box(
+    "/ground_marker",
+    color=(120, 120, 120),
+    dimensions=(2.0, 2.0, 0.05),
+    position=(0.0, 0.0, -1.5),
+)
+
+assert light.intensity == 2.0
+assert box_handle.dimensions == (2.0, 2.0, 0.05)
+----
+
+Viser는 기본적으로 은은한 기본 조명(`configure_default_lights`)을 켜두는데, 이것만으로는 면들이 밋밋하게 보여 정사면체의 각진 모서리가 잘 드러나지 않을 수 있습니다. 기본 조명을 끄고 `add_light_directional`로 태양광 같은 방향성 조명을 하나 추가하면, 빛을 정면으로 받는 면과 등지는 면의 밝기 차이가 뚜렷해져 입체감이 살아납니다. `add_box`로 추가한 회색 판은 바닥 기준점 역할을 합니다 — 조명 아래에서 메시의 그림자가 어디로 지는지 가늠하는 데 도움이 됩니다.
+
+== 전체 코드
+[%collapsible]
+====
+[source,python]
+----
+include::04-meshes-and-lighting.py[]
+----
+====
+
+== 요약
+
+* 메시는 `vertices`(정점 위치 배열)와 `faces`(정점 인덱스로 삼각형을 정의하는 배열)로 이루어지며, `add_mesh_simple`로 바로 렌더링할 수 있습니다.
+* 삼각형 정점의 나열 순서가 법선 방향을 결정하고, `np.cross(v1-v0, v2-v0)`로 계산한 법선이 바깥을 향하는지 미리 검증하면 "면이 안 보이는" 버그를 코드 단계에서 잡을 수 있습니다.
+* `configure_default_lights(enabled=False)` 후 `add_light_directional`로 방향광을 추가하면 표면의 굴곡이 뚜렷하게 드러납니다.
+
+다음 장에서는 정적인 장면을 넘어, 슬라이더와 버튼 같은 GUI 요소로 사용자가 장면과 실시간으로 상호작용하게 만드는 법을 다룹니다.
+// end::body[]

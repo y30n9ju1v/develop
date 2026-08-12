@@ -1,0 +1,102 @@
+---
+title: "브라우저로 확인하는 3D: Viser로 만드는 로보틱스/비전 뷰어 입문"
+draft: false
+---
+
+컴퓨터 비전과 로보틱스에서 3D 파이프라인의 중간 결과 — 카메라 포즈, 포인트클라우드, 3D Gaussian Splatting 결과, 로봇 궤적 — 을 파이썬 코드 몇 줄만으로 브라우저에 띄워 눈으로 확인하는 라이브러리 https://github.com/nerfstudio-project/viser[Viser]를 처음부터 다루는 입문서입니다. 점 하나를 띄우는 가장 단순한 예제(1부)에서 시작해, 좌표 프레임과 카메라 프러스텀 같은 비전에 특화된 요소(2부), 메시·조명·GUI로 상호작용하는 법(3부), 대량 데이터와 3D Gaussian Splats를 다루는 실전 기법(4부), 시간에 따른 재생(5부)을 거쳐, 마지막에는 이 모든 요소를 하나로 묶은 재구성 결과 뷰어 앱(6부)까지 만듭니다.
+
+이 책의 모든 예제는 실제로 `viser.ViserServer()`를 띄우고 씬을 구성하는 완결된 스크립트이며, 콜백과 씬 트리 배선이 의도한 대로 동작하는지 `assert`로 검증합니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 눈으로 확인하지 않은 3D 코드는 반쯤은 거짓말이다]*
+
+*1부: 첫걸음*
+
+[start=1]
+. *link:01-first-scene/[첫 장면 띄우기]*
+
+*2부: 좌표와 카메라*
+
+[start=2]
+. *link:02-frames-and-transforms/[좌표계와 프레임]*
+. *link:03-camera-frustums/[카메라 프러스텀 시각화]*
+
+*3부: 표면과 상호작용*
+
+[start=4]
+. *link:04-meshes-and-lighting/[메시와 조명]*
+. *link:05-gui-basics/[GUI 패널로 상호작용하기]*
+. *link:06-client-events/[클라이언트 이벤트와 클릭 콜백]*
+
+*4부: 실전 규모의 데이터*
+
+[start=7]
+. *link:07-large-point-clouds-and-batching/[대량 포인트클라우드와 배치 렌더링]*
+. *link:08-gaussian-splats/[3D Gaussian Splats 시각화]*
+
+*5부: 시간과 재생*
+
+[start=9]
+. *link:09-playback-and-streaming/[시간에 따른 재생과 스트리밍]*
+
+*6부: 종합 실전*
+
+[start=10]
+. *link:10-capstone/[종합 실전 — 재구성 결과 뷰어 앱]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-first-scene.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-frames-and-transforms.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-camera-frustums.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-meshes-and-lighting.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-gui-basics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-client-events.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-large-point-clouds-and-batching.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-gaussian-splats.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-playback-and-streaming.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-capstone.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]
