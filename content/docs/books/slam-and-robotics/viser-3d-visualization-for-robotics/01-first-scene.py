@@ -20,4 +20,9 @@ print("scene node name:", point_cloud.name)
 assert point_cloud.name == "/random_cloud"
 assert point_cloud.points.shape == (500, 3)
 
+# 씬에서 물체를 다시 없애고 싶다면 핸들의 remove()를 호출한다
+assert server.scene.get_handle_by_name("/random_cloud") is not None
+point_cloud.remove()
+assert server.scene.get_handle_by_name("/random_cloud") is None
+
 server.stop()
