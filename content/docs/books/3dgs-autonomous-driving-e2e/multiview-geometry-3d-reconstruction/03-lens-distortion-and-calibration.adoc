@@ -47,7 +47,7 @@ def project_distorted(X_cam, fx, fy, cx, cy, k1, k2):
     return np.array([u, v])
 ----
 
-1장의 `project`와 순서가 다르다는 걸 눈여겨보세요 — **왜곡은 정규화된 좌표(아직 픽셀 단위가 아닌, 초점거리로 나눈 좌표)에 적용한 뒤에 픽셀 단위로 바꿔야** 합니다. 순서를 바꿔 픽셀 좌표에 직접 왜곡을 적용하면 틀린 결과가 나옵니다.
+1장의 `project`와 순서가 다르다는 걸 눈여겨보세요 — **왜곡은 정규화된 좌표(아직 픽셀 단위가 아닌, 초점거리로 나눈 좌표)에 적용한 뒤에 픽셀 단위로 바꿔야** 합니다. 순서를 바꿔 픽셀 좌표에 직접 왜곡을 적용하면 틀린 결과가 나옵니다. 렌즈 왜곡은 둥근 유리를 빛이 통과할 때 생기는 순수한 광학 현상이기 때문입니다 — 렌즈는 광축(주점 `cx, cy`)을 중심으로 완벽한 원형 대칭을 이루므로, 주점이 원점이고 가로세로 비율이 1:1인 정규화 좌표계에서 왜곡을 계산해야 합니다. 만약 좌상단 모서리가 원점이고 종횡비가 다른 픽셀 좌표에 직접 왜곡을 적용하면, 중심축도 어긋나고 원형 왜곡이 타원형으로 찌그러지게 됩니다.
 
 == 광축 위의 점과 배럴 왜곡 확인하기
 
@@ -120,6 +120,71 @@ assert distorted_pin[0] > 720.0
 
 `k1>0`이면 `factor>1`이 되어 좌표가 주점에서 더 멀리 밀려납니다 — 배럴 왜곡과 정반대 방향입니다.
 ====
+
+== 전체 코드
+
+[source,python]
+----
+import numpy as np
+
+# 1. 반경 왜곡 모델 및 왜곡을 포함한 투영 함수 정의
+def distort(x_norm, y_norm, k1, k2):
+    """정규화된 이미지 좌표에 반경 왜곡을 적용한다."""
+    r2 = x_norm**2 + y_norm**2
+    factor = 1 + k1 * r2 + k2 * r2**2
+    return x_norm * factor, y_norm * factor
+
+def project_distorted(X_cam, fx, fy, cx, cy, k1, k2):
+    """3D 점을 왜곡을 적용하여 픽셀 좌표로 투영한다."""
+    x_norm = X_cam[0] / X_cam[2]
+    y_norm = X_cam[1] / X_cam[2]
+    xd, yd = distort(x_norm, y_norm, k1, k2)
+    u = fx * xd + cx
+    v = fy * yd + cy
+    return np.array([u, v])
+
+# 2. 내부 파라미터 및 왜곡 계수 설정
+fx, fy, cx, cy = 800.0, 800.0, 320.0, 240.0
+k1, k2 = -0.2, 0.05  # 배럴 왜곡 계수 (k1 < 0)
+
+# 3. 광축 위의 점 및 배럴 왜곡(중심 쪽으로 당겨짐) 검증
+p_axis = project_distorted(np.array([0.0, 0.0, 2.0]), fx, fy, cx, cy, k1, k2)
+assert np.allclose(p_axis, [cx, cy])
+
+X = np.array([0.5, 0.0, 1.0])
+undistorted = np.array([fx * 0.5 + cx, cy])       # [720. 240.]
+distorted = project_distorted(X, fx, fy, cx, cy, k1, k2)  # [701.25 240.]
+print("distorted:", distorted)
+assert distorted[0] < undistorted[0]
+
+no_distort = project_distorted(X, fx, fy, cx, cy, 0.0, 0.0)
+assert np.allclose(no_distort, undistorted)
+
+# 4. 왜곡 되돌리기(반복 대입법) 함수 정의
+def undistort_normalized(xd, yd, k1, k2, iters=20):
+    """반복 대입(fixed-point iteration)으로 왜곡된 정규화 좌표를 복원한다."""
+    x, y = xd, yd  # 초기값
+    for _ in range(iters):
+        r2 = x**2 + y**2
+        factor = 1 + k1 * r2 + k2 * r2**2
+        x = xd / factor
+        y = yd / factor
+    return x, y
+
+# 5. 왕복 검증: 왜곡 -> 복원
+xn, yn = X[0] / X[2], X[1] / X[2]
+xd_val, yd_val = distort(xn, yn, k1, k2)
+x_rec, y_rec = undistort_normalized(xd_val, yd_val, k1, k2)
+print("original:", xn, yn, "recovered:", x_rec, y_rec)
+assert np.isclose(x_rec, xn, atol=1e-8)
+assert np.isclose(y_rec, yn, atol=1e-8)
+
+# 6. 직접 해보기: 핀쿠션 왜곡 (k1 > 0)
+k1_pin, k2_pin = 0.15, 0.0
+distorted_pin = project_distorted(X, fx, fy, cx, cy, k1_pin, k2_pin)
+print("distorted_pin:", distorted_pin)  # [735. 240.]
+assert distorted_pin[0] > 720.0
+----
 
 == 요약
 

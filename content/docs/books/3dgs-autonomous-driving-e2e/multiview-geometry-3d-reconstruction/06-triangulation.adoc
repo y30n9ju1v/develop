@@ -128,6 +128,104 @@ assert far_rmse_wide < far_rmse
 기준선을 넓히면 같은 거리의 점이라도 두 카메라에서 보는 각도 차이(시차)가 커져서, 같은 픽셀 잡음에도 삼각측량이 훨씬 안정적입니다 — 스테레오 카메라를 설계할 때 기준선을 넓히면 원거리 정확도가 좋아지지만, 대신 가까운 물체는 두 카메라의 시야가 겹치는 영역이 줄어드는 트레이드오프가 있습니다.
 ====
 
+== 전체 코드
+
+[source,python]
+----
+import numpy as np
+
+# 1. 이전 장의 기본 함수 및 카메라 설정 (K, R1, t1, R2, t2)
+def rotation_y(theta):
+    c, s = np.cos(theta), np.sin(theta)
+    return np.array([
+        [c, 0, s],
+        [0, 1, 0],
+        [-s, 0, c],
+    ])
+
+def project(K, R, t, X_world):
+    X_cam = R @ X_world + t
+    x_h = K @ X_cam
+    return x_h[:2] / x_h[2]
+
+K = np.array([
+    [800.0, 0, 320.0],
+    [0, 800.0, 240.0],
+    [0, 0, 1],
+])
+
+R1, t1 = np.eye(3), np.zeros(3)
+R2 = rotation_y(np.radians(10))
+C2 = np.array([0.5, 0.0, 0.0])
+t2 = -R2 @ C2
+
+# 2. 투영 행렬 구성 및 선형 삼각측량 (DLT) 함수 정의
+def proj_matrix(K, R, t):
+    return K @ np.hstack([R, t.reshape(3, 1)])
+
+def triangulate_linear(P1, P2, x1, x2):
+    """선형(DLT) 삼각측량: 두 투영 방정식을 동시에 만족하는 X를 SVD로 구한다."""
+    A = np.array([
+        x1[0] * P1[2] - P1[0],
+        x1[1] * P1[2] - P1[1],
+        x2[0] * P2[2] - P2[0],
+        x2[1] * P2[2] - P2[1],
+    ])
+    _, _, Vt = np.linalg.svd(A)
+    X_h = Vt[-1]
+    return X_h[:3] / X_h[3]
+
+P1 = proj_matrix(K, R1, t1)
+P2 = proj_matrix(K, R2, t2)
+
+# 3. 잡음 없는 환경에서 3D 점 복원 검증
+X_true = np.array([0.3, 0.2, 3.0])
+x1 = project(K, R1, t1, X_true)
+x2 = project(K, R2, t2, X_true)
+X_rec = triangulate_linear(P1, P2, x1, x2)
+print("no noise X_rec:", X_rec, "true:", X_true)
+assert np.allclose(X_rec, X_true, atol=1e-6)
+
+# 4. 픽셀 잡음 시 몬테카를로 실험 (가까운 점 vs 먼 점)
+def with_pixel_noise(x, sigma, rng):
+    return x + rng.normal(scale=sigma, size=2)
+
+rng = np.random.default_rng(42)
+near = np.array([0.1, 0.1, 2.0])   # Z = 2.0m
+far  = np.array([0.1, 0.1, 8.0])   # Z = 8.0m
+sigma = 0.5  # 픽셀 잡음 표준편차
+
+near_errs, far_errs = [], []
+for _ in range(500):
+    x1n, x2n = project(K, R1, t1, near), project(K, R2, t2, near)
+    x1n, x2n = with_pixel_noise(x1n, sigma, rng), with_pixel_noise(x2n, sigma, rng)
+    near_errs.append(np.linalg.norm(triangulate_linear(P1, P2, x1n, x2n) - near))
+
+    x1f, x2f = project(K, R1, t1, far), project(K, R2, t2, far)
+    x1f, x2f = with_pixel_noise(x1f, sigma, rng), with_pixel_noise(x2f, sigma, rng)
+    far_errs.append(np.linalg.norm(triangulate_linear(P1, P2, x1f, x2f) - far))
+
+near_rmse = np.sqrt(np.mean(np.array(near_errs) ** 2))
+far_rmse = np.sqrt(np.mean(np.array(far_errs) ** 2))
+print(f"near RMSE: {near_rmse:.4f}m, far RMSE: {far_rmse:.4f}m")
+assert far_rmse > near_rmse
+
+# 5. 직접 해보기: 기준선(Baseline)을 2.0m로 넓혔을 때 오차 감소 확인
+C2_wide = np.array([2.0, 0.0, 0.0])
+t2_wide = -R2 @ C2_wide
+P2_wide = proj_matrix(K, R2, t2_wide)
+
+far_errs_wide = []
+for _ in range(500):
+    x1f, x2f = project(K, R1, t1, far), project(K, R2, t2_wide, far)
+    x1f, x2f = with_pixel_noise(x1f, sigma, rng), with_pixel_noise(x2f, sigma, rng)
+    far_errs_wide.append(np.linalg.norm(triangulate_linear(P1, P2_wide, x1f, x2f) - far))
+
+far_rmse_wide = np.sqrt(np.mean(np.array(far_errs_wide) ** 2))
+print(f"far RMSE (wide baseline 2.0m): {far_rmse_wide:.4f}m")
+assert far_rmse_wide < far_rmse
+----
+
 == 요약
 
 * DLT는 두 카메라의 투영 방정식을 하나의 선형 시스템으로 합쳐 SVD로 푸는 삼각측량 방법입니다.
