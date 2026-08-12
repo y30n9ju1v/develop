@@ -1,0 +1,171 @@
+---
+title: "8장: 멀티 센서 리그의 강체 제약으로 최적화를 안정시키기"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["pose-graph", "se3", "multi-camera", "rig-calibration", "numpy", "book"]
+categories: ["books"]
+description: "여러 카메라가 차량에 강체로 고정돼 있다는 사실을 하나의 공유 차량 포즈 변수로 인코딩하면, 특징이 부족해 시각 오도메트리가 부정확한 카메라도 다른 정확한 카메라의 정보를 빌려 추정 오차가 2.5배 줄어드는 것을 NumPy로 검증하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-pose-graph-refinement/[7장: 포즈 그래프로 프레임간 extrinsic 다시 최적화하기] · 다음: link:../09-loop-closure/[9장: 루프 클로저로 누적 드리프트 억제하기]_
+
+'''
+
+자율주행 차량은 보통 카메라 하나가 아니라 전방·측방·후방을 보는 여러 카메라를 동시에 씁니다. 이 카메라들은 서로 독립적으로 움직이는 게 아니라, 하나의 차체에 **강체(rigid body)**로 고정되어 있습니다 — 차량이 움직이면 모든 카메라가 정확히 같은 회전·이동을 겪습니다. 이 장에서는 이 물리적 사실을 최적화의 제약으로 명시적으로 넣으면 무슨 일이 일어나는지 확인합니다.
+
+== 문제 설정: 특징이 부족한 카메라
+
+전방 카메라(`cam1`)는 도로의 차선·표지판 등 특징이 풍부해 시각 오도메트리(연속 프레임 간 상대 자세 추정)가 정확합니다. 반면 측방 카메라(`cam2`)는 텍스처 없는 벽이나 하늘을 많이 보는 각도라 특징이 부족해, 같은 방식으로 추정한 상대 자세의 노이즈가 `20`배나 더 큽니다.
+
+[source,python]
+----
+import numpy as np
+
+def vehicle_pose(i, n_frames):
+    angle = 2 * np.pi * i / n_frames * 0.4
+    cam_pos = np.array([2 * np.sin(angle), 0.2 * np.sin(2 * angle), 0.0])
+    R = exp_so3(np.array([0, angle * 0.1, 0]))
+    return to_T(R, -R @ cam_pos)
+
+n_frames = 30
+T_vehicle_true = [vehicle_pose(i, n_frames) for i in range(n_frames)]
+
+# 리그 캘리브레이션: 두 카메라가 차량 좌표계 기준으로 고정된 상대 위치를 갖는다
+T_cam1_offset = to_T(np.eye(3), np.array([0.0, 0.0, 0.0]))                       # 전방 카메라
+T_cam2_offset = to_T(exp_so3(np.array([0, 0.3, 0])), np.array([0.3, 0.0, 0.0]))  # 측방 카메라(옆으로 회전+이동)
+
+T_cam1_true = [Tv @ T_cam1_offset for Tv in T_vehicle_true]
+T_cam2_true = [Tv @ T_cam2_offset for Tv in T_vehicle_true]
+----
+
+`T_cam_i(t) = T_vehicle(t) @ T_cam_i_offset`라는 관계 — "각 카메라의 세계 좌표계 자세는, 차량의 자세에 그 카메라의 고정된 상대 오프셋을 곱한 것"이라는 게 이 장 전체의 핵심 제약입니다. `T_cam_i_offset`은 시간이 지나도 변하지 않는 상수입니다(공장 출고 시 또는 오프라인으로 정밀 캘리브레이션된 값이라고 가정합니다).
+
+[source,python]
+----
+rng = np.random.default_rng(3)
+
+def make_rel_constraints(T_true_list, noise_std):
+    Z = []
+    for i in range(n_frames - 1):
+        T_rel = se3_inv(T_true_list[i]) @ T_true_list[i + 1]
+        Z.append(T_rel @ exp_se3(rng.normal(0, noise_std, 6)))
+    return Z
+
+Z1 = make_rel_constraints(T_cam1_true, 0.001)   # 전방: 정확
+Z2 = make_rel_constraints(T_cam2_true, 0.02)    # 측방: 20배 노이즈
+----
+
+== 방법 1: 각 카메라를 독립적으로 최적화(리그 정보를 무시)
+
+7장의 포즈 그래프 최적화를 측방 카메라(`cam2`)에만, 그 카메라 자신의 상대 제약(`Z2`)만으로 적용합니다.
+
+[source,python]
+----
+T_cam2_init = [T_cam2_true[i] @ exp_se3(rng.normal(0, 0.05, 6)) for i in range(n_frames)]
+T_cam2_init[0] = T_cam2_true[0]
+
+T_cam2_opt_indep = optimize_single(T_cam2_init, Z2)   # 7장과 동일한 최적화 루프
+
+def pose_error(Ts_opt, Ts_true):
+    errs = [np.linalg.norm(log_se3(se3_inv(Ts_true[i]) @ Ts_opt[i])) for i in range(n_frames)]
+    return np.mean(errs)
+
+print("독립 최적화(cam2 단독):", pose_error(T_cam2_opt_indep, T_cam2_true))
+----
+
+[source]
+----
+독립 최적화(cam2 단독): 0.1726
+----
+
+측방 카메라 자신의 부정확한 정보만으로 최적화했으니, 결과도 그만큼 부정확합니다.
+
+== 방법 2: 리그 제약을 넣어 하나의 차량 포즈로 통합
+
+이번엔 카메라별로 각자의 궤적을 최적화하는 대신, **차량 포즈 하나**를 프레임마다 최적화 변수로 두고, 두 카메라의 상대 제약을 모두 이 하나의 변수에 대한 잔차로 넣습니다.
+
+[source,python]
+----
+def build_residuals_rig(Tv):
+    r = []
+    for i in range(n_frames - 1):
+        Ti1, Tj1 = Tv[i] @ T_cam1_offset, Tv[i + 1] @ T_cam1_offset
+        r.append(residual(Ti1, Tj1, Z1[i]))
+        Ti2, Tj2 = Tv[i] @ T_cam2_offset, Tv[i + 1] @ T_cam2_offset
+        r.append(residual(Ti2, Tj2, Z2[i]))
+    return np.concatenate(r)
+----
+
+`Tv[i] @ T_cam1_offset`와 `Tv[i] @ T_cam2_offset`가 **같은 `Tv[i]`**(그 프레임의 차량 포즈)에서 파생된다는 게 핵심입니다 — 이제 `cam1`의 정확한 제약과 `cam2`의 부정확한 제약이 서로 다른 독립 변수가 아니라, 하나의 공유 변수를 함께 조정합니다.
+
+[source,python]
+----
+Tv_init = [T_vehicle_true[i] @ exp_se3(rng.normal(0, 0.05, 6)) for i in range(n_frames)]
+Tv_init[0] = T_vehicle_true[0]
+
+Tv_opt = optimize_rig(Tv_init, build_residuals_rig)   # 7장과 같은 가우스-뉴턴 루프, 잔차 함수만 교체
+
+T_cam2_opt_rig = [Tv_opt[i] @ T_cam2_offset for i in range(n_frames)]
+T_cam1_opt_rig = [Tv_opt[i] @ T_cam1_offset for i in range(n_frames)]
+
+print("리그 제약 최적화(cam2):", pose_error(T_cam2_opt_rig, T_cam2_true))
+print("리그 제약 최적화(cam1):", pose_error(T_cam1_opt_rig, T_cam1_true))
+----
+
+[source]
+----
+리그 제약 최적화(cam2): 0.0692
+리그 제약 최적화(cam1): 0.0751
+----
+
+측방 카메라의 오차가 `0.173`에서 `0.069`로, **`2.5`배** 줄었습니다 — `cam2`의 원본 데이터는 전혀 좋아지지 않았는데도, 오직 "같은 차량 포즈를 공유한다"는 제약 하나로 정확도가 크게 향상됐습니다. 전방 카메라의 오차(`0.075`)는 독립 최적화 때(7장 기준)와 비슷한 수준을 유지했습니다 — 정확한 정보를 가진 카메라가 부정확한 카메라를 "구제"하면서도, 자기 자신은 크게 희생하지 않았습니다.
+
+== 왜 이런 일이 일어나는가: 정보의 공유
+
+`cam2`의 상대 제약이 부정확하다는 건, 그 제약이 "이 방향으로 가라"는 신호를 약하게(노이즈 많이 섞어서) 보낸다는 뜻입니다. 독립적으로 최적화하면 `cam2`는 오직 이 약한 신호만 갖고 스스로 답을 찾아야 합니다. 하지만 리그 제약 아래에서는, `cam2`의 잔차가 최적화하려는 변수(`Tv[i]`)가 `cam1`의 잔차와 **정확히 같은 변수**입니다 — 가우스-뉴턴이 이 변수를 업데이트할 때, `cam1`의 강한(정확한) 신호와 `cam2`의 약한(부정확한) 신호를 함께 고려해서 하나의 답을 냅니다. 결과적으로 `cam1`의 정확한 정보가 `cam2`의 부정확함을 상당 부분 보정해주는 것입니다 — 강체라는 물리적 사실이, 정보가 부족한 센서에게 정보가 풍부한 센서의 지식을 "빌려주는" 통로 역할을 합니다.
+
+== 직접 해보기
+
+* `cam2`의 노이즈를 `0.02`에서 `0.1`(`5`배 더 나쁘게)로 늘려도 리그 제약이 여전히 효과가 있는지, 그리고 이번엔 `cam1`(정확한 카메라)의 오차가 눈에 띄게 나빠지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+Z2_worse = make_rel_constraints(T_cam2_true, 0.1)
+
+def build_residuals_rig_worse(Tv):
+    r = []
+    for i in range(n_frames - 1):
+        Ti1, Tj1 = Tv[i] @ T_cam1_offset, Tv[i + 1] @ T_cam1_offset
+        r.append(residual(Ti1, Tj1, Z1[i]))
+        Ti2, Tj2 = Tv[i] @ T_cam2_offset, Tv[i + 1] @ T_cam2_offset
+        r.append(residual(Ti2, Tj2, Z2_worse[i]))
+    return np.concatenate(r)
+
+Tv_opt_worse = optimize_rig(Tv_init, build_residuals_rig_worse)
+T_cam1_opt_worse = [Tv_opt_worse[i] @ T_cam1_offset for i in range(n_frames)]
+T_cam2_opt_worse = [Tv_opt_worse[i] @ T_cam2_offset for i in range(n_frames)]
+
+print("cam1 오차(cam2가 훨씬 나빠졌을 때):", pose_error(T_cam1_opt_worse, T_cam1_true))
+print("cam2 오차(cam2가 훨씬 나빠졌을 때):", pose_error(T_cam2_opt_worse, T_cam2_true))
+----
+
+[source]
+----
+cam1 오차(cam2가 훨씬 나빠졌을 때): 0.6262
+cam2 오차(cam2가 훨씬 나빠졌을 때): 0.5935
+----
+
+이번엔 예상과 다른, 그리고 더 중요한 결과가 나왔습니다 — `cam2`의 노이즈를 `5`배 키우니, 원래 정확했던 `cam1`의 오차까지 `0.075`에서 `0.626`으로 함께 크게 나빠졌습니다. 이 코드의 최적화는 두 카메라의 잔차를 **동등한 가중치**로 그냥 더해서 최소제곱을 풉니다 — `cam2`의 잔차가 훨씬 노이즈가 심한데도 `cam1`의 잔차와 똑같은 비중으로 취급되다 보니, 노이즈가 심한 `cam2`가 공유 변수(차량 포즈)를 엉뚱한 방향으로 끌어당기고, 그 여파가 같은 변수를 쓰는 `cam1`에도 고스란히 전달된 것입니다. 강체 제약이 정보를 공유하게 해주는 건 맞지만, **"어느 정보를 얼마나 신뢰할지" 자체를 최적화에 알려주지 않으면 오히려 나쁜 정보가 좋은 정보를 오염시킬 수 있다**는 걸 이 결과가 보여줍니다. 이 문제(측정마다 다른 신뢰도를 최적화에 반영하는 것)를 어떻게 해결하는지는 다음 장에서 루프 클로저 제약을 다룰 때 가중치와 함께 살펴봅니다 — 이번 장의 예제는 그 필요성을 미리 겪어본 셈입니다.
+====
+
+== 요약
+
+* 여러 카메라가 차량에 강체로 고정돼 있다는 사실을, `T_cam_i(t) = T_vehicle(t) @ T_cam_i_offset`이라는 관계로 명시해 하나의 공유 차량 포즈 변수로 최적화하면, 각 카메라를 독립적으로 최적화하는 것보다 훨씬 안정적인 결과를 얻습니다.
+* 이 실험에서 특징이 부족해 노이즈가 `20`배 컸던 측방 카메라의 오차가, 리그 제약 하나로 `2.5`배 줄었습니다.
+* 이 개선은 부정확한 카메라의 데이터 자체가 좋아져서가 아니라, 정확한 카메라와 같은 최적화 변수를 공유함으로써 그 정확한 정보를 "빌려" 쓸 수 있게 됐기 때문입니다.
+* 다음 장에서는 포즈 그래프에 마지막 재료인 루프 클로저(같은 장소를 다시 지나갔다는 정보)를 추가해, 궤적 전체에 걸친 누적 드리프트를 억제하는 법을 다룹니다.
+// end::body[]

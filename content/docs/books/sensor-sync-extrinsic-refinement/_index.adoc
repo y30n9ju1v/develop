@@ -1,0 +1,104 @@
+---
+title: "흔들리는 로그를 선명한 3DGS로: 시간 정렬과 extrinsic 재최적화"
+draft: false
+---
+
+타임싱크가 어긋나고 프레임마다 extrinsic이 흔들리는 자율주행 센서 로그를, 시간 정렬과 포즈 그래프 최적화로 정제해 고품질 3DGS(NVIDIA NuRec 등) 입력으로 만드는 실무 지향적 파이프라인 책입니다. 문제 진단(1부: 왜 3DGS가 무너지는가) → 시간 정렬(2부: 보간·오프셋 추정·검증) → extrinsic 드리프트 보정(3부: 포즈 그래프·리그 제약·루프 클로저) → 통합과 검증(4부: 파이프라인 통합·품질 게이트·종합 실전)까지, 모든 도구를 NumPy/SciPy로 직접 구현하고 정답을 아는 시뮬레이션으로 검증합니다.
+
+이 책은 "회전은 왜 어려운가"(리 군/리 대수)와 "모르는 곳에서 나를 찾는 법"(SLAM) 책의 `SE(3)` 최적화 도구를 실전 데이터 정제 문제로 확장한 후속편이자, 독립적으로 읽을 수 있는 책입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 흔들리는 로그를 선명한 3DGS로]*
+
+*1부: 문제 진단*
+
+[start=1]
+. *link:01-why-3dgs-breaks/[왜 3DGS가 흔들리는 센서 앞에서 무너지는가]*
+. *link:02-timestamp-to-pose-error/[타임스탬프 오차가 포즈 오차로 바뀌는 원리]*
+
+*2부: 시간 정렬*
+
+[start=3]
+. *link:03-aligning-different-rates/[서로 다른 주파수의 센서를 하나의 타임라인에 정렬하기]*
+. *link:04-estimating-time-offset/[센서 간 시간 오프셋을 데이터로 추정하기]*
+. *link:05-verifying-alignment/[정렬 품질을 수치로 검증하기]*
+
+*3부: 외부 파라미터 드리프트 보정*
+
+[start=6]
+. *link:06-jitter-to-reconstruction-error/[흔들리는 extrinsic이 재구성 오차로 이어지는 과정]*
+. *link:07-pose-graph-refinement/[포즈 그래프로 프레임간 extrinsic 다시 최적화하기]*
+. *link:08-rigid-rig-constraints/[멀티 센서 리그의 강체 제약으로 최적화를 안정시키기]*
+. *link:09-loop-closure/[루프 클로저로 누적 드리프트 억제하기]*
+
+*4부: 통합과 검증*
+
+[start=10]
+. *link:10-integrated-pipeline/[시간 정렬과 포즈 최적화를 하나의 파이프라인으로 묶기]*
+. *link:11-quality-gates/[3DGS에 넣기 전 품질 게이트]*
+. *link:12-end-to-end-cleanup/[종합 실전: 흔들린 로그를 정제된 코어 데이터로 만들기]*
+
+*맺음말*
+
+[start=13]
+. *link:13-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-why-3dgs-breaks.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-timestamp-to-pose-error.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-aligning-different-rates.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-estimating-time-offset.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-verifying-alignment.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-jitter-to-reconstruction-error.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-pose-graph-refinement.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-rigid-rig-constraints.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-loop-closure.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-integrated-pipeline.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-quality-gates.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-end-to-end-cleanup.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-afterword.adoc[tag=body,leveloffset=+1]

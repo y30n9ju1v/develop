@@ -1,0 +1,192 @@
+---
+title: "3장: 서로 다른 주파수의 센서를 하나의 타임라인에 정렬하기"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["time-sync", "interpolation", "so3", "slerp", "numpy", "book"]
+categories: ["books"]
+description: "10Hz INS 포즈 스트림에서 임의의 카메라 촬영 시각의 자세를 보간할 때, 회전 행렬을 그대로 선형보간하면 정규직교성이 깨지고 회전 오차가 절반이나 남지만 지수/로그 사상 기반 SLERP를 쓰면 정확히 들어맞는다는 것을 NumPy로 검증하는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-timestamp-to-pose-error/[2장: 타임스탬프 오차가 포즈 오차로 바뀌는 원리] · 다음: link:../04-estimating-time-offset/[4장: 센서 간 시간 오프셋을 데이터로 추정하기]_
+
+'''
+
+실제 로깅 시스템에서 카메라는 보통 `10~30Hz`로, IMU/INS(관성항법장치) 포즈는 `50~200Hz`로 각자 다른 리듬으로 기록됩니다. 카메라가 셔터를 누른 정확한 시각에 정확히 대응하는 INS 포즈 샘플이 존재할 확률은 사실상 `0`입니다 — 카메라 시각은 항상 INS 샘플 두 개 사이 어딘가에 떨어집니다. 이 장에서는 그 "사이"의 자세를 정확하게 보간하는 법을 다룹니다.
+
+== 왜 회전 행렬을 그냥 선형보간하면 안 되는가
+
+가장 먼저 떠오르는 방법 — 두 시점의 회전 행렬을 그냥 `(1-α)R0 + αR1`처럼 평균 내는 것 — 이 왜 틀렸는지, 이 시리즈의 "회전은 왜 어려운가" 책 2장에서 이미 확인했습니다 — `SO(3)`은 덧셈에 닫혀 있지 않으므로, 두 회전 행렬을 그냥 더하고 평균 내면 결과가 더 이상 정확한 회전 행렬이 아닙니다. 이 장에서는 이 문제를 실제 INS 보간 상황에서 다시 만나고, 올바른 방법(지수/로그 사상 기반 SLERP)으로 고칩니다.
+
+== 급회전 구간을 도는 차량의 INS 스트림 만들기
+
+2장의 궤적 함수를 재사용해, `10Hz`(`0.1`초 간격)로 기록되는 INS 포즈 스트림을 만듭니다. 이번엔 급하게 도는 코너(`yaw_rate = 1.5 rad/s`, `2`장의 `0.3`보다 `5`배 급격한 회전)를 시뮬레이션합니다.
+
+[source,python]
+----
+import numpy as np
+
+def skew(w):
+    return np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+
+def exp_so3(w):
+    theta = np.linalg.norm(w)
+    if theta < 1e-8:
+        return np.eye(3) + skew(w)
+    axis = w / theta
+    K = skew(axis)
+    return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+
+def log_so3(R):
+    cos_theta = np.clip((np.trace(R) - 1) / 2, -1, 1)
+    theta = np.arccos(cos_theta)
+    if theta < 1e-8:
+        return np.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]]) / 2
+    w_hat = (R - R.T) / (2 * np.sin(theta))
+    w_axis = np.array([w_hat[2, 1], w_hat[0, 2], w_hat[1, 0]])
+    return w_axis * theta
+
+v, yaw_rate = 15.0, 1.5
+
+def pose_at_time(t):
+    radius = v / yaw_rate
+    heading = yaw_rate * t
+    pos = np.array([radius * np.sin(heading), radius * (1 - np.cos(heading)), 0])
+    R = exp_so3(np.array([0, 0, heading]))
+    return R, pos
+
+ins_dt = 0.1
+ins_times = np.arange(0, 3.0, ins_dt)
+ins_poses = [pose_at_time(t) for t in ins_times]
+
+print("INS 샘플 간 회전량:", np.degrees(yaw_rate * ins_dt), "도")
+----
+
+[source]
+----
+INS 샘플 간 회전량: 8.5944 도
+----
+
+`10Hz`로 샘플링해도, 급회전 구간에서는 인접한 두 INS 샘플 사이에 이미 `8.6`도나 되는 회전이 일어나 있습니다.
+
+== 방법 1: 회전 행렬을 그냥 선형보간(틀린 방법)
+
+[source,python]
+----
+def naive_interpolate(t, times, poses):
+    idx = np.clip(np.searchsorted(times, t) - 1, 0, len(times) - 2)
+    t0, t1 = times[idx], times[idx + 1]
+    alpha = (t - t0) / (t1 - t0)
+    R0, p0 = poses[idx]
+    R1, p1 = poses[idx + 1]
+    pos = (1 - alpha) * p0 + alpha * p1
+    R_naive = (1 - alpha) * R0 + alpha * R1     # 회전 행렬을 그냥 평균 -- 틀렸다!
+    return R_naive, pos
+----
+
+== 방법 2: 지수/로그 사상 기반 SLERP(올바른 방법)
+
+[source,python]
+----
+def slerp_interpolate(t, times, poses):
+    idx = np.clip(np.searchsorted(times, t) - 1, 0, len(times) - 2)
+    t0, t1 = times[idx], times[idx + 1]
+    alpha = (t - t0) / (t1 - t0)
+    R0, p0 = poses[idx]
+    R1, p1 = poses[idx + 1]
+    pos = (1 - alpha) * p0 + alpha * p1
+    R = R0 @ exp_so3(alpha * log_so3(R0.T @ R1))    # R0에서 R1로 가는 "회전량"의 alpha만큼만 적용
+    return R, pos
+----
+
+`log_so3(R0.T @ R1)`은 "`R0`에서 `R1`로 가려면 어떤 회전이 필요한가"를 리 대수 벡터로 구하고(이 시리즈의 "회전은 왜 어려운가" 책 5, 10장에서 다룬 로그 사상과 `⊟` 연산자입니다), 그 벡터에 `alpha`를 곱해 "그 회전량의 `alpha`만큼만" 적용한 뒤 `exp_so3`로 다시 회전 행렬로 되돌립니다. 결과는 항상 정의상 정확한 `SO(3)` 행렬입니다.
+
+== 두 방법을 비교하기
+
+카메라가 `t=1.25`초에 셔터를 눌렀다고 하고, 정답 자세(닫힌 형태로 정확히 계산 가능)와 두 보간 방법의 결과를 비교합니다.
+
+[source,python]
+----
+cam_t = 1.25
+R_true, pos_true = pose_at_time(cam_t)
+R_slerp, pos_slerp = slerp_interpolate(cam_t, ins_times, ins_poses)
+R_naive, pos_naive = naive_interpolate(cam_t, ins_times, ins_poses)
+
+def rot_angle_deg(Ra, Rb):
+    Re = Ra.T @ Rb
+    return np.degrees(np.arccos(np.clip((np.trace(Re) - 1) / 2, -1, 1)))
+
+print("SLERP 회전 오차:", rot_angle_deg(R_true, R_slerp), "도")
+print("나이브 회전 오차:", rot_angle_deg(R_true, R_naive), "도")
+print("나이브 정규직교 오차:", np.linalg.norm(R_naive.T @ R_naive - np.eye(3)))
+print("나이브 행렬식:", np.linalg.det(R_naive))
+----
+
+[source]
+----
+SLERP 회전 오차: 0.0 도
+나이브 회전 오차: 4.2972 도
+나이브 정규직교 오차: 0.007940
+나이브 행렬식: 0.994386
+----
+
+SLERP는 정확히 `0`도(각속도가 일정하므로 완벽하게 들어맞습니다). 나이브 방법은 `4.3`도나 틀렸습니다 — 우연히도 INS 샘플 간 전체 회전량(`8.6`도)의 정확히 절반입니다. 게다가 `R_naive`는 더 이상 정규직교 행렬이 아닙니다(`R^T R`이 단위행렬에서 `0.0079`만큼 벗어났고, 행렬식도 `1`이 아니라 `0.994`) — 2장에서 배운 "SO(3)는 덧셈에 닫혀 있지 않다"는 문제가 정확히 그대로 나타났습니다.
+
+== 왜 나이브 방법이 정확히 "절반"만큼 틀렸는가
+
+이건 우연이 아닙니다 — 회전 행렬을 그냥 `(1-α)R0 + αR1`로 평균 내면, 결과는 `R0`와 `R1`이 만드는 "진짜 회전 경로"에서 벗어나 지름 방향으로 잘려 들어간 지점에 가까워집니다(구면 위의 두 점을 잇는 대원 호 대신, 그 두 점을 잇는 직선의 중점에 가까운 셈입니다). `α=0.5`(정확히 중간 시점)에서 이 "지름 방향으로의 처짐"이 가장 크고, 그 결과 실제 필요한 회전량보다 덜 회전한 지점에 머무르게 됩니다 — 그래서 회전 오차가 "전체 회전량의 절반"에 가깝게 나타난 것입니다.
+
+== 위치 보간은 왜 상대적으로 괜찮은가
+
+[source,python]
+----
+print("SLERP 위치 오차:", np.linalg.norm(pos_slerp - pos_true))
+print("나이브 위치 오차:", np.linalg.norm(pos_naive - pos_true))
+----
+
+[source]
+----
+SLERP 위치 오차: 0.02811
+나이브 위치 오차: 0.02811
+----
+
+위치는 두 방법이 완전히 동일합니다(둘 다 그냥 선형보간을 썼으니까요). 이 `0.028m`(`2.8cm`)의 오차는 회전 문제와는 다른 원인에서 옵니다 — 차량이 실제로는 곡선(원호)을 그리며 움직이는데, 선형보간은 그 곡선을 직선으로 근사하기 때문에 생기는 오차입니다(곡률이 클수록, 보간 구간이 넓을수록 이 오차도 커집니다). `SE(3)`은 `R^3`(위치)에 대해서는 원래 덧셈이 자유로우므로 정규직교성 같은 문제는 없지만, 곡선 경로를 직선으로 근사하는 한계는 여전히 남습니다 — 4장에서 이 위치 보간 오차를 줄이는 방법(더 높은 차수의 보간)도 함께 다룹니다.
+
+== 직접 해보기
+
+* 두 INS 샘플의 정확히 중간 시점(`α=0.5`, 나이브 방법이 가장 크게 틀리는 지점)에서, 샘플 간격을 `0.1`초부터 절반씩 줄여가며(`0.1, 0.05, 0.025, 0.0125`) 나이브 방법의 회전 오차가 어떻게 줄어드는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+t0 = 1.2
+for gap in [0.1, 0.05, 0.025, 0.0125]:
+    t1, tm = t0 + gap, t0 + gap / 2       # tm: 정확히 중간 시점
+    R0, _ = pose_at_time(t0)
+    R1, _ = pose_at_time(t1)
+    R_naive_mid = 0.5 * R0 + 0.5 * R1
+    R_true_mid, _ = pose_at_time(tm)
+    print(f"간격={gap}s: 나이브 회전 오차 =", rot_angle_deg(R_true_mid, R_naive_mid), "도")
+----
+
+[source]
+----
+간격=0.1s: 나이브 회전 오차 = 4.2972 도
+간격=0.05s: 나이브 회전 오차 = 2.1486 도
+간격=0.025s: 나이브 회전 오차 = 1.0743 도
+간격=0.0125s: 나이브 회전 오차 = 0.5371 도
+----
+
+샘플 간격을 절반으로 줄일 때마다 오차도 정확히 절반으로 줄어드는, 깔끔한 **선형** 관계입니다(`4.30 → 2.15 → 1.07 → 0.54`, 매번 정확히 `2`배씩). 앞서 "INS 주파수를 조금만 높여도 나이브 방법의 오차가 급격히 준다"고 생각하기 쉽지만, 실제로는 오차가 간격에 정확히 비례할 뿐입니다 — 주파수를 `2`배 높이면(`10Hz → 20Hz`) 오차도 딱 절반이 되는 것이지, 그 이상의 "덤"은 없습니다. 그러니 저가형 센서처럼 애초에 주파수가 낮다면, 나이브 방법 대신 이 장에서 만든 SLERP를 쓰는 것이 훨씬 확실한 해결책입니다 — 주파수를 무작정 올리는 것보다, 애초에 올바른 보간 방법을 쓰는 쪽이 항상 낫습니다(SLERP는 4장에서 다룰 실제 관측 노이즈가 없는 한 오차가 아예 `0`이었다는 것을 기억하세요).
+====
+
+== 요약
+
+* 카메라 촬영 시각은 항상 INS 샘플 사이 어딘가에 떨어지므로, 그 사이의 정확한 자세를 보간해야 합니다.
+* 회전 행렬을 그냥 선형보간하면 결과가 더 이상 정규직교 행렬이 아니게 되고, 급회전 구간에서는 실제 회전량의 거의 절반에 달하는 오차가 남습니다.
+* `R0 @ exp(α · log(R0ᵀR1))`(지수/로그 사상 기반 SLERP)를 쓰면 이 문제가 완전히 해결되며, 각속도가 일정한 구간에서는 오차가 정확히 `0`입니다.
+* 나이브 선형보간의 회전 오차는 샘플 간격의 제곱에 비례해 줄어들므로, 센서 주파수를 조금만 높여도 그 오차가 급격히 작아집니다.
+* 다음 장에서는 "두 센서가 몇 초 차이로 어긋나 있는지"(시간 오프셋) 자체를 아직 모를 때, 이를 데이터로부터 추정하는 법을 다룹니다.
+// end::body[]

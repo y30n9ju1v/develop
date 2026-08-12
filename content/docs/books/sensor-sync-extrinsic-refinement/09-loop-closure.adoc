@@ -1,0 +1,184 @@
+---
+title: "9장: 루프 클로저로 누적 드리프트 억제하기"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["pose-graph", "loop-closure", "se3", "information-matrix", "numpy", "book"]
+categories: ["books"]
+description: "오도메트리 체인만으로는 손댈 수 없는 누적 드리프트를, 같은 장소를 다시 지나갔다는 루프 클로저 제약 하나로 궤적 전체에 걸쳐 재분산시키고, 측정마다 다른 신뢰도를 정보 가중치로 반영해 8장에서 남았던 문제까지 해결하는 것을 NumPy로 검증하는 9장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-rigid-rig-constraints/[8장: 멀티 센서 리그의 강체 제약으로 최적화를 안정시키기] · 다음: link:../10-integrated-pipeline/[10장: 시간 정렬과 포즈 최적화를 하나의 파이프라인으로 묶기]_
+
+'''
+
+7장의 포즈 그래프는 인접 프레임 간 상대 제약(오도메트리)만 썼습니다. 이 장에서는 그것만으로는 원리적으로 풀 수 없는 문제와, 그 문제를 해결하는 루프 클로저를 다룹니다. 그리고 8장 마지막에 남겨뒀던 숙제 — 서로 다른 신뢰도를 가진 측정값을 어떻게 최적화에 제대로 반영할 것인가 — 도 함께 풉니다.
+
+== 오도메트리 체인만으로는 원리적으로 한계가 있다
+
+출발점으로 다시 돌아오는 순환 궤적(`40`프레임)을 만들고, 인접 프레임 간 상대 자세에 작은 노이즈를 섞어 "오도메트리 측정값"을 만듭니다. 이 오도메트리만으로 궤적을 이어 붙인 것(체인)과, 이 오도메트리 제약만으로 포즈 그래프를 최적화한 것을 비교합니다.
+
+[source,python]
+----
+import numpy as np
+
+def loop_pose(i, n):
+    angle = 2 * np.pi * i / n
+    radius = 5.0
+    pos = np.array([radius * np.sin(angle), radius * (1 - np.cos(angle)), 0.0])
+    R = exp_so3(np.array([0, 0, angle]))
+    return to_T(R, -R @ pos)
+
+n_frames = 40
+T_true = [loop_pose(i, n_frames) for i in range(n_frames)]
+
+rng = np.random.default_rng(5)
+odo_noise = 0.005
+Z_odo = []
+for i in range(n_frames - 1):
+    T_rel = se3_inv(T_true[i]) @ T_true[i + 1]
+    Z_odo.append(T_rel @ exp_se3(rng.normal(0, odo_noise, 6)))
+
+T_chain = [T_true[0]]                    # 오도메트리만으로 이어 붙인 궤적(최적화 없음)
+for i in range(n_frames - 1):
+    T_chain.append(T_chain[-1] @ Z_odo[i])
+
+print("체인(오도메트리만):", pose_error(T_chain, T_true, n_frames))
+----
+
+[source]
+----
+체인(오도메트리만): 0.1894
+----
+
+이제 이 오도메트리 제약만으로 7장과 같은 포즈 그래프 최적화를 돌려봅니다.
+
+[source,python]
+----
+def build_residuals_odo(Ts):
+    return np.concatenate([residual(Ts[i], Ts[i + 1], Z_odo[i]) for i in range(n_frames - 1)])
+
+Ts_opt_noloop = optimize_generic(T_chain.copy(), build_residuals_odo, n_frames)
+print("최적화(오도메트리만):", pose_error(Ts_opt_noloop, T_true, n_frames))
+----
+
+[source]
+----
+최적화(오도메트리만): 0.1894
+----
+
+**최적화를 돌려도 결과가 전혀 바뀌지 않았습니다.** 이유는 단순합니다 — 오도메트리 제약(`n_frames-1`개)과 최적화 변수(첫 프레임을 고정하면 `n_frames-1`개의 자유 프레임)의 개수가 정확히 일치해서, 제약을 정확히 만족시키는 해가 유일하게 존재하고, 그 해가 바로 체인 그 자체이기 때문입니다 — 최적화가 "고칠 여지"가 아예 없는 상태입니다. 오도메트리 자체에 누적된 오차는 오도메트리만으로는 절대 스스로 드러나거나 고쳐지지 않습니다.
+
+== 루프 클로저: 시스템에 새로운 정보를 추가하기
+
+차량이 출발점 근처를 다시 지나갈 때, 그 사실을 인식하고(영상 매칭, 랜드마크 재인식 등으로) 마지막 프레임과 첫 프레임 사이에 **직접적인** 상대 자세 제약을 추가합니다 — 이 제약은 중간의 모든 프레임을 거치지 않고 두 프레임을 곧바로 연결하는, 지금까지 없던 새로운 정보입니다.
+
+[source,python]
+----
+Z_loop = se3_inv(T_true[-1]) @ T_true[0] @ exp_se3(rng.normal(0, 0.001, 6))   # 정확한 재인식(정답에 가까움)
+
+def build_residuals_loop(Ts):
+    r = [residual(Ts[i], Ts[i + 1], Z_odo[i]) for i in range(n_frames - 1)]
+    r.append(residual(Ts[-1], Ts[0], Z_loop))     # 마지막 프레임을 첫 프레임에 직접 연결
+    return np.concatenate(r)
+
+Ts_opt_loop = optimize_generic(T_chain.copy(), build_residuals_loop, n_frames)
+print("최적화(루프 클로저 포함):", pose_error(Ts_opt_loop, T_true, n_frames))
+----
+
+[source]
+----
+최적화(루프 클로저 포함): 0.1275
+----
+
+이번엔 오차가 `0.189`에서 `0.128`로, `33%`나 줄었습니다. 제약(`n_frames`개, 오도메트리 `n_frames-1`개 + 루프 클로저 `1`개)이 이제 자유 변수(`n_frames-1`개)보다 많아졌습니다 — 모든 제약을 동시에 정확히 만족시키는 해가 더 이상 존재하지 않고, 가우스-뉴턴이 "최선의 타협점"을 찾아야 합니다. 이 타협 과정에서, 루프 클로저가 알려준 "사실은 여기로 돌아왔어야 한다"는 정보가 궤적 전체에 걸쳐 누적됐던 드리프트를 되돌리는 데 쓰입니다.
+
+== 드리프트가 궤적 전체에 걸쳐 재분산된다
+
+루프 클로저의 효과가 이음매(마지막-첫 프레임 연결 지점) 근처에만 국한되는지, 궤적에서 가장 먼 지점(중간쯤, 이음매의 정반대편)까지 퍼지는지 확인합니다.
+
+[source,python]
+----
+mid = n_frames // 2
+print("루프 클로저 없음, 중간 지점 오차:", np.linalg.norm(log_se3(se3_inv(T_true[mid]) @ Ts_opt_noloop[mid])))
+print("루프 클로저 있음, 중간 지점 오차:", np.linalg.norm(log_se3(se3_inv(T_true[mid]) @ Ts_opt_loop[mid])))
+----
+
+[source]
+----
+루프 클로저 없음, 중간 지점 오차: 0.3032
+루프 클로저 있음, 중간 지점 오차: 0.2058
+----
+
+이음매에서 가장 먼 중간 지점에서도 오차가 `0.303`에서 `0.206`로(`32%`) 줄었습니다 — 루프 클로저 제약 하나가 이음매 근처만 고치는 게 아니라, 최소제곱 최적화를 통해 궤적 전체에 걸쳐 오차를 재분산시켰다는 뜻입니다. 이게 루프 클로저가 SLAM/포즈 그래프 최적화에서 그토록 중요하게 다뤄지는 이유입니다 — 국소적인 정보 하나가 전역적인 드리프트 문제를 완화합니다.
+
+== 8장의 숙제 풀기: 정보 가중치로 신뢰도 반영하기
+
+8장 마지막에서, 노이즈가 심한 카메라의 잔차를 정확한 카메라의 잔차와 동등하게(가중치 없이) 취급했더니 정확한 카메라까지 오염됐던 문제를 봤습니다. 각 잔차에 그 측정의 신뢰도에 비례하는 가중치(노이즈 표준편차의 역수, 정보 행렬의 제곱근에 해당합니다)를 곱해 이 문제를 정면으로 고칩니다.
+
+[source,python]
+----
+w1 = 1.0 / 0.001    # cam1: 노이즈 작음 -> 가중치 큼(더 신뢰)
+w2 = 1.0 / 0.1      # cam2(나빠진 버전): 노이즈 큼 -> 가중치 작음(덜 신뢰)
+
+def build_residuals_weighted(Tv):
+    r = []
+    for i in range(n_frames - 1):
+        Ti1, Tj1 = Tv[i] @ T_cam1_offset, Tv[i + 1] @ T_cam1_offset
+        r.append(w1 * residual(Ti1, Tj1, Z1[i]))
+        Ti2, Tj2 = Tv[i] @ T_cam2_offset, Tv[i + 1] @ T_cam2_offset
+        r.append(w2 * residual(Ti2, Tj2, Z2_worse[i]))
+    return np.concatenate(r)
+
+Tv_opt_weighted = optimize_generic(Tv_init, build_residuals_weighted, n_frames)
+T_cam1_opt_w = [Tv_opt_weighted[i] @ T_cam1_offset for i in range(n_frames)]
+T_cam2_opt_w = [Tv_opt_weighted[i] @ T_cam2_offset for i in range(n_frames)]
+
+print("가중치 적용 cam1 오차:", pose_error(T_cam1_opt_w, T_cam1_true, n_frames))
+print("가중치 적용 cam2 오차:", pose_error(T_cam2_opt_w, T_cam2_true, n_frames))
+----
+
+[source]
+----
+가중치 적용 cam1 오차: 0.0092
+가중치 적용 cam2 오차: 0.0087
+----
+
+8장에서 가중치 없이 노이즈를 키웠을 때 `cam1`이 `0.075`에서 `0.626`까지 나빠졌던 것과 비교하면 극적인 차이입니다 — 가중치를 적용하니 `cam1`은 `0.009`(오히려 8장의 원래 결과보다도 좋습니다), `cam2`도 `0.009` 수준까지 좋아졌습니다. 잔차에 `w = 1/σ`를 곱하는 건 가우스-뉴턴의 정규방정식을 `H = JᵀWJ`, `b = JᵀWr`(`W`는 대각에 `w²`가 들어간 가중치 행렬)로 바꾸는 것과 같은데, 이렇게 하면 노이즈가 작은(신뢰도 높은) 측정의 잔차가 최적화에 훨씬 더 큰 영향력을 갖고, 노이즈가 큰 측정은 "그럴 수도 있지"라며 상대적으로 덜 반영됩니다 — 8장에서 왜 정확한 카메라까지 오염됐는지 정확히 짚어낸 원인(동등한 가중치)을 이번 장에서 그대로 고친 것입니다.
+
+== 직접 해보기
+
+* 루프 클로저 측정값 자체에 노이즈를 훨씬 크게(`0.001`이 아니라 `0.05`) 섞으면, 루프 클로저가 여전히 도움이 되는지, 아니면 오히려 궤적을 더 나쁘게 만드는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+Z_loop_bad = se3_inv(T_true[-1]) @ T_true[0] @ exp_se3(rng.normal(0, 0.05, 6))
+
+def build_residuals_loop_bad(Ts):
+    r = [residual(Ts[i], Ts[i + 1], Z_odo[i]) for i in range(n_frames - 1)]
+    r.append(residual(Ts[-1], Ts[0], Z_loop_bad))
+    return np.concatenate(r)
+
+Ts_opt_loop_bad = optimize_generic(T_chain.copy(), build_residuals_loop_bad, n_frames)
+print("나쁜 루프 클로저 포함:", pose_error(Ts_opt_loop_bad, T_true, n_frames))
+----
+
+[source]
+----
+나쁜 루프 클로저 포함: 0.2562
+----
+
+루프 클로저가 아예 없었을 때(`0.189`)보다도 오차가 커졌습니다(`0.256`) — 루프 클로저 측정 자체가 부정확하면(잘못된 재인식, 즉 실제로는 다른 장소인데 같은 곳이라고 착각한 경우를 포함), 이 장에서 배운 가중치 없는 최적화는 그 잘못된 정보를 오도메트리 제약과 동등하게 신뢰해 오히려 궤적을 왜곡시킬 수 있습니다 — 앞서 확인한 "가중치가 없으면 나쁜 정보가 좋은 정보를 오염시킨다"는 8~9장의 교훈이 루프 클로저에도 그대로 적용됩니다. 실전 SLAM 시스템이 루프 클로저 후보를 여러 겹의 검증(기하학적 일관성 확인, RANSAC 등)을 거쳐서만 받아들이는 이유가 바로 이것입니다 — 잘못된 루프 클로저 하나가 정확했던 궤적 전체를 망가뜨릴 수 있기 때문입니다.
+====
+
+== 요약
+
+* 오도메트리 체인만으로 만든 포즈 그래프는 제약 수와 자유 변수 수가 정확히 일치해 최적화가 개선할 여지가 없으며, 누적된 드리프트를 스스로 고칠 수 없습니다.
+* 같은 장소를 다시 지나갔다는 루프 클로저 제약을 추가하면 시스템이 과결정(제약이 변수보다 많음)되어, 궤적 전체에 걸쳐(이음매 근처뿐 아니라 가장 먼 지점까지) 드리프트가 재분산되며 오차가 뚜렷하게 줄어듭니다.
+* 잔차에 `1/σ` 가중치를 곱해 정보 행렬을 반영하면, 8장에서 노이즈 심한 센서가 정확한 센서까지 오염시켰던 문제가 해결되고 두 센서 모두 훨씬 정확한 결과를 얻습니다.
+* 루프 클로저나 가중치나 모두 "잘못된 정보를 과신하면 오히려 해롭다"는 같은 원칙을 공유하며, 실전에서는 루프 클로저 후보 자체의 신뢰도 검증이 중요합니다.
+* 다음 장에서는 지금까지 따로 다룬 시간 정렬(2부)과 extrinsic 재최적화(3부)를 하나의 파이프라인으로 통합합니다.
+// end::body[]

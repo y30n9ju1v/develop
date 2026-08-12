@@ -1,0 +1,208 @@
+---
+title: "1장: 왜 3DGS가 흔들리는 센서 앞에서 무너지는가"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["3dgs", "extrinsic", "triangulation", "numpy", "book"]
+categories: ["books"]
+description: "카메라 자세가 아주 조금(1도, 몇 cm)만 틀려도 삼각측량 재투영 오차가 픽셀 단위로 커진다는 것을 NumPy로 직접 시뮬레이션해, extrinsic 오차가 왜 3DGS 재구성에서 흐림·고스팅으로 나타나는지 정량적으로 확인하는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../02-timestamp-to-pose-error/[2장: 타임스탬프 오차가 포즈 오차로 바뀌는 원리]_
+
+'''
+
+3D Gaussian Splatting(3DGS)은 "이 사진은 정확히 이 카메라 자세(extrinsic)에서 찍혔다"는 정보를 바탕으로, 여러 사진에 동시에 들어맞는 3차원 가우시안들을 최적화로 찾아냅니다. 이 장에서는 그 카메라 자세가 아주 조금만 틀려도 무슨 일이 일어나는지, 작은 3차원 점 삼각측량 실험으로 직접 확인합니다.
+
+== 실험 설계: 알려진 점을 여러 카메라로 관찰하기
+
+작은 물체(반경 `0.05` 정도로 흩어진 `20`개의 3차원 점)를 `12`대의 카메라가 부채꼴로 둘러싸고 관찰한다고 합시다. 카메라 자세는 이 책 전체에서 다룰 `SE(3)`(회전 `R`과 이동 `t`)로 표현합니다.
+
+[source,python]
+----
+import numpy as np
+
+def skew(w):
+    return np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+
+def exp_so3(w):
+    theta = np.linalg.norm(w)
+    if theta < 1e-8:
+        return np.eye(3) + skew(w)
+    axis = w / theta
+    K = skew(axis)
+    return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+
+f = 300.0   # 카메라 초점거리(픽셀 단위)
+
+def project(P_world, R_wc, t_wc):
+    P_cam = R_wc @ P_world + t_wc     # 월드 좌표를 카메라 좌표로
+    return np.array([f * P_cam[0] / P_cam[2], f * P_cam[1] / P_cam[2]])
+
+rng = np.random.default_rng(0)
+points_true = np.array([0.0, 0.0, 5.0]) + rng.normal(0, 0.05, (20, 3))
+
+n_cams = 12
+true_poses = []
+for i in range(n_cams):
+    angle = 2 * np.pi * i / n_cams * 0.3
+    cam_pos_world = np.array([2 * np.sin(angle), 0.3 * np.sin(2 * angle), 0.0])
+    R_wc = exp_so3(np.array([0, angle * 0.1, 0]))
+    t_wc = -R_wc @ cam_pos_world
+    true_poses.append((R_wc, t_wc))
+----
+
+`exp_so3`는 회전 벡터를 회전 행렬로 바꾸는 함수입니다(이 시리즈의 "회전은 왜 어려운가" 책에서 처음부터 다뤘던 지수 사상이며, 이 책 전체에서 반복해서 씁니다). 각 카메라의 `(R_wc, t_wc)`가 "월드 좌표를 이 카메라의 좌표계로 옮기는" 변환입니다.
+
+== 삼각측량: 여러 카메라의 관측으로 3D 점을 복원하기
+
+"정답" 카메라 자세로 각 점을 촬영한 픽셀 좌표(관측값)를 만들고, 그 관측값들만으로 원래 3D 점을 다시 복원(삼각측량)해봅니다. 여러 카메라의 투영 방정식을 선형연립방정식으로 세워 최소제곱으로 풉니다.
+
+[source,python]
+----
+def triangulate_point(obs_2d, poses, f):
+    A = []
+    for (x, y), (R, t) in zip(obs_2d, poses):
+        r1, r2, r3 = R[0], R[1], R[2]
+        row1, row2 = x * r3 - f * r1, y * r3 - f * r2
+        b1, b2 = -(x * t[2] - f * t[0]), -(y * t[2] - f * t[1])
+        A.append((row1, b1))
+        A.append((row2, b2))
+    Amat = np.array([a for a, b in A])
+    bvec = np.array([b for a, b in A])
+    P, *_ = np.linalg.lstsq(Amat, bvec, rcond=None)
+    return P
+----
+
+카메라 자세가 정확하다면, 이 삼각측량이 원래 점을 정확히 복원해야 합니다.
+
+[source,python]
+----
+P = points_true[0]
+obs = [project(P, R, t) for R, t in true_poses]
+P_recon = triangulate_point(obs, true_poses, f)
+print("복원 오차:", np.linalg.norm(P_recon - P))
+----
+
+[source]
+----
+복원 오차: 5.77e-15
+----
+
+부동소수점 오차 수준으로 정확히 복원됐습니다 — 카메라 자세가 정확하면, 여러 시점의 관측이 완벽하게 하나의 점으로 수렴한다는 뜻입니다.
+
+== 카메라 자세를 아주 조금만 흔들면
+
+이제 "우리가 알고 있다고 믿는" 카메라 자세에 아주 작은 오차를 섞습니다 — 회전은 표준편차 `0.02`라디안(`~1.1도`), 이동은 표준편차 `0.02`(물체까지 거리 `5`에 비하면 `0.4%` 수준)만큼만 흔듭니다. 실제 사진(관측값)은 여전히 **정답** 카메라 자세에서 찍혔지만, 삼각측량에는 이 **틀린** 자세를 사용합니다 — extrinsic 캘리브레이션이나 포즈 추정이 아주 살짝 어긋난 상황을 그대로 흉내 낸 것입니다.
+
+[source,python]
+----
+jitter_std_rot, jitter_std_trans = 0.02, 0.02
+jittered_poses = []
+for (R, t) in true_poses:
+    dR = exp_so3(rng.normal(0, jitter_std_rot, 3))
+    dt = rng.normal(0, jitter_std_trans, 3)
+    jittered_poses.append((dR @ R, t + dt))
+----
+
+이렇게 삼각측량한 점이 실제 카메라들(정답 자세)에 얼마나 안 맞는지, **재투영 오차**(복원된 점을 다시 카메라에 투영했을 때 실제 관측 픽셀과 얼마나 떨어지는가)로 잽니다.
+
+[source,python]
+----
+reproj_correct, reproj_jittered = [], []
+for P in points_true:
+    obs_true = [project(P, R, t) for R, t in true_poses]
+    P_correct = triangulate_point(obs_true, true_poses, f)
+    P_jittered = triangulate_point(obs_true, jittered_poses, f)   # 틀린 자세로 삼각측량
+
+    for (x_obs, y_obs), (R, t) in zip(obs_true, true_poses):      # 실제(정답) 카메라에 다시 투영
+        xr, yr = project(P_correct, R, t)
+        reproj_correct.append(np.hypot(xr - x_obs, yr - y_obs))
+        xj, yj = project(P_jittered, R, t)
+        reproj_jittered.append(np.hypot(xj - x_obs, yj - y_obs))
+
+print("정확한 자세: 평균 재투영 오차 =", np.mean(reproj_correct), "픽셀")
+print("흔들린 자세: 평균 재투영 오차 =", np.mean(reproj_jittered), "픽셀")
+print("흔들린 자세: 최대 재투영 오차 =", np.max(reproj_jittered), "픽셀")
+----
+
+[source]
+----
+정확한 자세: 평균 재투영 오차 = 6.39e-14 픽셀
+흔들린 자세: 평균 재투영 오차 = 2.108 픽셀
+흔들린 자세: 최대 재투영 오차 = 3.646 픽셀
+----
+
+회전 `1.1도`, 이동 `0.4%`라는, 얼핏 "그 정도면 괜찮지 않을까" 싶은 작은 오차만으로도, 평균 `2`픽셀, 최대 `3.6`픽셀의 재투영 오차가 생겼습니다.
+
+== 이 재투영 오차가 왜 "흐림"으로 나타나는가
+
+3DGS(그리고 NeRF 계열의 모든 재구성 기술)는 정확히 이 재투영 오차를 최소화하도록 3차원 가우시안(또는 밀도장)을 최적화합니다. 카메라 자세가 정확하다면, 최적화는 "모든 시점에서 동시에 딱 들어맞는" 선명한 점을 찾을 수 있습니다. 하지만 카메라 자세 자체가 틀렸다면, **애초에 모든 시점을 동시에 만족시키는 완벽한 해가 존재하지 않습니다** — 방금 확인했듯 `12`개 카메라 중 어느 자세를 기준으로 삼든 `2~3`픽셀씩 어긋나기 때문입니다. 최적화는 이 모순되는 제약들 사이에서 타협점을 찾을 수밖에 없고, 그 타협의 결과가 바로 우리가 눈으로 보는 흐림(하나의 선명한 점 대신 뭉개진 얼룩)이나 고스팅(같은 물체가 살짝 어긋난 위치에 두 번 겹쳐 보임)입니다.
+
+== 얼마나 작은 오차부터 문제가 되는가
+
+[source,python]
+----
+for rot_std in [0.001, 0.005, 0.01, 0.02, 0.05]:
+    errs = []
+    jittered = [(exp_so3(rng.normal(0, rot_std, 3)) @ R, t + rng.normal(0, rot_std, 3)) for R, t in true_poses]
+    for P in points_true:
+        obs_true = [project(P, R, t) for R, t in true_poses]
+        P_j = triangulate_point(obs_true, jittered, f)
+        errs.extend(np.hypot(*(project(P_j, R, t) - o)) for o, (R, t) in zip(obs_true, true_poses))
+    print(f"회전/이동 표준편차={rot_std}: 평균 재투영 오차={np.mean(errs):.4f} 픽셀")
+----
+
+[source]
+----
+회전/이동 표준편차=0.001: 평균 재투영 오차=0.0912 픽셀
+회전/이동 표준편차=0.005: 평균 재투영 오차=0.8262 픽셀
+회전/이동 표준편차=0.01: 평균 재투영 오차=1.2541 픽셀
+회전/이동 표준편차=0.02: 평균 재투영 오차=2.8609 픽셀
+회전/이동 표준편차=0.05: 평균 재투영 오차=10.5621 픽셀
+----
+
+오차가 커질수록 재투영 오차도 뚜렷하게 커집니다(`0.001`에서 `0.09`픽셀, `0.05`에서는 `10`픽셀이 넘습니다). 이미지 기반 렌더링에서 서브픽셀(`1`픽셀 미만) 수준의 재투영 오차는 보통 무시할 만하지만, `1`픽셀을 넘어서기 시작하면 3DGS 학습의 광도 손실(photometric loss)이 감당해야 할 "설명할 수 없는 불일치"가 눈에 띄게 쌓입니다.
+
+== 이 책이 풀어갈 두 가지 원인
+
+카메라 자세가 이렇게 흔들리는 원인은 크게 두 가지입니다. 하나는 **시간 정렬 오차**입니다 — 카메라 셔터가 눌린 정확한 시각과, 그 시각에 대응하는 차량의 위치·자세 추정값(보통 IMU나 GPS/INS에서 옴) 사이에 타임스탬프가 어긋나 있으면, 차량이 움직이는 동안 "엉뚱한 시각의 자세"를 그 사진에 갖다 붙이는 꼴이 됩니다. 다른 하나는 **extrinsic 자체의 드리프트**입니다 — 캘리브레이션 당시 측정한 카메라-차량 간 상대 자세가 진동이나 시간 경과에 따라 조금씩 어긋나거나, 포즈 추정(SLAM/INS) 자체의 누적 오차가 프레임마다 다른 크기로 섞여 듭니다. 2장에서는 첫 번째 원인(시간 정렬 오차)이 정확히 얼마나 되는 포즈 오차로 바뀌는지 정량적으로 유도합니다.
+
+== 직접 해보기
+
+* 회전 오차와 이동 오차를 따로 떼어, 회전만 `0.02`만큼 흔들고 이동은 그대로 뒀을 때와, 이동만 `0.02`만큼 흔들고 회전은 그대로 뒀을 때 중 어느 쪽이 재투영 오차에 더 큰 영향을 주는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+def reproj_error_for(rot_std, trans_std):
+    jittered = [(exp_so3(rng.normal(0, rot_std, 3)) @ R, t + rng.normal(0, trans_std, 3)) for R, t in true_poses]
+    errs = []
+    for P in points_true:
+        obs_true = [project(P, R, t) for R, t in true_poses]
+        P_j = triangulate_point(obs_true, jittered, f)
+        errs.extend(np.hypot(*(project(P_j, R, t) - o)) for o, (R, t) in zip(obs_true, true_poses))
+    return np.mean(errs)
+
+print("회전만 흔듦:", reproj_error_for(0.02, 0.0))
+print("이동만 흔듦:", reproj_error_for(0.0, 0.02))
+----
+
+[source]
+----
+회전만 흔듦: 2.5483
+이동만 흔듦: 0.4261
+----
+
+이 실험 조건(카메라가 물체로부터 거리 `5` 정도 떨어져 있음)에서는 회전 오차가 이동 오차보다 재투영 오차에 `6`배 가까이 더 큰 영향을 줍니다 — 회전은 카메라가 보는 방향 전체를 틀어버려서 먼 거리에 있는 점일수록 그 각도 오차가 큰 위치 오차로 증폭되는 반면(먼 거리 × 작은 각도 = 그래도 꽤 큰 변위), 이동 오차는 카메라 위치 자체를 옮길 뿐 보는 방향은 그대로라 상대적으로 영향이 작습니다. 이 "회전 오차가 거리에 비례해 증폭된다"는 성질은 8장에서 원거리 랜드마크와 근거리 랜드마크의 극단적으로 다른 오차 민감도로 다시 등장합니다.
+====
+
+== 요약
+
+* 3DGS는 카메라 자세가 정확하다는 전제 위에서 모든 시점에 동시에 들어맞는 3차원 표현을 찾으며, 자세가 조금이라도 틀리면 이 전제가 깨집니다.
+* 회전 `1`도, 이동 `0.4%` 남짓의 작은 자세 오차만으로도 삼각측량 재투영 오차가 픽셀 단위로 커진다는 것을 직접 시뮬레이션으로 확인했습니다.
+* 이 재투영 오차는 3DGS 최적화가 감당해야 할 "설명할 수 없는 불일치"로 남아, 흐림이나 고스팅 같은 형태로 최종 렌더링에 나타납니다.
+* 이런 자세 오차의 근본 원인은 크게 시간 정렬 오차와 extrinsic 자체의 드리프트로 나뉘며, 다음 장부터 각각을 다룹니다.
+// end::body[]

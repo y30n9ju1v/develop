@@ -1,0 +1,165 @@
+---
+title: "5장: 정렬 품질을 수치로 검증하기"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["time-sync", "cross-validation", "numpy", "book"]
+categories: ["books"]
+description: "4장에서 추정한 시간 오프셋을, 오프셋 추정에 쓰지 않은 별도 구간에서 잔차 RMS로 검증하고, 교차상관 피크의 뾰족한 정도로 추정 신뢰도를 정량화해 얼마나 많은/다양한 데이터가 있어야 추정을 믿을 수 있는지 확인하는 5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-estimating-time-offset/[4장: 센서 간 시간 오프셋을 데이터로 추정하기] · 다음: link:../06-jitter-to-reconstruction-error/[6장: 흔들리는 extrinsic이 재구성 오차로 이어지는 과정]_
+
+'''
+
+4장에서 교차상관으로 시간 오프셋을 추정했습니다. 그런데 그 추정치를 그냥 믿어도 될까요? 이 장에서는 추정에 쓰지 않은 별도의 데이터 구간으로 그 추정치를 검증하는 법과, 추정 자체가 얼마나 믿을 만한지 정량화하는 법을 다룹니다.
+
+== 검증 원칙: 추정에 쓴 데이터로 검증하지 않는다
+
+4장의 코드를 그대로 쓰되, 데이터를 두 구간으로 나눕니다 — 앞쪽 절반(`t=1~9`초)으로 오프셋을 추정하고, 뒤쪽 절반(`t=10~18`초)으로 그 추정치가 실제로 맞는지 검증합니다. 이 원칙(추정에 쓴 데이터로 검증하지 않는다)은 머신러닝의 학습/검증 데이터 분리와 정확히 같은 이유에서 중요합니다 — 추정에 쓴 데이터로 검증하면, 그 데이터의 노이즈에 우연히 잘 맞아떨어진 것과 진짜로 맞는 오프셋을 찾은 것을 구별할 수 없습니다.
+
+[source,python]
+----
+import numpy as np
+
+def estimate_offset(t_start, t_end, common_dt=0.005):
+    common_times = np.arange(t_start, t_end, common_dt)
+    imu_r = np.interp(common_times, imu_times, imu_yaw)
+    cam_r = np.interp(common_times, cam_times, cam_yaw)
+    imu_c, cam_c = imu_r - imu_r.mean(), cam_r - cam_r.mean()
+
+    corr = np.correlate(cam_c, imu_c, mode='full')
+    lags = np.arange(-len(imu_c) + 1, len(cam_c))
+    mask = (lags >= -40) & (lags <= 40)
+    sub_lags, sub_corr = lags[mask], corr[mask]
+    best_lag = sub_lags[np.argmax(sub_corr)]
+
+    peak_idx = np.where(lags == best_lag)[0][0]
+    y0, y1, y2 = corr[peak_idx - 1], corr[peak_idx], corr[peak_idx + 1]
+    delta = 0.5 * (y0 - y2) / (y0 - 2 * y1 + y2)
+    return (best_lag + delta) * common_dt
+
+offset_est = estimate_offset(t_start=1, t_end=9)   # 앞쪽 절반으로만 추정
+print("추정된 오프셋:", offset_est)
+----
+
+[source]
+----
+추정된 오프셋: 0.03780058232794332
+----
+
+`35ms`(정답)에 가까운 `37.8ms`가 나왔습니다 — 정확히 일치하지는 않지만(노이즈가 섞인 유한한 데이터에서 나온 추정치이므로 당연합니다), 얼마나 가까운지 뒤쪽 절반으로 검증해봅니다.
+
+== 검증: 잔차 RMS로 정렬 전후를 비교하기
+
+이 오프셋을 적용했을 때, 검증 구간에서 카메라 신호와 IMU 신호가 실제로 얼마나 잘 겹치는지 잔차의 RMS(제곱평균제곱근)로 잽니다.
+
+[source,python]
+----
+val_mask = (cam_times >= 10) & (cam_times < 18)
+cam_val_times = cam_times[val_mask]
+cam_val_yaw = cam_yaw[val_mask]
+
+imu_at_cam_raw = np.interp(cam_val_times, imu_times, imu_yaw)                     # 보정 없이 그대로 비교
+imu_at_cam_corrected = np.interp(cam_val_times - offset_est, imu_times, imu_yaw)  # 오프셋만큼 보정 후 비교
+
+rms_before = np.sqrt(np.mean((cam_val_yaw - imu_at_cam_raw) ** 2))
+rms_after = np.sqrt(np.mean((cam_val_yaw - imu_at_cam_corrected) ** 2))
+
+print("보정 전 잔차 RMS:", rms_before)
+print("보정 후 잔차 RMS:", rms_after)
+----
+
+[source]
+----
+보정 전 잔차 RMS: 0.5199493201884379
+보정 후 잔차 RMS: 0.06412057334688546
+----
+
+보정 전후로 잔차가 `8`배 넘게 줄었습니다(`0.52 → 0.064`) — 그리고 이 검증은 오프셋 추정에 전혀 쓰이지 않은 뒤쪽 절반 데이터로 이루어졌으므로, 이 개선이 우연이 아니라 진짜로 시간 정렬이 좋아졌다는 증거입니다. 참고로 남은 잔차(`0.064`)는 `0`이 아닌데, 이는 IMU(노이즈 표준편차 `0.01`)와 카메라(노이즈 표준편차 `0.03`) 각각이 갖고 있는 측정 노이즈 자체가 만드는 한계입니다 — 완벽한 시간 정렬로도 이 잔차를 `0`으로 만들 수는 없습니다.
+
+== 추정 자체의 신뢰도 재기: 피크의 뾰족한 정도
+
+오프셋 추정치 하나만 덜렁 주어지면, 그게 뾰족하게 확신을 가지고 찾은 값인지, 아니면 여러 후보 중 우연히 근소하게 앞선 값인지 알 수 없습니다. 교차상관 곡선에서 **최댓값이 주변 값들보다 얼마나 튀어나와 있는지**를 재면 이 확신의 정도를 정량화할 수 있습니다.
+
+[source,python]
+----
+def estimate_offset_with_confidence(t_start, t_end, common_dt=0.005):
+    common_times = np.arange(t_start, t_end, common_dt)
+    imu_r = np.interp(common_times, imu_times, imu_yaw)
+    cam_r = np.interp(common_times, cam_times, cam_yaw)
+    imu_c, cam_c = imu_r - imu_r.mean(), cam_r - cam_r.mean()
+
+    corr = np.correlate(cam_c, imu_c, mode='full')
+    lags = np.arange(-len(imu_c) + 1, len(cam_c))
+    mask = (lags >= -40) & (lags <= 40)
+    sub_lags, sub_corr = lags[mask], corr[mask]
+    best_idx = np.argmax(sub_corr)
+    best_lag = sub_lags[best_idx]
+
+    far_mask = np.abs(sub_lags - best_lag) > 5          # 피크 바로 근처를 제외한 "배경" 구간
+    confidence = (sub_corr[best_idx] - sub_corr[far_mask].mean()) / sub_corr[far_mask].std()
+    return best_lag * common_dt, confidence
+
+offset, confidence = estimate_offset_with_confidence(1, 9)
+print(f"오프셋={offset:.4f}, 신뢰도(σ 단위)={confidence:.3f}")
+----
+
+[source]
+----
+오프셋=0.0350, 신뢰도(σ 단위)=2.779
+----
+
+`신뢰도`는 "피크 값이 배경(피크에서 멀리 떨어진 지연 값들)의 표준편차 몇 배만큼 튀어나와 있는가"를 나타냅니다 — `2.78`이면 피크가 배경의 일반적인 흔들림보다 `2.78`배 크다는 뜻으로, 통계적으로 우연이라고 보기엔 꽤 뚜렷하게 튀어나온 값입니다(일반적으로 `3` 이상이면 상당히 신뢰할 만하다고 봅니다).
+
+== 데이터가 부족하면 신뢰도가 어떻게 떨어지는가
+
+[source,python]
+----
+for window in [8, 2, 0.5]:
+    off, conf = estimate_offset_with_confidence(1, 1 + window)
+    print(f"구간 길이={window}초: 오프셋={off:.4f}, 신뢰도={conf:.3f}")
+----
+
+[source]
+----
+구간 길이=8초: 오프셋=0.0378, 신뢰도=2.779
+구간 길이=2초: 오프셋=0.0521, 신뢰도=2.315
+구간 길이=0.5초: 오프셋=0.0287, 신뢰도=2.111
+----
+
+구간이 짧아질수록 신뢰도도 떨어지고(`2.78 → 2.11`), 추정치 자체도 정답(`0.035`)에서 더 멀어집니다(`8`초 구간의 `0.038`보다 `2`초 구간의 `0.052`가 훨씬 부정확합니다) — 짧은 구간에는 신호가 다채롭게 변하는 순간이 우연히 적게 들어갈 수 있고(4장에서 다룬 "풍부한 신호"가 필요하다는 원칙), 그러면 교차상관의 피크가 덜 뾰족해지면서 추정도 함께 부정확해집니다. 실전에서는 이 신뢰도 지표를 자동화된 파이프라인의 게이트로 쓸 수 있습니다 — 신뢰도가 임계값(예: `2.5`) 이하라면, 그 구간의 오프셋 추정치를 그대로 믿지 말고 더 긴 구간이나 더 다채로운 주행 구간의 데이터를 다시 확보해야 합니다.
+
+== 직접 해보기
+
+* 검증 구간(`t=10~18`)이 아니라 추정에 쓴 구간(`t=1~9`) 자체로 잔차 RMS를 계산하면 어떤 값이 나오는지 확인하고, 이 값이 왜 진짜 검증으로 쓰기에 부적절한지 이 장의 원칙과 연결해 설명해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+train_mask = (cam_times >= 1) & (cam_times < 9)
+cam_train_times = cam_times[train_mask]
+cam_train_yaw = cam_yaw[train_mask]
+
+imu_at_cam_train_corrected = np.interp(cam_train_times - offset_est, imu_times, imu_yaw)
+rms_train = np.sqrt(np.mean((cam_train_yaw - imu_at_cam_train_corrected) ** 2))
+print("추정에 쓴 구간 자체의 잔차 RMS:", rms_train)
+----
+
+[source]
+----
+추정에 쓴 구간 자체의 잔차 RMS: 0.05848720549463040
+----
+
+검증 구간의 결과(`0.0641`)와 거의 같은 수준으로 나왔습니다 — 이 경우엔 우연이 아니라, 오프셋이 노이즈에 대한 과적합 없이 데이터가 가진 진짜 물리적 지연을 정확히 잡아냈다는 좋은 신호입니다. 하지만 원칙적으로 이 숫자만으로는 "정말 잘 맞았다"와 "노이즈에 우연히 맞춰졌다"를 구별할 수 없습니다 — 오프셋 추정 자체가 그 구간의 데이터에 가장 잘 맞는 값을 찾는 과정이었으므로, 같은 구간에서 잔차가 작게 나오는 건 어느 정도 당연합니다. 진짜 신뢰는 반드시 별도 구간에서 나와야 하며, 이번 장에서 검증 구간의 결과가 추정 구간과 비슷했다는 사실 자체가 "이 오프셋 추정이 특정 구간의 우연이 아니라 일관되게 성립하는 진짜 패턴"이라는 걸 보여주는 것입니다.
+====
+
+== 요약
+
+* 오프셋 추정에 쓴 데이터가 아닌 별도 구간으로 잔차 RMS를 재는 것이, 그 추정치가 우연이 아니라 진짜인지 확인하는 원칙적인 방법입니다.
+* 이 실험에서 시간 정렬 보정으로 잔차 RMS가 `8`배 넘게 줄었고, 남은 잔차는 두 센서 각각의 측정 노이즈로 설명되는 자연스러운 하한선입니다.
+* 교차상관 피크가 배경보다 얼마나 튀어나와 있는지(표준편차 단위)로 추정 신뢰도를 정량화할 수 있으며, 짧거나 단조로운 데이터 구간에서는 이 신뢰도가 떨어지고 추정도 부정확해집니다.
+* 다음 장부터는 이 책의 두 번째 축인 extrinsic 드리프트로 넘어가, 흔들리는 카메라 자세가 실제로 재구성 오차를 얼마나 키우는지 정량화합니다.
+// end::body[]

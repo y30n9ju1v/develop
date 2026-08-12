@@ -1,0 +1,206 @@
+---
+title: "12장: 종합 실전: 흔들린 로그를 정제된 코어 데이터로 만들기"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["time-sync", "extrinsic", "pose-graph", "3dgs", "numpy", "book"]
+categories: ["books"]
+description: "타임싱크가 안 맞고 캘리브레이션이 드리프트된 원시 로그를, 시간 오프셋 추정·SLERP 재정렬·희소 GPS 앵커를 곁들인 포즈 그래프 최적화·품질 게이트까지 이어 붙여 재투영 오차를 8.7배 줄이는 전체 파이프라인을 NumPy로 완성하는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-quality-gates/[11장: 3DGS에 넣기 전 품질 게이트] · 다음: link:../13-afterword/[맺음말]_
+
+'''
+
+이 책의 모든 도구를 하나로 모을 시간입니다. 타임싱크가 어긋나고 캘리브레이션이 서서히 드리프트된 원시 로그에서 시작해, 시간 정렬(2~5장) → extrinsic 재최적화(6~9장, 이번엔 순수 오도메트리 체인만으로는 부족하다는 9장의 교훈을 반영해 희소한 GPS 앵커를 추가) → 통합(10장) → 품질 게이트(11장)까지 처음부터 끝까지 실행합니다.
+
+== 원시 로그 시뮬레이션
+
+곡선 도로를 달리는 궤적에, `20ms`의 알 수 없는 카메라 시간 오프셋과 `INS`의 미세한 캘리브레이션 드리프트를 함께 심습니다.
+
+[source,python]
+----
+import numpy as np
+from scipy.ndimage import gaussian_filter1d
+
+rng = np.random.default_rng(20)
+v, T_max = 10.0, 6.0
+dt_fine = 0.001
+ts_fine = np.arange(0, T_max, dt_fine)
+yaw_rate_fine = gaussian_filter1d(rng.normal(0, 1, ts_fine.shape), sigma=20)
+yaw_rate_fine = yaw_rate_fine / yaw_rate_fine.std() * 0.3
+
+heading_fine = np.cumsum(yaw_rate_fine) * dt_fine
+x_fine = np.cumsum(v * np.cos(heading_fine)) * dt_fine
+y_fine = np.cumsum(v * np.sin(heading_fine)) * dt_fine
+
+true_offset = 0.02
+ins_dt = 1 / 200
+ins_times = np.arange(0, T_max, ins_dt)
+cum_drift, ins_poses = 0.0, []
+for t in ins_times:
+    R_true, t_true = true_pose_at(t)
+    cum_drift += rng.normal(0, 0.0002)
+    ins_poses.append((exp_so3(np.array([0, 0, cum_drift])) @ R_true, t_true))
+
+cam_dt = 1 / 10
+cam_times = np.arange(1.0, T_max - 1.0, cam_dt)
+n = len(cam_times)                                              # 40프레임
+true_cam_poses = [true_pose_at(t - true_offset) for t in cam_times]
+points_true = np.array([0.0, 0.0, 7.0]) + rng.normal(0, 0.3, (12, 3))
+----
+
+== 0단계: 아무 보정 없이
+
+[source,python]
+----
+naive_poses = [slerp_lookup(t, ins_times, ins_poses) for t in cam_times]
+err0 = mean_reproj_error(naive_poses, true_cam_poses, points_true)
+print("0단계(원시):", err0, "픽셀")
+----
+
+[source]
+----
+0단계(원시): 8.2516 픽셀
+----
+
+== 1단계: 시간 정렬(2~5장)
+
+[source,python]
+----
+imu_yaw = np.array([yaw_rate_at(t) for t in ins_times]) + rng.normal(0, 0.01, ins_times.shape)
+cam_yaw = np.array([yaw_rate_at(t - true_offset) for t in cam_times]) + rng.normal(0, 0.03, cam_times.shape)
+
+offset_est = estimate_offset(imu_yaw, ins_times, cam_yaw, cam_times, t0=2, t1=T_max - 2)
+stage1_poses = [slerp_lookup(t, ins_times, ins_poses) for t in (cam_times - offset_est)]
+err1 = mean_reproj_error(stage1_poses, true_cam_poses, points_true)
+print("1단계(시간 정렬, 추정 오프셋={:.4f}s):".format(offset_est), err1, "픽셀")
+----
+
+[source]
+----
+1단계(시간 정렬, 추정 오프셋=0.0142s): 2.0870 픽셀
+----
+
+`8.25`픽셀에서 `2.09`픽셀로, `4`배 개선됐습니다.
+
+== 2단계: extrinsic 재최적화 — 순수 체인만으로는 부족하다
+
+9장에서 확인했듯, 오도메트리 체인만으로 포즈 그래프를 구성하면 제약과 변수 개수가 정확히 일치해 최적화가 개선할 여지가 없습니다(오히려 이 시뮬레이션에서 직접 시도해보면, 프레임 간 상대 제약 자체에 섞인 작은 노이즈가 체인을 따라 누적되어 `1`단계보다 결과가 나빠지는 걸 확인할 수 있습니다 — 9장의 "체인만으로는 스스로 고칠 수 없다"는 원칙이 다시 확인되는 지점입니다). 실전에서 이 문제를 푸는 흔한 방법 하나가 **희소한 절대 위치 기준점**입니다 — GPS/RTK 같은 장비는 매 순간 정확하지는 않아도, 신호가 잡히는 순간순간에는 절대 위치를 상당히 정확하게 알려줍니다. 몇 프레임에 하나씩만 이런 절대 위치 제약을 추가해도 시스템이 과결정되어(9장의 루프 클로저와 같은 원리), 최적화가 실제로 개선할 여지를 갖게 됩니다.
+
+[source,python]
+----
+T_true_cam = [to_T(R, t) for R, t in true_cam_poses]
+Z_rel = [se3_inv(T_true_cam[i]) @ T_true_cam[i + 1] @ exp_se3(rng.normal(0, 0.0006, 6)) for i in range(n - 1)]
+
+gps_indices = list(range(0, n, 8))                              # 8프레임마다 한 번씩 GPS 픽스
+gps_noise = 0.01
+Z_gps = {idx: true_cam_poses[idx][1] + rng.normal(0, gps_noise, 3) for idx in gps_indices}
+
+def build_residuals(Ts):
+    r = [residual(Ts[i], Ts[i + 1], Z_rel[i]) for i in range(n - 1)]
+    gps_r = [(Ts[idx][:3, 3] - Z_gps[idx]) / gps_noise for idx in gps_indices if idx != 0]
+    return np.concatenate(r + gps_r)
+
+T_init = [to_T(R, t) for R, t in stage1_poses]
+T_init[0] = T_true_cam[0]
+Ts_opt = optimize_generic(T_init, build_residuals, n, iters=10)
+
+stage2_poses = [(T[:3, :3], T[:3, 3]) for T in Ts_opt]
+err2 = mean_reproj_error(stage2_poses, true_cam_poses, points_true)
+print("2단계(포즈 그래프 + 희소 GPS 앵커):", err2, "픽셀")
+----
+
+[source]
+----
+2단계(포즈 그래프 + 희소 GPS 앵커): 0.9462 픽셀
+----
+
+`2.09`픽셀에서 `0.95`픽셀로 다시 `2.2`배 개선됐습니다. `8`프레임(`0.8`초)에 한 번씩만 들어온 절대 위치 정보가, 그 사이 프레임들의 상대 제약과 결합되어 궤적 전체를 훨씬 정확하게 다듬었습니다.
+
+== 전체 파이프라인 요약
+
+[cols="1,1,1"]
+|===
+| 단계 | 재투영 오차 | 누적 개선
+
+| 0단계: 원시 로그
+| 8.2516 픽셀
+| 1배(기준)
+
+| 1단계: + 시간 정렬(2~5장)
+| 2.0870 픽셀
+| 4.0배
+
+| 2단계: + 포즈 그래프/GPS 앵커(6~9장)
+| 0.9462 픽셀
+| 8.7배
+|===
+
+원시 로그 그대로였다면 3DGS가 감당해야 했을 `8.25`픽셀의 재투영 오차가, 이 책에서 다진 두 종류의 도구(시간 정렬, extrinsic 재최적화)를 순서대로 적용하는 것만으로 `0.95`픽셀까지, `8.7`배 줄었습니다. 1장에서 확인했던 것처럼 `1`픽셀 안팎의 재투영 오차는 실전에서 충분히 다룰 만한 수준입니다.
+
+== 3단계: 품질 게이트로 최종 점검(11장)
+
+이 결과를 3DGS에 넘기기 전, 11장의 게이트로 마지막 점검을 합니다.
+
+[source,python]
+----
+baselines = np.array([np.linalg.norm(stage2_poses[i + 1][1] - stage2_poses[i][1]) for i in range(n - 1)])
+print("베이스라인 이상(부족/과다) 프레임:",
+      np.where((baselines < 0.05) | (baselines > 3.0))[0])
+
+final_residuals = np.abs(build_residuals(Ts_opt)[:6 * (n - 1)].reshape(-1, 6)).sum(axis=1)
+is_outlier, _ = mad_outliers(final_residuals)
+print("잔차 이상치 엣지:", np.where(is_outlier)[0])
+----
+
+[source]
+----
+베이스라인 이상(부족/과다) 프레임: []
+잔차 이상치 엣지: []
+----
+
+두 게이트 모두 이상 없음을 보고했습니다 — 이 시퀀스는 3DGS에 넘길 준비가 됐다고 판정할 수 있습니다. 만약 여기서 이상치가 발견됐다면, 12장 전체를 다시 돌리기 전에 해당 프레임 구간을 먼저 들여다보는 게 순서입니다.
+
+== 직접 해보기
+
+* `gps_indices`의 간격을 `8`프레임에서 `20`프레임(더 드문 GPS)으로 늘리면 2단계 결과가 어떻게 나빠지는지, 그리고 `4`프레임(더 잦은 GPS)으로 줄이면 얼마나 더 좋아지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+rng2 = np.random.default_rng(99)   # 새 GPS 노이즈 표본으로 별도 실험
+for interval in [4, 8, 20]:
+    gps_idx = list(range(0, n, interval))
+    Z_gps_v = {idx: true_cam_poses[idx][1] + rng2.normal(0, gps_noise, 3) for idx in gps_idx}
+
+    def build_res_v(Ts, gps_idx=gps_idx, Z_gps_v=Z_gps_v):
+        r = [residual(Ts[i], Ts[i + 1], Z_rel[i]) for i in range(n - 1)]
+        gps_r = [(Ts[idx][:3, 3] - Z_gps_v[idx]) / gps_noise for idx in gps_idx if idx != 0]
+        return np.concatenate(r + gps_r)
+
+    Ts_v = optimize_generic(T_init, build_res_v, n, iters=10)
+    poses_v = [(T[:3, :3], T[:3, 3]) for T in Ts_v]
+    print(f"GPS 간격={interval}프레임:", mean_reproj_error(poses_v, true_cam_poses, points_true))
+----
+
+[source]
+----
+GPS 간격=4프레임: 0.4142
+GPS 간격=8프레임: 1.0771
+GPS 간격=20프레임: 4.5635
+----
+
+GPS가 잦을수록(`4`프레임 간격) 결과가 더 좋아지고(`0.41`픽셀), 드물수록(`20`프레임 간격) 오히려 `1`단계(시간 정렬만, `2.09`픽셀)보다도 나빠집니다(`4.56`픽셀) — GPS 앵커가 너무 드물면, 부족한 절대 정보로 무리하게 시스템을 과결정시키려다 오히려 상대 제약의 작은 노이즈가 왜곡되어 전달되기 때문입니다. 실전에서 GPS/RTK 신호가 터널이나 고층 건물 사이에서 끊기는 구간이 정확히 이런 "앵커가 드문" 상황이고, 그런 구간일수록 이 책에서 다룬 정밀한 시간 정렬과 상대 제약(오도메트리, 시각 특징 매칭)의 품질이 최종 결과를 좌우하게 됩니다.
+====
+
+== 요약
+
+* 시간 정렬만으로 재투영 오차가 `4`배(`8.25 → 2.09`픽셀), 여기에 희소한 절대 위치 앵커를 곁들인 포즈 그래프 최적화로 다시 `2.2`배(`2.09 → 0.95`픽셀) 개선되어, 전체 파이프라인이 원시 로그 대비 `8.7`배의 개선을 만들어냈습니다.
+* 9장의 교훈대로 오도메트리 체인만으로는 스스로 개선할 수 없으므로, 희소한 절대 정보(GPS/RTK)를 추가해 시스템을 과결정 상태로 만드는 것이 실전에서 흔히 쓰이는 해법입니다.
+* 최종 결과를 11장의 품질 게이트로 다시 점검해, 3DGS에 넘기기 전 마지막 확인을 자동화했습니다.
+* GPS 앵커의 밀도가 결과 품질에 직접적으로 영향을 미치며, 앵커가 드문 구간일수록 이 책에서 다룬 시간 정렬·상대 제약의 정밀도가 최종 품질을 좌우합니다.
+* 다음 맺음말에서 이 책 전체의 여정을 돌아봅니다.
+// end::body[]
