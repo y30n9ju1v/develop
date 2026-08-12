@@ -1,0 +1,274 @@
+---
+title: "2장: 칼만 필터: 선형 가우시안 상태 추정"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["slam", "robotics", "kalman-filter", "book"]
+categories: ["books"]
+description: "위치만 관측 가능한 등속도 로봇에 칼만 필터를 직접 구현해, 예측-갱신 순환이 순수 측정값보다 2배 이상 정확한 추정을 만들고 직접 관측하지 못하는 속도까지 복원한다는 것을 RMSE로 검증하는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-bayesian-filtering/[1장: 불확실성을 다루는 법: 베이지안 필터링] · 다음: link:../03-extended-kalman-filter/[3장: 확장 칼만 필터(EKF): 비선형계로 확장]_
+
+'''
+
+1장의 히스토그램 필터는 위치를 이산적인 칸들의 확률로 표현했습니다 — 표현은 직관적이지만, 칸 수가 늘어나거나 차원이 높아지면 계산량이 감당할 수 없이 커집니다. 칼만 필터는 믿음을 **가우시안 분포**(평균과 공분산 행렬)로만 표현합니다. 상태가 선형적으로 변하고 노이즈가 가우시안이라는 두 가정만 성립하면, 예측-갱신 순환 전체가 몇 개의 행렬 연산만으로 정확하게(근사가 아니라 수학적으로 정확하게) 계산됩니다.
+
+== 상태(State): 현재 위치와 속도
+
+여기서 **상태(State)**란 로봇의 현재 상황을 나타내는 핵심 물리량들의 묶음, 즉 `[현재 위치, 현재 속도]`를 뜻합니다.
+
+이 장의 로봇은 위치만 재는 센서를 갖고 있지만, 상태 벡터에는 위치뿐 아니라 **속도를 함께** 담습니다. 센서로 직접 재지 못하는 속도를 굳이 포함하는 이유는 분명합니다:
+
+* **정확한 미래 예측:** 로봇이 어떤 속도로 달리는지 알아야 물리 법칙($p_{k+1} = p_k + v_k \Delta t$)을 적용해 다음 순간의 위치를 정확하게 예측할 수 있습니다.
+* **센서 없는 값의 간접 추정:** 연속된 위치 측정값의 변화 패턴을 분석해, 속도계 센서가 없어도 현재 속도를 역으로 정확하게 알아낼 수 있습니다.
+* **강력한 노이즈 제거:** "물체는 관성에 의해 매끄럽게 움직인다"는 물리적 지식을 활용해, 센서 측정값이 순간적으로 튀는 노이즈를 걸러냅니다.
+
+[source,python]
+----
+dt = 1.0
+F = np.array([[1, dt], [0, 1]])   # 상태전이: [pos, vel] -> [pos + vel*dt, vel]
+H = np.array([[1, 0]])             # 관측행렬: 위치만 관측 가능
+
+Q = np.array([[0.01, 0], [0, 0.01]])  # 프로세스 노이즈 (모델의 불확실성)
+R = np.array([[4.0]])                  # 관측 노이즈 (센서의 불확실성)
+----
+
+`F`는 "다음 상태 = 현재 상태로부터 어떻게 예측되는가"를 나타내는 행렬입니다 — `위치_다음 = 위치 + 속도×dt`, `속도_다음 = 속도`(등속도 가정)라는 물리 법칙 그 자체를 행렬로 표현한 것입니다. `H`는 "상태 중 무엇을 실제로 관측할 수 있는가"를 나타내는데, 이 행렬이 `[1, 0]`이라는 건 위치만 보이고 속도는 안 보인다는 뜻입니다.
+
+== 예측: 물리 법칙으로 다음 상태를 미리 짐작하기
+
+예측 단계는 **"센서 값을 아직 보지 않은 상태에서, 순수하게 물리 법칙과 이전 상태만으로 $\Delta t$초 뒤의 상황을 짐작하는 과정"**입니다. 평균(`x`)과 불확실성(`P`)을 각각 다음과 같이 갱신합니다.
+
+[source,python]
+----
+def kf_predict(x, P, F, Q):
+    x_pred = F @ x                    # 1. 평균: 물리 법칙을 따라 중심점 이동
+    P_pred = F @ P @ F.T + Q          # 2. 공분산: 불확실성이 퍼지고 노이즈가 더해짐
+    return x_pred, P_pred
+----
+
+이 두 줄의 수식에는 칼만 필터의 핵심적인 물리·확률적 원리가 담겨 있습니다:
+
+1. **`x_pred = F @ x` (평균의 전파):**
+   * 상태의 중심값(평균)은 고전 뉴턴 역학을 그대로 따릅니다.
+   * $\begin{bmatrix} p_{\text{pred}} \\ v_{\text{pred}} \end{bmatrix} = \begin{bmatrix} 1 & \Delta t \\ 0 & 1 \end{bmatrix} \begin{bmatrix} p \\ v \end{bmatrix} = \begin{bmatrix} p + v \Delta t \\ v \end{bmatrix}$
+   * 즉, "현재 속도 $v$로 $\Delta t$초 동안 달렸으니, 다음 중심 위치는 $p + v \Delta t$가 될 것이다"라고 가장 그럴듯한 평균 위치를 전진시킵니다.
+
+2. **`P_pred = F @ P @ F.T + Q` (불확실성의 누적과 팽창):**
+   * **`F @ P @ F.T` (기존 불확실성의 전파):** 확률 변수에 행렬 $F$를 곱해 선형 변환하면, 공분산은 앞뒤로 $F$와 $F^T$가 곱해지는 성질($\text{Cov}(Fx) = F \text{Cov}(x) F^T$)이 있습니다. 특히 속도에 조금이라도 불확실성이 있다면, 시간이 흐를수록 미래 위치의 불확실성도 부채꼴 모양으로 점점 넓어지게 됩니다.
+   * **`+ Q` (새로운 외란 추가):** $\Delta t$초 동안 로봇이 이동할 때 바퀴가 미끄러지거나, 노면이 울퉁불퉁하거나, 모터가 미세하게 덜컹거릴 수 있습니다. 이처럼 물리 공식(등속도 모델)이 미처 설명하지 못하는 현실의 불확실성을 프로세스 노이즈 $Q$로 더해줍니다.
+   * **직관적 의미:** 센서로 내 위치를 확인하기 전까지는 **시간이 흐를수록 내 위치에 대한 불확실성(공분산 $P$)은 계속해서 커질 수밖에 없습니다.**
+
+== 갱신: 측정값으로 예측을 보정하기
+
+갱신 단계는 **"실제 센서 측정값($z$)이 도착했을 때, 앞서 짐작한 예측치($x_{\text{pred}}$)와 센서값 사이에서 최적의 타협점을 찾아 믿음을 바로잡는 과정"**입니다.
+
+[source,python]
+----
+def kf_update(x_pred, P_pred, z, H, R):
+    y = z - H @ x_pred                             # 1. 잔차(혁신): 실제 측정과 예측의 차이
+    S = H @ P_pred @ H.T + R                       # 2. 총 불확실성: 예측 불확실성 + 센서 노이즈
+    K = P_pred @ H.T @ np.linalg.inv(S)            # 3. 칼만 이득: 잔차를 얼마나 믿을지(가중치)
+    x_new = x_pred + K @ y                         # 4. 상태 갱신: 최적의 타협점으로 평균 이동
+    P_new = (np.eye(len(x_pred)) - K @ H) @ P_pred # 5. 공분산 갱신: 정보를 얻었으므로 불확실성 감소
+    return x_new, P_new
+----
+
+이 5줄의 수식은 각각 다음과 같은 명확한 물리·확률적 의미를 갖습니다:
+
+1. **`y = z - H @ x_pred` (측정 잔차 / 혁신, Innovation):**
+   * `z`는 실제 센서가 읽어온 관측값이고, `H @ x_pred`는 "우리의 물리 예측대로라면 센서에 이렇게 찍혀야 한다"는 예상 관측값입니다.
+   * `y`는 그 둘의 차이로, "우리의 예측이 실제 현실과 얼마나 빗나갔는가"를 나타내는 새로운 정보(혁신)입니다.
+
+2. **`S = H @ P_pred @ H.T + R` (잔차의 총 불확실성):**
+   * 잔차 $y$가 가질 수 있는 총 분산(불확실성)입니다.
+   * 예측 상태의 불확실성(`H @ P_pred @ H.T`)과 센서 자체의 고유한 잡음(`R`)을 합쳐서, 지금 발생한 오차가 얼마나 흔들릴 수 있는지를 계산합니다.
+
+3. **`K = P_pred @ H.T @ np.linalg.inv(S)` (칼만 이득, Kalman Gain):**
+   * 칼만 필터의 핵심 손잡이입니다. $1$차원으로 생각하면 $K \approx \frac{P_{\text{pred}}}{P_{\text{pred}} + R}$ 형태입니다.
+   * **"전체 불확실성($S$) 중 내 예측의 불확실성($P$)이 차지하는 비율"**을 뜻합니다:
+     * 센서가 매우 정확하다면 ($R \to 0$): $K \approx 1$이 되어 측정값 $z$를 거의 $100\%$ 신뢰해 상태를 크게 바꿉니다.
+     * 센서가 너무 엉망이라면 ($R \to \infty$): $K \approx 0$이 되어 센서 오차 $y$를 무시하고 기존 예측값($x_{\text{pred}}$)을 고수합니다.
+   * 특히 $P_{\text{pred}}$의 비대각 원소(위치와 속도의 상관관계) 덕분에, 위치만 측정했더라도 **센서가 없는 속도($v$)까지 $K$를 통해 올바른 방향으로 보정**됩니다.
+
+4. **`x_new = x_pred + K @ y` (최종 상태 평균 보정):**
+   * 예측값 $x_{\text{pred}}$에, 오차 $y$에 가중치 $K$를 곱한 보정량을 더해 수학적으로 오차가 최소가 되는 최적의 상태를 결정합니다.
+
+5. **`P_new = (I - K @ H) @ P_pred` (불확실성의 감소):**
+   * 센서 관측이라는 새로운 정보를 얻었으므로, 로봇의 위치와 속도에 대한 불확실성은 **예측 시점($P_{\text{pred}}$)보다 반드시 줄어듭니다.**
+   * $(I - KH)$는 $1$보다 작은 축소 행렬 역할을 하여, $P_{\text{new}}$는 $P_{\text{pred}}$보다 더 작고 뾰족한 분포(높은 확신)가 됩니다.
+
+1장에서 다룬 베이즈 정리(`사후확률 ∝ 사전확률 × 우도`)가 가우시안 분포의 세계에서는 이처럼 정확하고 아름다운 행렬 연산으로 풀립니다.
+
+== 시뮬레이션: 참값, 측정값, 추정값 비교
+
+[source,python]
+----
+true_states = np.zeros((50, 2))
+true_states[0] = [0.0, 1.0]
+for k in range(1, 50):
+    accel_noise = rng.normal(0, 0.1)
+    true_states[k, 1] = true_states[k-1, 1] + accel_noise
+    true_states[k, 0] = true_states[k-1, 0] + true_states[k-1, 1] * dt
+
+measurements = true_states[:, 0] + rng.normal(0, 2.0, size=50)  # 표준편차 2인 노이즈
+----
+
+로봇은 대략 등속도로 움직이지만 약간의 무작위 가속(`accel_noise`)이 섞입니다 — 이게 바로 `Q`가 담아내야 하는 "모델이 완벽하지 않은 부분"입니다. 측정값에는 표준편차 `2`(`R=4`)짜리 상당한 노이즈가 섞여 있습니다.
+
+== 검증 1: 필터 추정이 순수 측정값보다 정확한가
+
+[source,python]
+----
+x, P = np.array([0.0, 0.0]), np.eye(2) * 10.0   # 초기값: 속도를 모른다고 가정, 불확실성 크게
+
+estimates = np.zeros((50, 2))
+for k in range(1, 50):
+    x_pred, P_pred = kf_predict(x, P, F, Q)
+    x, P = kf_update(x_pred, P_pred, measurements[k], H, R)
+    estimates[k] = x
+
+rmse_raw = np.sqrt(np.mean((measurements - true_states[:, 0]) ** 2))
+rmse_kf = np.sqrt(np.mean((estimates[:, 0] - true_states[:, 0]) ** 2))
+print(rmse_raw, rmse_kf)
+----
+
+[source]
+----
+raw measurement RMSE: 1.67
+kalman filter RMSE:   0.65   (2.6배 개선)
+----
+
+측정값을 그냥 쓰는 것보다 칼만 필터를 거친 추정이 `2.6`배 더 정확합니다 — 필터가 "위치는 갑자기 안 변하고 속도를 따라 부드럽게 변한다"는 운동 모델의 사전 지식을, 노이즈 낀 순간 측정값과 결합해서 더 나은 추정을 만들어낸 것입니다.
+
+== 검증 2: 불확실성이 정상상태로 수렴하는가
+
+[source,python]
+----
+pos_variance = covariances[:, 0, 0]
+print(pos_variance[::10])
+----
+
+[source]
+----
+[10.0, 1.39, 1.10, 1.098, 1.098]
+----
+
+처음에는 `10.0`(일부러 크게 잡은 초기 불확실성)이었다가, 몇 스텝 만에 `1.1` 근처로 떨어지고 이후로는 거의 변하지 않습니다 — 매 스텝 "예측이 불확실성을 늘리고, 측정이 다시 줄이는" 두 힘이 균형을 이루는 **정상상태(steady state)**에 도달한 것입니다. 이 정상상태 공분산은 `Q`와 `R`의 비율(모델을 얼마나 믿을지 대 센서를 얼마나 믿을지)에 의해 결정됩니다.
+
+== 검증 3: 직접 관측하지 못하는 속도까지 복원되는가
+
+[source,python]
+----
+rmse_vel = np.sqrt(np.mean((estimates[10:, 1] - true_states[10:, 1]) ** 2))
+print(rmse_vel)   # 0.204
+----
+
+`H = [1, 0]`이라 속도는 센서로 **한 번도 직접 관측되지 않았는데도**, 워밍업(`10`스텝) 이후 속도 추정 오차가 `0.2`밖에 안 됩니다. 이게 가능한 이유는, 연속된 위치 측정값들의 변화 패턴 자체가 속도에 대한 간접적인 정보를 담고 있고, 상태전이행렬 `F`가 위치와 속도를 연결해주기 때문입니다 — 칼만 필터가 "안 보이는 상태"까지 추정해낼 수 있다는 건, 뒤에서 다룰 EKF-SLAM에서 로봇 위치뿐 아니라 한 번도 정확히 측정되지 않은 랜드마크의 절대 위치까지 함께 추정하는 것의 기초가 됩니다.
+
+== 왜 "선형" 가우시안인가
+
+칼만 필터가 정확한 답을 주는 건, `F`와 `H`가 모두 **선형** 행렬이고 노이즈가 **가우시안**일 때뿐입니다 — 가우시안 분포에 선형 변환을 가하면 결과도 정확히 가우시안이기 때문에, 예측과 갱신을 몇 번을 반복해도 분포가 계속 가우시안으로 남아 평균과 공분산만으로 완전히 표현됩니다. 하지만 실제 로봇은 회전을 포함하기 마련이고, 회전은 비선형입니다 — 다음 장에서 이 문제를 다룹니다.
+
+== 직접 해보기
+
+* `Q`(프로세스 노이즈)를 `0.01`에서 `1.0`으로 훨씬 크게 하면(모델을 덜 믿는다는 뜻), 정상상태 위치 분산이 어떻게 달라지는지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+Q_big = np.array([[1.0, 0], [0, 1.0]])
+x, P = np.array([0.0, 0.0]), np.eye(2) * 10.0
+covariances_big = np.zeros((50, 2, 2))
+for k in range(1, 50):
+    x_pred, P_pred = kf_predict(x, P, F, Q_big)
+    x, P = kf_update(x_pred, P_pred, measurements[k], H, R)
+    covariances_big[k] = P
+print(covariances_big[-1, 0, 0])
+----
+
+`Q`를 키우면 정상상태 위치 분산도 커집니다 — 모델을 덜 믿을수록(`Q` 큼), 필터는 매 스텝 측정값에 더 크게 의존하게 되고(칼만 이득 `K`가 커짐), 노이즈 낀 측정값을 더 강하게 반영하니 최종 추정의 불확실성도 커집니다. `Q`와 `R`의 상대적인 크기가 "모델을 믿을지 센서를 믿을지"를 정하는 손잡이라는 걸 다시 확인할 수 있습니다 — 이 손잡이를 잘못 설정하는 게, 다음 장에서 다룰 필터의 실전 튜닝에서 가장 흔한 실수입니다.
+====
+
+== 전체 코드
+
+이 장에서 단계별로 작성한 선형 가우시안 칼만 필터의 전체 실행 코드입니다.
+
+[source,python]
+----
+import numpy as np
+
+# 재현성을 위한 난수 생성기
+rng = np.random.default_rng(42)
+
+# 1. 모델 파라미터 및 행렬 정의
+dt = 1.0
+F = np.array([[1, dt], [0, 1]])   # 상태전이: [pos, vel] -> [pos + vel*dt, vel]
+H = np.array([[1, 0]])             # 관측행렬: 위치만 관측 가능
+
+Q = np.array([[0.01, 0], [0, 0.01]])  # 프로세스 노이즈 (모델의 불확실성)
+R = np.array([[4.0]])                  # 관측 노이즈 (센서의 불확실성)
+
+# 2. 칼만 필터 예측 및 갱신 함수
+def kf_predict(x, P, F, Q):
+    x_pred = F @ x
+    P_pred = F @ P @ F.T + Q
+    return x_pred, P_pred
+
+def kf_update(x_pred, P_pred, z, H, R):
+    y = z - H @ x_pred
+    S = H @ P_pred @ H.T + R
+    K = P_pred @ H.T @ np.linalg.inv(S)
+    x_new = x_pred + K @ y
+    P_new = (np.eye(len(x_pred)) - K @ H) @ P_pred
+    return x_new, P_new
+
+# 3. 50스텝 시뮬레이션 데이터 생성 (참값 궤적 및 노이즈 낀 센서 측정값)
+N = 50
+true_states = np.zeros((N, 2))
+true_states[0] = [0.0, 1.0]
+for k in range(1, N):
+    accel_noise = rng.normal(0, 0.1)
+    true_states[k, 1] = true_states[k-1, 1] + accel_noise
+    true_states[k, 0] = true_states[k-1, 0] + true_states[k-1, 1] * dt
+
+measurements = true_states[:, 0] + rng.normal(0, 2.0, size=N)
+
+# 4. 칼만 필터 실행 루프
+x, P = np.array([0.0, 0.0]), np.eye(2) * 10.0  # 초기값: 위치/속도 0, 큰 초기 불확실성
+estimates = np.zeros((N, 2))
+covariances = np.zeros((N, 2, 2))
+estimates[0] = x
+covariances[0] = P
+
+for k in range(1, N):
+    x_pred, P_pred = kf_predict(x, P, F, Q)
+    x, P = kf_update(x_pred, P_pred, measurements[k], H, R)
+    estimates[k] = x
+    covariances[k] = P
+
+# 5. 성능 검증 및 출력
+rmse_raw = np.sqrt(np.mean((measurements - true_states[:, 0]) ** 2))
+rmse_kf = np.sqrt(np.mean((estimates[:, 0] - true_states[:, 0]) ** 2))
+print(f"raw measurement RMSE: {rmse_raw:.2f}")
+print(f"kalman filter RMSE:   {rmse_kf:.2f}   ({rmse_raw/rmse_kf:.1f}배 개선)")
+
+pos_variance = covariances[:, 0, 0]
+print(f"pos variance over steps: {[round(float(v), 3) for v in pos_variance[::10]]}")
+
+rmse_vel = np.sqrt(np.mean((estimates[10:, 1] - true_states[10:, 1]) ** 2))
+print(f"velocity RMSE (after step 10): {rmse_vel:.3f}")
+----
+
+== 요약
+
+* 칼만 필터는 믿음을 가우시안(평균 `x`, 공분산 `P`)으로 표현하고, 예측(`F`로 전파 + `Q` 추가)과 갱신(측정값과 칼만 이득 `K`로 보정)을 반복합니다.
+* 필터를 거친 추정이 순수 측정값보다 `2.6`배 낮은 RMSE를 보였고, 직접 관측되지 않는 속도 상태까지 정확히 복원했습니다.
+* 공분산은 시간이 지나며 정상상태로 수렴하고, 이 정상상태는 `Q`(모델 불확실성)와 `R`(센서 불확실성)의 비율로 결정됩니다.
+* 칼만 필터가 정확한 건 상태전이·관측이 모두 선형이고 노이즈가 가우시안일 때뿐입니다.
+
+다음 장에서는 로봇이 회전하는(비선형인) 실제 상황으로 넘어가, 칼만 필터를 국소적으로 선형화해서 확장하는 확장 칼만 필터(EKF)를 다룹니다.
+// end::body[]

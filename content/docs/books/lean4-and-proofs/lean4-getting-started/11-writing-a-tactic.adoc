@@ -1,0 +1,97 @@
+---
+title: "11장: 나만의 tactic 만들기"
+date: 2026-07-19T00:00:00+09:00
+draft: false
+tags: ["lean", "lean4", "metaprogramming", "book"]
+categories: ["books"]
+description: "반복되는 전술 조합을 매크로로 묶는 쉬운 길부터, TacticM으로 목표를 직접 조작하는 저수준 tactic까지 만들어보며 7~8장 전술들의 실체를 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-metaprogramming-lean-extends-itself/[10장: Lean은 스스로를 확장한다] · 다음: link:../12-custom-notation/[12장: 나만의 표기법 만들기]_
+
+'''
+
+== 쉬운 길: 전술 매크로
+
+7~8장에서 ``constructor``로 목표를 쪼개고 남은 산술을 ``omega``로 닫는 패턴을 반복해서 썼습니다. 이런 "늘 똑같이 이어 쓰는 전술 조합"은 10장에서 배운 macro로 즉시 자동화할 수 있습니다 — macro는 term 자리뿐 아니라 tactic 자리에도 똑같이 적용되기 때문입니다.
+
+[source,lean]
+----
+macro "split_solve" : tactic => `(tactic| constructor <;> omega)
+
+theorem demo (a b : Nat) (h1 : a + b = 10) (h2 : b = 4) : a = 6 ∧ b = 4 := by
+  split_solve
+----
+
+``<;>``는 "앞 전술이 만든 모든 하위 목표에 뒤 전술을 적용하라"는 조합자입니다. 즉 ``split_solve``는 "목표를 쪼갠 뒤, 생긴 목표 전부를 ``omega``로 닫아라"를 한 단어로 줄인 것입니다. 실전에서 여러분이 만들 전술의 대부분은 이 수준 — 기존 전술의 조합에 이름 붙이기 — 으로 충분하고, 이것만으로도 반복 증명이 크게 줄어듭니다.
+
+== 엔진 내부: 진짜 tactic 하나 뜯어보기
+
+그런데 조합의 재료가 되는 `constructor`, `omega`, `rfl` 자체는 어떻게 만들어졌을까요? 이 아래층을 딱 한 번만 들여다봅시다 — 당분간 직접 만들 일은 없겠지만, 마법이 아니라는 걸 확인하는 게 목적입니다.
+
+새 용어 하나 — Lean4는 "아직 채워지지 않은 구멍"을 metavariable이라고 부릅니다. 증명 도중의 목표 하나하나가 곧 채워야 할 구멍이고, ``mvarId``는 그 구멍을 가리키는 식별자(metavariable id)입니다. tactic의 정체는 "이 구멍 목록을 받아서, 채우거나 더 작은 구멍들로 바꿔치기하는 프로그램"이고, 그 전용 모나드가 ``TacticM``입니다.
+
+"목표가 `n = n` 꼴이면 ``rfl``처럼 닫고, 아니면 실패를 알려주는" tactic을 만들어봅시다. (10장과 마찬가지로 파일 맨 위에 ``import Lean``이 필요합니다.)
+
+[source,lean]
+----
+import Lean
+
+open Lean Elab Tactic Meta in
+elab "close_refl" : tactic => do
+  liftMetaTactic fun mvarId => do
+    let target ← mvarId.getType
+    match target.eq? with
+    | some (_, lhs, rhs) =>
+      if ← isDefEq lhs rhs then
+        mvarId.assign (← mkEqRefl lhs)
+        return []
+      else
+        throwError "좌변과 우변이 같지 않습니다"
+    | none => throwError "목표가 등식이 아닙니다"
+
+theorem t2 : 3 + 4 = 7 := by close_refl
+----
+
+``liftMetaTactic``은 "지금 열려 있는 목표(`mvarId`)를 받아 처리하는" 작업을 하게 해주는 통로입니다. ``mvarId.getType``으로 목표의 타입(`Expr`)을 꺼내고, ``target.eq?``로 그게 등식(`_ = _`) 모양인지 확인합니다. 등식이면 `isDefEq`(계산해서 같은 값이 되는지 확인하는 함수 — ``rfl``이 내부적으로 쓰는 바로 그 판정)로 좌변과 우변을 비교하고, 같으면 그 증명(`mkEqRefl`)을 만들어 ``mvarId.assign``으로 구멍에 채워 넣습니다. 마지막의 ``return []``은 "새로 남는 하위 목표는 없다"는 뜻입니다 — 목표를 완전히 닫았기 때문입니다. 등식이 아니거나 값이 다르면 ``throwError``로 실패를 알립니다.
+
+이 코드는 사실상 ``rfl``의 아주 단순화된 재구현입니다. 7장에서 ``rfl``을 그냥 "당연히 되는 것"으로 썼는데, 이제 그 뒤에 있는 게 목표의 ``Expr``을 읽고 계산 결과를 비교하는 평범한 Lean4 프로그램이라는 걸 확인했습니다.
+
+== 여러 하위 목표를 남기는 tactic
+
+8장에서 본 ``induction``처럼, tactic은 하나의 목표를 여러 하위 목표로 쪼갤 수도 있습니다. ``close_refl``에서 ``return []``으로 하위 목표가 없다고 했던 자리에, 대신 새로 만든 metavariable들의 목록을 돌려주면 됩니다. 그 하위 목표들이 바로 7장에서 ``constructor``를 쓴 뒤 `·`(불릿)로 하나씩 처리했던 그 목표들입니다 — ``constructor``도 결국 "지금 목표의 타입이 어떤 구조체/귀납 타입인지 보고, 그 생성자가 요구하는 필드 수만큼 새 목표를 만들어 돌려주는" tactic입니다.
+
+== 이 장이 왜 중요한가
+
+이 장은 두 층을 보여줬습니다. ``split_solve``처럼 기존 전술을 조합해 이름 붙이는 것만으로도 반복 증명이 크게 줄어들고, 실전 자동화의 대부분은 그 수준에서 일어납니다. 그리고 그 아래층에서는 — ``close_refl``에서 확인했듯 — `simp`, `omega`, `induction` 같은 전술들도 목표의 ``Expr``을 읽고, 판단하고, 값을 채우거나 새 목표로 쪼개는 평범한 Lean4 프로그램입니다. 여러분이 반복해서 손으로 쓰는 증명 패턴이 있다면, 그건 언젠가 tactic으로 자동화할 수 있는 후보라는 뜻입니다 — 이 책 범위를 벗어난 실전에서는 특정 도메인(선형대수, 컴파일러 IR 등)에 맞춘 전용 tactic을 만들어 증명을 대폭 줄이는 일이 흔합니다.
+
+다음 장에서는 여러 패턴을 한 문법에 묶는 ``macro_rules``와, 나만의 연산자 기호를 만드는 법을 보며 3부를 마무리합니다.
+
+TIP: 더 깊이 들어가려면 — tactic 작성의 본격적인 안내는 link:../../../../programming/lean/metaprogramming-in-lean4/09-tactics/[Metaprogramming in Lean 4의 9장: Tactic 작성하기], 그 재료인 ``Expr``과 ``MetaM``은 link:../../../../programming/lean/metaprogramming-in-lean4/03-expressions/[3장]과 link:../../../../programming/lean/metaprogramming-in-lean4/04-metam/[4장]에서 다룹니다.
+
+== 직접 해보기
+
+* ``split_solve``를 참고해, `omega` 대신 ``rfl``을 쓰는 `split_rfl` 매크로를 만들어 ``2 + 2 = 4 ∧ 3 * 3 = 9``를 증명해보세요.
+* ``close_refl``에 ``3 + 4 = 8``을 줘보세요. 두 `throwError` 중 어느 쪽 메시지가 나올까요? — ``3 + 4 = 8``도 등식 "모양"이기는 하다는 점을 생각해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+macro "split_rfl" : tactic => `(tactic| constructor <;> rfl)
+
+theorem t : 2 + 2 = 4 ∧ 3 * 3 = 9 := by split_rfl
+----
+
+두 번째 문제: "좌변과 우변이 같지 않습니다"가 나옵니다. ``3 + 4 = 8``은 등식 모양이라 `target.eq?` 검사는 통과하지만, ``isDefEq``가 좌변(`7`)과 우변(`8`)을 계산해 비교하는 단계에서 실패하기 때문입니다.
+====
+
+== 요약
+
+* 반복되는 전술 조합은 ``macro``로 이름 붙여 자동화할 수 있다 — 실전 자동화 대부분은 이 수준으로 충분하다.
+* 더 깊이 들어가면, tactic은 지금 열린 목표(`mvarId`)들을 조작하는 `TacticM` 위의 평범한 프로그램이다.
+* ``liftMetaTactic``으로 목표의 타입을 읽고(`getType`), 조건을 판단하고, 값을 채우거나(`assign`) 새 하위 목표 목록을 돌려줄 수 있다.
+* `close_refl` 예제가 보여주듯, `rfl`·`simp`·`induction` 같은 전술도 결국 목표의 ``Expr``을 읽고 판단하는 프로그램일 뿐이다.
+// end::body[]

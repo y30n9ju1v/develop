@@ -1,0 +1,391 @@
+---
+title: "4장: EKF-SLAM: 로봇과 랜드마크를 함께 추정하기"
+date: 2026-08-03T00:00:00+09:00
+draft: false
+tags: ["slam", "robotics", "ekf-slam", "book"]
+categories: ["books"]
+description: "로봇 포즈와 여러 랜드마크 위치를 하나의 결합 상태 벡터로 묶어 EKF-SLAM을 구현하고, 랜드마크 초기화 시 공분산 행렬의 일부를 잘못된 순서로 덮어써 양의 정부호가 깨지는 실제 버그를 발견·수정하며 2부를 여는 4장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-extended-kalman-filter/[3장: 확장 칼만 필터(EKF): 비선형계로 확장] · 다음: link:../05-data-association/[5장: 데이터 연관: 어느 관측이 어느 랜드마크인가]_
+
+'''
+
+3장의 EKF는 로봇의 위치만 추정했습니다 — 랜드마크의 위치는 미리 알고 있다고 가정했습니다. SLAM은 그 가정을 없앱니다. 랜드마크 위치도 로봇 위치와 **함께**, 하나의 결합된 상태 벡터로 추정합니다. 이렇게 하면 로봇이 한 랜드마크를 정확히 잰 정보가 (상태들 사이의 상관관계를 통해) 다른 랜드마크의 추정까지 개선하고, 나아가 로봇 자신의 위치 추정도 개선하는 연쇄 효과가 생깁니다 — 이게 SLAM의 "동시에"라는 이름이 뜻하는 바입니다.
+
+== 결합 상태 벡터: 로봇과 지도를 한 줄로 묶기
+
+3장 EKF에서는 랜드마크 위치를 이미 완벽히 알고 있다고 가정하고 로봇 포즈만 추정했습니다. 하지만 SLAM에서는 **지도(랜드마크들의 위치)도 전혀 모르는 상태**에서 시작합니다. 따라서 로봇의 위치와 모든 랜드마크의 위치를 **하나의 거대한 기차처럼 이어붙인 결합 상태 벡터(Joint State Vector)**로 관리합니다.
+
+[source,python]
+----
+# 상태 벡터: [xr, yr, thetar, lx1, ly1, lx2, ly2, ...]
+n_landmarks = 4
+dim = 3 + 2 * n_landmarks  # 3 + 2*4 = 11차원
+----
+
+* **상태 벡터 $\mu$ ($11$차원):**
+  로봇의 현재 포즈 $(x_r, y_r, \theta_r)$ 3개 뒤에, 4개 랜드마크의 2D 좌표 $(l_{x1}, l_{y1}), \dots, (l_{x4}, l_{y4})$를 줄줄이 붙여 총 $11$개의 숫자로 표현합니다.
+
+* **공분산 행렬 $\Sigma$ ($11 \times 11$):**
+  11개 변수 각각의 자체 오차뿐 아니라 **"모든 변수 쌍들 사이의 상호 연관성(공분산)"**까지 전부 표로 기록해야 하므로 $11 \times 11$ 격자 크기가 됩니다. 이 행렬은 크게 두 영역으로 나뉩니다:
+  1. **대각 블록 (개별 불확실성, 대각선 칸들):** "로봇 위치가 얼마나 흔들리는가", "1번 랜드마크가 얼마나 불확실한가"처럼 각 대상의 자체적인 오차 크기(분산)를 나타냅니다.
+  2. **비대각 블록 (상호 연결고리, 비대각선 칸들):** "로봇과 1번 랜드마크", "1번 랜드마크와 2번 랜드마크"의 오차가 서로 어떻게 얽혀 있는지(공분산)를 나타냅니다.
+
+> 💡 **비대각 블록(상관관계)이 SLAM의 마법인 이유:**
+> 로봇이 돌아다니며 1번과 2번 랜드마크를 차례로 관측하면, 상태들 사이에 **"눈에 보이지 않는 고무줄(상관관계)"**이 연결됩니다. 나중에 로봇이 1번 랜드마크를 다시 보며 자신의 위치 오차를 바로잡는 순간, 고무줄로 묶여 있던 **2번 랜드마크의 위치까지 도미노처럼 함께 정확해지는 연쇄 보정 효과**가 일어납니다. 이 상호 작용이 바로 SLAM에서 "동시에(Simultaneous)" 추정하는 핵심 원리입니다.
+
+== 예측: 랜드마크는 그대로, 로봇만 움직인다
+
+로봇이 바퀴를 굴려 이동할 때, 주변의 나무나 벽 같은 랜드마크들은 스스로 걸어 다니지 않고 **그 자리에 가만히 멈춰 있습니다**(정적 환경 가정). 따라서 예측 단계에서는 오직 '움직이는 로봇'에게만 변화가 일어납니다.
+
+[source,python]
+----
+def slam_predict(mu, Sigma, u, dt, Q_robot):
+    F_pose = motion_jacobian_pose(mu[:3], u, dt)   # 1. 로봇 부분: 3장의 운동 야코비안 재사용
+    G = np.eye(dim)
+    G[:3, :3] = F_pose                               # 2. 랜드마크 부분: 안 움직이므로 항등행렬(1) 그대로
+    
+    mu_pred = mu.copy()
+    mu_pred[:3] = motion_model(mu[:3], u, dt)       # 3. 평균: 로봇 포즈만 전진, 랜드마크는 그대로 유지
+    
+    Q_full = np.zeros((dim, dim))
+    Q_full[:3, :3] = Q_robot                          # 4. 노이즈: 이동 오차는 로봇 부분에만 추가
+    
+    Sigma_pred = G @ Sigma @ G.T + Q_full
+    return mu_pred, Sigma_pred
+----
+
+이 코드가 보여주는 물리적 원리는 매우 직관적입니다:
+
+* **평균 위치 (`mu_pred`):** 로봇 좌표 `mu[:3]`만 운동 모델을 따라 전진시키고, 랜드마크 좌표들은 이전 위치 그대로 둡니다.
+* **야코비안 행렬 (`G`):** 랜드마크는 제자리에 가만히 있으므로($l_{\text{다음}} = l_{\text{현재}}$), 미분하면 기울기가 $1$인 항등행렬(`np.eye`)이 됩니다.
+* **프로세스 노이즈 (`Q_full`):** 랜드마크는 가만히 서 있으므로 스스로 오차가 생기지 않습니다(노이즈 0). 따라서 바퀴 미끄러짐 같은 이동 불확실성(`Q_robot`)은 오직 **로봇 영역에만** 더해집니다.
+
+== 갱신: 랜드마크 하나를 관측하면 희소한 야코비안
+
+[source,python]
+----
+def measurement_jacobian_full(mu, landmark_idx):
+    x, y, theta = mu[:3]
+    lx, ly = mu[3+2*landmark_idx], mu[3+2*landmark_idx+1]
+    dx, dy = lx - x, ly - y
+    q = dx**2 + dy**2
+    r = np.sqrt(q)
+    H = np.zeros((2, dim))
+    H[:, :3] = [[-dx/r, -dy/r, 0], [dy/q, -dx/q, -1]]      # 로봇 포즈 부분 (3장과 동일)
+    H[0, 3+2*landmark_idx]   = dx/r;  H[0, 3+2*landmark_idx+1] = dy/r
+    H[1, 3+2*landmark_idx]   = -dy/q; H[1, 3+2*landmark_idx+1] = dx/q
+    return H
+----
+
+`H`는 `2×11` 행렬이지만, 실제로 값이 있는 열은 로봇 포즈 `3`개와 관측된 랜드마크 `2`개, 총 `5`개뿐입니다 — 나머지 열(관측 안 된 다른 랜드마크들)은 `0`입니다. 그런데도 갱신 공식(`Sigma_new = (I-KH)@Sigma`)을 거치면, 이 `0`이 아닌 부분과 비대각 상관관계를 통해 **관측 안 된 랜드마크들의 추정치까지 함께 갱신됩니다** — 이게 EKF-SLAM에서 "간접적으로 정보가 퍼지는" 메커니즘입니다.
+
+== 새 랜드마크 초기화
+
+로봇이 처음 보는 랜드마크는, 현재 로봇 위치 추정치와 관측값(거리·방위각)으로부터 역산해서 초기 위치를 정합니다.
+
+[source,python]
+----
+def initialize_landmark(mu, Sigma, z, landmark_idx, R):
+    x, y, theta = mu[:3]
+    r, bearing = z
+    lx = x + r * np.cos(theta + bearing)
+    ly = y + r * np.sin(theta + bearing)
+    ...
+----
+
+이 초기화 함수도 비선형(삼각함수)이므로, 초기 공분산 역시 야코비안(`Gx`: 로봇 포즈에 대한 미분, `Gz`: 측정값에 대한 미분)으로 전파해야 합니다 — 이 두 야코비안도 유한차분으로 검증했습니다(`assert np.allclose(...)` 통과).
+
+== 실제로 발견한 버그: 공분산 행렬을 잘못된 순서로 덮어쓰기
+
+처음 구현했을 때, `4`개 랜드마크를 초기화하자마자 몇 스텝 만에 로봇 위치 추정이 걷잡을 수 없이 발산했습니다(`20`스텝 만에 오차가 `13`을 넘었습니다). 원인을 추적하기 위해 매 갱신 후 공분산 행렬의 고윳값을 확인해봤습니다.
+
+[source,python]
+----
+eigvals = np.linalg.eigvalsh(Sigma)
+print(eigvals.min())
+----
+
+[source]
+----
+step 1 landmark 0: NEGATIVE eigenvalue detected! min=-0.069515
+step 1 landmark 1: NEGATIVE eigenvalue detected! min=-0.499653
+----
+
+공분산 행렬에 **음수 고윳값**이 나왔습니다 — 공분산은 수학적으로 항상 양의 준정부호(고윳값이 모두 `0` 이상)여야 하는데, 이건 명백히 잘못된 상태입니다. 처음에는 갱신 공식 `(I-KH)@Sigma`가 수치적으로 불안정하다고 의심해서, 항상 양의 준정부호를 보장하는 Joseph 형태(`(I-KH)Σ(I-KH)ᵀ + KRKᵀ`)로 바꿔봤지만 — 똑같은 음수 고윳값이 그대로 나왔습니다. 수치 오차가 아니라 **로직 자체의 버그**라는 뜻이었습니다.
+
+원래 초기화 코드는 이랬습니다:
+
+[source,python]
+----
+idx = slice(3+2*landmark_idx, 3+2*landmark_idx+2)
+Sigma_new[idx, idx] = landmark_cov          # (1) 새 랜드마크의 자기 공분산을 먼저 설정
+cross = Gx @ Sigma[:3, :]                    # (2) 로봇-전체 상태의 교차공분산을 계산
+Sigma_new[idx, :] = cross                    # (3) 새 랜드마크 행 전체를 이 교차공분산으로 덮어씀
+Sigma_new[:, idx] = cross.T
+----
+
+문제는 (3)번째 줄입니다 — `cross`는 `(2, dim)` 크기라 `idx`에 해당하는 열도 포함하는데, `Sigma[:3, idx]`(초기화 직전이라 아직 `0`)로 계산된 그 부분이 **(1)에서 방금 정확히 계산해둔 `landmark_cov`를 그대로 덮어써버립니다.** 결과적으로 랜드마크의 자기 분산은 (거의 `0`에 가까운) 잘못된 값이 되고, 비대각(교차) 성분은 정상적인 크기로 남으면서 — 대각선은 작고 비대각선은 상대적으로 큰, 전형적인 "양의 정부호가 깨진" 행렬이 만들어진 것입니다.
+
+== 수정: 자기 자신을 교차공분산 갱신에서 제외
+
+[source,python]
+----
+idx0 = 3 + 2*landmark_idx
+other = [i for i in range(dim) if not (idx0 <= i < idx0+2)]   # 새 랜드마크 자신은 제외
+cross_other = Gx @ Sigma[:3, other]
+Sigma_new[idx0:idx0+2, idx0:idx0+2] = landmark_cov              # 자기 공분산은 그대로 유지
+for c, o in enumerate(other):
+    Sigma_new[idx0:idx0+2, o] = cross_other[:, c]
+    Sigma_new[o, idx0:idx0+2] = cross_other[:, c]
+----
+
+"그 외" 상태(로봇 포즈와 다른 랜드마크들)에 대해서만 교차공분산을 갱신하고, 새 랜드마크 자신의 대각 블록은 손대지 않도록 인덱스를 명시적으로 분리했습니다.
+
+== 수정 후: 발산이 사라지고 안정적으로 수렴
+
+[source]
+----
+mean pose error (first 20 steps): 0.120
+mean pose error (last 20 steps):  0.347
+
+landmark 0 final error: 0.534   final covariance trace: 0.207
+landmark 1 final error: 0.447   final covariance trace: 0.223
+landmark 2 final error: 0.324   final covariance trace: 0.248
+landmark 3 final error: 0.307   final covariance trace: 0.223
+----
+
+`400`스텝(로봇이 원을 여러 바퀴 도는 궤적) 동안 발산 없이, 모든 랜드마크가 실제 위치에서 `0.6m` 이내로 정확히 수렴했고, 공분산도 여러 번 관측할수록 계속 작아졌습니다(초기 `1,000,000`에서 `0.2` 근처까지).
+
+== 이 버그에서 배울 점
+
+이 실수는 단순한 오타가 아니라, **다차원 배열 슬라이싱으로 행렬 일부를 갱신할 때 겹치는 인덱스를 놓치기 쉽다**는 일반적인 함정을 보여줍니다. 특히 EKF-SLAM처럼 상태 벡터가 크고(로봇 + 여러 랜드마크), 갱신마다 그 일부만 건드리는 코드에서는 이런 실수가 매우 흔합니다. 이번처럼 공분산 행렬의 고윳값을 주기적으로 확인하는 것(`np.linalg.eigvalsh(Sigma).min() >= 0`)이, 이런 버그를 "필터가 이상하게 발산한다"는 애매한 증상이 아니라 "공분산이 수학적으로 불가능한 상태에 빠졌다"는 명확한 신호로 훨씬 빨리 잡아낼 수 있는 실전적인 디버깅 습관입니다.
+
+== 직접 해보기
+
+* 고윳값 확인 코드를 이 장의 최종(수정된) 구현에 다시 걸어두고, `400`스텝 전체에서 최소 고윳값이 항상 `0` 이상(약간의 부동소수점 오차 허용)인지 확인해보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+min_eig_over_time = []
+# ... 시뮬레이션 루프 안에서 매 스텝 ...
+min_eig_over_time.append(np.linalg.eigvalsh(Sigma).min())
+
+print(min(min_eig_over_time))
+assert min(min_eig_over_time) > -1e-8   # 부동소수점 오차 수준만 허용
+----
+
+수정된 구현에서는 `400`스텝 내내 최소 고윳값이 `0`에 아주 가깝거나 양수로 유지됩니다(아주 미세한 음수가 나오더라도, 이번 버그처럼 `-0.5` 같은 뚜렷한 값이 아니라 `-1e-10` 수준의 부동소수점 반올림 오차뿐이어야 합니다). 이 검증을 필터 구현의 "회귀 테스트"로 남겨두면, 나중에 코드를 수정하다가 비슷한 인덱싱 버그를 다시 만들어도 곧바로 잡아낼 수 있습니다.
+====
+
+== 전체 코드
+
+이 장에서 단계별로 작성하고 버그를 수정한 2D EKF-SLAM(로봇 포즈 및 랜드마크 동시 추정)의 전체 실행 코드입니다.
+
+[source,python]
+----
+import numpy as np
+
+# 재현성을 위한 난수 생성기
+rng = np.random.default_rng(42)
+
+# 1. 로봇 운동 모델 및 포즈 야코비안
+def motion_model(state, u, dt):
+    x, y, theta = state
+    v, w = u
+    if abs(w) < 1e-6:
+        x_new = x + v * dt * np.cos(theta)
+        y_new = y + v * dt * np.sin(theta)
+        theta_new = theta
+    else:
+        x_new = x + (v / w) * (np.sin(theta + w * dt) - np.sin(theta))
+        y_new = y + (v / w) * (-np.cos(theta + w * dt) + np.cos(theta))
+        theta_new = theta + w * dt
+    return np.array([x_new, y_new, theta_new])
+
+def motion_jacobian_pose(pose, u, dt):
+    x, y, theta = pose
+    v, w = u
+    F = np.eye(3)
+    if abs(w) < 1e-6:
+        F[0, 2] = -v * dt * np.sin(theta)
+        F[1, 2] = v * dt * np.cos(theta)
+    else:
+        F[0, 2] = (v / w) * (np.cos(theta + w * dt) - np.cos(theta))
+        F[1, 2] = (v / w) * (np.sin(theta + w * dt) - np.sin(theta))
+    return F
+
+# 2. EKF-SLAM 예측 단계 (로봇 포즈만 전진, 랜드마크는 정적)
+def slam_predict(mu, Sigma, u, dt, Q_robot):
+    dim = len(mu)
+    F_pose = motion_jacobian_pose(mu[:3], u, dt)
+    G = np.eye(dim)
+    G[:3, :3] = F_pose
+    
+    mu_pred = mu.copy()
+    mu_pred[:3] = motion_model(mu[:3], u, dt)
+    
+    Q_full = np.zeros((dim, dim))
+    Q_full[:3, :3] = Q_robot
+    Sigma_pred = G @ Sigma @ G.T + Q_full
+    return mu_pred, Sigma_pred
+
+# 3. 관측 모델 및 전체 상태 공간에서의 야코비안 H
+def measurement_model(robot_pose, landmark_pos):
+    x, y, theta = robot_pose
+    lx, ly = landmark_pos
+    dx, dy = lx - x, ly - y
+    r = np.sqrt(dx**2 + dy**2)
+    bearing = np.arctan2(dy, dx) - theta
+    bearing = (bearing + np.pi) % (2 * np.pi) - np.pi
+    return np.array([r, bearing])
+
+def measurement_jacobian_full(mu, landmark_idx):
+    dim = len(mu)
+    x, y, theta = mu[:3]
+    lx, ly = mu[3+2*landmark_idx], mu[3+2*landmark_idx+1]
+    dx, dy = lx - x, ly - y
+    q = dx**2 + dy**2
+    r = np.sqrt(q)
+    
+    H = np.zeros((2, dim))
+    H[:, :3] = [[-dx/r, -dy/r, 0], [dy/q, -dx/q, -1]]
+    H[0, 3+2*landmark_idx] = dx/r
+    H[0, 3+2*landmark_idx+1] = dy/r
+    H[1, 3+2*landmark_idx] = -dy/q
+    H[1, 3+2*landmark_idx+1] = dx/q
+    return H
+
+# 4. 새 랜드마크 초기화 함수 (인덱스 덮어쓰기 버그 수정본)
+def initialize_landmark(mu, Sigma, z, landmark_idx, R):
+    dim = len(mu)
+    x, y, theta = mu[:3]
+    r, bearing = z
+    angle = theta + bearing
+    lx = x + r * np.cos(angle)
+    ly = y + r * np.sin(angle)
+    
+    mu_new = mu.copy()
+    idx0 = 3 + 2 * landmark_idx
+    mu_new[idx0] = lx
+    mu_new[idx0 + 1] = ly
+    
+    Gx = np.array([
+        [1.0, 0.0, -r * np.sin(angle)],
+        [0.0, 1.0,  r * np.cos(angle)]
+    ])
+    Gz = np.array([
+        [np.cos(angle), -r * np.sin(angle)],
+        [np.sin(angle),  r * np.cos(angle)]
+    ])
+    
+    landmark_cov = Gx @ Sigma[:3, :3] @ Gx.T + Gz @ R @ Gz.T
+    
+    Sigma_new = Sigma.copy()
+    other = [i for i in range(dim) if not (idx0 <= i < idx0 + 2)]
+    cross_other = Gx @ Sigma[:3, other]
+    
+    Sigma_new[idx0:idx0+2, idx0:idx0+2] = landmark_cov
+    for c, o in enumerate(other):
+        Sigma_new[idx0:idx0+2, o] = cross_other[:, c]
+        Sigma_new[o, idx0:idx0+2] = cross_other[:, c]
+        
+    return mu_new, Sigma_new
+
+# 5. 시뮬레이션 환경 설정
+n_landmarks = 4
+dim = 3 + 2 * n_landmarks
+dt = 0.1
+u = np.array([1.0, 0.2])  # 원을 그리며 회전하는 제어 입력
+n_steps = 400
+
+true_landmarks = np.array([
+    [3.0, 3.0],
+    [-3.0, 3.0],
+    [-3.0, -3.0],
+    [3.0, -3.0]
+])
+
+Q_robot = np.diag([0.02**2, 0.02**2, 0.01**2])
+R = np.diag([0.05**2, 0.02**2])
+
+# 6. 초기 상태 및 공분산 설정
+mu = np.zeros(dim)
+Sigma = np.zeros((dim, dim))
+Sigma[:3, :3] = np.diag([1e-4, 1e-4, 1e-4])  # 로봇 초기 위치는 거의 확실하게 시작
+for i in range(n_landmarks):
+    idx = 3 + 2 * i
+    Sigma[idx:idx+2, idx:idx+2] = np.eye(2) * 1e6  # 랜드마크 초기 불확실성은 무한대
+
+initialized = [False] * n_landmarks
+true_robot_pose = np.array([0.0, 0.0, 0.0])
+robot_errors = []
+min_eigvals = []
+
+# 7. EKF-SLAM 실행 루프 (400스텝)
+for k in range(n_steps):
+    # (1) 참값 궤적 이동
+    true_robot_pose = motion_model(true_robot_pose, u, dt) + rng.normal(0, [0.02, 0.02, 0.01])
+    
+    # (2) 예측 단계
+    mu, Sigma = slam_predict(mu, Sigma, u, dt, Q_robot)
+    
+    # (3) 관측 및 갱신 단계
+    for lm_idx in range(n_landmarks):
+        true_lm = true_landmarks[lm_idx]
+        dx = true_lm[0] - true_robot_pose[0]
+        dy = true_lm[1] - true_robot_pose[1]
+        dist = np.sqrt(dx**2 + dy**2)
+        
+        if dist < 8.0:  # 센서 관측 반경 8m
+            meas = measurement_model(true_robot_pose, true_lm) + rng.normal(0, [0.05, 0.02])
+            
+            if not initialized[lm_idx]:
+                # 새 랜드마크 초기화
+                mu, Sigma = initialize_landmark(mu, Sigma, meas, lm_idx, R)
+                initialized[lm_idx] = True
+            else:
+                # 기존 랜드마크 관측 갱신
+                H = measurement_jacobian_full(mu, lm_idx)
+                z_pred = measurement_model(mu[:3], mu[3+2*lm_idx:3+2*lm_idx+2])
+                y = meas - z_pred
+                y[1] = (y[1] + np.pi) % (2 * np.pi) - np.pi
+                
+                S = H @ Sigma @ H.T + R
+                K = Sigma @ H.T @ np.linalg.inv(S)
+                mu = mu + K @ y
+                Sigma = (np.eye(dim) - K @ H) @ Sigma
+                
+    # 공분산 행렬의 양의 정부호성 검증 (고윳값 체크)
+    min_eig = np.linalg.eigvalsh(Sigma).min()
+    min_eigvals.append(min_eig)
+    
+    err = np.linalg.norm(mu[:2] - true_robot_pose[:2])
+    robot_errors.append(err)
+
+# 8. 최종 결과 출력
+print(f"mean pose error (first 20 steps): {np.mean(robot_errors[:20]):.3f}")
+print(f"mean pose error (last 20 steps):  {np.mean(robot_errors[-20:]):.3f}")
+print(f"minimum eigenvalue over time:    {min(min_eigvals):.6f}")
+
+for i in range(n_landmarks):
+    est_lm = mu[3+2*i : 3+2*i+2]
+    lm_err = np.linalg.norm(est_lm - true_landmarks[i])
+    cov_trace = np.trace(Sigma[3+2*i : 3+2*i+2, 3+2*i : 3+2*i+2])
+    print(f"landmark {i} final error: {lm_err:.3f}   final covariance trace: {cov_trace:.3f}")
+----
+
+== 요약
+
+* EKF-SLAM은 로봇 포즈와 여러 랜드마크 위치를 하나의 결합 상태 벡터·공분산 행렬로 묶어, 비대각 블록(상관관계)을 통해 한 부분의 정보가 다른 부분의 추정을 개선하도록 만듭니다.
+* 예측 단계는 랜드마크를 정적으로 취급하고, 갱신 단계의 관측 야코비안은 로봇 포즈와 관측된 랜드마크에만 값이 있는 희소 행렬입니다.
+* 새 랜드마크 초기화 코드에서 공분산 행렬을 잘못된 순서로 덮어써 양의 정부호가 깨지는 실제 버그를 발견했고, 공분산의 고윳값을 확인하는 것이 이런 버그를 빠르게 잡아내는 실전적인 디버깅 습관이라는 걸 확인했습니다.
+* 수정 후에는 `400`스텝 동안 발산 없이 로봇과 모든 랜드마크 위치가 안정적으로 수렴했습니다.
+
+다음 장에서는 지금까지 당연하게 가정해온 것 — "이 관측이 몇 번 랜드마크에 대한 것인지 이미 안다" — 을 걷어내고, 관측을 올바른 랜드마크에 연결하는 데이터 연관 문제를 다룹니다.
+// end::body[]
