@@ -4,15 +4,17 @@ date: 2026-08-04T00:00:00+09:00
 draft: false
 tags: ["cpp23", "raii", "exception-safety", "book"]
 categories: ["books"]
-description: "이동 전용 핸들 두 개를 멤버로 가진 클래스가 손으로 쓴 특수 멤버 함수 하나 없이(Rule of Zero) 그대로 안전하게 이동되는 것과, 두 번째 자원 획득이 예외를 던져도 이미 획득한 첫 번째 자원이 스택 되감기로 자동 해제되는 것까지 실제로 확인하는 3부의 마지막 장"
+description: "2~4장의 타입 상태 WorkerConnection과 7장의 이동 전용 DataSegmentHandle을 WorkerSession 하나로 합성해, 손으로 쓴 특수 멤버 함수 하나 없이(Rule of Zero) 그대로 안전하게 이동되는 것과, 두 번째 자원 획득이 예외를 던져도 이미 획득한 첫 번째 자원이 스택 되감기로 자동 해제되는 것까지 실제로 확인하는 3부의 마지막 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../07-custom-move-only-handles/[7장: 커스텀 이동 전용 핸들] · 다음: link:../09-categorical-interfaces/[9장: concepts로 범주론적 인터페이스 짜기]_
+_link:../[전체 목차] · 이전: link:../07-custom-move-only-handles/[7장: 커스텀 이동 전용 핸들] · 다음: link:../09-lock-ordering-and-deadlock/[9장: 락 순서와 교착 상태]_
 
 '''
 
-7장은 자원 하나를 감싸는 클래스를 손으로 짰습니다. 실전에서는 자원이 여러 개인 클래스가 훨씬 흔합니다 — 이 장에서는 자원 두 개를 가진 클래스를 다루면서, 3부 전체가 기대온 두 가지를 확인합니다: **합성이 공짜로 안전한가**, 그리고 **초기화 도중 실패해도 안전한가**.
+7장은 자원 하나를 감싸는 클래스를 손으로 짰습니다. 실전에서는 자원이 여러 개인 클래스가 훨씬 흔합니다 — 이 장에서는 지금까지 두 개의 독립된 갈래로 따로 짜온 것을 처음으로 하나로 합칩니다. 2~4장에서 만든 타입 상태 `WorkerConnection`(코디네이터와의 연결)과, 7장에서 만든 이동 전용 `DataSegmentHandle`(처리 중인 데이터 세그먼트)을 **`WorkerSession`** 하나로 묶습니다. 이 합성을 통해 3부 전체가 기대온 두 가지를 확인합니다: **합성이 공짜로 안전한가**, 그리고 **초기화 도중 실패해도 안전한가**.
+
+(3~4장의 `Connected<N>`처럼 "정확히 N개"를 정적으로 못박는 프로토콜은, 실전에서는 코디네이터가 워커에게 몇 개의 배치를 보낼지 컴파일 타임엔 모르는 경우가 훨씬 흔합니다 — 그래서 이 장부터는 3장의 더 단순한 `Connected`(개수를 세지 않고 "연결되어 있다"만 표현하는 버전)로 돌아갑니다. `Connected<N>`이 보여준 정밀함은 여전히 유효한 도구지만, 이 장의 `WorkerSession`이 실전에 더 가깝도록 일부러 더 단순한 버전을 골랐습니다.)
 
 == Rule of Zero: 멤버가 이미 안전하면, 합성도 공짜로 안전하다
 
@@ -20,20 +22,22 @@ _link:../[전체 목차] · 이전: link:../07-custom-move-only-handles/[7장: �
 ----
 // Rule of Zero: 특수 멤버 함수를 하나도 손으로 안 씀.
 // 컴파일러가 생성하는 이동 생성자/대입이 각 멤버를 그대로 이동시키고,
-// FileHandle 자신의 이동이 이미 옳으므로 그걸로 충분하다.
-class Session {
-  FileHandle control_;
-  FileHandle data_;
+// Connected와 DataSegmentHandle 각자의 이동이 이미 옳으므로 그걸로 충분하다.
+class WorkerSession {
+  Connected connection_;        // 2~4장: 코디네이터-워커 연결 (타입 상태)
+  DataSegmentHandle handle_;    // 7장: 처리 중인 데이터 세그먼트 (이동 전용)
 public:
-  Session(int a, int b) : control_(a), data_(b) {}
+  WorkerSession(Connected connection, DataSegmentHandle handle)
+      : connection_(std::move(connection)), handle_(std::move(handle)) {}
 };
 ----
 
 [source,cpp]
 ----
 int main() {
-  Session s1(10, 11);
-  Session s2 = std::move(s1); // 컴파일러가 생성한 이동 생성자: control_, data_ 각각 이동
+  Idle conn;
+  WorkerSession s1(std::move(conn).connect(), DataSegmentHandle(11));
+  WorkerSession s2 = std::move(s1); // 컴파일러가 생성한 이동 생성자: connection_, handle_ 각각 이동
   std::cout << "-- both sessions going out of scope now --\n";
 }
 ----
@@ -41,20 +45,19 @@ int main() {
 [source]
 ----
 $ clang++ -std=c++23 -O0 -Wall compose.cpp -o compose && ./compose
-opened fd 10
-opened fd 11
+coordinator connected to worker
+acquired segment 11
 -- both sessions going out of scope now --
-closed fd 11
-closed fd 10
+released segment 11
 ----
 
 주목할 점 셋입니다.
 
-1. `Session`에는 이동 생성자를 손으로 쓴 줄이 **하나도 없습니다** — 컴파일러가 자동으로 만들어준 이동 생성자가 `control_`과 `data_`를 각각 (7장에서 짠) `FileHandle`의 이동 생성자로 이동시킵니다.
-2. `s1`에서 `s2`로 이동할 때 `opened fd`가 **다시 찍히지 않습니다** — 진짜 이동이지 복사나 재생성이 아닙니다.
-3. 소멸은 `fd 11`, `fd 10` 순서(멤버 선언의 **역순**)로 정확히 한 번씩만 일어납니다 — C++ 표준이 못박은 규칙(멤버는 선언 순서로 생성되고, 소멸은 그 역순)이 그대로 지켜집니다.
+1. `WorkerSession`에는 이동 생성자를 손으로 쓴 줄이 **하나도 없습니다** — 컴파일러가 자동으로 만들어준 이동 생성자가 `connection_`과 `handle_`을 각각 (2~4장의) `Connected`와 (7장의) `DataSegmentHandle`의 이동으로 이동시킵니다.
+2. `s1`에서 `s2`로 이동할 때 `acquired segment`가 **다시 찍히지 않습니다** — 진짜 이동이지 복사나 재생성이 아닙니다.
+3. `handle_`의 해제는 정확히 한 번만 일어납니다 — `s1`은 이동되어 빈 상태이므로 `s1`의 소멸자는 아무 일도 하지 않고, `s2`의 소멸자만 실제로 세그먼트를 해제합니다. `connection_`(`Connected`)은 7장 이전의 타입 상태 클래스들처럼 애초에 자원을 들고 있지 않으므로 소멸 시 찍을 로그가 없습니다.
 
-이게 **Rule of Zero**입니다 — 자원을 직접 다루는 저수준 클래스(`FileHandle`)에서만 7장처럼 Rule of Five를 손으로 쓰고, 그걸 조합하는 고수준 클래스(`Session`)는 아무것도 안 써도 안전이 "타고 올라옵니다". 이건 선형 타입 이론의 표준적인 결과(두 조각이 각자 선형이면 그 쌍도 선형이다)가 C++의 멤버별 자동 생성 규칙으로 그대로 나타난 것입니다.
+이게 **Rule of Zero**입니다 — 자원을 직접 다루는 저수준 클래스(`DataSegmentHandle`)에서만 7장처럼 Rule of Five를 손으로 쓰고, 그걸 조합하는 고수준 클래스(`WorkerSession`)는 아무것도 안 써도 안전이 "타고 올라옵니다". 이건 선형 타입 이론의 표준적인 결과(두 조각이 각자 선형이면 그 쌍도 선형이다)가 C++의 멤버별 자동 생성 규칙으로 그대로 나타난 것입니다 — 그리고 이 장이 처음으로, 이 책이 2장부터 두 갈래로 따로 키워온 세션 타입 인코딩과 선형 타입 인코딩이 **한 객체 안에서** 만나는 지점이기도 합니다.
 
 == 초기화 도중 실패해도 안전한가
 
@@ -62,20 +65,20 @@ closed fd 10
 
 [source,cpp]
 ----
-struct AlwaysThrows {
-  AlwaysThrows() { throw std::runtime_error("failed to acquire second resource"); }
+struct SegmentAcquisitionFailed {
+  SegmentAcquisitionFailed() { throw std::runtime_error("failed to acquire data segment"); }
 };
 
-class Session {
-  FileHandle control_;
-  AlwaysThrows data_; // 이 멤버를 만들다가 예외가 난다
+class FlakyWorkerSession {
+  DataSegmentHandle handle_;               // 이건 먼저 정상적으로 획득된다
+  SegmentAcquisitionFailed second_segment_; // 이 멤버를 만들다가 예외가 난다
 public:
-  Session(int a) : control_(a), data_() {}
+  FlakyWorkerSession(int segment_id) : handle_(segment_id), second_segment_() {}
 };
 
 int main() {
   try {
-    Session s(10);
+    FlakyWorkerSession s(10);
   } catch (const std::exception& e) {
     std::cout << "caught: " << e.what() << "\n";
   }
@@ -85,18 +88,18 @@ int main() {
 [source]
 ----
 $ clang++ -std=c++23 -O0 -Wall partial_init.cpp -o partial_init && ./partial_init
-opened fd 10
-closed fd 10
-caught: failed to acquire second resource
+acquired segment 10
+released segment 10
+caught: failed to acquire data segment
 ----
 
-`control_`이 열리고(`opened fd 10`), `data_`를 만들다가 예외가 던져지는데, **`control_`의 소멸자가 자동으로 호출됩니다**(`closed fd 10`) — `Session`의 생성자 자체는 한 번도 완료되지 못했고 `Session` 객체 자체의 소멸자도 안 불렸는데도 그렇습니다. 이건 우연이 아니라 C++ 표준이 명시한 **스택 되감기(stack unwinding)** 규칙입니다 — 생성자 실행 도중 예외가 발생하면, 그 시점까지 **이미 완전히 생성된 멤버들의 소멸자만** 역순으로 호출됩니다.
+`handle_`이 획득되고(`acquired segment 10`), `second_segment_`를 만들다가 예외가 던져지는데, **`handle_`의 소멸자가 자동으로 호출됩니다**(`released segment 10`) — `FlakyWorkerSession`의 생성자 자체는 한 번도 완료되지 못했고 `FlakyWorkerSession` 객체 자체의 소멸자도 안 불렸는데도 그렇습니다. 이건 우연이 아니라 C++ 표준이 명시한 **스택 되감기(stack unwinding)** 규칙입니다 — 생성자 실행 도중 예외가 발생하면, 그 시점까지 **이미 완전히 생성된 멤버들의 소멸자만** 역순으로 호출됩니다. 실전 TaskGrid라면 이건 "두 번째 세그먼트를 확보하지 못한 워커가, 이미 확보한 첫 번째 세그먼트를 새는(leak) 일 없이 안전하게 반납한다"는 뜻입니다.
 
 이게 RAII가 예외 안전성(exception safety)까지 "공짜로" 제공하는 이유입니다 — `malloc`/`free`나 수동 `lock`/`unlock` 페어로 자원을 관리했다면, 이 경로(두 번째 자원 획득 실패)를 프로그래머가 직접 `try`/`catch`로 짜서 첫 번째 자원을 명시적으로 해제해야 했을 것입니다. RAII를 쓰면 그 방어 코드를 아예 안 써도, 각 자원이 자기 소멸자만 올바르게 구현해두면 조합된 상위 객체가 저절로 예외 안전해집니다.
 
 == 3부를 마치며: 이 장이 확인한 것
 
-3부 전체가 선형 타입 이론을 C++의 이동 의미론으로 인코딩하는 여정이었습니다. 이 장에서 확인한 두 성질 — **합성이 안전하다**(Rule of Zero)와 **부분 실패에도 안전하다**(스택 되감기) — 은 선형 타입 시스템을 형식적으로 증명할 때 반드시 마주치는 **대입 보조정리**(컨텍스트를 쪼개는 서브텀들이 서로 영향을 안 준다는 걸 수학적으로 보장하는, 실제로는 꽤 까다로운 정리)가 실전에서 걱정하는 바로 그 문제들의 실용적 버전입니다. C++은 그 정리를 증명하는 대신 "각 멤버의 소멸자가 서로 독립적으로, 정확한 순서로 불린다"는 언어 명세로 실용적으로 같은 효과를 냅니다 — 증명은 아니지만, 컴파일러와 언어 표준이 그 규칙을 지킨다는 걸 믿을 수 있는 강한 보장입니다.
+3부 전체가 선형 타입 이론을 C++의 이동 의미론으로 인코딩하는 여정이었습니다. 이 장에서 확인한 두 성질 — **합성이 안전하다**(Rule of Zero)와 **부분 실패에도 안전하다**(스택 되감기) — 은 2장에서 미리 짚어뒀던 **대입 보조정리**(substitution lemma — 형식 증명 도구에서, 컨텍스트를 쪼개는 서브텀들이 서로 영향을 안 준다는 걸 수학적으로 보장하는, 실제로는 꽤 까다로운 정리) 문제가 실전에서 걱정하는 바로 그 내용의 실용적 버전입니다. C++은 그 정리를 증명하는 대신 "각 멤버의 소멸자가 서로 독립적으로, 정확한 순서로 불린다"는 언어 명세로 실용적으로 같은 효과를 냅니다 — 증명은 아니지만, 컴파일러와 언어 표준이 그 규칙을 지킨다는 걸 믿을 수 있는 강한 보장입니다.
 
 == 팁 박스: C++17 환경이라면
 
@@ -104,14 +107,14 @@ caught: failed to acquire second resource
 ====
 Rule of Zero, 멤버 초기화 순서 규칙, 스택 되감기 예외 안전성은 전부 C++98 시절부터 있던 핵심 언어 규칙입니다 — 이 장은 C++17은 물론, 사실상 이 시리즈의 어떤 C++ 버전에서도 동일하게 동작합니다.
 
-한 가지 실전 팁 — C++17부터는 생성자 위임(delegating constructor, 사실 C++11부터) 대신 **집합 초기화(aggregate initialization)** 가 조금 더 유연해졌습니다(기반 클래스가 있는 애그리게잇도 허용 등 이후 표준에서 확장). `Session`처럼 멤버 초기화 순서만으로 자원을 관리하는 단순한 클래스라면, 생성자를 아예 안 쓰고 애그리게잇으로 만들어도 이 장이 보여준 소멸 순서 보장은 동일하게 적용됩니다 — 다만 이 책의 예제들처럼 생성자에서 로깅이나 유효성 검사를 하고 싶다면 애그리게잇은 맞지 않으므로, 이 장에서는 명시적 생성자를 계속 씁니다.
+한 가지 실전 팁 — C++17부터는 생성자 위임(delegating constructor, 사실 C++11부터) 대신 **집합 초기화(aggregate initialization)** 가 조금 더 유연해졌습니다(기반 클래스가 있는 애그리게잇도 허용 등 이후 표준에서 확장). `WorkerSession`처럼 멤버 초기화 순서만으로 자원을 관리하는 단순한 클래스라면, 생성자를 아예 안 쓰고 애그리게잇으로 만들어도 이 장이 보여준 소멸 순서 보장은 동일하게 적용됩니다 — 다만 이 책의 예제들처럼 생성자에서 로깅이나 유효성 검사를 하고 싶다면 애그리게잇은 맞지 않으므로, 이 장에서는 명시적 생성자를 계속 씁니다.
 ====
 
 == 요약
 
-* 이동 전용 자원 두 개를 멤버로 가진 `Session`이, 특수 멤버 함수를 하나도 손으로 안 써도(Rule of Zero) 정확히 한 번씩, 선언의 역순으로 안전하게 소멸된다는 걸 실제로 확인했습니다.
-* 두 번째 멤버를 만들다가 예외가 나도, 이미 만들어진 첫 번째 멤버의 소멸자가 스택 되감기로 자동 호출된다는 걸 실제로 재현했습니다 — RAII가 예외 안전성까지 공짜로 제공하는 이유입니다.
-* 이 두 성질이, 4장에서 정직하게 멈췄던 Lean4의 대입 보조정리가 걱정했던 문제(서브텀들이 서로 영향을 안 준다)의 실용적인, 언어 명세로 보장되는 버전이라는 것도 짚었습니다.
+* 2~4장의 타입 상태 `WorkerConnection`(`Connected`)과 7장의 이동 전용 `DataSegmentHandle`을 `WorkerSession` 하나로 처음 합쳤습니다 — 특수 멤버 함수를 하나도 손으로 안 써도(Rule of Zero) 정확히 한 번씩 안전하게 소멸된다는 걸 실제로 확인했습니다.
+* 두 번째 멤버(세그먼트)를 만들다가 예외가 나도, 이미 만들어진 첫 번째 멤버의 소멸자가 스택 되감기로 자동 호출된다는 걸 실제로 재현했습니다 — RAII가 예외 안전성까지 공짜로 제공하는 이유입니다.
+* 이 두 성질이, 2장에서 정직하게 짚었던 대입 보조정리가 걱정했던 문제(서브텀들이 서로 영향을 안 준다)의 실용적인, 언어 명세로 보장되는 버전이라는 것도 짚었습니다.
 
-4부에서는 이 책의 세 번째 이론 — 범주론 — 을 concepts로 인코딩합니다. `std::optional`과 `std::expected`가 실제로 Functor/Monad 인터페이스를 만족하는지 concepts로 직접 확인하고, 그걸로 병렬 파이프라인을 안전하게 합성합니다.
+4부에서는 이 책의 세 번째 이론 — 범주론 — 을 concepts로 인코딩합니다. 이제 완성된 `WorkerSession`이 배치를 처리한 **결과**를 `std::optional`/`std::expected` 기반 Functor/Monad 인터페이스로 감싸고, 그걸로 병렬 파이프라인을 안전하게 합성합니다.
 // end::body[]

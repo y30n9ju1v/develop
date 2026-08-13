@@ -4,7 +4,7 @@ date: 2026-08-04T00:00:00+09:00
 draft: false
 tags: ["cpp23", "typestate", "session-types", "book"]
 categories: ["books"]
-description: "connect-send-close 순서를 상태마다 다른 타입과 rvalue 한정 멤버 함수로 표현해, 순서를 어긴 호출은 실제로 컴파일이 실패하게 만들고, [[nodiscard]]로 반환값을 무시하는 실수까지 -Werror로 하드 에러로 바꾸면서, 이 패턴이 여전히 못 막는 '같은 변수에 두 번 std::move'라는 구멍을 정직하게 확인하는 2부의 첫 장"
+description: "TaskGrid의 WorkerConnection을 타입 상태로 다시 짜서 connect-send-close 순서를 상태마다 다른 타입과 rvalue 한정 멤버 함수로 표현해, 순서를 어긴 호출은 실제로 컴파일이 실패하게 만들고, [[nodiscard]]로 반환값을 무시하는 실수까지 -Werror로 하드 에러로 바꾸면서, 이 패턴이 여전히 못 막는 '같은 변수에 두 번 std::move'라는 구멍을 정직하게 확인하는 2부의 첫 장"
 ---
 
 // tag::body[]
@@ -12,7 +12,7 @@ _link:../[전체 목차] · 이전: link:../02-what-types-miss/[2장: C++ 타입
 
 '''
 
-세션 타입 이론의 핵심 아이디어를 한 문장으로 요약하면 — **"다음에 무엇을 할 수 있는가"를 타입으로 표현하면, 프로토콜을 어긴 프로그램은 타입이 안 맞아서 거부된다**는 것입니다. 이 장에서는 2장의 `Connection` 클래스를 이 아이디어로 다시 짜서, 순서를 어긴 호출이 실제로 컴파일 에러가 되는지 확인합니다.
+세션 타입 이론의 핵심 아이디어를 한 문장으로 요약하면 — **"다음에 무엇을 할 수 있는가"를 타입으로 표현하면, 프로토콜을 어긴 프로그램은 타입이 안 맞아서 거부된다**는 것입니다. 이 장에서는 2장의 `WorkerConnection` 클래스를 이 아이디어로 다시 짜서, 순서를 어긴 호출이 실제로 컴파일 에러가 되는지 확인합니다.
 
 == 핵심 아이디어: 상태마다 다른 타입, 메서드는 다음 상태를 반환한다
 
@@ -20,41 +20,41 @@ _link:../[전체 목차] · 이전: link:../02-what-types-miss/[2장: C++ 타입
 ----
 class Connected;  // 전방 선언
 
-class Disconnected {
+class Idle {  // 아직 워커에 연결 안 됨
 public:
-  [[nodiscard]] Connected connect() &&;   // Disconnected에는 send()가 없다!
+  [[nodiscard]] Connected connect() &&;   // Idle에는 send()가 없다!
 };
 
-class Connected {
+class Connected {  // 워커에 연결되어 배치를 보낼 수 있음
 public:
   Connected(int) {}
-  [[nodiscard]] Connected send(const std::string& msg) && {
-    std::cout << "sent: " << msg << "\n";
+  [[nodiscard]] Connected send(const std::string& batch) && {
+    std::cout << "dispatched batch: " << batch << "\n";
     return Connected(0);
   }
-  void close() && { std::cout << "closed\n"; }  // Connected에는 connect()가 없다!
+  void close() && { std::cout << "connection closed\n"; }  // Connected에는 connect()가 없다!
 };
 
-Connected Disconnected::connect() && {
-  std::cout << "connected\n";
+Connected Idle::connect() && {
+  std::cout << "coordinator connected to worker\n";
   return Connected(0);
 }
 ----
 
-2장의 `Connection`과 결정적으로 다른 점이 셋 있습니다.
+2장의 `WorkerConnection`과 결정적으로 다른 점이 셋 있습니다.
 
-1. **`send`는 `Disconnected`에 아예 없습니다.** "연결 안 된 상태에서 보내려는" 실수는 이제 "그런 멤버 함수가 없다"는 컴파일 에러가 됩니다 — `if (!connected_)`라는 런타임 방어 코드가 필요 없어집니다.
-2. **모든 메서드가 `&&`로 한정되어 있습니다**(rvalue-qualified member function) — `Disconnected` **값**(lvalue, 즉 이름 붙은 변수)에는 이 메서드들을 직접 부를 수 없고, 반드시 `std::move`로 "이 값을 소비하겠다"는 의사를 명시해야 부를 수 있습니다.
-3. **`connect()`와 `send()`는 다음 상태를 반환합니다** — `Disconnected::connect()`는 `Connected`를, `Connected::send()`는 새 `Connected`를 돌려줍니다. 세션 타입 이론에서 "보낸다"는 규칙이 "그다음 명세를 지키는 나머지 프로토콜이 있어야 한다"고 요구하는 것과 같은 모양입니다 — 한 스텝 진행할 때마다 "그다음에 뭘 할 수 있는지"를 담은 새 타입이 나옵니다.
+1. **`send`는 `Idle`에 아예 없습니다.** "연결 안 된 상태에서 보내려는" 실수는 이제 "그런 멤버 함수가 없다"는 컴파일 에러가 됩니다 — `if (!connected_)`라는 런타임 방어 코드가 필요 없어집니다.
+2. **모든 메서드가 `&&`로 한정되어 있습니다**(rvalue-qualified member function) — `Idle` **값**(lvalue, 즉 이름 붙은 변수)에는 이 메서드들을 직접 부를 수 없고, 반드시 `std::move`로 "이 값을 소비하겠다"는 의사를 명시해야 부를 수 있습니다.
+3. **`connect()`와 `send()`는 다음 상태를 반환합니다** — `Idle::connect()`는 `Connected`를, `Connected::send()`는 새 `Connected`를 돌려줍니다. 세션 타입 이론에서 "보낸다"는 규칙이 "그다음 명세를 지키는 나머지 프로토콜이 있어야 한다"고 요구하는 것과 같은 모양입니다 — 한 스텝 진행할 때마다 "그다음에 뭘 할 수 있는지"를 담은 새 타입이 나옵니다.
 
 == 검증 1: 올바른 순서는 통과한다
 
 [source,cpp]
 ----
 int main() {
-  Disconnected d;
-  auto c1 = std::move(d).connect();
-  auto c2 = std::move(c1).send("hello");
+  Idle conn;
+  auto c1 = std::move(conn).connect();
+  auto c2 = std::move(c1).send("batch-0");
   std::move(c2).close();
 }
 ----
@@ -62,9 +62,9 @@ int main() {
 [source]
 ----
 $ clang++ -std=c++23 -O0 typestate1.cpp -o typestate1 && ./typestate1
-connected
-sent: hello
-closed
+coordinator connected to worker
+dispatched batch: batch-0
+connection closed
 ----
 
 정확히 의도한 순서대로 컴파일되고 실행됩니다.
@@ -74,17 +74,17 @@ closed
 [source,cpp]
 ----
 int main() {
-  Disconnected d;
-  auto bad = std::move(d).send("hello"); // 버그: Disconnected에는 send()가 없다
+  Idle conn;
+  auto bad = std::move(conn).send("batch-0"); // 버그: Idle에는 send()가 없다
 }
 ----
 
 [source]
 ----
 $ clang++ -std=c++23 -O0 typestate1_bad.cpp -o /tmp/x
-typestate1_bad.cpp:18:27: error: no member named 'send' in 'Disconnected'
-   18 |   auto bad = std::move(d).send("hello");
-      |              ~~~~~~~~~~~~ ^
+typestate1_bad.cpp:18:30: error: no member named 'send' in 'Idle'
+   18 |   auto bad = std::move(conn).send("batch-0");
+      |              ~~~~~~~~~~~~~~~ ^
 1 error generated.
 ----
 
@@ -97,8 +97,8 @@ typestate1_bad.cpp:18:27: error: no member named 'send' in 'Disconnected'
 [source,cpp]
 ----
 int main() {
-  Disconnected d;
-  std::move(d).connect(); // 반환값을 버림 — Connected 상태를 잃어버림
+  Idle conn;
+  std::move(conn).connect(); // 반환값을 버림 — Connected 상태를 잃어버림
 }
 ----
 
@@ -128,9 +128,9 @@ declared with 'nodiscard' attribute [-Werror,-Wunused-result]
 [source,cpp]
 ----
 int main() {
-  Disconnected d;
-  auto c1 = std::move(d).connect();
-  auto c2 = std::move(d).connect(); // 버그: 이미 소비된 d를 다시 connect()!
+  Idle conn;
+  auto c1 = std::move(conn).connect();
+  auto c2 = std::move(conn).connect(); // 버그: 이미 소비된 conn을 다시 connect()!
 }
 ----
 
@@ -142,7 +142,7 @@ typestate1_reuse.cpp:19:8: warning: unused variable 'c2'
 2 warnings generated.
 ----
 
-**이건 컴파일됩니다.** `d`는 `std::move`로 "이동됐다"고 해도, C++에서 이동은 변수 `d` 자체를 없애지 않습니다 — `d`는 여전히 스코프 안에 살아 있는(그저 "이동된 뒤라 내용이 비어 있을 수 있는") 유효한 변수입니다. `Disconnected`는 멤버 변수가 없는 빈 클래스라서 "이동된 뒤"와 "이동되기 전"이 구별조차 안 됩니다 — 두 번째 `connect()` 호출도 똑같이 잘 작동해버립니다.
+**이건 컴파일됩니다.** `conn`은 `std::move`로 "이동됐다"고 해도, C++에서 이동은 변수 `conn` 자체를 없애지 않습니다 — `conn`은 여전히 스코프 안에 살아 있는(그저 "이동된 뒤라 내용이 비어 있을 수 있는") 유효한 변수입니다. `Idle`은 멤버 변수가 없는 빈 클래스라서 "이동된 뒤"와 "이동되기 전"이 구별조차 안 됩니다 — 두 번째 `connect()` 호출도 똑같이 잘 작동해버립니다. 실전이라면 이건 코디네이터가 **같은 워커에 두 번 연결을 맺으려 드는** 버그입니다.
 
 이게 선형 타입 이론이 컨텍스트 쪼개기로 정확히 막는 종류의 버그입니다(변수를 두 번 쓰면 컨텍스트가 겹쳐서 타입 규칙이 깨집니다) — C++의 이동 의미론은 **"이동한 뒤에도 원래 변수를 계속 쓸 수 있다"** 는 전제 위에 있어서, "정확히 한 번"을 완벽하게 강제하지는 못합니다. 이 구멍을 얼마나 메울 수 있는지는 다음 장에서 다룹니다.
 
@@ -152,12 +152,12 @@ typestate1_reuse.cpp:19:8: warning: unused variable 'c2'
 ====
 이 장의 핵심 기법 — rvalue 한정 멤버 함수(`&&`)와 `\[[nodiscard]]` — 는 사실 **둘 다 C++11(rvalue 한정)과 C++17(`\[[nodiscard]]`가 표준 속성으로)** 부터 있었습니다. 그러니 이 장의 타입 상태 패턴 자체는 C++17에서도 한 글자도 안 바꾸고 그대로 씁니다 — 이 책에서 "C++23이 필요하다"고 짚을 만한 기능은 아직 등장하지 않았습니다.
 
-다만 컴파일러 지원의 실전적인 차이가 하나 있습니다 — `\[[nodiscard]]`를 **함수 선언**이 아니라 **타입 자체**에 붙이는 `\[[nodiscard]] class Connected { ... };` 형태도 C++17부터 쓸 수 있는데, 이러면 그 타입을 반환하는 모든 함수가 자동으로 `\[[nodiscard]]`가 됩니다 — 이 책의 `Connected`/`Disconnected`처럼 상태 클래스가 여러 개인 설계에서는, 함수마다 일일이 `\[[nodiscard]]`를 안 붙이고 타입 선언 한 번으로 끝내는 이 방식이 실수를 줄이는 데 더 안전합니다.
+다만 컴파일러 지원의 실전적인 차이가 하나 있습니다 — `\[[nodiscard]]`를 **함수 선언**이 아니라 **타입 자체**에 붙이는 `\[[nodiscard]] class Connected { ... };` 형태도 C++17부터 쓸 수 있는데, 이러면 그 타입을 반환하는 모든 함수가 자동으로 `\[[nodiscard]]`가 됩니다 — 이 책의 `Connected`/`Idle`처럼 상태 클래스가 여러 개인 설계에서는, 함수마다 일일이 `\[[nodiscard]]`를 안 붙이고 타입 선언 한 번으로 끝내는 이 방식이 실수를 줄이는 데 더 안전합니다.
 ====
 
 == 요약
 
-* 상태마다 다른 타입(`Disconnected`, `Connected`)을 만들고, 메서드를 rvalue 한정(`&&`)으로 선언해서 다음 상태를 반환하게 만들면, "순서를 어긴 호출"은 "그런 멤버 함수가 없다"는 실제 컴파일 에러가 됩니다.
+* 상태마다 다른 타입(`Idle`, `Connected`)을 만들고, 메서드를 rvalue 한정(`&&`)으로 선언해서 다음 상태를 반환하게 만들면, "순서를 어긴 호출"은 "그런 멤버 함수가 없다"는 실제 컴파일 에러가 됩니다.
 * `\[[nodiscard]]`로 반환값(다음 상태)을 무시하는 실수도 경고로 잡고, `-Werror`로 하드 에러까지 승격시킬 수 있다는 걸 실제로 확인했습니다.
 * 이 패턴에도 진짜 구멍이 있습니다 — C++의 이동은 원래 변수를 없애지 않으므로, 같은(빈) 상태 변수에 `std::move`를 두 번 불러 이미 "소비된" 상태를 재사용하는 건 여전히 컴파일됩니다. 이건 정직하게 인정하고 다음 장에서 얼마나 메울 수 있는지 다룹니다.
 

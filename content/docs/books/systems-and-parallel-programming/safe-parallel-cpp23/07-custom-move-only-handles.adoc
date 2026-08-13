@@ -4,7 +4,7 @@ date: 2026-08-04T00:00:00+09:00
 draft: false
 tags: ["cpp23", "move-semantics", "raii", "linear-types", "book"]
 categories: ["books"]
-description: "std::unique_ptr가 아닌 우리만의 자원(파일 디스크립터 흉내)을 감싸는 이동 전용 클래스를 Rule of Five로 직접 짜서, 이동 후 원본을 무효값으로 만들고 소멸자를 멱등하게 설계해 이동해도 절대 두 번 닫히지 않는다는 것까지 실제로 확인하는 3부의 중간 장"
+description: "std::unique_ptr가 아닌 우리만의 자원 -- 워커가 배치를 처리하는 동안 붙드는 데이터 세그먼트 핸들(DataSegmentHandle) -- 을 감싸는 이동 전용 클래스를 Rule of Five로 직접 짜서, 이동 후 원본을 무효값으로 만들고 소멸자를 멱등하게 설계해 이동해도 절대 두 번 해제되지 않는다는 것까지 실제로 확인하는 3부의 중간 장"
 ---
 
 // tag::body[]
@@ -12,102 +12,104 @@ _link:../[전체 목차] · 이전: link:../06-move-only-types/[6장: unique_ptr
 
 '''
 
-6장은 표준 라이브러리가 이미 만들어둔 `std::unique_ptr`를 봤습니다. 이 장에서는 우리만의 자원 — 정수 하나로 표현되는 "파일 디스크립터" 흉내 — 을 감싸는 이동 전용 클래스를 직접 짭니다. 실전에서 소켓, 뮤텍스 핸들, GPU 자원 같은 것들을 감쌀 때 정확히 이 패턴을 씁니다.
+6장은 표준 라이브러리가 이미 만들어둔 `std::unique_ptr`를 봤습니다. 이 장에서는 우리만의 자원 — 정수 하나로 표현되는 "데이터 세그먼트 ID" 흉내(실전이라면 mmap된 공유 입력 버퍼의 한 조각을 가리키는 핸들) — 을 감싸는 이동 전용 클래스를 직접 짭니다. 실전에서 소켓, 뮤텍스 핸들, GPU 자원 같은 것들을 감쌀 때 정확히 이 패턴을 씁니다.
 
 == Rule of Five로 이동 전용 타입 짜기
 
 [source,cpp]
 ----
-class FileHandle {
-  int fd_;
+class DataSegmentHandle {
+  int segment_id_;
   static constexpr int kInvalid = -1;
 public:
-  explicit FileHandle(int fd) : fd_(fd) { std::cout << "opened fd " << fd_ << "\n"; }
-
-  FileHandle(const FileHandle&) = delete;             // 복사 생성 금지
-  FileHandle& operator=(const FileHandle&) = delete;  // 복사 대입 금지
-
-  FileHandle(FileHandle&& other) noexcept : fd_(other.fd_) {
-    other.fd_ = kInvalid;                             // 원본을 무효값으로
+  explicit DataSegmentHandle(int segment_id) : segment_id_(segment_id) {
+    std::cout << "acquired segment " << segment_id_ << "\n";
   }
-  FileHandle& operator=(FileHandle&& other) noexcept {
+
+  DataSegmentHandle(const DataSegmentHandle&) = delete;             // 복사 생성 금지
+  DataSegmentHandle& operator=(const DataSegmentHandle&) = delete;  // 복사 대입 금지
+
+  DataSegmentHandle(DataSegmentHandle&& other) noexcept : segment_id_(other.segment_id_) {
+    other.segment_id_ = kInvalid;                     // 원본을 무효값으로
+  }
+  DataSegmentHandle& operator=(DataSegmentHandle&& other) noexcept {
     if (this != &other) {
-      close_now();
-      fd_ = other.fd_;
-      other.fd_ = kInvalid;
+      release_now();
+      segment_id_ = other.segment_id_;
+      other.segment_id_ = kInvalid;
     }
     return *this;
   }
 
-  ~FileHandle() { close_now(); }
+  ~DataSegmentHandle() { release_now(); }
 
 private:
-  void close_now() {
-    if (fd_ != kInvalid) {
-      std::cout << "closed fd " << fd_ << "\n";
-      fd_ = kInvalid;
+  void release_now() {
+    if (segment_id_ != kInvalid) {
+      std::cout << "released segment " << segment_id_ << "\n";
+      segment_id_ = kInvalid;
     }
-    // fd_ == kInvalid면 이미 닫혔거나(또는 이동되어 비었거나) — 아무 일도 안 한다. 멱등(idempotent).
+    // segment_id_ == kInvalid면 이미 해제됐거나(또는 이동되어 비었거나) — 아무 일도 안 한다. 멱등(idempotent).
   }
 };
 ----
 
 다섯 가지 특수 멤버 함수(복사 생성자, 복사 대입, 이동 생성자, 이동 대입, 소멸자 — 이걸 전부 명시하는 관용구를 **Rule of Five** 라고 부릅니다)를 전부 직접 정의합니다.
 
-* **복사는 `= delete`** — 6장의 `unique_ptr`와 같은 이유입니다. `fd_`라는 정수 하나를 복사해봐야 "같은 파일 디스크립터를 가리키는 두 객체"가 생길 뿐이고, 둘 다 소멸될 때 같은 `fd_`를 닫으려 들면 이중 해제(6장)와 정확히 같은 버그가 됩니다.
+* **복사는 `= delete`** — 7장의 `unique_ptr`와 같은 이유입니다. `segment_id_`라는 정수 하나를 복사해봐야 "같은 데이터 세그먼트를 가리키는 두 객체"가 생길 뿐이고, 둘 다 소멸될 때 같은 `segment_id_`를 해제하려 들면 이중 해제(7장)와 정확히 같은 버그가 됩니다.
 * **이동은 원본을 `kInvalid`로 만든다** — `unique_ptr`의 이동이 원본을 `nullptr`로 만드는 것과 정확히 같은 원리입니다.
-* **`close_now()`는 멱등(idempotent)** — 이미 닫혔거나(`kInvalid`) 정상적인 값이거나 상관없이 몇 번을 불러도 안전합니다. 이게 핵심입니다: 소멸자가 "이동돼서 빈 상태"인 객체에 대해 호출돼도 안전하다는 걸, `close_now()`의 `if` 검사 하나로 보장합니다.
+* **`release_now()`는 멱등(idempotent)** — 이미 해제됐거나(`kInvalid`) 정상적인 값이거나 상관없이 몇 번을 불러도 안전합니다. 이게 핵심입니다: 소멸자가 "이동돼서 빈 상태"인 객체에 대해 호출돼도 안전하다는 걸, `release_now()`의 `if` 검사 하나로 보장합니다.
 
-== 검증 1: 이동해도 정확히 한 번만 닫힌다
+== 검증 1: 이동해도 정확히 한 번만 해제된다
 
 [source,cpp]
 ----
 int main() {
-  FileHandle a(3);
-  FileHandle b = std::move(a);
-  // a의 소멸자는 스코프 끝에서 실행되지만 fd_는 이미 kInvalid -> 이중 닫힘 없음
+  DataSegmentHandle a(3);
+  DataSegmentHandle b = std::move(a);  // 워커가 다른 워커에게 세그먼트를 넘겨준다고 생각해도 좋다
+  // a의 소멸자는 스코프 끝에서 실행되지만 segment_id_는 이미 kInvalid -> 이중 해제 없음
 }
 ----
 
 [source]
 ----
 $ clang++ -std=c++23 -O0 -Wall handle.cpp -o handle && ./handle
-opened fd 3
-closed fd 3
+acquired segment 3
+released segment 3
 ----
 
-`opened fd 3`(생성) 다음에 `closed fd 3`(닫힘)이 **딱 한 번만** 찍힙니다 — `a`와 `b` 둘 다 소멸자가 호출되지만, `a`의 `close_now()`는 이미 `fd_ == kInvalid`라서 아무것도 안 하고, `b`의 `close_now()`만 실제로 닫는 일을 합니다.
+`acquired segment 3`(생성) 다음에 `released segment 3`(해제)이 **딱 한 번만** 찍힙니다 — `a`와 `b` 둘 다 소멸자가 호출되지만, `a`의 `release_now()`는 이미 `segment_id_ == kInvalid`라서 아무것도 안 하고, `b`의 `release_now()`만 실제로 해제하는 일을 합니다.
 
 == 검증 2: 복사를 시도하면 컴파일이 실패한다
 
 [source,cpp]
 ----
 int main() {
-  FileHandle a(3);
-  FileHandle b = a; // 버그 시도: 복사
+  DataSegmentHandle a(3);
+  DataSegmentHandle b = a; // 버그 시도: 복사
 }
 ----
 
 [source]
 ----
 $ clang++ -std=c++23 -O0 handle_bad.cpp -o /tmp/h
-handle_bad.cpp:12:14: error: call to deleted constructor of 'FileHandle'
-   12 |   FileHandle b = a;
-      |              ^   ~
-handle_bad.cpp:6:3: note: 'FileHandle' has been explicitly marked deleted here
-    6 |   FileHandle(const FileHandle&) = delete;
+handle_bad.cpp:12:22: error: call to deleted constructor of 'DataSegmentHandle'
+   12 |   DataSegmentHandle b = a;
+      |                      ^   ~
+handle_bad.cpp:6:3: note: 'DataSegmentHandle' has been explicitly marked deleted here
+    6 |   DataSegmentHandle(const DataSegmentHandle&) = delete;
       |   ^
 1 error generated.
 ----
 
-6장의 `unique_ptr`와 정확히 같은 에러 모양입니다 — 다만 이번엔 표준 라이브러리가 아니라 **우리가 직접 `= delete`를 써서** 만든 결과입니다.
+7장의 `unique_ptr`와 정확히 같은 에러 모양입니다 — 다만 이번엔 표준 라이브러리가 아니라 **우리가 직접 `= delete`를 써서** 만든 결과입니다.
 
 == 이게 정확히 선형 타입 이론의 어디에 대응하는가
 
-선형 타입 이론은 보통 두 가지 규칙을 함께 강제합니다 — 값을 **두 번 이상** 쓰는 것도 거부하고, 값을 **한 번도 안 쓰는 것**도 거부합니다("정확히 한 번"). 이 장의 `FileHandle`을 그 두 규칙과 나란히 놓아보면 대응이 선명합니다.
+선형 타입 이론은 보통 두 가지 규칙을 함께 강제합니다 — 값을 **두 번 이상** 쓰는 것도 거부하고, 값을 **한 번도 안 쓰는 것**도 거부합니다("정확히 한 번"). 이 장의 `DataSegmentHandle`을 그 두 규칙과 나란히 놓아보면 대응이 선명합니다.
 
-* **두 번 이상 쓰지 못하게 막는 규칙** ↔ `FileHandle`의 복사 생성자 삭제. "이 값을 참조하는 방법은 정확히 하나(소유권을 이동시키는 것)뿐이다"를 강제합니다.
-* **한 번도 안 쓰면 거부하는 규칙** ↔ **여기서는 대응이 없습니다.** `FileHandle`을 만들어놓고 한 번도 안 써도(그냥 스코프를 벗어나도) 컴파일은 잘 되고, 소멸자가 알아서 닫아줍니다. 이건 8장 앞부분에서 다시 짚었던 **아핀 타입** 쪽에 더 가깝습니다 — "최대 한 번"(0번도 허용)이지 "정확히 한 번"이 아닙니다. C++의 자원 관리 관용구(RAII)는 애초부터 선형 타입보다 아핀 타입에 더 가깝게 설계되어 있습니다 — "안 써도 자동으로 정리된다"는 게 오히려 프로그래머 편의를 위한 핵심 기능이기 때문입니다.
+* **두 번 이상 쓰지 못하게 막는 규칙** ↔ `DataSegmentHandle`의 복사 생성자 삭제. "이 값을 참조하는 방법은 정확히 하나(소유권을 이동시키는 것)뿐이다"를 강제합니다.
+* **한 번도 안 쓰면 거부하는 규칙** ↔ **여기서는 대응이 없습니다.** `DataSegmentHandle`을 만들어놓고 한 번도 안 써도(그냥 스코프를 벗어나도) 컴파일은 잘 되고, 소멸자가 알아서 해제해줍니다. 이건 순수한 선형 타입이 아니라 **아핀 타입(affine type)** 쪽에 더 가깝습니다 — "최대 한 번"(0번도 허용)이지 "정확히 한 번"이 아닙니다. C++의 자원 관리 관용구(RAII)는 애초부터 선형 타입보다 아핀 타입에 더 가깝게 설계되어 있습니다 — "안 써도 자동으로 정리된다"는 게 오히려 프로그래머 편의를 위한 핵심 기능이기 때문입니다. 이 선형/아핀 구분은 맺음말의 비교표에서 Rust의 소유권 모델과 나란히 다시 정리합니다.
 
 == 팁 박스: C++17 환경이라면
 
@@ -115,14 +117,14 @@ handle_bad.cpp:6:3: note: 'FileHandle' has been explicitly marked deleted here
 ====
 Rule of Five(명시적 이동 생성자/대입, `= delete`, `noexcept`)는 전부 **C++11**부터 있었으므로 이 장의 코드는 C++17로 컴파일해도 완전히 동일하게 동작합니다.
 
-굳이 짚을 차이가 있다면, 이 장의 예제처럼 멤버가 정수 하나뿐인 단순한 경우 **Rule of Zero**(아무 특수 멤버 함수도 직접 안 쓰고, `std::unique_ptr`나 다른 이동 전용 타입에 위임하는 것)를 대신 쓰는 게 더 실전적인 경우가 많다는 점입니다 — 예를 들어 `fd_`를 `int` 대신 `std::unique_ptr<int, FdDeleter>`(커스텀 삭제자를 가진 `unique_ptr`)로 감싸면, 이 장에서 손으로 쓴 다섯 함수를 전혀 안 쓰고도 같은 안전성을 얻습니다. 이건 C++17이냐 아니냐와 무관한 설계 선택이지만, 이 장에서 "왜 손으로 다섯 함수를 다 썼는지" 이해했다면 다음으로 자연스럽게 물어볼 질문이라 여기서 짚어둡니다.
+굳이 짚을 차이가 있다면, 이 장의 예제처럼 멤버가 정수 하나뿐인 단순한 경우 **Rule of Zero**(아무 특수 멤버 함수도 직접 안 쓰고, `std::unique_ptr`나 다른 이동 전용 타입에 위임하는 것)를 대신 쓰는 게 더 실전적인 경우가 많다는 점입니다 — 예를 들어 `segment_id_`를 `int` 대신 `std::unique_ptr<int, SegmentDeleter>`(커스텀 삭제자를 가진 `unique_ptr`)로 감싸면, 이 장에서 손으로 쓴 다섯 함수를 전혀 안 쓰고도 같은 안전성을 얻습니다. 이건 C++17이냐 아니냐와 무관한 설계 선택이지만, 이 장에서 "왜 손으로 다섯 함수를 다 썼는지" 이해했다면 다음으로 자연스럽게 물어볼 질문이라 여기서 짚어둡니다.
 ====
 
 == 요약
 
-* Rule of Five로 정수 하나(파일 디스크립터 흉내)를 감싸는 이동 전용 클래스를 직접 짰습니다 — 복사는 삭제하고, 이동은 원본을 무효값으로 만들고, 소멸자(와 그 안의 `close_now()`)는 몇 번 불려도 안전하게(멱등하게) 설계했습니다.
-* 이동해도 실제 자원은 정확히 한 번만 닫힌다는 것과, 복사를 시도하면 `unique_ptr`와 똑같은 모양의 컴파일 에러가 난다는 걸 실제로 확인했습니다.
+* Rule of Five로 정수 하나(데이터 세그먼트 ID)를 감싸는 이동 전용 클래스 `DataSegmentHandle`을 직접 짰습니다 — 복사는 삭제하고, 이동은 원본을 무효값으로 만들고, 소멸자(와 그 안의 `release_now()`)는 몇 번 불려도 안전하게(멱등하게) 설계했습니다.
+* 이동해도 실제 자원은 정확히 한 번만 해제된다는 것과, 복사를 시도하면 `unique_ptr`와 똑같은 모양의 컴파일 에러가 난다는 걸 실제로 확인했습니다.
 * 이 패턴이 2장의 "정확히 한 번"(선형 타입)이 아니라 "최대 한 번"(아핀 타입)에 더 가깝다는 것도 정직하게 짚었습니다 — 안 써도 자동으로 정리되는 게 C++ RAII의 핵심 편의 기능이기 때문입니다.
 
-다음 장에서는 이 패턴을 여러 개의 자원(락 두 개, 파일과 커넥션을 함께 다루는 것)으로 확장해서, 실전에서 자원 여러 개를 동시에 다룰 때 흔히 생기는 문제(부분 초기화, 순서 있는 해제)까지 다룹니다.
+다음 장에서는 이 `DataSegmentHandle`을 2~4장에서 짠 `WorkerConnection`과 합쳐서, 워커 하나가 연결과 자원을 동시에 갖는 `WorkerSession`을 완성합니다 — 실전에서 자원 여러 개를 동시에 다룰 때 흔히 생기는 문제(부분 초기화, 순서 있는 해제)까지 다룹니다.
 // end::body[]
