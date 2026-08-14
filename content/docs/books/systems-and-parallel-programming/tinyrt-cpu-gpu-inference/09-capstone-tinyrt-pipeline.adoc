@@ -8,7 +8,7 @@ description: "타입 상태 생명주기, mdspan 텐서, CPU/GPU 컨볼루션, P
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../08-pmr-and-exception-safety/[8장: PMR 아레나와 예외에도 안전한 GPU 자원 정리] · 다음: link:../10-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../08-pmr-and-exception-safety/[8장: PMR 아레나와 예외에도 안전한 GPU 자원 정리] · 다음: link:../10-mobilenet-depthwise-separable-conv/[10장: MobileNet 스타일로 확장하기]_
 
 '''
 
@@ -91,5 +91,5 @@ max softmax diff CPU vs Hybrid: 0
 * 7장의 "작은 모델에서는 CPU가 이긴다"는 결론이 개별 레이어가 아니라 전체 파이프라인 규모에서도 그대로 성립한다는 것도 함께 확인했습니다.
 * 타입 상태(1장)가 이 전체 파이프라인을 감싸, GPU 프로그램이 준비되지 않은 상태에서 실행을 시도하는 실수를 여전히 컴파일 타임에 막는다는 것도 짚었습니다.
 
-맺음말에서는 이렇게 조립된 TinyRT를 다시 정리하고, 세 전작이 각자 다른 계층에서 검증한 것이 이 한 시스템 안에서 어떻게 겹쳐 있는지, 그리고 이 책이 다루지 않은 것을 안내합니다.
+지금까지는 입력 채널 하나짜리 흑백 이미지만 다뤘습니다. 다음 장에서는 TinyRT에 다채널 텐서를 추가하고, MobileNet이 실전에서 쓰는 depthwise separable convolution을 구현해 표준 컨볼루션과 정면으로 비교합니다.
 // end::body[]

@@ -1,0 +1,143 @@
+---
+title: "10장: MobileNet 스타일로 확장하기 — Depthwise Separable Convolution"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "opencl", "mobilenet", "depthwise-separable-convolution", "cnn", "book"]
+categories: ["books"]
+description: "MobileNet의 핵심 연산인 depthwise separable convolution(depthwise 3x3 + pointwise 1x1)을 다채널 Tensor3D로 구현해, 같은 입출력 형태의 표준 컨볼루션과 FLOP·실행 시간을 직접 비교하고(7배 감소), pointwise conv가 사실상 행렬곱이라는 걸 이용해 6장의 GPU 타일링 커널을 그대로 재사용하는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-capstone-tinyrt-pipeline/[9장: 종합 실전 — TinyRT 전체 파이프라인 조립하기] · 다음: link:../11-afterword/[맺음말]_
+
+'''
+
+9장까지 TinyRT는 입력 채널 하나짜리 흑백 이미지만 다뤘습니다 — 실전 CNN은 채널이 여러 개(RGB 3채널로 시작해 층을 거칠수록 수십~수백 채널)이고, MobileNet 같은 경량 모델은 그 다채널 컨볼루션을 **depthwise separable convolution**으로 쪼개 계산량을 크게 줄입니다. 이 장에서는 TinyRT에 다채널 텐서를 추가하고, 이 연산을 실제로 구현해 표준 컨볼루션과 정면으로 비교합니다.
+
+== 다채널 텐서: `Tensor3D`
+
+[source,cpp]
+----
+struct Tensor3D {
+  std::vector<float> data;
+  int C, H, W;
+  Tensor3D(int c, int h, int w) : data(c*h*w), C(c), H(h), W(w) {}
+  float& at(int c, int y, int x) { return data[(c*H + y)*W + x]; }
+  float at(int c, int y, int x) const { return data[(c*H + y)*W + x]; }
+};
+----
+
+2장의 ``Tensor2D``에 채널 축 하나를 더한 것뿐입니다 — 저장 순서는 ``[channel][row][col]``로, 채널 하나의 모든 픽셀이 메모리에 연속으로 붙어 있습니다(2장에서 다룬 저장 순서와 순회 순서를 맞추는 원칙이 여기서도 그대로 적용됩니다).
+
+== 표준 컨볼루션: 모든 입력 채널을 한꺼번에 섞는다
+
+3장의 ``ConvLayer``를 다채널로 확장하면, 출력 채널 하나를 만드는 데 **입력 채널 전부**를 훑어야 합니다.
+
+[source,cpp]
+----
+Tensor3D standard_conv(const Tensor3D& in, const std::vector<float>& weight, int Cout, int K) {
+  int OH = in.H - K + 1, OW = in.W - K + 1;
+  Tensor3D out(Cout, OH, OW);
+  for (int co = 0; co < Cout; co++)
+    for (int oy = 0; oy < OH; oy++)
+      for (int ox = 0; ox < OW; ox++) {
+        float acc = 0.0f;
+        for (int ci = 0; ci < in.C; ci++)          // 입력 채널 전부를 섞는다
+          for (int ky = 0; ky < K; ky++)
+            for (int kx = 0; kx < K; kx++)
+              acc += in.at(ci, oy+ky, ox+kx) * weight[((co*in.C+ci)*K+ky)*K+kx];
+        out.at(co, oy, ox) = std::max(acc, 0.0f);
+      }
+  return out;
+}
+----
+
+가중치 배열의 크기가 ``Cout × Cin × K × K``입니다 — 출력 채널마다, 입력 채널마다, `K×K` 필터가 따로 필요합니다. 이게 표준 컨볼루션이 무거운 이유입니다.
+
+== Depthwise Separable: 두 단계로 쪼개기
+
+MobileNet의 아이디어는 "채널 섞기"와 "공간 필터링"을 분리하는 것입니다.
+
+[source,cpp]
+----
+// 1단계 -- Depthwise: 채널마다 독립된 K×K 필터 (채널 안 섞음, Cout == Cin)
+Tensor3D depthwise_conv(const Tensor3D& in, const std::vector<float>& dw_weight, int K) {
+  int OH = in.H - K + 1, OW = in.W - K + 1;
+  Tensor3D out(in.C, OH, OW);
+  for (int c = 0; c < in.C; c++)
+    for (int oy = 0; oy < OH; oy++)
+      for (int ox = 0; ox < OW; ox++) {
+        float acc = 0.0f;
+        for (int ky = 0; ky < K; ky++)
+          for (int kx = 0; kx < K; kx++)
+            acc += in.at(c, oy+ky, ox+kx) * dw_weight[(c*K+ky)*K+kx];
+        out.at(c, oy, ox) = std::max(acc, 0.0f);
+      }
+  return out;
+}
+
+// 2단계 -- Pointwise: 1x1 컨볼루션으로 채널만 섞음 (공간 필터링 없음)
+Tensor3D pointwise_conv(const Tensor3D& in, const std::vector<float>& pw_weight, int Cout) {
+  Tensor3D out(Cout, in.H, in.W);
+  for (int co = 0; co < Cout; co++)
+    for (int y = 0; y < in.H; y++)
+      for (int x = 0; x < in.W; x++) {
+        float acc = 0.0f;
+        for (int ci = 0; ci < in.C; ci++)
+          acc += in.at(ci, y, x) * pw_weight[co*in.C+ci];
+        out.at(co, y, x) = std::max(acc, 0.0f);
+      }
+  return out;
+}
+----
+
+``depthwise_conv``는 채널마다 **자기 채널만** 보는 `K×K` 필터를 적용합니다(가중치 `Cin × K × K`, ``standard_conv``보다 ``Cout``배 작습니다) — 공간적으로는 필터링하지만 채널은 안 섞습니다. ``pointwise_conv``는 반대로 `1×1` 필터(가중치 `Cout × Cin`)로 공간 위치는 그대로 두고 채널만 섞습니다. 둘을 이어 붙이면(depthwise → pointwise) "공간 필터링 + 채널 섞기"라는 같은 일을 하되, 가중치 개수가 ``Cout×Cin×K×K``가 아니라 ``Cin×K×K + Cout×Cin``으로 줄어듭니다.
+
+== 실측: 표준 대 Depthwise Separable
+
+입력 채널 `16`, 출력 채널 `32`, `3×3` 필터, `34×34` 입력으로 두 방식을 직접 비교합니다.
+
+[source]
+----
+$ clang++ -std=c++23 -O2 depthwise_sep.cpp -o depthwise_sep && ./depthwise_sep
+standard conv:  7.024 ms, 4718592 FLOPs, out shape 32x32x32
+depthwise-sep:  1.073 ms, 671744 FLOPs, out shape 32x32x32
+FLOP reduction: 7.02x
+----
+
+출력 형태(`32×32×32`)는 완전히 같은데, **FLOP 수가 7배, 실측 실행 시간도 6.5배 넘게 줄었습니다.** 이게 MobileNet이 "모바일에서 돌아가는 CNN"으로 설계된 핵심 이유입니다 — 표준 컨볼루션과 같은 표현력(입력 채널을 섞어 출력 채널을 만드는 능력)을 유지하면서, 계산량을 극적으로 줄입니다. ``Cout=32``가 클수록(실전 MobileNet은 수백 채널까지 갑니다) 이 격차는 더 벌어집니다 — 표준 컨볼루션의 FLOP은 ``Cout``에 비례해서 늘지만, depthwise separable의 pointwise 단계도 ``Cout``에 비례하되 계수(`Cin`)가 훨씬 작기 때문입니다.
+
+== Pointwise Conv = 행렬곱: 6장의 GPU 커널을 그대로 재사용
+
+``pointwise_conv``를 다시 보면, `[Cin][H][W]` 텐서를 `[Cin][H×W]` 행렬로, 가중치를 `[Cout][Cin]` 행렬로 보면 출력은 정확히 `weight(Cout×Cin) × input(Cin×H×W)` **행렬곱**입니다. 6장에서 검증한 `matmul_tiled` 커널을 인자 이름만 맞춰 그대로 씁니다.
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -framework OpenCL pointwise_gpu.cpp -o pointwise_gpu && ./pointwise_gpu
+pointwise conv as matmul: max |CPU-GPU| = 0
+----
+
+`Cin=16`, `Cout=32`, ``H×W=1024``로 CPU ``pointwise_conv``와 GPU ``matmul_tiled``를 대조했더니 오차 0으로 일치합니다 — 6장에서 이미 검증한 커널을 단 한 줄도 안 고치고 재사용한 결과입니다. 반대로 ``depthwise_conv``는 6장에서 확인했듯 산술 강도가 낮아 로컬 메모리 타일링의 이득이 거의 없는 컨볼루션이므로, 7장의 `choose_device` 기준대로 CPU에 남겨두는 게 자연스럽습니다.
+
+== TinyRT의 레지스트리에 실제로 반영하면
+
+7장의 ``LayerRegistry``를 이 장의 결론대로 채우면 이렇게 됩니다.
+
+[source,cpp]
+----
+LayerRegistry registry;
+registry.place("depthwise_conv", Device::CPU);   // 산술 강도 낮음 -- 6장
+registry.place("pointwise_conv", Device::GPU);   // 사실상 행렬곱 -- 6장, 이 장
+----
+
+이게 depthwise separable convolution이 이 책의 이야기에 자연스럽게 들어맞는 이유입니다 — 두 단계로 쪼개는 순간, 각 단계가 6~7장에서 이미 실측으로 결론 낸 "이런 연산은 CPU, 저런 연산은 GPU"라는 기준에 정확히 하나씩 들어맞습니다.
+
+== 요약
+
+* ``Tensor3D``로 다채널 텐서를 표현하고, 표준 컨볼루션(`Cout×Cin×K×K` 가중치)과 depthwise separable convolution(depthwise + pointwise, `Cin×K×K + Cout×Cin` 가중치)을 나란히 구현했습니다.
+* 같은 입출력 형태에서 depthwise separable이 FLOP 7배, 실측 시간 6.5배 넘게 줄어든다는 걸 확인했습니다 — MobileNet이 이 구조를 쓰는 이유를 숫자로 봤습니다.
+* pointwise convolution이 사실상 행렬곱이라는 걸 이용해 6장의 `matmul_tiled` GPU 커널을 그대로 재사용했고, 출력이 CPU 기준 구현과 정확히 일치한다는 것도 확인했습니다.
+* depthwise는 CPU, pointwise는 GPU라는 배치가 6~7장의 산술 강도 기준과 자연스럽게 맞아떨어진다는 것으로, ``LayerRegistry``에 실제로 반영했습니다.
+
+맺음말에서는 이 depthwise separable convolution까지 포함해 TinyRT 전체를 다시 정리하고, 이 책이 다루지 않은 것을 안내합니다.
+// end::body[]
