@@ -1,0 +1,90 @@
+---
+title: "7장: PMR 스레드 로컬 아레나로 할당 경합 없애기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "pmr", "memory-resource", "concurrency", "performance", "book"]
+categories: ["books"]
+description: "TransformWorker에 세그먼트마다 결과를 모아두는 임시 버퍼를 추가하되, 전역 힙에서 매번 새로 할당하는 대신 워커별 std::pmr::unsynchronized_pool_resource에서 할당하게 바꿔, 반복되는 배치 처리 시나리오에서 실측 속도 차이를 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-allocate-at-least/[6장: allocate_at_least로 할당 낭비 줄이기] · 다음: link:../08-flat-map-registry/[8장: flat_map으로 워커 레지스트리 만들기]_
+
+'''
+
+6장에서 확인했듯, 반복되는 할당의 여유분을 사후에 알아내는 것보다 애초에 재할당이 필요 없게 만드는 게 더 근본적입니다. 이 장에서는 ``TransformWorker``에 실제로 임시 버퍼를 붙이되, 전역 힙을 공유하는 대신 워커마다 독립된 **PMR**(Polymorphic Memory Resource) 풀에서 할당받게 만듭니다.
+
+== ``TransformWorker``에 임시 버퍼 추가하기: 두 가지 방식
+
+[source,cpp]
+----
+#include <memory_resource>
+
+// 방식 1: 매 세그먼트 전역 힙에서 새로 할당
+struct HeapWorker {
+  void process(std::mdspan<double, std::dextents<std::size_t, 2>, std::layout_stride> tile) {
+    for (std::size_t s = 0; s < tile.extent(0); s++) {
+      std::vector<double> scratch;
+      scratch.reserve(tile.extent(1));
+      for (std::size_t e = 0; e < tile.extent(1); e++) scratch.push_back(tile[s, e] * 2.0);
+      for (std::size_t e = 0; e < tile.extent(1); e++) tile[s, e] = scratch[e];
+    }
+  }
+};
+
+// 방식 2: 워커별 PMR 풀에서 할당 (TransformWorker에 arena 추가)
+struct TransformWorker {
+  std::pmr::memory_resource* arena;
+
+  void process(this auto&& self,
+               std::mdspan<double, std::dextents<std::size_t, 2>, std::layout_stride> tile) {
+    std::pmr::vector<double> scratch(self.arena);
+    scratch.reserve(tile.extent(1));
+    for (std::size_t s = 0; s < tile.extent(0); s++) {
+      scratch.clear();
+      for (std::size_t e = 0; e < tile.extent(1); e++) scratch.push_back(tile[s, e] * 2.0);
+      for (std::size_t e = 0; e < tile.extent(1); e++) tile[s, e] = scratch[e];
+    }
+  }
+};
+----
+
+``TransformWorker``는 이제 `arena`(어느 메모리 리소스에서 할당받을지)를 멤버로 갖습니다. ``std::pmr::vector<double> scratch(self.arena)``는 일반 ``std::vector``와 인터페이스가 거의 같지만, 그 아레나에서 메모리를 받습니다 — 그리고 ``scratch.clear()``만 하고 ``reserve``를 다시 안 부르므로, 세그먼트가 바뀌어도 이미 확보한 메모리 블록을 계속 재사용합니다. ``HeapWorker``는 대조군으로, 세그먼트마다 ``scratch``를 새로 선언해 매번 전역 힙에서 새로 할당받습니다.
+
+== 벤치마크: 워커가 배치를 반복해서 처리하는 상황
+
+PerfGrid의 워커는 한 번만 돌고 끝나는 게 아니라, 계속 새 배치를 받아 반복 처리합니다 — 이 반복 상황을 흉내 내어 각 워커가 자기 타일을 ``20``번 처리하게 합니다.
+
+[source,cpp]
+----
+constexpr int kRounds = 20;
+std::vector<std::pmr::unsynchronized_pool_resource> arenas(kWorkers);
+for (std::size_t w = 0; w < kWorkers; w++) {
+  threads.emplace_back([&, w] {
+    TransformWorker worker{&arenas[w]};
+    for (int r = 0; r < kRounds; r++) worker.process(pmr_buf.tile(w * chunk, chunk));
+  });
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -pthread ch07.cpp -o ch07 && ./ch07
+HeapWorker (per-segment new):      5.53 ms
+TransformWorker (per-thread arena): 4.26 ms
+----
+
+``std::pmr::unsynchronized_pool_resource``는 함수 로컬 변수로 만들어 그 스레드만 쓰는 메모리 풀입니다 — 이름 그대로 락을 전혀 안 씁니다. 반복 실행해도 `TransformWorker`(아레나) 쪽이 `HeapWorker`(매번 전역 힙)보다 꾸준히 빠릅니다 — 두 가지가 함께 작용합니다: 여러 워커 스레드가 전역 할당자 내부 자료구조를 두고 경합하는 비용이 사라지고, 풀이 한 번 확보한 블록을 라운드마다 재사용해서 `operator new`/``operator delete``를 실제로 부르는 횟수 자체가 줄어듭니다.
+
+== 주의: ``unsynchronized``는 진짜로 동기화가 없다
+
+``arenas[w]``가 각 워커 스레드마다 **독립적인 벡터 원소**이기 때문에 이 벤치마크가 안전합니다 — 여러 스레드가 같은 `unsynchronized_pool_resource` 하나를 공유하면 그 순간 동시성 버그가 됩니다. 공유가 필요하면 `std::pmr::synchronized_pool_resource`(락 포함)를 써야 하지만, 그러면 이 장이 없앤 경합이 되돌아옵니다.
+
+== 요약
+
+* ``TransformWorker``에 PMR 아레나를 멤버로 추가해, 임시 버퍼(`scratch`)가 워커별로 독립된 풀에서 할당받고 라운드마다 재사용되게 만들었습니다.
+* 워커가 배치를 반복 처리하는 시나리오에서, 전역 힙을 공유하는 ``HeapWorker``보다 아레나를 쓰는 ``TransformWorker``가 꾸준히 더 빠르다는 걸 실측했습니다.
+* ``unsynchronized_pool_resource``는 스레드 로컬(또는 그에 준하는 격리된) 범위에서만 안전하다는 것도 짚었습니다.
+
+다음 장에서는 ``Coordinator``에 워커별 상태를 조회할 수 있는 레지스트리를, 캐시 친화적인 ``std::flat_map``으로 추가합니다.
+// end::body[]

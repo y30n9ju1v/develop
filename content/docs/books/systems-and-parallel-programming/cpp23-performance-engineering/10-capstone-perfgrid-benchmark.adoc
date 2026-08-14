@@ -1,0 +1,75 @@
+---
+title: "10장: 종합 실전 — PerfGrid 전체 벤치마크하기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mdspan", "pmr", "consteval", "atomic-ref", "flat-map", "performance", "book"]
+categories: ["books"]
+description: "1장부터 9장까지 조립한 BatchBuffer, TransformWorker, Coordinator를 그대로 실행해, 어떤 최적화도 적용하지 않은 순진한 NaiveWorker 버전과 나란히 벤치마크하며 mdspan 레이아웃 정렬·consteval 조회 테이블·PMR 아레나가 함께 작동한다는 걸 확인하는 종합 실전 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-ranges-zip-and-hints/[9장: views::zip과 컴파일러 힌트로 보고 경로 마무리하기] · 다음: link:../11-afterword/[맺음말]_
+
+'''
+
+1장부터 9장까지 `BatchBuffer`, `TransformWorker`, ``Coordinator``를 한 조각씩 만들어 왔습니다. 이 장은 전작 8장이 ``WorkerSession``을 처음 조립했던 것처럼, 지금까지 쌓아온 이 세 클래스를 **재구성 없이 그대로** 실행해서, 최적화를 하나도 적용하지 않은 순진한 버전과 나란히 벤치마크합니다.
+
+== 대조군: `NaiveWorker`
+
+PerfGrid가 고친 세 가지 — 레이아웃(1~2장), 반복 계산(4장), 반복 할당(7장) — 를 전혀 신경 쓰지 않은 버전을 대조군으로 둡니다.
+
+[source,cpp]
+----
+struct NaiveWorker {
+  void process(std::mdspan<double, std::dextents<std::size_t, 2>> tile, std::size_t seg0, std::size_t n_segs) {
+    for (std::size_t s = seg0; s < seg0 + n_segs; s++) {
+      std::vector<double> temp;  // 세그먼트마다 새로 힙 할당
+      for (std::size_t e = 0; e < tile.extent(1); e++) temp.push_back(std::sin(tile[s, e]));  // 매번 계산
+      for (std::size_t e = 0; e < tile.extent(1); e++) tile[s, e] = temp[e];
+    }
+  }
+};
+----
+
+``NaiveWorker``는 ``TransformWorker``가 쓰는 `fast_sin` 조회 테이블(4장) 대신 매번 ``std::sin``을 계산하고, PMR 아레나(7장) 대신 세그먼트마다 ``std::vector``를 새로 할당합니다.
+
+== 벤치마크: 지금까지 조립한 `Coordinator` 그대로
+
+[source,cpp]
+----
+BatchBuffer opt_buf(kSegments, kElements);
+// ... opt_buf 채우기 ...
+Coordinator coord(opt_buf, kWorkers);   // 5, 8, 9장에서 조립한 바로 그 Coordinator
+coord.run();                             // 내부에서 TransformWorker(3, 4, 7장)를 스레드로 돌림
+coord.report();                          // 9장의 zip 기반 보고
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -pthread ch10.cpp -o ch10 && ./ch10
+naive:     3.14 ms (checksum=470299.57)
+optimized: 0.72 ms (checksum=469633.94)
+worker 0: done (progress=1000)
+worker 1: done (progress=1000)
+worker 2: done (progress=1000)
+worker 3: done (progress=1000)
+----
+
+`optimized` 쪽은 새로 만든 벤치마크용 코드가 아니라, 1~9장에 걸쳐 조립한 `BatchBuffer::tile()`(2장), ``TransformWorker``의 `deducing this` + `fast_sin` + PMR 아레나(3, 4, 7장), ``Coordinator``의 `atomic_ref` 진행률과 `flat_map` 레지스트리(5, 8장)를 **그대로** 실행한 결과입니다. 여러 번 반복 실행해도 `naive` 대비 4배 안팎의 일관된 차이가 재현됩니다. `report()` 출력은 9장에서 만든 `views::zip` 기반 보고 경로가 실제로 4개 워커 모두의 최종 진행률을 정확히 보여준다는 것도 함께 확인해줍니다.
+
+== 체크섬이 완전히 같지 않은 이유
+
+``naive``와 ``optimized``의 체크섬(`470299.57` vs `469633.94`)이 다릅니다 — 4장에서 짚었듯 ``fast_sin``은 ``4096``칸 조회 테이블에 의한 근사이므로 ``std::sin``과 비트 단위로 같지 않습니다. 이 파이프라인이 "정확히 같은 계산을 더 빠르게" 한 게 아니라 "약간의 정밀도를 속도와 맞바꿨다"는 걸 이 차이가 정직하게 보여줍니다. `mdspan` 레이아웃 정렬(1~2장)이나 PMR 아레나(7장)만 따로 떼어서 ``std::sin``은 그대로 뒀다면, 정확한 값을 유지하면서도 속도 이득의 상당 부분을 가져갈 수 있었을 것입니다 — 어떤 최적화를 적용할지는 정밀도 요구사항에 달려 있습니다.
+
+== 이 장이 전작 8장과 다른 점
+
+전작 8장은 ``WorkerSession``을 조립하면서 "합성이 공짜로 안전한가"를 확인했습니다(Rule of Zero — 손으로 쓴 특수 멤버 함수가 하나도 없어도 안전하게 이동됨). 이 장은 "합성이 공짜로 빠른가"를 확인합니다 — 그리고 답은 "그렇다, 하지만 그 이유를 확인할 수 있다"입니다. 1~9장 각각이 독립적으로 벤치마크한 개선(레이아웃 정렬 최대 2배, LUT 조회 최대 6배, PMR 아레나로 할당 경합 감소)이 한 파이프라인 안에서 합쳐져도 서로 상쇄되지 않고, 오히려 재구성 없이 그대로 재현된다는 걸 이 장이 보여줬습니다.
+
+== 요약
+
+* 이 장은 새 벤치마크 코드가 아니라, 1~9장에 걸쳐 조립한 `BatchBuffer`/`TransformWorker`/``Coordinator``를 그대로 실행해서 순진한 `NaiveWorker` 버전과 대조했습니다.
+* 여러 번 반복해도 일관되게 4배 안팎의 속도 차이가 재현됐고, ``report()``가 9장에서 만든 `views::zip` 기반 보고 경로가 실제로 동작한다는 것도 함께 확인해줬습니다.
+* 속도 차이의 일부는 정밀도와 맞바꾼 것(`consteval` LUT의 근사 오차)이라는 걸 체크섬 값의 미세한 차이로 정직하게 드러냈습니다.
+
+맺음말에서는 이렇게 조립된 PerfGrid 전체를 다시 정리하고, 전작의 안전성 기법들과 이 책의 성능 기법들이 어떻게 같은 코드베이스 위에서 함께 동작하는지 살펴봅니다.
+// end::body[]

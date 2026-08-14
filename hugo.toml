@@ -33,6 +33,7 @@ theme = "hextra"
   source-highlighter = "rouge"
   rouge-style = "github"
   stem = "latexmath"
+  pp = "++"
 
 [security.exec]
   allow = ['^dart-sass-embedded$', '^go$', '^npx$', '^postcss$', '^tailwindcss$', '^asciidoctor$']

@@ -1,0 +1,80 @@
+---
+title: "6장: allocate_at_least로 할당 낭비 줄이기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "allocate_at_least", "memory", "performance", "book"]
+categories: ["books"]
+description: "TransformWorker가 세그먼트를 처리하며 쓸 임시 버퍼의 할당 전략을 정하기 전에, std::allocator::allocate_at_least가 이 세션에서 여유 용량을 전혀 보고하지 않는다는 걸 실측하고, 플랫폼의 malloc_size로 실제 여유분을 조회하는 커스텀 할당자와 대조하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-atomic-ref-progress/[5장: atomic_ref로 워커 진행률 추적하기] · 다음: link:../07-pmr-thread-local-arena/[7장: PMR 스레드 로컬 아레나로 할당 경합 없애기]_
+
+'''
+
+``TransformWorker``가 세그먼트 하나를 처리하고 그 결과를 모아뒀다가 한 번에 반영하는 임시 버퍼가 필요하다고 합시다(다음 장에서 실제로 이 버퍼를 ``TransformWorker``에 붙입니다). 메모리 할당자는 요청받은 크기보다 실제로 더 큰 블록을 내주는 경우가 흔합니다 — 내부 버킷 크기에 맞춰 올림하기 때문입니다. C{pp}23의 **`allocate_at_least`**로, "내가 요청한 것보다 실제로 얼마나 받았는지"를 알아낼 수 있습니다.
+
+== `allocate_at_least`: 실제로 얼마나 받았는지 물어보기
+
+[source,cpp]
+----
+#include <memory>
+
+std::allocation_result<int*> check_std_allocator(std::size_t n) {
+  std::allocator<int> alloc;
+  return alloc.allocate_at_least(n);
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 ch06.cpp -o ch06 && ./ch06
+requested: 256, std::allocator gave: 256
+vector reserved 256, actual capacity: 256
+----
+
+이 세션에 설치된 ``libc{pp}``의 ``std::allocator<int>``로 실제로 실행해보면 ``count``가 요청한 `256` 그대로 나옵니다 — **이 표준 할당자 구현은 여유분을 전혀 보고하지 않습니다.** ``std::vector::reserve(256)``의 실제 ``capacity()``도 마찬가지로 정확히 ``256``입니다. 표준이 허용하는 최적화(더 받았으면 더 받았다고 알려주는 것)와, 이 세션의 구현이 실제로 하는 일(그냥 요청한 만큼만 주는 것)은 다르다는 걸 있는 그대로 확인했습니다.
+
+== 진짜 여유분을 얻으려면: 플랫폼 API와 연결하기
+
+``allocate_at_least``가 진짜 쓸모 있으려면, 할당자가 **실제로 내부 힙 구현에게 물어봐야** 합니다. macOS/Darwin의 ``malloc_size()``는 포인터를 주면 malloc이 실제로 얼마나 큰 블록을 내줬는지(버킷에 맞춰 올림된 진짜 크기) 돌려줍니다.
+
+[source,cpp]
+----
+#include <malloc/malloc.h>
+
+template <typename T>
+struct UsableSizeAllocator {
+  using value_type = T;
+
+  std::allocation_result<T*> allocate_at_least(std::size_t n) {
+    std::size_t bytes = n * sizeof(T);
+    void* p = ::operator new(bytes);
+    std::size_t usable = malloc_size(p);          // 실제로 확보된 바이트 수
+    return {static_cast<T*>(p), usable / sizeof(T)};
+  }
+  T* allocate(std::size_t n) { return allocate_at_least(n).ptr; }
+  void deallocate(T* p, std::size_t) { ::operator delete(p); }
+};
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 allocate_at_least2.cpp -o allocate_at_least2 && ./allocate_at_least2
+requested: 10 ints (40 bytes), actually usable: 12 ints
+----
+
+`int` 10개(``40``바이트)를 요청했는데, 실제 확보량은 ``12``개치였습니다 — macOS malloc의 버킷 정책상 ``40``바이트 요청이 더 큰 버킷으로 올림된 것입니다. 이미 그 메모리에 대한 비용을 지불했는데, 표준 할당자를 썼다면 몰랐을 여유분입니다.
+
+== TransformWorker의 임시 버퍼에 무엇을 쓸 것인가
+
+이 여유분을 알아내려고 플랫폼별 malloc API를 손으로 엮는 건 번거롭고 이식성도 없습니다 — `malloc_size`(macOS)와 `malloc_usable_size`(glibc/리눅스)는 이름부터 다릅니다. ``TransformWorker``가 세그먼트마다 반복해서 만드는 임시 버퍼에는, 여유분을 사후에 알아내는 것보다 **애초에 재할당 자체가 필요 없게 만드는** 게 더 근본적인 해법입니다 — 다음 장에서 다룰 PMR 스레드 로컬 아레나가 정확히 이 문제를 풉니다.
+
+== 요약
+
+* ``allocate_at_least(n)``은 요청한 크기 이상의 메모리를 확보하고 실제 사용 가능 개수를 함께 돌려주는 C{pp}23 API지만, 이 세션의 ``std::allocator<int>``는 그 여유분을 보고하지 않는다는 걸 실측으로 확인했습니다.
+* macOS의 ``malloc_size()``를 연결한 커스텀 할당자로는 요청보다 20% 더 큰 블록이 실제로 확보돼 있었다는 걸 확인했지만, 이런 조회 함수는 플랫폼마다 이름과 존재 여부가 달라 이식성이 떨어집니다.
+* ``TransformWorker``의 반복되는 임시 버퍼 할당에는 여유분 조회보다 더 근본적인 해법(할당 자체를 없애는 것)이 필요하다는 문제의식으로 다음 장을 엽니다.
+
+다음 장에서는 ``TransformWorker``에 실제로 임시 버퍼를 붙이고, PMR 스레드 로컬 아레나로 그 할당을 워커 간 경합 없이 재사용하게 만듭니다.
+// end::body[]

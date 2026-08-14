@@ -1,0 +1,131 @@
+---
+title: "5장: atomic_ref로 워커 진행률 추적하기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "atomic-ref", "concurrency", "tsan", "performance", "book"]
+categories: ["books"]
+description: "std::atomic_ref로 평범한 int 배열에 사후적으로 원자성을 부여해, 여러 워커 스레드가 자기 진행률을 락 없이 기록하고 코디네이터가 언제든 그 값을 읽을 수 있는 Coordinator를 만들고, atomic_ref 없이 읽으면 ThreadSanitizer가 실제로 데이터 경쟁을 검출한다는 것까지 확인하는 3부의 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-constexpr-consteval-offload/[4장: consteval로 변환 함수를 조회 테이블로 바꾸기] · 다음: link:../06-allocate-at-least/[6장: allocate_at_least로 할당 낭비 줄이기]_
+
+'''
+
+지금까지는 `TransformWorker` 하나를 단발로 호출했습니다. 이 장에서 처음으로 **여러 워커를 실제 스레드로 동시에** 돌리는 ``Coordinator``를 만듭니다. 코디네이터가 "각 워커가 지금까지 얼마나 처리했는가"를 알아야 하는데, 전작 14장은 이 문제를 `GCounter`(동기화 없이 merge)로 풀었습니다 — 이 장은 다른 대안, **"언제든 즉시 원자적으로 읽고 쓰고 싶을 때"**를 위한 ``std::atomic_ref``를 씁니다.
+
+== `std::atomic_ref`: 평범한 메모리에 사후적으로 원자성 부여하기
+
+``std::atomic<int>``는 처음부터 원자적으로 설계된 **새로운 타입**입니다. 하지만 ``Coordinator``가 워커 수만큼의 ``int``를 담을 ``std::vector<int> progress_``를 이미 평범한 벡터로 갖고 있다면 어떨까요? ``std::atomic_ref<T>``는 **기존의 평범한 객체를 가리키는 참조**에 원자적 연산을 붙여줍니다 — 타입을 바꾸지 않고도, 그 순간에만 원자적으로 접근합니다.
+
+[source,cpp]
+----
+#include <atomic>
+
+class Coordinator {
+  std::vector<int> progress_;   // 평범한 int 배열 -- atomic이 아니다
+public:
+  int progress_of(std::size_t worker_id) {
+    return std::atomic_ref<int>(progress_[worker_id]).load();
+  }
+  // ...
+};
+----
+
+``std::atomic_ref<int>(progress_[worker_id])``는 ``progress_[worker_id]``를 가리키는 원자 참조를 그 자리에서 즉석으로 만듭니다 — `progress_` 자체는 여전히 평범한 ``std::vector<int>``입니다.
+
+== `Coordinator`: 워커를 스레드로 돌리고 진행률을 기록하기
+
+[source,cpp]
+----
+#include <thread>
+
+class Coordinator {
+  BatchBuffer& buf_;
+  std::size_t num_workers_;
+  std::vector<int> progress_;
+
+public:
+  Coordinator(BatchBuffer& buf, std::size_t num_workers)
+      : buf_(buf), num_workers_(num_workers), progress_(num_workers, 0) {}
+
+  int progress_of(std::size_t worker_id) { return std::atomic_ref<int>(progress_[worker_id]).load(); }
+
+  void run() {
+    std::size_t chunk = buf_.segments() / num_workers_;
+    std::vector<std::thread> threads;
+    for (std::size_t w = 0; w < num_workers_; w++) {
+      threads.emplace_back([&, w] {
+        TransformWorker worker;
+        auto tile = buf_.tile(w * chunk, chunk);
+        worker.process(tile);
+        std::atomic_ref<int>(progress_[w]).store(static_cast<int>(chunk));
+      });
+    }
+    for (auto& t : threads) t.join();
+  }
+};
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -pthread ch05.cpp -o ch05 && ./ch05
+worker 0 progress: 1000
+worker 1 progress: 1000
+worker 2 progress: 1000
+worker 3 progress: 1000
+----
+
+``run()``이 2장의 ``buf_.tile(...)``로 워커마다 겹치지 않는 구간을 나눠주고, 3~4장의 ``TransformWorker::process``로 처리한 뒤, ``atomic_ref``로 ``progress_[w]``에 완료한 개수를 기록합니다. 각 워커가 자기 인덱스(`w`)만 쓰고 다른 워커의 인덱스는 절대 건드리지 않으므로, `progress_` 벡터 전체를 락으로 감쌀 필요가 없습니다 — 인덱스별로 ``atomic_ref``가 그 순간의 원자성만 보장하면 충분합니다.
+
+== 검증: atomic_ref 없이 읽으면 진짜 데이터 경쟁이다
+
+``atomic_ref``가 장식이 아니라는 걸, 그것 없이 같은 메모리를 동시에 읽고 쓰면 ThreadSanitizer가 실제로 뭐라고 하는지 확인해봅니다.
+
+[source,cpp]
+----
+std::thread writer([&] {
+  for (int i = 0; i < 100000; i++) std::atomic_ref<int>(progress[0]).store(i);
+});
+std::thread reader_plain([&] {
+  for (int i = 0; i < 100000; i++) {
+    volatile int x = progress[0];  // atomic_ref 없이 그냥 읽음
+    (void)x;
+  }
+});
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -pthread -fsanitize=thread ch05_race.cpp -o ch05_race_tsan && ./ch05_race_tsan
+WARNING: ThreadSanitizer: data race (pid=31641)
+  Read of size 4 at 0x00010d900390 by thread T2:
+    ...
+  Previous atomic write of size 4 at 0x00010d900390 by thread T1:
+    #0 std::__1::__atomic_ref_base<int>::store[abi:nqe210106](int, std::__1::memory_order) const
+    ...
+----
+
+한쪽은 ``atomic_ref``로 원자적으로 쓰는데 다른 쪽이 그냥 평범하게 읽으면, 컴파일도 실행도 되지만 TSan이 **진짜 데이터 경쟁**으로 잡아냅니다 — 전작 1장에서 다룬 것과 정확히 같은 종류의 리포트입니다. 읽는 쪽도 ``atomic_ref``로 바꾸면:
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -pthread -fsanitize=thread ch05_fixed.cpp -o ch05_fixed_tsan && ./ch05_fixed_tsan
+done, no race
+----
+
+TSan이 깨끗합니다. ``Coordinator::progress_of``가 ``atomic_ref``로 읽는 이유가 정확히 이것입니다 — 워커가 쓰는 동안 코디네이터가 아무 때나 읽어도 안전해야 하기 때문입니다.
+
+== `atomic_ref` vs 전작의 `GCounter`: 언제 무엇을 쓰나
+
+전작 14장의 ``GCounter``는 "각자 갱신하다가, **나중에** 합칠 때만 값이 필요하다"는 상황에 맞습니다 — 동기화 자체가 없으므로 merge 전에는 값을 읽을 방법이 없습니다. 이 장의 ``atomic_ref``는 "**언제든** 최신 값을 즉시 읽고 싶다"는 상황(예: 진행률 바를 실시간으로 갱신하는 UI)에 맞습니다 — 대신 매번 원자적 연산의 비용(락보다는 싸지만 평범한 읽기/쓰기보다는 비쌉니다)을 치릅니다. PerfGrid는 이 장에서 즉시성이 필요해 ``atomic_ref``를 골랐지만, 두 도구 모두 "공유 카운터를 락 없이 다루는" 같은 문제의 서로 다른 해입니다.
+
+== 요약
+
+* ``std::atomic_ref<T>``는 기존의 평범한 객체에 사후적으로 원자적 연산을 붙여주는 참조 타입이고, 대상 객체 자체의 타입은 바뀌지 않습니다.
+* ``Coordinator``가 워커별 진행률 칸(`progress_[w]`)에만 ``atomic_ref``로 접근하게 만들어, 벡터 전체를 락으로 감싸지 않고도 안전하게 다중 스레드로 갱신/조회할 수 있다는 걸 확인했습니다.
+* `atomic_ref` 없이 같은 메모리를 동시에 읽고 쓰면 TSan이 실제로 데이터 경쟁을 검출하고, 양쪽 모두 ``atomic_ref``를 쓰면 깨끗하다는 걸 직접 실행해서 확인했습니다.
+* 전작의 `GCounter`(나중에 합침)와 이 장의 `atomic_ref`(즉시 읽고 씀)는 같은 문제의 서로 다른 해법이라는 것도 짚었습니다.
+
+다음 장에서는 ``TransformWorker``가 세그먼트를 처리하며 쓰는 임시 버퍼의 할당 비용을, ``allocate_at_least``로 먼저 들여다봅니다.
+// end::body[]

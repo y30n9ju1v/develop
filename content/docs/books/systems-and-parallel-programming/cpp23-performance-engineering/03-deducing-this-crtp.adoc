@@ -1,86 +1,80 @@
 ---
-title: "3장: deducing this로 CRTP 단순화하기"
+title: "3장: deducing this로 TransformWorker 만들기"
 date: 2026-08-12T00:00:00+09:00
 draft: false
 tags: ["cpp23", "deducing-this", "crtp", "performance", "book"]
 categories: ["books"]
-description: "C++23의 explicit object parameter(deducing this)로 템플릿 기반 CRTP 정적 다형성을 단순화하고, 같은 문법으로 lvalue/rvalue/const 접근자를 하나의 멤버 함수로 합쳐 std::forward_like로 값 범주를 그대로 전달하는 장"
+description: "PerfGrid의 타일을 실제로 처리하는 TransformWorker를 C++23의 explicit object parameter(deducing this)로 만들어, 같은 정적 다형성을 템플릿 베이스 클래스 없이 얻고, 옛 CRTP 버전과 나란히 컴파일해 같은 결과를 내는지 확인하는 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../02-layout-stride-tiling/[2장: layout_stride로 타일 뷰 만들기] · 다음: link:../04-constexpr-consteval-offload/[4장: consteval로 런타임 계산을 컴파일 타임으로 옮기기]_
+_link:../[전체 목차] · 이전: link:../02-layout-stride-tiling/[2장: layout_stride로 타일 뷰 만들기] · 다음: link:../04-constexpr-consteval-offload/[4장: consteval로 변환 함수를 조회 테이블로 바꾸기]_
 
 '''
 
-1~2장은 메모리 레이아웃을 다뤘습니다. 이 장은 방향을 바꿔 C++23의 언어 기능 하나 — **`deducing this`**(명시적 객체 매개변수, explicit object parameter) — 로 코드를 단순화하면서 동시에 가상 함수 호출 대신 컴파일 타임에 정적으로 해소되는 호출을 유지하는 법을 봅니다. 성능 최적화라는 이 부의 주제와, 컴파일러가 인라인하기 쉬운 코드를 짜는 일은 떼려야 뗄 수 없습니다.
+2장에서 워커마다 겹치지 않는 타일을 나눠주는 법을 만들었으니, 이제 그 타일을 실제로 처리하는 워커 자체를 만들 차례입니다. 워커 종류가 여러 개(단순 변환, 체크섬 계산 등)로 늘어날 걸 대비해 "공통 실행 흐름은 한 곳에, 실제 동작은 각 워커가"라는 구조를 갖고 싶습니다. C{pp}에서는 전통적으로 이걸 가상 함수 없이 **CRTP**로 해결했는데, C{pp}23의 **`deducing this`**가 더 단순한 대안을 줍니다.
 
-== 오래된 방식: CRTP로 정적 다형성 흉내내기
-
-TaskGrid의 워커 종류가 여러 개(배치를 처리하는 워커, 검증만 하는 워커 등)라서 "공통 실행 흐름은 베이스에, 실제 동작은 파생 클래스에" 두고 싶다고 합시다. 가상 함수를 쓰면 동적 디스패치(런타임에 vtable을 조회하는) 비용이 붙으므로, C++에서는 전통적으로 **CRTP**(Curiously Recurring Template Pattern)로 이걸 컴파일 타임에 해소했습니다.
+== 옛 방식과 새 방식을 나란히
 
 [source,cpp]
 ----
+// 옛 방식: CRTP로 정적 다형성 흉내
 template <typename Derived>
-struct OldBase {
-  void run() { static_cast<Derived*>(this)->run_impl(); }
+struct OldWorkerBase {
+  void process(std::mdspan<double, std::dextents<std::size_t, 2>, std::layout_stride> tile) {
+    for (std::size_t s = 0; s < tile.extent(0); s++)
+      for (std::size_t e = 0; e < tile.extent(1); e++)
+        tile[s, e] = static_cast<Derived*>(this)->transform(tile[s, e]);
+  }
 };
-struct OldWorker : OldBase<OldWorker> {
-  void run_impl() { std::printf("old worker running\n"); }
+struct OldTransformWorker : OldWorkerBase<OldTransformWorker> {
+  double transform(double x) { return x * 2.0; }
+};
+
+// 새 방식: deducing this
+struct TransformWorker {
+  void process(this auto&& self,
+               std::mdspan<double, std::dextents<std::size_t, 2>, std::layout_stride> tile) {
+    for (std::size_t s = 0; s < tile.extent(0); s++)
+      for (std::size_t e = 0; e < tile.extent(1); e++)
+        tile[s, e] = self.transform(tile[s, e]);
+  }
+  double transform(double x) { return x * 2.0; }
 };
 ----
 
-`OldBase<Derived>`가 `this`를 강제로 `Derived*`로 캐스팅해서 `run_impl`을 호출합니다 — 가상 함수 없이도 "베이스가 파생 클래스의 메서드를 부른다"는 다형성을 흉내 내지만, 템플릿 베이스 클래스를 매번 만들어야 하고 `static_cast<Derived*>(this)`라는 관용구를 외워야 합니다.
+``OldWorkerBase<Derived>``는 ``this``를 ``static_cast<Derived*>``로 강제 변환해서 ``transform``을 호출합니다 — 가상 함수 없이 다형성을 흉내 내지만, 템플릿 베이스 클래스를 매번 만들어야 합니다. ``TransformWorker::process(this auto&& self, ...)``는 첫 매개변수 자리에 ``this``를 명시해서, ``self``의 실제 타입이 호출된 객체의 타입으로 추론되게 합니다 — ``self.transform(...)``이 그 타입 위에서 정적으로 해소됩니다. 베이스 클래스가 아예 없다는 점만 다르고, 컴파일 타임에 다형성이 해소된다는 성질은 동일합니다.
 
-== 새 방식: `this`를 매개변수로 명시하기
-
-C++23의 `deducing this`는 멤버 함수의 첫 매개변수 자리에 `this`를 명시적으로 적어서, 그 함수가 호출된 객체의 **실제 타입**을 템플릿 매개변수처럼 추론하게 해줍니다.
+== 검증: 둘이 같은 결과를 내는가
 
 [source,cpp]
 ----
-struct NewWorker {
-  void run(this auto&& self) { self.run_impl(); }
-  void run_impl() { std::printf("new worker running\n"); }
-};
+BatchBuffer buf1(4, 3), buf2(4, 3);
+// buf1, buf2에 같은 값 채움 ...
+
+OldTransformWorker old_worker;
+old_worker.process(buf1.tile(0, 4));
+
+TransformWorker new_worker;
+new_worker.process(buf2.tile(0, 4));
 ----
 
 [source]
 ----
-$ clang++ -std=c++23 -O0 deducing_this_crtp.cpp -o deducing_this_crtp && ./deducing_this_crtp
-old worker running
-new worker running
+$ clang++ -std=c++23 -O2 ch03.cpp -o ch03 && ./ch03
+CRTP result buf1[2,1]=6.0, deducing-this result buf2[2,1]=6.0 (same=1)
 ----
 
-`NewWorker`에는 템플릿 베이스 클래스가 아예 없습니다 — `run(this auto&& self)`가 호출될 때 `self`의 타입이 컴파일 타임에 `NewWorker&`(또는 파생 클래스가 있다면 그 파생 클래스 참조)로 추론되고, `self.run_impl()`이 그 타입 위에서 정적으로(가상 함수 테이블 조회 없이) 해소됩니다. CRTP와 똑같은 컴파일 타임 다형성을 얻으면서, 템플릿 베이스 클래스라는 보일러플레이트가 사라졌습니다 — 파생 클래스가 여러 단계로 늘어나도 `OldBase<Derived>`처럼 매번 다시 인스턴스화할 계층이 없습니다.
+두 워커가 같은 입력에 같은 변환(`x * 2.0`)을 적용해 정확히 같은 결과를 냅니다 — ``deducing this``가 CRTP의 자리를 문법만 단순하게 대신할 뿐, 동작은 동일하다는 걸 확인했습니다. 앞으로 PerfGrid는 `TransformWorker`(CRTP 버전이 아니라)를 계속 확장해 나갑니다.
 
-== 진짜 힘: lvalue/rvalue/const 접근자를 하나로 합치기
+== 왜 이게 성능과 관련 있는가
 
-`deducing this`의 더 실전적인 쓸모는 **값 범주(value category)에 따라 갈라지던 중복 오버로드를 하나로 합치는 것**입니다. C++23 이전에는 "이 멤버에 lvalue로 접근했을 때는 참조를, rvalue로 접근했을 때는 이동을, const 객체에서는 const 참조를" 돌려주려면 오버로드를 세 개(`&`, `&&`, `const &`) 손으로 써야 했습니다.
-
-[source,cpp]
-----
-struct Box {
-  int value = 42;
-  auto&& get(this auto&& self) { return std::forward_like<decltype(self)>(self.value); }
-};
-----
-
-[source]
-----
-$ clang++ -std=c++23 -O0 deducing_this_crtp.cpp -o deducing_this_crtp && ./deducing_this_crtp
-lref=42 rref=42 cref=42
-----
-
-`get` 함수는 **딱 하나**만 있지만, 호출한 객체가 lvalue냐 rvalue냐 const냐에 따라 `self`의 추론된 타입이 각각 `Box&`, `Box&&`, `const Box&`로 달라집니다. `std::forward_like<decltype(self)>(self.value)`(C++23에 새로 추가된 유틸리티)가 그 추론된 값 범주를 `self.value`에 그대로 다시 씌워서, `Box b; int& lref = b.get();`는 진짜 참조를, `Box{}.get()`은 이동 가능한 rvalue 참조를, `const Box cb; cb.get()`은 const 참조를 돌려줍니다 — 세 개의 손으로 쓴 오버로드가 하던 일을 함수 하나가, 그리고 컴파일 타임에 완전히 해소되는 형태로 대신합니다. 오버로드가 하나뿐이니 세 버전 사이에 로직이 미묘하게 어긋나는 실수(흔한 버그 하나)도 구조적으로 사라집니다.
-
-== 성능 관점에서 왜 중요한가
-
-이 장의 벤치마크는 (다른 장과 달리) 실행 시간 비교가 아닙니다 — `deducing this`가 만들어내는 코드는 CRTP가 만들어내는 코드와 마찬가지로 **정적으로 해소**되므로, 최적화 수준(`-O2` 이상)에서는 컴파일러가 인라인할 가능성이 가상 함수 호출보다 훨씬 높습니다(가상 함수는 호출 지점에서 어떤 구현이 불릴지 컴파일 타임에 확정할 수 없어 인라인이 막히는 경우가 흔합니다). 다만 실제 인라인 여부는 컴파일러와 최적화 수준, 함수 크기에 따라 달라지는 컴파일러 구현 세부사항이라, 이 장에서는 어셈블리 수준 비교까지는 하지 않습니다 — 이 장이 실제로 검증한 것은 "문법이 단순해지면서도 다형성의 해소 시점(컴파일 타임 vs 런타임)은 그대로 유지된다"는 점, 그리고 "값 범주별 중복 오버로드가 실제로 하나로 합쳐진다"는 점입니다.
+이 장의 검증은 실행 시간 비교가 아닙니다 — CRTP와 `deducing this` 둘 다 **정적으로 해소**되므로(가상 함수 테이블 조회가 없으므로), `-O2` 이상에서는 둘 다 인라인될 가능성이 가상 함수보다 훨씬 높습니다. 이 장이 확인한 건 "문법이 단순해지면서도 해소 시점(컴파일 타임)은 그대로 유지된다"는 것입니다 — 실제 어셈블리 수준 인라인 여부는 컴파일러 구현에 달려 있어 이 장에서 별도로 확인하지 않았습니다.
 
 == 요약
 
-* `deducing this`(멤버 함수의 첫 매개변수로 `this auto&& self`를 명시)는 CRTP가 템플릿 베이스 클래스로 하던 컴파일 타임 정적 다형성을, 별도의 베이스 클래스 없이 표현할 수 있게 해줍니다.
-* `std::forward_like<decltype(self)>(self.member)`로, lvalue/rvalue/const 세 가지 접근자 오버로드를 함수 하나로 합칠 수 있다는 걸 실제로 컴파일하고 실행해서 확인했습니다.
-* 이렇게 정적으로 해소되는 호출은 가상 함수보다 컴파일러가 인라인하기 유리한 형태지만, 실제 인라인 여부는 컴파일러 구현에 달려 있어 이 장에서는 그 잠재력까지만 확인했습니다.
+* `deducing this`(`this auto&& self`)로 CRTP와 같은 컴파일 타임 정적 다형성을, 템플릿 베이스 클래스 없이 얻을 수 있다는 걸 두 버전을 나란히 컴파일해 확인했습니다.
+* ``TransformWorker``가 이제 PerfGrid의 실제 처리 로직을 담당하는 워커 타입이 되었고, 다음 장부터 그 `transform()` 구현을 바꿔가며 확장합니다.
 
-다음 장에서는 `consteval`로 런타임에 반복 계산하던 값을 아예 컴파일 타임 조회 테이블로 옮겨, 실행 시점의 CPU 작업량 자체를 줄이는 법을 다룹니다.
+다음 장에서는 ``transform()``의 몸통(지금은 ``x * 2.0``이라는 자리표시자)을, `consteval` 조회 테이블을 쓰는 실제 계산으로 바꿉니다.
 // end::body[]

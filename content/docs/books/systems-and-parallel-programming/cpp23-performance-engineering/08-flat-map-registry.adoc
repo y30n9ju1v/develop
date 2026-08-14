@@ -1,0 +1,127 @@
+---
+title: "8장: flat_map으로 워커 레지스트리 만들기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "flat_map", "cache", "performance", "book"]
+categories: ["books"]
+description: "노드 기반 std::map 대신 연속 메모리에 저장되는 C++23의 std::flat_map으로 무작위 순서 조회를 3배 넘게 빠르게 만들고, std::sorted_unique 배치 생성자로 정렬된 데이터를 사실상 즉시 옮겨 넣은 뒤, Coordinator에 워커 상태를 조회하는 flat_map 레지스트리를 실제로 붙이는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-pmr-thread-local-arena/[7장: PMR 스레드 로컬 아레나로 할당 경합 없애기] · 다음: link:../09-ranges-zip-and-hints/[9장: views::zip과 컴파일러 힌트로 보고 경로 마무리하기]_
+
+'''
+
+``Coordinator``가 "워커 ``w``는 지금 어떤 상태인가"(대기 중 / 실행 중 / 완료)를 조회할 수 있게 하려면 ``worker_id → 상태``를 담는 자료구조가 필요합니다. 흔히 ``std::map``을 쓰지만, 노드 기반 자료구조(원소마다 별도의 힙 할당과 포인터)는 조회할 때마다 메모리 여기저기를 포인터로 따라가야 해서 캐시에 불리합니다. C{pp}23의 **`std::flat_map`**은 정렬된 키·값 벡터 두 개로 저장되는, 캐시 친화적인 대안입니다.
+
+== `std::map` vs `std::flat_map`: 무작위 순서 조회
+
+[source,cpp]
+----
+#include <algorithm>
+#include <flat_map>
+#include <map>
+#include <random>
+
+std::map<int, int> tree_routing;
+std::flat_map<int, int> flat_routing;
+for (int i = 0; i < kNumSegments; i++) {
+  tree_routing[i] = i % kNumWorkers;
+  flat_routing[i] = i % kNumWorkers;
+}
+
+std::vector<int> segment_ids(kNumSegments);
+// ... 0..kNumSegments-1로 채운 뒤 std::shuffle로 순서를 뒤섞음 (캐시에 유리한 순서 배제) ...
+
+long sum1 = 0;
+for (int id : segment_ids) sum1 += tree_routing.at(id);
+long sum2 = 0;
+for (int id : segment_ids) sum2 += flat_routing.at(id);
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 ch08.cpp -o ch08 && ./ch08
+std::map lookups:      9.66 ms (sum=350000)
+std::flat_map lookups: 3.16 ms (sum=350000)
+----
+
+``10``만 개의 항목을 무작위 순서로 조회했더니 ``flat_map``이 ``map``보다 3배 넘게 빠릅니다 — ``map``의 각 `.at(id)` 호출은 레드-블랙 트리를 타고 내려가며 매번 다른 힙 블록(캐시에 없을 가능성이 높은)을 참조하는 반면, ``flat_map``은 정렬된 연속 배열에서 이진 탐색을 하므로 훨씬 적은 캐시 미스로 끝납니다.
+
+== 함정: 하나씩 넣으면 느릴 수 있다 — 배치로 만들자
+
+``flat_map``은 내부가 정렬된 벡터이므로, 원소를 하나씩 ``insert``하면(중간에 끼워 넣을 자리를 찾아 뒤 원소들을 밀어야 하므로) 이론적으로 ``map``보다 느려질 수 있습니다. 데이터가 이미 정렬되어 있고 중복이 없다면, `std::sorted_unique` 태그로 통째로 옮겨 넣는 배치 생성자를 쓰는 게 훨씬 유리합니다.
+
+[source,cpp]
+----
+std::vector<int> keys(kNumSegments), vals(kNumSegments);
+for (int i = 0; i < kNumSegments; i++) { keys[i] = i; vals[i] = i % 8; }
+
+std::flat_map<int, int> batch_built(std::sorted_unique, keys, vals);
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 ch08_batch.cpp -o ch08_batch && ./ch08_batch
+build std::flat_map (sorted_unique batch ctor): 0.00 ms (size=100000)
+----
+
+``keys``가 이미 정렬되어 있다고 ``std::sorted_unique``로 명시했으므로, ``flat_map``은 검증이나 재정렬 없이 두 벡터를 그대로 옮겨(move) 받습니다 — 10만 개 항목이 사실상 즉시 만들어졌습니다. ``Coordinator``가 초기화 시점에 워커 ID를 이미 ``0``부터 순서대로 갖고 있다면, 이 배치 생성자가 자연스럽게 맞습니다.
+
+== ``Coordinator``에 레지스트리 붙이기
+
+[source,cpp]
+----
+enum class WorkerStatus { Idle, Running, Done };
+
+class Coordinator {
+  BatchBuffer& buf_;
+  std::size_t num_workers_;
+  std::vector<int> progress_;
+  std::flat_map<int, WorkerStatus> registry_;   // 새로 추가
+
+public:
+  Coordinator(BatchBuffer& buf, std::size_t num_workers)
+      : buf_(buf), num_workers_(num_workers), progress_(num_workers, 0) {
+    for (std::size_t w = 0; w < num_workers; w++) registry_[static_cast<int>(w)] = WorkerStatus::Idle;
+  }
+
+  WorkerStatus status_of(int worker_id) { return registry_.at(worker_id); }
+
+  void run() {
+    std::size_t chunk = buf_.segments() / num_workers_;
+    std::vector<std::thread> threads;
+    std::vector<std::pmr::unsynchronized_pool_resource> arenas(num_workers_);
+    for (std::size_t w = 0; w < num_workers_; w++) {
+      registry_[static_cast<int>(w)] = WorkerStatus::Running;
+      threads.emplace_back([&, w] {
+        TransformWorker worker{&arenas[w]};
+        worker.process(buf_.tile(w * chunk, chunk));
+        std::atomic_ref<int>(progress_[w]).store(static_cast<int>(chunk));
+      });
+    }
+    for (auto& t : threads) t.join();
+    for (std::size_t w = 0; w < num_workers_; w++) registry_[static_cast<int>(w)] = WorkerStatus::Done;
+  }
+};
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -pthread ch08_coordinator.cpp -o ch08_coordinator && ./ch08_coordinator
+worker 0 status=2 progress=1000
+worker 1 status=2 progress=1000
+worker 2 status=2 progress=1000
+worker 3 status=2 progress=1000
+----
+
+``registry_``는 워커 수만큼(보통 CPU 코어 수 정도, 수백 개를 넘기 힘든 규모)만 갖고 있어서 앞선 벤치마크의 10만 항목 규모는 아니지만, ``Coordinator``가 이후 실시간 대시보드나 모니터링 목적으로 자주 조회할 자료구조라면 노드 기반 ``map``보다 ``flat_map``을 기본으로 쓰는 게 자연스럽습니다 — 조회가 잦고 삽입이 드문 자료구조라는 ``flat_map``의 장점과 정확히 맞아떨어지는 사용처입니다.
+
+== 요약
+
+* ``std::flat_map``은 정렬된 벡터 두 개로 저장되어 노드 기반 ``std::map``보다 캐시 친화적이고, 무작위 순서 조회에서 3배 넘는 속도 차이를 실측했습니다.
+* 원소를 하나씩 넣는 대신 이미 정렬된 데이터를 `std::sorted_unique` 배치 생성자로 옮겨 넣으면 검증·재정렬 없이 사실상 즉시 만들어진다는 것도 확인했습니다.
+* ``Coordinator``에 워커 상태를 조회하는 `flat_map` 레지스트리를 실제로 붙였습니다 — 조회가 잦고 삽입이 드문 자료구조에 딱 맞는 사용처입니다.
+
+다음 장에서는 이 레지스트리와 진행률을 ``std::views::zip``으로 묶어 보고하는 경로를 마무리하고, `\[[assume]]`/``std::unreachable()``로 컴파일러에게 힌트를 줍니다.
+// end::body[]
