@@ -1,0 +1,113 @@
+---
+title: "5장: GPU 컨볼루션 커널로 CPU와 대조 검증하기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "opencl", "gpu", "convolution", "simt", "book"]
+categories: ["books"]
+description: "3x3 컨볼루션+ReLU를 OpenCL 커널로 워크그룹마다 나눠 돌리는 GpuConvLayer를 4장의 GpuContext/DeviceBuffer 위에 구현하고, 3장의 CPU 기준 구현과 32x32 입력에서 픽셀 단위 오차 0으로 일치하는 걸 실제로 확인하는 5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-opencl-raii-handles/[4장: OpenCL 리소스를 RAII 핸들로 감싸기] · 다음: link:../06-local-memory-tiling/[6장: 로컬 메모리 타일링, 통하는 레이어와 안 통하는 레이어]_
+
+'''
+
+4장에서 만든 `GpuContext`/`DeviceBuffer` 위에, 3장의 ``ConvLayer``와 정확히 같은 계산을 하는 GPU 커널을 짭니다. 전작 link:../../heterogeneous-computing-opencl/[『OpenCL로 배우는 헤테로지니어스 컴퓨팅』]이 확립한 워크그룹/SIMT 실행 모델을 그대로 씁니다 — GPU는 스레드 하나가 아니라 수천 개의 **작업 항목(work-item)**이 동시에 도는데, 이 장에서는 출력 픽셀 하나당 작업 항목 하나를 배정합니다.
+
+== 커널: 작업 항목 하나가 출력 픽셀 하나를 맡는다
+
+[source,cpp]
+----
+const char* kConvKernelSrc = R"CLC(
+__kernel void conv2d_relu(
+    __global const float* input, __global const float* kernel_, __global float* output,
+    const int H, const int W, const int K)
+{
+    int out_w = W - K + 1;
+    int oy = get_global_id(1);   // 이 작업 항목이 맡은 출력 행
+    int ox = get_global_id(0);   // 이 작업 항목이 맡은 출력 열
+    float acc = 0.0f;
+    for (int ky = 0; ky < K; ky++)
+        for (int kx = 0; kx < K; kx++)
+            acc += input[(oy + ky) * W + (ox + kx)] * kernel_[ky * K + kx];
+    output[oy * out_w + ox] = fmax(acc, 0.0f);
+}
+)CLC";
+----
+
+`get_global_id(0)`/``get_global_id(1)``이 "이 작업 항목이 2차원 실행 격자에서 몇 번째인가"를 알려줍니다 — 3장 ``ConvLayer::forward``의 이중 for 루프(`oy`, `ox`)가 여기서는 **루프가 아니라 좌표**가 됩니다. 커널 코드 자체는 루프 몸통 하나만 남고, "이 좌표를 어느 작업 항목이 맡을지"는 GPU 드라이버가 알아서 나눠 실행합니다.
+
+== `GpuConvLayer`: 커널을 감싸는 클래스
+
+[source,cpp]
+----
+class GpuConvLayer {
+  const GpuContext& gpu_;
+  Tensor2D kernel_;
+  cl_program program_ = nullptr;
+  cl_kernel kernel_handle_ = nullptr;
+public:
+  GpuConvLayer(const GpuContext& gpu, Tensor2D kernel) : gpu_(gpu), kernel_(std::move(kernel)) {
+    cl_int err;
+    program_ = clCreateProgramWithSource(gpu_.get(), 1, &kConvKernelSrc, nullptr, &err);
+    cl_device_id dev = gpu_.device();
+    err = clBuildProgram(program_, 1, &dev, nullptr, nullptr, nullptr);
+    if (err != CL_SUCCESS) {
+      char log[8192];
+      clGetProgramBuildInfo(program_, gpu_.device(), CL_PROGRAM_BUILD_LOG, sizeof(log), log, nullptr);
+      throw std::runtime_error(std::string("build failed: ") + log);
+    }
+    kernel_handle_ = clCreateKernel(program_, "conv2d_relu", &err);
+  }
+  ~GpuConvLayer() {
+    if (kernel_handle_) clReleaseKernel(kernel_handle_);
+    if (program_) clReleaseProgram(program_);
+  }
+
+  Tensor2D forward(Tensor2D& input) {
+    std::size_t K = kernel_.rows();
+    std::size_t OH = input.rows() - K + 1, OW = input.cols() - K + 1;
+    Tensor2D output(OH, OW);
+
+    DeviceBuffer buf_in(gpu_, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * input.rows() * input.cols(), input.data());
+    DeviceBuffer buf_k(gpu_, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(float) * K * K, kernel_.data());
+    DeviceBuffer buf_out(gpu_, CL_MEM_WRITE_ONLY, sizeof(float) * OH * OW);
+
+    cl_mem in_h = buf_in.get(), k_h = buf_k.get(), out_h = buf_out.get();
+    int H = static_cast<int>(input.rows()), W = static_cast<int>(input.cols()), Ki = static_cast<int>(K);
+    clSetKernelArg(kernel_handle_, 0, sizeof(cl_mem), &in_h);
+    clSetKernelArg(kernel_handle_, 1, sizeof(cl_mem), &k_h);
+    clSetKernelArg(kernel_handle_, 2, sizeof(cl_mem), &out_h);
+    clSetKernelArg(kernel_handle_, 3, sizeof(int), &H);
+    clSetKernelArg(kernel_handle_, 4, sizeof(int), &W);
+    clSetKernelArg(kernel_handle_, 5, sizeof(int), &Ki);
+
+    size_t global[2] = {OW, OH};
+    clEnqueueNDRangeKernel(gpu_.queue(), kernel_handle_, 2, nullptr, global, nullptr, 0, nullptr, nullptr);
+    clEnqueueReadBuffer(gpu_.queue(), out_h, CL_TRUE, 0, sizeof(float) * OH * OW, output.data(), 0, nullptr, nullptr);
+    return output;
+  }
+};
+----
+
+``forward``의 모양은 3장의 ``ConvLayer::forward``와 의도적으로 똑같습니다 — ``Tensor2D``를 받아 ``Tensor2D``를 돌려줍니다. 다른 점은 몸통뿐입니다: 입력·커널을 4장의 ``DeviceBuffer``로 GPU에 올리고(``CL_MEM_COPY_HOST_PTR``가 생성과 동시에 복사), ``clEnqueueNDRangeKernel``로 ``OW × OH``개의 작업 항목을 실행 격자에 흩뿌린 뒤, ``clEnqueueReadBuffer``로 결과를 다시 호스트로 가져옵니다. `DeviceBuffer` 세 개(`buf_in`, `buf_k`, `buf_out`)는 함수가 끝나면 자동으로 정리되므로, GPU 메모리 관리는 4장에서 이미 끝난 문제입니다 — 이 함수는 그 위에서 "무엇을 계산할지"만 신경 씁니다.
+
+== 검증: 32×32 입력에서 오차 0
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -framework OpenCL gpu_conv_full.cpp -o gpu_conv_full && ./gpu_conv_full
+output shape CPU: 30x30, GPU: 30x30
+max |CPU - GPU| = 0
+----
+
+같은 무작위 입력과 커널을, 3장의 `ConvLayer`(CPU)와 이 장의 `GpuConvLayer`(GPU)에 각각 넣고 900개(`30×30`) 출력 픽셀을 전부 비교했습니다 — **완전히 일치**합니다(부동소수점 오차조차 없습니다, 두 구현 모두 같은 순서로 같은 곱셈·덧셈을 하기 때문입니다). 이게 이 장의 진짜 결과물입니다 — GPU 커널이 "빠르다"는 건 아직 아무것도 확인 안 했지만(다음 장에서 다룹니다), "옳다"는 건 900개 숫자를 전부 대조해서 확인했습니다.
+
+== 요약
+
+* `get_global_id(0)`/``get_global_id(1)``로 작업 항목마다 자기가 맡은 출력 좌표를 알아내는 게, CPU 이중 루프를 GPU 실행 격자로 옮기는 방법이라는 걸 확인했습니다.
+* ``GpuConvLayer::forward``가 4장의 ``DeviceBuffer``로 GPU 메모리를 관리하면서, 3장 ``ConvLayer::forward``와 같은 입출력 타입(`Tensor2D → Tensor2D`)을 유지한다는 것도 짚었습니다.
+* 32×32 입력에서 CPU와 GPU 출력을 픽셀 단위로 전부 비교해 오차 0을 실제로 확인했습니다 — 이 검증 없이는 "GPU가 빠르다"는 다음 장의 주장이 아무 의미가 없습니다.
+
+다음 장에서는 이 커널을 더 빠르게 만드는 로컬 메모리 타일링을 시도하되, 왜 컨볼루션에는 잘 안 통하고 완전연결(FC) 레이어의 행렬곱에는 잘 통하는지 실측으로 대조합니다.
+// end::body[]

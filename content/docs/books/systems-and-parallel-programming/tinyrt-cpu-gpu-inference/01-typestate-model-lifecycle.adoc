@@ -1,0 +1,106 @@
+---
+title: "1장: 타입 상태로 모델 생명주기 표현하기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "typestate", "inference", "book"]
+categories: ["books"]
+description: "TinyRT의 모델을 Unloaded/Loaded/Ready 세 타입으로 나눠, 가중치를 안 불러온 모델에 추론을 시도하는 실수를 컴파일 에러로 막는 safe-parallel-cpp23의 타입 상태 패턴을 그대로 적용하는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../02-tensor-mdspan/[2장: 텐서를 mdspan으로 표현하기]_
+
+'''
+
+추론 런타임에서 흔한 버그 하나 — 모델 객체는 만들었는데 가중치를 아직 안 불러온 채로 ``infer()``를 부르는 실수입니다. 널 포인터를 역참조하거나, 크기가 0인 배열을 곱하거나, 최악의 경우 조용히 쓰레기 값을 내놓습니다. 전작 link:../../safe-parallel-cpp23/[『이론을 C{pp}23으로 옮기다』] 2~4장의 **타입 상태 패턴**으로 이 실수를 컴파일 에러로 만듭니다.
+
+== 세 가지 상태, 세 가지 타입
+
+TinyRT의 모델은 정확히 세 단계를 거칩니다 — 아직 아무것도 없는 `Unloaded`, 가중치는 있지만 실행 계획이 없는 `Loaded`, 추론할 준비가 끝난 `Ready`. 상태마다 다른 타입을 쓰고, 전이 메서드는 rvalue 한정으로 선언합니다.
+
+[source,cpp]
+----
+class Loaded;
+class Ready;
+
+class Unloaded {
+public:
+  [[nodiscard]] Loaded load_weights(std::vector<float> conv_kernel, std::vector<float> fc_weight) &&;
+};
+
+class Loaded {
+  std::vector<float> conv_kernel_, fc_weight_;
+public:
+  Loaded(std::vector<float> ck, std::vector<float> fw)
+      : conv_kernel_(std::move(ck)), fc_weight_(std::move(fw)) {}
+  [[nodiscard]] Ready compile() &&;   // 4장: OpenCL 프로그램을 미리 빌드해두는 단계
+  const std::vector<float>& conv_kernel() const { return conv_kernel_; }
+  const std::vector<float>& fc_weight() const { return fc_weight_; }
+};
+
+class Ready {
+  Loaded model_;
+public:
+  explicit Ready(Loaded m) : model_(std::move(m)) {}
+  float infer(float x) const { return x * model_.conv_kernel()[0]; }  // 자리표시자, 3장에서 실제 conv로 교체
+};
+
+Loaded Unloaded::load_weights(std::vector<float> conv_kernel, std::vector<float> fc_weight) && {
+  return Loaded(std::move(conv_kernel), std::move(fc_weight));
+}
+Ready Loaded::compile() && {
+  return Ready(std::move(*this));
+}
+----
+
+``Unloaded``에는 ``infer()``가 아예 없습니다 — 오직 ``load_weights()``만 있습니다. ``Loaded``에도 ``infer()``가 없습니다 — ``compile()``로 ``Ready``가 되어야만 추론할 수 있습니다. `infer()` 자체는 ``Ready``의 평범한(rvalue 한정이 아닌) `const` 멤버 함수입니다 — 한 번 준비가 끝나면 같은 `Ready` 객체로 여러 번 추론해야 하기 때문에, 3장의 `load_weights`/``compile``과 달리 "소비"되지 않고 재사용됩니다.
+
+== 검증: 순서를 지키면 통과, 어기면 컴파일 실패
+
+[source,cpp]
+----
+Unloaded m;
+Ready ready = std::move(m).load_weights({1.0f, 2.0f}, {0.5f}).compile();
+std::printf("infer(3.0) = %.2f\n", ready.infer(3.0f));
+std::printf("infer(4.0) = %.2f\n", ready.infer(4.0f));
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 typestate_test.cpp -o typestate_test && ./typestate_test
+infer(3.0) = 3.00
+infer(4.0) = 4.00
+----
+
+정상적인 순서(`load_weights` → `compile` → ``infer``를 여러 번)는 그대로 컴파일되고 실행됩니다. 이제 가중치만 불러오고 ``compile()``을 건너뛴 채 바로 추론하려 하면:
+
+[source,cpp]
+----
+Unloaded m;
+auto loaded = std::move(m).load_weights({1.0f}, {0.5f});
+loaded.infer(3.0f);  // 버그: Loaded에는 infer()가 없다
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 typestate_bad.cpp -o /tmp/x
+typestate_bad.cpp:16:10: error: no member named 'infer' in 'Loaded'
+   16 |   loaded.infer(3.0f);
+      |   ~~~~~~ ^
+1 error generated.
+----
+
+"가중치는 불러왔지만 아직 실행 준비가 안 된 모델에 추론을 시도한다"는 실수가, 런타임 널 체크나 예외가 아니라 **컴파일 에러**로 잡힙니다 — 전작 3장이 ``WorkerConnection``에 대해 확인한 것과 정확히 같은 보장입니다.
+
+== 왜 ``Loaded``와 ``Ready``를 굳이 나누는가
+
+``Loaded``가 가중치만 들고 있는 상태와 ``Ready``가 실행 준비까지 끝난 상태를 굳이 나눈 이유는, 4장에서 ``compile()``이 하는 일이 단순한 필드 복사가 아니기 때문입니다 — OpenCL 컨텍스트를 만들고, 커널 소스를 컴파일하고, GPU에 올릴 가중치 버퍼를 미리 준비하는, 시간이 걸리고 실패할 수도 있는 작업입니다. 이 단계를 타입으로 분리해두면 "가중치는 있는데 아직 GPU 컴파일이 안 끝난" 중간 상태를 명시적으로 표현할 수 있고, 그 상태에서 실수로 추론을 시도하는 것도 똑같이 컴파일 에러가 됩니다.
+
+== 요약
+
+* TinyRT의 모델 생명주기를 `Unloaded`/`Loaded`/`Ready` 세 타입으로 나누고, `load_weights`/``compile``을 rvalue 한정 메서드로 선언해 순서를 어긴 호출이 컴파일 에러가 되는 걸 확인했습니다.
+* ``infer()``는 ``Ready``의 재사용 가능한(소비하지 않는) 메서드라는 것도, `load_weights`/``compile``과 다른 점으로 짚었습니다.
+* ``Loaded``와 ``Ready``를 나눈 이유가 4장에서 다룰 "GPU 컴파일은 비용이 드는 별도 단계"라는 것과 미리 연결해뒀습니다.
+
+다음 장에서는 지금 ``std::vector<float>``로만 다루던 가중치와 입력을, ``std::mdspan``으로 감싸 2차원 텐서로 표현하는 법을 다룹니다.
+// end::body[]

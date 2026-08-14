@@ -1,0 +1,74 @@
+---
+title: "8장: PMR 아레나와 예외에도 안전한 GPU 자원 정리"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "pmr", "exception-safety", "opencl", "book"]
+categories: ["books"]
+description: "GPU 레이어 실행 도중 예외가 나도 4장의 DeviceBuffer 두 개가 스택 되감기로 정확히 역순 해제된다는 걸 실제로 확인하고, 반복 추론 때마다 생기는 CPU 쪽 임시 버퍼를 cpp23-performance-engineering의 PMR 아레나로 재사용해 할당 경합을 없애는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-hybrid-dispatch/[7장: CPU vs GPU 디스패치, 작은 모델에서 GPU가 지는 이유] · 다음: link:../09-capstone-tinyrt-pipeline/[9장: 종합 실전 — TinyRT 전체 파이프라인 조립하기]_
+
+'''
+
+추론 런타임은 오래 켜둔 채로 요청을 계속 받는 프로세스입니다 — 어느 한 번의 추론이 실패해도 프로세스 전체가 GPU 메모리를 새면서 죽으면 안 됩니다. 이 장에서는 4장의 ``DeviceBuffer``가 예외 상황에서도 정말 안전한지 직접 예외를 던져서 확인하고, 반복 추론에서 생기는 CPU 쪽 할당을 전작 link:../../cpp23-performance-engineering/[『안전을 넘어 성능으로』] 7장의 PMR 아레나로 줄입니다.
+
+== 레이어 실행 도중 예외를 실제로 던져보기
+
+[source,cpp]
+----
+void run_layer(cl_context ctx) {
+  float data[4] = {1, 2, 3, 4};
+  DeviceBuffer buf1(ctx, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(data), data);
+  DeviceBuffer buf2(ctx, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(data), data);
+  throw std::runtime_error("simulated mid-layer failure");  // 예: 잘못된 입력 크기 감지
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -framework OpenCL pmr_exception_test.cpp -o pmr_exception_test && ./pmr_exception_test
+released a DeviceBuffer
+released a DeviceBuffer
+caught: simulated mid-layer failure
+----
+
+`buf1`, ``buf2``를 만든 뒤 일부러 예외를 던졌습니다 — 출력을 보면 `catch` 블록이 실행되기 **전에** 두 ``DeviceBuffer``의 소멸자가 이미 불려서 ``released a DeviceBuffer``가 두 번 찍힙니다(만든 순서의 반대로, ``buf2``가 먼저). 이게 전작 3부가 반복해서 확인한 **스택 되감기(stack unwinding)** 입니다 — 예외가 함수를 빠져나가는 경로를 따라가며, 그 스코프에 있던 지역 변수들의 소멸자를 스코프를 벗어나는 순서대로 자동으로 호출합니다. ``DeviceBuffer``가 4장에서 이 소멸자에 ``clReleaseMemObject``를 심어뒀기 때문에, GPU 메모리는 예외 경로에서도 정확히 한 번씩 해제됩니다 — 이 안전성을 위해 `run_layer` 안에 `try`/``catch``나 `RAII` 바깥의 정리 코드를 단 한 줄도 쓰지 않았다는 게 핵심입니다.
+
+== 반복 추론에서 생기는 CPU 쪽 할당
+
+TinyRT의 ``ConvLayer``나 완전연결 레이어는 중간 계산에 임시 버퍼가 필요할 수 있습니다(예: 풀링 전 활성화 맵을 잠깐 담아두는 버퍼). 추론 요청이 반복해서 들어올 때마다 이 임시 버퍼를 매번 새로 ``new``하면, 전작 7장에서 확인한 것과 같은 문제가 생깁니다 — 여러 요청이 동시에 들어오면 전역 힙 할당자를 두고 경합합니다.
+
+[source,cpp]
+----
+std::pmr::unsynchronized_pool_resource arena;
+for (int i = 0; i < 3; i++) {
+  std::pmr::vector<float> scratch(&arena);   // 매 요청 이 아레나에서 재사용
+  scratch.reserve(1024);
+  scratch.push_back(static_cast<float>(i));
+  std::printf("round %d scratch[0]=%.0f\n", i, scratch[0]);
+}
+----
+
+[source]
+----
+round 0 scratch[0]=0
+round 1 scratch[0]=1
+round 2 scratch[0]=2
+----
+
+전작 7장과 똑같은 구조입니다 — ``arena``가 한 번 확보한 메모리 블록을 반복(`round`)마다 재사용하므로, 세 번째 요청이 들어와도 ``operator new``를 새로 부를 필요가 거의 없습니다. TinyRT를 여러 스레드가 동시에 쓰는 서버로 확장한다면, 이 ``arena``도 전작 7장처럼 **스레드(또는 요청)마다 독립적으로** 둬야 합니다 — 공유하면 ``unsynchronized_pool_resource``라는 이름 그대로 동시성 버그가 됩니다.
+
+== 두 안전성을 합치면
+
+이 장에서 확인한 두 가지 — GPU 자원의 예외 안전성(RAII)과 CPU 쪽 할당의 효율(PMR)—은 서로 다른 계층에서 동시에 성립합니다. `GpuConvLayer::forward`(5장)가 예외를 던지며 실패해도 그 안의 ``DeviceBuffer``들은 정확히 정리되고, 동시에 그 함수가 성공적으로 여러 번 반복 호출될 때는 PMR 아레나가 할당을 줄여줍니다 — 안전성이 성능의 발목을 잡지 않고, 성능 최적화가 안전성을 깨지 않는다는 게 이 두 장 조합의 요점입니다.
+
+== 요약
+
+* `DeviceBuffer` 두 개를 만든 직후 예외를 던져서, `catch` 블록이 실행되기 전에 스택 되감기로 두 자원이 만든 순서의 반대로 정확히 해제된다는 걸 실제 로그로 확인했습니다.
+* 반복되는 CPU 쪽 임시 버퍼 할당을, 전작 7장의 ``std::pmr::unsynchronized_pool_resource``로 재사용해 할당 경합을 줄이는 구조를 그대로 재사용했습니다.
+* GPU 자원의 예외 안전성과 CPU 쪽 할당 성능이 서로 다른 계층의 문제라서 동시에 성립할 수 있다는 것도 짚었습니다 — 이 조합이 다음 장의 종합 파이프라인이 기대는 기반입니다.
+
+다음 장에서는 지금까지 만든 모든 조각 — 타입 상태 생명주기, `mdspan` 텐서, CPU/GPU 컨볼루션, 타일링된 완전연결 레이어, `flat_map` 디스패치, PMR 아레나 — 을 하나의 TinyRT 파이프라인으로 조립합니다.
+// end::body[]

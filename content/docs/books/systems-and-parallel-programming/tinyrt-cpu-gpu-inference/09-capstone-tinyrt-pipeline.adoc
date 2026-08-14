@@ -1,0 +1,95 @@
+---
+title: "9장: 종합 실전 — TinyRT 전체 파이프라인 조립하기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "opencl", "inference", "cnn", "capstone", "book"]
+categories: ["books"]
+description: "타입 상태 생명주기, mdspan 텐서, CPU/GPU 컨볼루션, PMR 아레나, flat_map 디스패치를 하나로 합친 TinyRT의 conv-relu-maxpool-fc-softmax 순전파를 CPU-only와 Hybrid로 나란히 실행해, 정확히 같은 소프트맥스 출력(오차 0)을 확인하며 8개 장을 마무리하는 종합 실전 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-pmr-and-exception-safety/[8장: PMR 아레나와 예외에도 안전한 GPU 자원 정리] · 다음: link:../10-afterword/[맺음말]_
+
+'''
+
+1장부터 8장까지 만든 조각을 재구성 없이 그대로 이어 붙여, TinyRT의 순전파 하나를 완성합니다 — `입력(66×66)`` → ``컨볼루션+ReLU(3×3)`` → ``맥스풀(2×2)`` → ``평탄화`` → ``완전연결`` → ``소프트맥스`.
+
+== 파이프라인: 각 단계가 어느 장에서 왔는가
+
+[source,cpp]
+----
+// 66x66 입력, 3x3 컨볼루션+ReLU 융합(3장 CPU / 5장 GPU), 결과는 64x64
+// -> 2x2 맥스풀 -> 32x32 -> 평탄화(1024) -> 완전연결(1024x16, 6장 타일링) -> 소프트맥스
+
+void softmax(std::vector<float>& v) {
+  float mx = *std::max_element(v.begin(), v.end());
+  float sum = 0;
+  for (auto& x : v) { x = std::exp(x - mx); sum += x; }
+  for (auto& x : v) x /= sum;
+}
+
+// CPU-only 경로: conv, pool, fc, softmax 전부 CPU (3장 ConvLayer와 같은 삼중 루프)
+// Hybrid 경로: conv(5장 GpuConvLayer)와 fc(6장 matmul_tiled)를 GPU로,
+//              pool과 softmax는 계산량이 작아 CPU에 남김(7장의 choose_device가 내릴 결정과 같은 판단)
+----
+
+각 단계가 정확히 어느 장에서 만든 코드인지 표로 정리하면 이렇습니다.
+
+[cols="2,3,2"]
+|===
+| 단계 | 구현 | 관련 장
+
+| 컨볼루션+ReLU
+| `ConvLayer`(CPU) / `GpuConvLayer`(GPU)
+| 3장, 5장
+
+| 맥스풀
+| CPU 이중 루프(계산량이 작아 GPU로 안 보냄)
+| 7장의 배치 판단
+
+| 완전연결(행렬곱)
+| CPU 삼중 루프 / `matmul_tiled`(GPU, 로컬 메모리 타일링)
+| 6장
+
+| 소프트맥스
+| CPU(계산량이 작아 GPU로 안 보냄)
+| 7장의 배치 판단
+
+| GPU 자원 관리
+| `GpuContext`/`DeviceBuffer`(이동 전용 RAII)
+| 4장, 8장(예외 안전성)
+
+| 실행 전 상태 검사
+| `Unloaded`/`Loaded`/`Ready` 타입 상태
+| 1장
+|===
+
+== 실행: CPU-only vs Hybrid
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -framework OpenCL full_pipeline.cpp -o full_pipeline && ./full_pipeline
+CPU-only:  0.035 ms
+Hybrid:    2.850 ms
+max softmax diff CPU vs Hybrid: 0
+----
+
+이 숫자는 7장에서 이미 본 것과 같습니다 — 다시 싣는 이유는, 이게 **개별 레이어 벤치마크가 아니라 conv부터 softmax까지 전체 파이프라인을 실제로 실행한 결과**라는 걸 강조하기 위해서입니다. 소프트맥스로 나온 확률 분포 16개가 CPU-only와 Hybrid에서 정확히 일치합니다(`max softmax diff: 0`) — 컨볼루션 하나만 비교했던 5장보다 훨씬 긴 계산 경로(컨볼루션 → 풀링 → 평탄화 → 행렬곱 → 지수함수 → 정규화)를 거쳤는데도, 부동소수점 오차 하나 없이 같은 결과가 나옵니다. 그리고 이 크기에서는 여전히 CPU-only가 이깁니다 — 7장의 결론이 파이프라인 전체 규모에서도 그대로 유지된다는 것도 같이 확인한 셈입니다.
+
+== 타입 상태로 실행 전체를 감싸면
+
+1장의 ``Ready::infer``가 지금까지는 자리표시자였습니다. 실전에서는 이 자리에 위 파이프라인이 그대로 들어갑니다 — ``Ready``는 이미 ``compile()``을 거쳐 GPU 프로그램까지 준비된 상태이므로, `infer()` 안에서 ``GpuConvLayer``나 `matmul_tiled` 커널을 새로 빌드할 필요 없이 곧바로 실행에 들어갈 수 있습니다. ``Unloaded``나 `Loaded` 상태에서는 애초에 ``infer()``라는 이름의 메서드가 존재하지 않으므로, "GPU 프로그램이 아직 컴파일되지 않은 채로 커널을 실행하려는" 실수는 1장에서 확인했듯 컴파일 에러로 막힙니다 — 이 장에서 조립한 파이프라인 전체가, 그 컴파일 타임 보장 **안에서** 돌아간다는 뜻입니다.
+
+== 이 장이 증명한 것
+
+이 책 전체의 요지를 한 문장으로 압축하면 이렇습니다 — **안전성(1, 4, 8장), 성능(2, 3, 6, 8장), GPU 오프로드(4, 5, 6장)를 따로따로 검증한 기법들이, 한데 모아도 서로 깨뜨리지 않고 함께 작동한다.** 타입 상태가 강제하는 순서 안에서, RAII가 관리하는 GPU 자원 위에서, PMR 아레나가 재사용하는 CPU 메모리로, `flat_map` 레지스트리가 정한 배치대로 실행한 파이프라인이 CPU 전용 기준 구현과 정확히 같은 답을 낸다는 것 — 이게 8개 장에 걸쳐 실제로 컴파일하고 실행해서 얻은 증거입니다.
+
+== 요약
+
+* 1~8장에서 만든 조각을 재구성 없이 그대로 이어, conv-relu-maxpool-fc-softmax 순전파 전체를 CPU-only와 Hybrid 두 경로로 실행했습니다.
+* 두 경로의 최종 소프트맥스 출력이 정확히 일치한다는 걸 확인해, 파이프라인 전체 규모에서도 정확성이 깨지지 않는다는 걸 검증했습니다.
+* 7장의 "작은 모델에서는 CPU가 이긴다"는 결론이 개별 레이어가 아니라 전체 파이프라인 규모에서도 그대로 성립한다는 것도 함께 확인했습니다.
+* 타입 상태(1장)가 이 전체 파이프라인을 감싸, GPU 프로그램이 준비되지 않은 상태에서 실행을 시도하는 실수를 여전히 컴파일 타임에 막는다는 것도 짚었습니다.
+
+맺음말에서는 이렇게 조립된 TinyRT를 다시 정리하고, 세 전작이 각자 다른 계층에서 검증한 것이 이 한 시스템 안에서 어떻게 겹쳐 있는지, 그리고 이 책이 다루지 않은 것을 안내합니다.
+// end::body[]

@@ -1,0 +1,85 @@
+---
+title: "3장: CPU 컨볼루션 레이어 구현하고 검증하기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "convolution", "cnn", "inference", "book"]
+categories: ["books"]
+description: "Tensor2D를 입출력으로 받는 ConvLayer를 순수 CPU 3x3 컨볼루션 + ReLU 융합으로 구현하고, 이후 모든 장에서 GPU 구현과 출력을 1대1로 비교할 기준(reference)으로 삼는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-tensor-mdspan/[2장: 텐서를 mdspan으로 표현하기] · 다음: link:../04-opencl-raii-handles/[4장: OpenCL 리소스를 RAII 핸들로 감싸기]_
+
+'''
+
+이 장에서 TinyRT의 첫 번째 실제 레이어, **3×3 컨볼루션 + ReLU**를 순수 CPU 코드로 구현합니다. 이 CPU 구현은 이후 4~6장에서 만들 GPU 커널이 "정말로 같은 계산을 하는가"를 확인할 **기준(reference)**이 됩니다 — 앞으로 이 책이 GPU 결과를 신뢰하는 유일한 근거는, 매번 이 CPU 구현과 비교해서 오차가 0이라는 것을 실제로 확인하는 것입니다.
+
+== `ConvLayer`: 2장의 ``Tensor2D``를 입출력으로
+
+[source,cpp]
+----
+class ConvLayer {
+  Tensor2D kernel_;
+public:
+  explicit ConvLayer(Tensor2D kernel) : kernel_(std::move(kernel)) {}
+
+  Tensor2D forward(Tensor2D& input) {
+    auto in = input.view();
+    auto k = kernel_.view();
+    std::size_t K = k.extent(0);
+    std::size_t OH = in.extent(0) - K + 1, OW = in.extent(1) - K + 1;
+    Tensor2D output(OH, OW);
+    auto out = output.view();
+    for (std::size_t oy = 0; oy < OH; oy++) {
+      for (std::size_t ox = 0; ox < OW; ox++) {
+        float acc = 0.0f;
+        for (std::size_t ky = 0; ky < K; ky++)
+          for (std::size_t kx = 0; kx < K; kx++)
+            acc += in[oy + ky, ox + kx] * k[ky, kx];
+        out[oy, ox] = std::max(acc, 0.0f);  // ReLU를 컨볼루션에 바로 융합
+      }
+    }
+    return output;
+  }
+};
+----
+
+``forward``는 입력 ``Tensor2D``와 커널을 받아 "valid" 컨볼루션(패딩 없이, 커널이 완전히 들어맞는 위치만) 결과를 계산하고, 그 자리에서 바로 ReLU(`std::max(acc, 0.0f)`)를 적용합니다 — 별도의 ReLU 레이어를 두는 대신 **커널 하나에 융합**해두면, 나중에 5장의 GPU 버전에서도 커널 실행 한 번으로 컨볼루션과 활성화 함수를 동시에 끝낼 수 있습니다(중간 결과를 GPU 전역 메모리에 썼다가 다시 읽는 왕복을 없애는, 실전 추론 런타임의 흔한 최적화입니다).
+
+== 검증: 손으로 계산한 값과 맞는지 확인
+
+[source,cpp]
+----
+Tensor2D input(5, 5);
+// input[i,j] = (i+j) - 4  (음수와 양수가 섞이도록)
+
+Tensor2D kernel(3, 3);
+// kernel 전체를 1.0으로 채움 (3x3 영역의 합을 구하는 필터)
+
+ConvLayer conv(std::move(kernel));
+Tensor2D out = conv.forward(input);
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 conv_layer_test.cpp -o conv_layer_test && ./conv_layer_test
+output shape: 3x3
+   0.0   0.0   0.0
+   0.0   0.0   9.0
+   0.0   9.0  18.0
+----
+
+5×5 입력에 3×3 커널을 적용하면 출력은 `3×3`(`5-3+1`)이 되어야 하고, 실제로 그렇게 나옵니다. 커널이 "3×3 영역의 합"이므로, 입력값이 전부 작은(음수가 섞인) 영역에서는 합도 음수가 되어 ReLU가 ``0``으로 눌러버리고, 입력값이 큰(오른쪽 아래) 영역에서는 양수 합이 그대로 통과합니다 — 좌상단이 전부 ``0``이고 우하단으로 갈수록 커지는 패턴이, 입력이 ``(i+j)-4``로 오른쪽 아래일수록 커지게 설계한 것과 정확히 맞아떨어집니다.
+
+== 이 구현이 "정답"이어야 하는 이유
+
+이 장의 ``ConvLayer``는 딱히 빠르지 않습니다 — 캐시 타일링도, SIMD도, GPU 오프로드도 없는 가장 단순한 삼중 루프입니다. 의도적입니다. 5장에서 GPU 커널을 처음 짜고 나면, 그 커널이 옳은지 판단할 방법이 필요합니다 — "빠른데 틀린 컨볼루션"과 "느린데 맞는 컨볼루션"을 나란히 놓고 픽셀 단위로 비교하는 것이 유일하게 믿을 수 있는 방법입니다. 그래서 이 장의 목표는 속도가 아니라 **명백히 옳다고 눈으로 확인할 수 있는 기준 구현**을 만드는 것이었습니다.
+
+== 요약
+
+* ``ConvLayer::forward``가 `Tensor2D` 입력에 3×3 컨볼루션과 ReLU를 순서대로(사실은 융합해서 한 번에) 적용하고, 결과 ``Tensor2D``를 돌려줍니다.
+* 손으로 설계한 입력·커널로 출력값을 직접 계산해 검증했고, ReLU가 음수 영역을 정확히 눌러버리는 것도 확인했습니다.
+* 이 CPU 구현은 속도가 아니라 **정확성의 기준점**이 목적이라는 것을 짚었습니다 — 이후 모든 GPU 구현은 이 구현과의 출력 일치를 통과해야만 "옳다"고 인정됩니다.
+
+다음 장에서는 GPU로 넘어가기 전에, OpenCL의 컨텍스트·큐·버퍼 같은 원시 C 핸들을, 전작의 이동 전용 RAII 타입으로 안전하게 감싸는 법을 다룹니다.
+// end::body[]

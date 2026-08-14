@@ -1,0 +1,112 @@
+---
+title: "6장: 로컬 메모리 타일링, 통하는 레이어와 안 통하는 레이어"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "opencl", "tiling", "local-memory", "performance", "book"]
+categories: ["books"]
+description: "512x512 3x3 컨볼루션에 로컬 메모리 타일링을 적용했더니 5%도 안 되는 속도 차이만 나고, 같은 타일링 기법을 완전연결 레이어의 512x512 행렬곱에 적용하면 3.3배 빨라지는 걸 실측으로 대조해, 산술 강도(arithmetic intensity)가 낮은 레이어에는 타일링이 잘 안 통한다는 걸 확인하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-gpu-conv-kernel/[5장: GPU 컨볼루션 커널로 CPU와 대조 검증하기] · 다음: link:../07-hybrid-dispatch/[7장: CPU vs GPU 디스패치, 작은 모델에서 GPU가 지는 이유]_
+
+'''
+
+전작 link:../../heterogeneous-computing-opencl/[『OpenCL로 배우는 헤테로지니어스 컴퓨팅』] 6장은 행렬곱 커널을 로컬 메모리 타일링으로 3.4배 빠르게 만들었습니다. TinyRT의 두 레이어(3×3 컨볼루션, 완전연결 레이어의 행렬곱)에 같은 기법을 각각 적용해보면, 결과가 전혀 다릅니다 — 이 장은 그 대조를 실측으로 보여주고, 왜 그런지 설명합니다.
+
+== 시도 1: 컨볼루션에 타일링 적용하기
+
+5장의 `conv2d_relu` 커널은 작업 항목마다 전역 메모리를 ``K×K=9``번 읽습니다. 인접한 출력 픽셀들은 입력의 겹치는 영역을 다시 읽으므로, 그 겹치는 부분을 로컬 메모리(워크그룹이 공유하는, 전역 메모리보다 훨씬 빠른 메모리)에 한 번만 올려두고 재사용하면 이득이 있을 것 같습니다.
+
+[source,cpp]
+----
+#define TILE 16
+__kernel void conv2d_tiled(
+    __global const float* input, __global const float* kernel_, __global float* output,
+    const int H, const int W, const int K)
+{
+    __local float tile[TILE + 2][TILE + 2];  // K=3 가정 -> 테두리(halo) 1칸
+    int out_w = W - K + 1;
+    int lx = get_local_id(0), ly = get_local_id(1);
+    int gx = get_global_id(0), gy = get_global_id(1);
+
+    for (int dy = ly; dy < TILE + 2; dy += get_local_size(1))
+      for (int dx = lx; dx < TILE + 2; dx += get_local_size(0)) {
+        int gy_in = gy - ly + dy, gx_in = gx - lx + dx;
+        if (gy_in < H && gx_in < W) tile[dy][dx] = input[gy_in * W + gx_in];
+      }
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    if (gy < out_w && gx < out_w) {
+        float acc = 0.0f;
+        for (int ky = 0; ky < K; ky++)
+            for (int kx = 0; kx < K; kx++)
+                acc += tile[ly + ky][lx + kx] * kernel_[ky * K + kx];
+        output[gy * out_w + gx] = acc;
+    }
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -framework OpenCL tiled_conv.cpp -o tiled_conv && ./tiled_conv
+naive: 0.199 ms, tiled: 0.189 ms, max_diff: 0
+----
+
+512×512 입력으로 20회 반복 측정한 결과, 타일링 버전이 나이브 버전보다 **5%도 채 안 빨라졌습니다**(`0.199ms` → `0.189ms`). 출력값은 정확히 일치합니다(`max_diff: 0`) — 틀린 건 아니지만, 로컬 메모리 타일링이라는 수고를 들인 것치고는 실망스러운 결과입니다.
+
+== 시도 2: 같은 기법을 완전연결(FC) 레이어의 행렬곱에
+
+TinyRT의 완전연결 레이어는 `pooled_features(1×K) × weight(K×N)` 행렬곱입니다. 전작 6장과 똑같은 `16×16` 타일링을 512×512×512 크기 행렬곱에 적용합니다.
+
+[source,cpp]
+----
+#define TILE 16
+__kernel void matmul_tiled(__global const float* A, __global const float* B, __global float* C,
+                            const int M, const int N, const int K) {
+    __local float Asub[TILE][TILE];
+    __local float Bsub[TILE][TILE];
+    int row = get_global_id(1), col = get_global_id(0);
+    int lrow = get_local_id(1), lcol = get_local_id(0);
+    float acc = 0.0f;
+    int ntiles = K / TILE;
+    for (int t = 0; t < ntiles; t++) {
+        Asub[lrow][lcol] = A[row*K + t*TILE + lcol];
+        Bsub[lrow][lcol] = B[(t*TILE + lrow)*N + col];
+        barrier(CLK_LOCAL_MEM_FENCE);
+        for (int k = 0; k < TILE; k++) acc += Asub[lrow][k] * Bsub[k][lcol];
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+    C[row*N+col] = acc;
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -framework OpenCL matmul_tiled.cpp -o matmul_tiled && ./matmul_tiled
+naive: 2.916 ms, tiled: 0.876 ms, speedup: 3.33x, maxdiff: 0
+----
+
+같은 방식(로컬 메모리에 타일을 올리고, 배리어로 동기화하고, 로컬 메모리에서 재사용)인데 이번엔 **3.33배** 빨라졌습니다(`2.916ms` → `0.876ms`), 그리고 역시 출력은 정확히 일치합니다.
+
+== 왜 이렇게 다른가: 산술 강도(arithmetic intensity)
+
+두 커널의 결정적 차이는 **전역 메모리 접근 하나당 계산량**입니다.
+
+* 컨볼루션(`K=3`): 작업 항목 하나가 입력 ``9``개를 읽어 곱셈-덧셈 ``9``번을 합니다 — 메모리 접근 하나당 계산 1번꼴이고, 게다가 이웃 작업 항목들 사이의 겹침(halo)도 ``K=3``이 작아서 재사용할 데이터 자체가 많지 않습니다.
+* 행렬곱(`K=512`): 작업 항목 하나가 결과 하나를 내려면 ``K=512``번의 곱셈-덧셈이 필요합니다 — 타일 하나(`16×16`)를 로컬 메모리에 올리면, 그 타일 안의 작업 항목 ``256``개가 전역 메모리에서 읽은 데이터를 ``16``번씩(``TILE``배) 재사용합니다.
+
+전작 6장이 정리했듯, 타일링이 버는 건 "전역 메모리 접근 횟수를 ``TILE``배 줄이는 것"입니다. 그런데 그 이득은 애초에 전역 메모리 접근이 병목일 때만 의미가 있습니다 — 컨볼루션처럼 애초에 작업 항목 하나가 하는 계산량 자체가 적고 재사용할 데이터도 적은 커널에서는, 배리어 대기와 로컬 메모리 인덱싱이라는 새 비용이 아낀 메모리 접근 비용을 거의 다 상쇄해버립니다. 이 세션 환경의 GPU(Apple Silicon, CPU와 메모리를 공유하는 통합 메모리 구조)는 전역 메모리 접근 자체가 이미 상당히 빠르다는 점도 이 차이를 더 키웁니다 — discrete GPU였다면 컨볼루션의 타일링 이득도 조금 더 컸을 수 있지만, 그래도 행렬곱만큼 극적이지는 않았을 것입니다.
+
+== TinyRT에 적용한다면
+
+이 결과가 TinyRT의 설계에 직접 영향을 줍니다 — 완전연결 레이어는 무조건 타일링된 커널을 쓰고, 컨볼루션 레이어는 5장의 나이브 커널을 그대로 써도(적어도 이 3×3 크기에서는) 손해가 거의 없습니다. "GPU 최적화 기법 하나를 배웠으니 모든 커널에 적용한다"는 접근은 이 장의 실측 앞에서 틀렸다는 게 드러났습니다 — 커널마다 산술 강도를 먼저 따져보고, 타일링이 실제로 버는 게 있는지 재보는 게 먼저입니다.
+
+== 요약
+
+* 같은 로컬 메모리 타일링 기법을 컨볼루션(5% 미만 개선)과 완전연결 행렬곱(3.33배 개선)에 각각 적용해, 정반대의 결과를 실측으로 확인했습니다.
+* 그 차이가 산술 강도(전역 메모리 접근당 계산량) 때문이라는 것과, 컨볼루션처럼 산술 강도가 낮은 커널에서는 타일링의 새 비용(배리어, 로컬 메모리 인덱싱)이 아낀 메모리 접근 비용을 거의 상쇄한다는 것을 짚었습니다.
+* 두 경우 모두 출력이 나이브 버전과 정확히 일치한다는 것도 함께 확인해, "느려도/안 빨라져도 정확하다"와 "빨라졌는데 틀리다"를 구분했습니다.
+
+다음 장에서는 컨볼루션과 완전연결 레이어를 각각 CPU와 GPU 어디에 배정할지, 실측 크기별 속도를 근거로 런타임이 직접 결정하게 만듭니다.
+// end::body[]

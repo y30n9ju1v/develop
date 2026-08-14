@@ -1,0 +1,98 @@
+---
+title: "4장: OpenCL 리소스를 RAII 핸들로 감싸기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "opencl", "raii", "move-only", "book"]
+categories: ["books"]
+description: "cl_context/cl_command_queue/cl_mem 같은 원시 OpenCL C 핸들을 이동 전용 RAII 클래스 GpuContext/DeviceBuffer로 감싸, safe-parallel-cpp23의 이동 전용 타입 패턴과 heterogeneous-computing-opencl의 호스트-디바이스 모델을 그대로 합치는 4장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-cpu-conv-layer/[3장: CPU 컨볼루션 레이어 구현하고 검증하기] · 다음: link:../05-gpu-conv-kernel/[5장: GPU 컨볼루션 커널로 CPU와 대조 검증하기]_
+
+'''
+
+3장의 ``ConvLayer``를 GPU로 옮기려면 OpenCL의 원시 C API — `cl_context`, `cl_command_queue`, `cl_mem` 같은 핸들 — 를 다뤄야 합니다. 문제는 이 핸들들이 전작 link:../../safe-parallel-cpp23/[『이론을 C{pp}23으로 옮기다』] 6~7장이 다뤘던 것과 정확히 같은 종류의 자원이라는 점입니다 — 손으로 정확히 한 번 해제해야 하고(`clReleaseContext`, `clReleaseMemObject`), 복사하면 안 되고, 잊으면 새는 자원입니다. 이 장에서는 이 C API를 그 장들의 이동 전용 RAII 패턴으로 감쌉니다.
+
+== `GpuContext`: 플랫폼부터 커맨드 큐까지 한 번에
+
+[source,cpp]
+----
+#include <OpenCL/opencl.h>
+#include <stdexcept>
+#include <utility>
+
+class GpuContext {
+  cl_platform_id platform_ = nullptr;
+  cl_device_id device_ = nullptr;
+  cl_context ctx_ = nullptr;
+  cl_command_queue queue_ = nullptr;
+public:
+  GpuContext() {
+    cl_int err;
+    if (clGetPlatformIDs(1, &platform_, nullptr) != CL_SUCCESS)
+      throw std::runtime_error("no OpenCL platform");
+    if (clGetDeviceIDs(platform_, CL_DEVICE_TYPE_GPU, 1, &device_, nullptr) != CL_SUCCESS)
+      throw std::runtime_error("no GPU device");
+    ctx_ = clCreateContext(nullptr, 1, &device_, nullptr, nullptr, &err);
+    if (err != CL_SUCCESS) throw std::runtime_error("clCreateContext failed");
+    queue_ = clCreateCommandQueue(ctx_, device_, 0, &err);
+    if (err != CL_SUCCESS) { clReleaseContext(ctx_); throw std::runtime_error("clCreateCommandQueue failed"); }
+  }
+  GpuContext(const GpuContext&) = delete;
+  GpuContext& operator=(const GpuContext&) = delete;
+  GpuContext(GpuContext&& other) noexcept
+      : platform_(other.platform_), device_(other.device_),
+        ctx_(std::exchange(other.ctx_, nullptr)), queue_(std::exchange(other.queue_, nullptr)) {}
+  ~GpuContext() {
+    if (queue_) clReleaseCommandQueue(queue_);
+    if (ctx_) clReleaseContext(ctx_);
+  }
+  cl_context get() const { return ctx_; }
+  cl_command_queue queue() const { return queue_; }
+  cl_device_id device() const { return device_; }
+};
+----
+
+생성자가 플랫폼 조회부터 컨텍스트, 커맨드 큐까지 한 번에 준비하고, 중간에 실패하면 이미 만든 자원(`ctx_`)을 정리한 뒤 예외를 던집니다 — ``clCreateCommandQueue``가 실패하는데 ``clReleaseContext(ctx_)``를 빼먹으면, 예외로 함수를 빠져나가는 순간 그 컨텍스트가 영원히 샙니다. 소멸자는 `queue_`, `ctx_` 순서로(만든 순서의 반대로) 정리합니다. 복사는 막고(`= delete`), 이동만 허용하되 이동한 원본의 핸들을 ``nullptr``로 비웁니다 — 전작 7장의 ``DataSegmentHandle``과 완전히 같은 패턴입니다.
+
+== `DeviceBuffer`: ``GpuContext``에 묶인 GPU 메모리
+
+[source,cpp]
+----
+class DeviceBuffer {
+  cl_mem buf_ = nullptr;
+public:
+  DeviceBuffer(const GpuContext& gpu, cl_mem_flags flags, size_t bytes, void* host_ptr = nullptr) {
+    cl_int err;
+    buf_ = clCreateBuffer(gpu.get(), flags, bytes, host_ptr, &err);
+    if (err != CL_SUCCESS) throw std::runtime_error("clCreateBuffer failed");
+  }
+  DeviceBuffer(const DeviceBuffer&) = delete;
+  DeviceBuffer& operator=(const DeviceBuffer&) = delete;
+  DeviceBuffer(DeviceBuffer&& other) noexcept : buf_(std::exchange(other.buf_, nullptr)) {}
+  ~DeviceBuffer() { if (buf_) clReleaseMemObject(buf_); }
+  cl_mem get() const { return buf_; }
+};
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -framework OpenCL -Wall raii_full.cpp -o raii_full && ./raii_full
+context and buffer created OK, buf=0x10084aa40
+----
+
+``DeviceBuffer``는 자기가 속한 ``GpuContext``를 생성자에서만 참조하고(`const GpuContext&`), 그 컨텍스트 핸들 자체는 소유하지 않습니다 — `cl_mem` 하나만 책임집니다. ``main``이 끝날 때 ``buf``와 ``gpu``가 각각 자기 소멸자로 정확히 한 번씩 정리되고, 선언 역순(`buf` 먼저, `gpu` 나중에)으로 소멸하므로 ``DeviceBuffer``의 소멸자가 ``clReleaseMemObject``를 부를 때 그 메모리가 속한 컨텍스트는 아직 살아 있습니다 — C{pp}의 스택 되감기 순서가 정확히 이 자원 정리 순서를 보장해준다는 것도, 전작 8장이 짚은 것과 같은 성질입니다.
+
+== 왜 `unique_ptr` + 커스텀 삭제자가 아니라 직접 클래스를 짰는가
+
+``std::unique_ptr<std::remove_pointer_t<cl_mem>, decltype(&clReleaseMemObject)>``처럼 ``unique_ptr``에 커스텀 삭제자를 물려서 같은 효과를 낼 수도 있습니다. 이 책은 직접 클래스를 짜는 쪽을 골랐는데, ``GpuContext``처럼 **생성자 자체가 여러 단계(플랫폼 → 디바이스 → 컨텍스트 → 큐)로 이루어지고 중간에 실패할 수 있는** 자원에는, 그 다단계 초기화 로직을 생성자 본문에 직접 쓰는 게 `unique_ptr` 여러 개를 조합하는 것보다 읽기 쉽기 때문입니다 — 전작 7장이 커스텀 이동 전용 핸들을 직접 짠 이유와 같습니다.
+
+== 요약
+
+* OpenCL의 원시 C 핸들(`cl_context`, `cl_command_queue`, `cl_mem`)을, 전작 6~7장의 이동 전용 RAII 패턴 그대로 `GpuContext`/`DeviceBuffer` 클래스로 감쌌습니다.
+* 다단계 생성자에서 중간 단계가 실패하면 그때까지 만든 자원을 직접 정리한 뒤 예외를 던진다는 것과, 소멸자는 만든 순서의 반대로 정리한다는 것을 확인했습니다.
+* ``DeviceBuffer``가 자신이 속한 ``GpuContext``를 소유하지 않고 참조만 하되, 스택 되감기 순서 덕분에 ``DeviceBuffer``가 먼저, ``GpuContext``가 나중에 안전하게 소멸한다는 것도 짚었습니다.
+
+다음 장에서는 이 `GpuContext`/`DeviceBuffer` 위에서 실제 컨볼루션 커널을 작성해 워크그룹으로 나눠 돌리고, 3장의 CPU 구현과 출력을 픽셀 단위로 비교합니다.
+// end::body[]

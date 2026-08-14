@@ -1,0 +1,93 @@
+---
+title: "TinyRT: 안전하고 빠른 CPU/GPU 추론 런타임"
+draft: false
+---
+
+link:../safe-parallel-cpp23/[『이론을 C++23으로 옮기다』], link:../cpp23-performance-engineering/[『안전을 넘어 성능으로』], link:../heterogeneous-computing-opencl/[『OpenCL로 배우는 헤테로지니어스 컴퓨팅』] 세 책의 기법을 한데 모아, 작은 CNN을 CPU와 GPU를 오가며 추론하는 런타임 **TinyRT**를 처음부터 끝까지 같이 만드는 캡스톤입니다. 모델이 준비되지 않았는데 추론을 시도하는 실수는 타입 상태로 막고(1부), 텐서는 ``mdspan``으로 표현하고(2부), OpenCL 자원은 이동 전용 RAII로 관리하며 실제 GPU 커널로 CPU 기준 구현과 픽셀 단위로 대조 검증하고(3부), 로컬 메모리 타일링이 레이어마다 다르게 통한다는 걸 실측한 뒤 그 결과로 레이어별 실행 위치를 동적으로 정하고(4부), 예외에도 안전한 GPU 정리와 PMR 아레나 위에서 전체 파이프라인을 조립합니다(5부).
+
+이 책의 핵심 발견 하나를 미리 밝혀둡니다 — **작은 모델에서는 CPU가 GPU보다 80배 넘게 빠릅니다.** GPU 디스패치 오버헤드가 계산 이득을 넘어서기 때문입니다. 같은 종류의 레이어를 계산량만 크게 키우면 이번엔 GPU가 130배 넘게 빠릅니다 — "GPU가 항상 이긴다"는 통념 대신, 이 세션 환경의 실제 GPU에서 실측한 교차점을 그대로 싣습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 안전하고 빠른 추론 런타임 하나 만들기]*
+
+*1부: 모델 생명주기와 텐서*
+
+[start=1]
+. *link:01-typestate-model-lifecycle/[타입 상태로 모델 생명주기 표현하기]*
+. *link:02-tensor-mdspan/[텐서를 mdspan으로 표현하기]*
+
+*2부: CPU 기준 구현*
+
+[start=3]
+. *link:03-cpu-conv-layer/[CPU 컨볼루션 레이어 구현하고 검증하기]*
+
+*3부: GPU 오프로드*
+
+[start=4]
+. *link:04-opencl-raii-handles/[OpenCL 리소스를 RAII 핸들로 감싸기]*
+. *link:05-gpu-conv-kernel/[GPU 컨볼루션 커널로 CPU와 대조 검증하기]*
+
+*4부: 최적화와 디스패치*
+
+[start=6]
+. *link:06-local-memory-tiling/[로컬 메모리 타일링, 통하는 레이어와 안 통하는 레이어]*
+. *link:07-hybrid-dispatch/[CPU vs GPU 디스패치, 작은 모델에서 GPU가 지는 이유]*
+
+*5부: 안전성과 종합 실전*
+
+[start=8]
+. *link:08-pmr-and-exception-safety/[PMR 아레나와 예외에도 안전한 GPU 자원 정리]*
+. *link:09-capstone-tinyrt-pipeline/[종합 실전 — TinyRT 전체 파이프라인 조립하기]*
+
+*맺음말*
+
+[start=10]
+. *link:10-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-typestate-model-lifecycle.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-tensor-mdspan.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-cpu-conv-layer.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-opencl-raii-handles.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-gpu-conv-kernel.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-local-memory-tiling.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-hybrid-dispatch.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-pmr-and-exception-safety.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-capstone-tinyrt-pipeline.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-afterword.adoc[tag=body,leveloffset=+1]

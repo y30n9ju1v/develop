@@ -1,0 +1,58 @@
+---
+title: "2장: 텐서를 mdspan으로 표현하기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mdspan", "tensor", "inference", "book"]
+categories: ["books"]
+description: "TinyRT의 입력 이미지와 특징 맵을 std::mdspan으로 감싼 Tensor2D로 표현해, 평평한 버퍼와 2차원 인덱싱을 잇는 cpp23-performance-engineering 1장의 기법을 그대로 재사용하는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-typestate-model-lifecycle/[1장: 타입 상태로 모델 생명주기 표현하기] · 다음: link:../03-cpu-conv-layer/[3장: CPU 컨볼루션 레이어 구현하고 검증하기]_
+
+'''
+
+1장의 ``infer(float x)``는 스칼라 하나만 받는 자리표시자였습니다. 실제 CNN은 2차원 이미지(높이×너비)를 입력으로 받고, 컨볼루션을 거칠 때마다 크기가 다른 2차원 특징 맵을 만들어냅니다. 전작 link:../../cpp23-performance-engineering/[『안전을 넘어 성능으로』] 1장의 `std::mdspan` 기법을 그대로 가져와, 이 2차원 데이터를 다룹니다.
+
+== `Tensor2D`: mdspan으로 감싼 평평한 버퍼
+
+[source,cpp]
+----
+#include <mdspan>
+#include <vector>
+
+class Tensor2D {
+  std::vector<float> data_;
+  std::size_t rows_, cols_;
+public:
+  Tensor2D(std::size_t rows, std::size_t cols) : data_(rows * cols), rows_(rows), cols_(cols) {}
+
+  std::mdspan<float, std::dextents<std::size_t, 2>> view() {
+    return std::mdspan<float, std::dextents<std::size_t, 2>>(data_.data(), rows_, cols_);
+  }
+  std::size_t rows() const { return rows_; }
+  std::size_t cols() const { return cols_; }
+  float* data() { return data_.data(); }  // 4장: GPU 버퍼로 복사할 때 이 포인터를 그대로 씁니다
+};
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 tensor_test.cpp -o tensor_test && ./tensor_test
+img[3,4] = 28.0
+----
+
+전작 1장의 ``BatchBuffer``와 구조가 거의 같습니다 — ``data_``가 실제 메모리를 소유하고, ``view()``가 그 위에 2차원 해석(`v[i, j]`, C{pp}23의 다중 첨자 `operator[]`)을 얹은 비소유 뷰를 돌려줍니다. ``data()``로 원시 포인터를 노출해두는 이유는, 4장에서 이 메모리를 그대로 OpenCL 버퍼로 복사해야 하기 때문입니다 — GPU API는 ``std::vector``나 ``mdspan``을 모르고, 시작 주소와 바이트 수만 이해합니다.
+
+== 왜 layout이 CPU/GPU 양쪽에 다 중요한가
+
+전작 1장에서 확인했듯, ``mdspan``의 기본 레이아웃(`layout_right`)은 마지막 차원이 메모리에서 연속입니다 — ``Tensor2D``도 마찬가지로 `[row][col]` 순서, 즉 한 행의 모든 열이 메모리에 나란히 붙어 있습니다. 이 레이아웃은 3장의 CPU 컨볼루션(행 단위로 순회)에도, 5장의 GPU 컨볼루션 커널(전역 메모리 접근 패턴)에도 똑같이 중요합니다 — CPU에서 캐시 라인을 낭비하지 않는 순회 순서가, GPU에서도 인접한 작업 항목(work-item)들이 인접한 메모리를 읽게 만드는 순서와 같기 때문입니다. 이 책 전체에서 ``Tensor2D``의 저장 순서는 한 번도 바뀌지 않습니다 — CPU 구현(3장)과 GPU 구현(5장)이 정확히 같은 메모리 레이아웃을 공유한다는 것이, 나중에 두 구현의 출력을 1대1로 비교 검증할 수 있는 전제 조건이 됩니다.
+
+== 요약
+
+* ``Tensor2D``는 `std::vector<float>` 하나를 소유하고 ``std::mdspan``으로 2차원 인덱싱을 얹은 비소유 뷰를 제공하는, 전작 ``BatchBuffer``와 같은 구조의 클래스입니다.
+* ``data()``로 노출한 원시 포인터가 다음 장부터 CPU 컨볼루션과 GPU 버퍼 전송 양쪽에서 재사용됩니다.
+* ``Tensor2D``의 저장 순서(`layout_right`, 행 우선)가 이 책 전체에서 고정되어, CPU와 GPU 구현이 같은 메모리 레이아웃을 공유하고 그래서 출력을 직접 비교할 수 있다는 것도 짚었습니다.
+
+다음 장에서는 이 ``Tensor2D``로 실제 3×3 컨볼루션을 CPU에서 구현하고, 1장의 자리표시자 ``infer()``를 진짜 계산으로 교체합니다.
+// end::body[]
