@@ -1,0 +1,94 @@
+---
+title: "6장: Q-learning으로 그리드월드 풀기"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["reinforcement-learning", "q-learning", "off-policy", "gridworld", "numpy", "book"]
+categories: ["books"]
+description: "TD(0)의 갱신 규칙을 상태 가치 대신 행동 가치에 적용한 오프폴리시 Q-learning을 엡실론-그리디 탐험과 함께 구현해, 4장 동적 계획법이 구한 최적 가치와 실제로 수렴함을 확인하고 동점 행동 때문에 정책 표기가 완전히 일치하지는 않는 이유까지 짚는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-monte-carlo-and-td/[5장: 몬테카를로와 TD(0)] · 다음: link:../07-function-approximation/[7장: 표가 무너지는 지점]_
+
+'''
+
+== 이번엔 정책을 고정하지 않는다
+
+5장의 MC와 TD(0)는 둘 다 "정책을 고정해두고 그 정책의 가치를 추정"하는 문제(정책 평가)였습니다. 이 장의 **Q-learning**은 다릅니다 — 탐험하면서 동시에 더 나은 정책을 찾아나갑니다. 그리고 **오프폴리시(off-policy)** 방법입니다 — 실제로 행동을 고를 때는 탐험을 섞은 엡실론-그리디 정책을 쓰지만, 가치를 갱신할 때는 그 탐험 행동과 무관하게 "다음 상태에서 가장 좋은 행동을 했다면"이라는 가정으로 갱신합니다.
+
+[source,python]
+----
+import numpy as np
+from gridworld import N_STATES, N_ACTIONS, TERMINAL, GAMMA, step
+
+rng = np.random.default_rng(7)
+
+def q_learning(n_episodes=3000, alpha=0.2, epsilon=0.2):
+    Q = np.zeros((N_STATES, N_ACTIONS))
+    for ep in range(n_episodes):
+        s = rng.integers(0, N_STATES)
+        while TERMINAL[s]:
+            s = rng.integers(0, N_STATES)
+        for _ in range(100):
+            if rng.uniform() < epsilon:
+                a = rng.integers(0, N_ACTIONS)   # 탐험
+            else:
+                a = np.argmax(Q[s])               # 활용
+            s2, r, done = step(s, a)
+            target = r + (0.0 if done else GAMMA * np.max(Q[s2]))  # 오프폴리시: 다음 상태의 최댓값
+            Q[s, a] += alpha * (target - Q[s, a])
+            s = s2
+            if done:
+                break
+    return Q
+----
+
+`target` 계산에 `np.max(Q[s2])`를 쓴다는 게 핵심입니다 — 실제로 다음 상태에서 무슨 행동을 하게 될지(엡실론 때문에 무작위일 수도 있음)와 상관없이, 갱신은 항상 "다음 상태에서 최선의 행동을 골랐다면"을 가정합니다. 그래서 탐험을 아무리 섞어도 학습되는 `Q`는 탐험 정책이 아니라 **탐욕적(greedy) 정책**의 가치로 수렴합니다.
+
+== 실행 결과: 4장 DP 최적해와 비교
+
+[source,python]
+----
+Q = q_learning()
+V_q = Q.max(axis=1)
+pol_q = Q.argmax(axis=1)
+mask = ~TERMINAL
+print("Q-learning V 평균 절대오차 (vs DP):", np.abs(V_q - V_vi)[mask].mean())
+print("정책 일치율 (non-terminal):", np.mean(pol_q[mask] == pol_vi[mask]))
+----
+
+3000 에피소드, `epsilon=0.2`, `alpha=0.2`로 실제 실행하면:
+
+----
+Q-learning mean abs V error vs DP: 1.12e-14
+policy match with DP optimal (non-terminal): 0.643
+
+Q-learning V grid:
+ [[ 7.285  7.774  8.288  7.774]
+ [ 7.774  8.288  8.83   0.   ]
+ [ 8.288  8.83   9.4   10.   ]
+ [ 8.83   9.4   10.     0.   ]]
+
+DP V grid:
+ [[ 7.285  7.774  8.288  7.774]
+ [ 7.774  8.288  8.83   0.   ]
+ [ 8.288  8.83   9.4   10.   ]
+ [ 8.83   9.4   10.     0.   ]]
+
+error curve every 500 episodes: [0.0004, 0.0, 0.0, 0.0, 0.0, 0.0]
+----
+
+가치(`V_q = max_a Q(s,a)`)는 소수점 14자리까지 DP의 참값과 일치합니다 — 500 에피소드만 지나도 오차가 사실상 0으로 떨어집니다. 5장의 TD(0)와 비슷한 속도로, 모델을 전혀 모르는 채로도 정확한 최적 가치에 수렴한다는 걸 확인한 셈입니다.
+
+== 그런데 정책 일치율이 64.3%밖에 안 되는 이유
+
+가치는 완벽히 일치하는데 `argmax`로 뽑은 정책은 64.3%만 4장의 정책과 같습니다. 겉보기엔 모순 같지만, 실제로는 **동점(tie) 행동** 때문입니다 — 이 그리드월드에는 목표까지 가는 최단 경로가 여러 방향으로 동시에 존재하는 칸이 많습니다(예: 정중앙 근처 칸에서 "하"로 가나 "우"로 가나 최종 가치가 완전히 같은 경우). `Q(s, a)`가 여러 행동에 대해 정확히 같은 값을 가지면 `np.argmax`는 그중 배열 인덱스가 가장 작은 행동을 고르는데, 부동소수점 오차가 아주 미세하게 다른 방향으로 어느 쪽이 "가장 작은 인덱스"인지를 흔들 수 있습니다 — 4장 DP도, 이 장 Q-learning도 각자 다른 계산 경로를 거치므로 어느 쪽이 동점을 어떻게 깨는지가 달라질 수 있습니다. 즉, "정책이 다르다"는 게 "실제로 다른 성능을 낸다"는 뜻이 아니라 "가치가 같은 여러 최적 행동 중 다른 하나를 표기로 골랐다"는 뜻입니다 — 가치 자체가 소수점 14자리까지 일치한다는 사실이 이 해석을 뒷받침합니다.
+
+== 이 장에서 확인한 것
+
+* Q-learning은 전이 모델을 전혀 몰라도, 탐험(엡실론-그리디)을 섞은 경험만으로 4장 DP가 구한 최적 가치에 (500 에피소드 안쪽으로) 수렴합니다.
+* 오프폴리시 갱신(`max_a Q(s2,a)`) 덕분에, 실제 행동이 무작위로 튀어도 학습되는 값은 탐욕적 정책의 가치입니다.
+* "가치가 같다"와 "정책 표기가 같다"는 다른 질문입니다 — 여러 최적 행동이 동점일 때는 어느 쪽을 고르든 가치상 차이가 없습니다.
+
+여기까지 2부(4~6장)가 같은 그리드월드를 세 가지 방법(DP, MC/TD, Q-learning)으로 풀어 서로 교차 검증했습니다. 3부부터는 표(테이블)로 상태를 전부 나열할 수 없을 만큼 큰 문제로 넘어갑니다 — 다음 장에서는 표가 왜, 어떻게 무너지는지를 직접 보이고, 그 대안인 함수 근사(신경망)를 도입합니다.
+// end::body[]

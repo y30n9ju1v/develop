@@ -1,0 +1,151 @@
+---
+title: "12장: PPO로 정책 학습시키고, 검증하고, 한계를 밝히기"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["reinforcement-learning", "mario", "ppo", "conv", "numpy", "book"]
+categories: ["books"]
+description: "컨볼루션-풀링-matmul 구조의 정책망을 실제 NES 마리오 환경 위에서 PPO와 Actor-Critic으로 각각 학습시켜 실제 학습 곡선을 얻고, 가중치를 nand2npu 3권이 읽는 형식으로 내보낸 뒤 표본 효율성·재현성·하이퍼파라미터 민감도를 정직하게 정리하며 이 책을 마치는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-mario-environment/[11장: 마리오 환경 준비]_
+
+'''
+
+== 컨볼루션 정책망: nand2npu 3권과 같은 모양
+
+link:../../nand2npu-series/nand2npu-vision/07-mario-policy-inference.adoc[nand2npu 3권 7장]이 기대하는 정책망 구조는 "컨볼루션 → 풀링 → matmul"입니다. NumPy만으로 순전파와 역전파(im2col 기반 컨볼루션, 맥스풀링의 argmax 역추적)를 손으로 짭니다.
+
+[source,python]
+----
+import numpy as np
+
+def im2col(x, k, stride):
+    N, H, W = x.shape
+    out_h = (H - k) // stride + 1
+    out_w = (W - k) // stride + 1
+    cols = np.zeros((N, out_h, out_w, k*k), dtype=x.dtype)
+    for i in range(out_h):
+        for j in range(out_w):
+            patch = x[:, i*stride:i*stride+k, j*stride:j*stride+k]
+            cols[:, i, j, :] = patch.reshape(N, -1)
+    return cols, out_h, out_w
+
+class ConvPolicyNet:
+    """84x84 흑백 프레임 -> conv(8x8,stride4,16필터) -> ReLU -> maxpool(2x2) -> flatten -> FC -> FC(4 행동)"""
+    def __init__(self, n_filters=16, k=8, stride=4, hidden=64, n_actions=4, lr=0.001, seed=0):
+        r = np.random.default_rng(seed)
+        self.k, self.stride, self.n_filters = k, stride, n_filters
+        self.Wc = r.normal(0, np.sqrt(2/(k*k)), (k*k, n_filters))
+        self.bc = np.zeros(n_filters)
+        self.flat_dim = 10*10*n_filters   # 84 -conv(k8,s4)-> 20 -pool(2)-> 10
+        self.W1 = r.normal(0, np.sqrt(2/self.flat_dim), (self.flat_dim, hidden))
+        self.b1 = np.zeros(hidden)
+        self.W2 = r.normal(0, np.sqrt(2/hidden), (hidden, n_actions))
+        self.b2 = np.zeros(n_actions)
+        self.lr = lr
+    # forward(): im2col -> conv(matmul) -> ReLU -> maxpool -> flatten -> FC1(ReLU) -> FC2 -> softmax
+    # backward(): 역순으로 maxpool의 argmax 위치에만 그래디언트를 되돌리고, conv 그래디언트는
+    #             einsum('nok,nof->kf', cols, grad_conv)로 필터 가중치에 누적한다 (전체 구현은 저장소 코드 참고)
+----
+
+`84 → (컨볼루션, 8×8 커널, 스트라이드4) → 20 → (맥스풀링 2×2) → 10`이라 `10×10×16=1600`차원 특징이 완전연결층(FC, 곧 `matmul`)으로 이어집니다 — nand2npu 3권 7장이 말한 "컨볼루션 → 풀링 → matmul"과 정확히 같은 순서입니다. 순전파 sanity check로 배치 4개짜리 무작위 입력을 넣어 출력 확률이 각 행동마다 합이 1(소프트맥스)이 되는 것과, 역전파 한 번이 에러 없이 돌아가는 것을 확인했습니다.
+
+== 실제 환경에서 학습: PPO vs Actor-Critic
+
+11장의 `RealMarioEnv`와 10장의 PPO/Actor-Critic 갱신 규칙을 그대로 이 컨볼루션 정책망에 적용합니다. 한 에피소드는 최대 250스텝, 보상은 환경이 주는 기본 보상(오른쪽으로 나아간 거리에 비례, 죽으면 페널티)을 그대로 씁니다. `x_pos`(마리오가 스테이지에서 도달한 x좌표)도 함께 기록해 "얼마나 멀리 갔는지"를 따로 봅니다.
+
+[source,python]
+----
+returns, lengths, xpos, policy, value = ppo_train(n_episodes=40, seed=0)
+print("PPO 처음10 평균 리턴:", returns[:10].mean(), "마지막10 평균 리턴:", returns[-10:].mean())
+print("PPO 처음10 평균 x_pos:", xpos[:10].mean(), "마지막10 평균 x_pos:", xpos[-10:].mean())
+----
+
+실제로 실행하면(40 에피소드, 실제 NES 에뮬레이터, 총 소요시간 약 26초):
+
+----
+PPO first10 avg return: 70.6   last10 avg return: 1.9
+PPO first10 avg x_pos:  122.1  last10 avg x_pos:  40.3
+returns: [81, 31, 69, 175, 44, 23, 71, 111, 50, 51, 225, 183, 124, 29, 62,
+          6, 32, 20, 9, 5, 108, 18, -10, 135, -5, -10, 38, 1, 2, 0,
+          0, 8, -11, -8, 23, -10, 24, -9, 13, -11]
+----
+
+같은 조건에서 클리핑 없는 Actor-Critic(10장 방식)도 돌려봤습니다.
+
+----
+AC first10 avg return: 37.8   last10 avg return: -11.4
+AC returns (뒷부분 발췌): ..., -12, -12, -12, -12, -12, -12, -12, -12, -12, -12, -11
+----
+
+== 이 결과를 있는 그대로 해석하기
+
+두 결과 모두 "학습할수록 좋아진다"는 곡선이 아닙니다 — **정직하게 보고합니다.** PPO는 초반(에피소드 4, 11, 12번째)에 리턴 175, 225, 183까지 찍는 좋은 에피소드를 만들어내지만, 후반부로 갈수록 오히려 0 근처나 음수로 떨어지는 에피소드가 늘어납니다(마지막 10개 평균 1.9, `x_pos` 평균도 122.1에서 40.3으로 줄어 처음보다 짧게 나아가고 죽습니다). Actor-Critic은 더 극단적입니다 — 13번째 에피소드 이후로는 거의 매 에피소드 정확히 `-12` 근처의 리턴만 반복합니다. 이건 학습이 아니라 **붕괴**입니다 — 정책이 "제자리에서 거의 아무것도 안 하다가 곧바로 같은 방식으로 죽는" 단일한 나쁜 행동 패턴에 갇혀버린 것으로 보입니다(리턴이 거의 소수점까지 똑같이 반복되는 게 그 증거입니다).
+
+10장에서 카트폴로 관찰했던 패턴이 실제 마리오 환경에서도 재현됩니다 — 클리핑이 없는 Actor-Critic이 클리핑이 있는 PPO보다 더 빨리, 더 완전하게 붕괴합니다. 다만 10장과 달리 이번엔 **PPO도 결국 눈에 띄게 나빠집니다** — 클리핑이 "완전한 붕괴"는 어느 정도 늦췄지만(마지막까지 리턴이 완전히 고정되지는 않고 -11~24 사이를 오갑니다), "꾸준한 개선"까지 만들어내지는 못했습니다. 40 에피소드, 최대 250스텝짜리 학습으로는 마리오 첫 스테이지처럼 픽셀 관측 공간이 크고 보상이 희소한 문제를 안정적으로 풀기엔 턱없이 부족하다는 뜻으로 읽는 게 맞습니다 — 실제 발표된 마리오 RL 결과들은 보통 수백만~수천만 프레임(이 장의 학습량의 수만 배)을 씁니다.
+
+시드를 바꿔 20 에피소드씩 두 번 더 돌려본 결과도 이 불안정성을 뒷받침합니다.
+
+----
+seed=1: 처음5평균=-5.6  마지막5평균=-4.4
+seed=2: 처음5평균=21.0  마지막5평균=-3.6
+----
+
+세 시드(0, 1, 2) 모두 마지막 구간 평균이 초반보다 낮거나 거의 제자리입니다 — 이 학습 규모에서는 "안정적으로 개선된다"고 말할 근거가 없습니다.
+
+== 가중치를 nand2npu 3권 형식으로 내보내기
+
+학습이 불안정했더라도, **가중치를 nand2npu 3권 7장이 읽을 수 있는 형식으로 내보내는 파이프라인 자체**는 이 장에서 실제로 완성하고 검증합니다 — 이게 이 책이 그 책에 약속한 몫입니다.
+
+[source,python]
+----
+import struct
+
+def export_weights(policy, path):
+    """nand2npu 3권 7장의 export_weights.py와 같은 규칙(스케일 + int8 클램프)으로 내보낸다."""
+    params = {
+        "conv_W": policy.Wc, "conv_b": policy.bc,
+        "fc1_W": policy.W1, "fc1_b": policy.b1,
+        "fc2_W": policy.W2, "fc2_b": policy.b2,
+    }
+    with open(path, "wb") as f:
+        for name, arr in params.items():
+            scale = max(np.abs(arr).max(), 1e-8) / 127.0
+            q = np.clip(np.round(arr / scale), -128, 127).astype(np.int8)
+            f.write(struct.pack("<f", scale))     # 4바이트 float32 스케일
+            f.write(q.tobytes())                    # 이어서 int8 가중치 바이트
+    return params
+----
+
+이 규칙은 nand2npu 3권 7장의 `tools/export_weights.py`(`torch.clamp(torch.round(tensor/scale), -128, 127)`)와 정확히 같은 반올림·클램프 규칙입니다 — 두 책이 이 규칙에서 어긋나면 3권 7장의 `action_order_preserved` 오차 한계 전제가 깨진다는 걸 그 책 3절에서 이미 경고해뒀으므로, 여기서도 똑같이 지켰습니다.
+
+[source,python]
+----
+params = export_weights(policy, "mario_weights.bin")
+print("내보낸 파일 크기:", os.path.getsize("mario_weights.bin"), "바이트")
+n_params = sum(p.size for p in params.values())
+print("파라미터 개수:", n_params, "예상 바이트(4바이트 스케일 6개 + int8 파라미터):", n_params + 4*6)
+----
+
+실제로 실행하면:
+
+----
+내보낸 파일 크기: 103788 바이트
+파라미터 개수: 103764  예상 바이트: 103788
+----
+
+바이트 수가 정확히 일치합니다(`103764`개 파라미터 + 레이어 6개 × 4바이트 스케일 = `103788`) — 직렬화 형식이 어긋나지 않는다는 걸 파일 크기로 직접 검증한 것입니다. 이 `mario_weights.bin`을 nand2npu 3권 7장의 `sim/tb_mario_policy.cpp`가 NPU 메모리 맵에 로드하면, 이 책이 학습시킨(비록 불안정했더라도) 정책의 추론을 그 책의 검증된 하드웨어 파이프라인 위에서 그대로 재현할 수 있습니다.
+
+== 이 책이 검증한 것과 못한 것
+
+이 책 전체가 지켜온 "실제로 돌려서 확인한 것만 싣는다"는 원칙을, 마지막으로 이 학습 결과 자체에도 그대로 적용합니다.
+
+* **검증한 것**: 1부~2부의 알고리즘(정책 반복, 가치 반복, 몬테카를로, TD(0), Q-learning)은 4~6장에서 서로 다른 방법이 같은 최적해로 수렴한다는 걸 소수점 단위로 교차 검증했습니다. 3부의 DQN은 리플레이+타깃망이 있을 때와 없을 때 성능이 실제로 갈린다는 걸(179.6 vs 9.6~9.7) 확인했습니다. 9장의 베이스라인은 REINFORCE의 분산을 실측 616배 줄였습니다. 11장은 실제 NES 에뮬레이터가 이 환경에서 진짜로 동작한다는 걸 실측으로 확인했습니다. 이 장은 컨볼루션 정책망의 순전파·역전파가 정상 동작한다는 것과, 학습된(또는 학습되다 만) 가중치를 nand2npu 3권이 기대하는 정확한 바이트 형식으로 내보내는 파이프라인을 실제로 완성했습니다.
+* **검증하지 못한 것 — 표본 효율성**: 40 에피소드(최대 250스텝, 총 1만 스텝 안팎)로는 마리오 첫 스테이지를 클리어하기는커녕 꾸준한 개선조차 보여주지 못했습니다. 이 규모의 학습량으로 "정책이 실제로 게임을 잘하게 됐다"고 주장할 근거가 없습니다.
+* **검증하지 못한 것 — 재현성**: 세 시드(0, 1, 2) 모두 마지막 구간 성능이 초반보다 낮거나 제자리였습니다 — 이 하이퍼파라미터·학습량 조합이 안정적으로 좋은 정책을 만든다고 말할 수 없습니다.
+* **검증하지 못한 것 — 하이퍼파라미터 민감도**: 이 장은 학습률, 클리핑 폭(`ε=0.2`), 에폭 수 같은 하이퍼파라미터를 체계적으로 탐색하지 않았습니다. 10장의 카트폴 실험에서도 PPO가 예상과 다르게 Actor-Critic보다 못한 성능을 보였던 걸 감안하면, 이 장의 결과 역시 다른 하이퍼파라미터 조합에서는 달라질 여지가 큽니다.
+* **11장에서 이미 밝힌 한계**: 색 정보 제거(흑백 변환), 행동 4개로 축소(대시 불가), 프레임 스킵/스태킹 없음(속도 정보 부재)이라는 nand2npu 3권 인터페이스에 맞추기 위한 단순화가 이 장의 학습 난이도를 실제보다 더 어렵게 만들었을 가능성도 있습니다.
+
+이 책의 마지막 장이 "완벽하게 학습된 마리오 정책"으로 끝나지 않는다는 게 오히려 이 책의 방법론이 지켜낸 정직함입니다 — nand2npu 3권 서문이 그은 경계선("훈련은 통계적 최적화 과정이라 애초에 증명의 대상이 되기 어렵다")을 이 장이 몸소 보여준 셈입니다. 표 기반 방법(2부)은 정답을 알고 있는 문제에서 소수점까지 검증할 수 있었지만, 함수 근사와 픽셀 관측이 섞인 실제 문제(4부)는 "더 많이 돌리면 더 좋아질 것"이라는 합리적 기대는 있어도 이 책이 준 학습량 안에서는 그 기대를 증명해 보이지 못했습니다. 이 책이 nand2npu 3권에게 실제로 넘겨준 것은 "완성된 챔피언 정책"이 아니라, **정확한 인터페이스로 학습하고 내보내는 파이프라인 전체**입니다 — 더 많은 스텝, 더 나은 하이퍼파라미터, 더 정교한 알고리즘(GAE, 엔트로피 보너스, 병렬 롤아웃)을 이 파이프라인 위에 얹는 건 이 책이 남긴 다음 과제입니다.
+// end::body[]

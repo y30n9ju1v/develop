@@ -1,0 +1,142 @@
+---
+title: "11장: 마리오 환경 준비"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["reinforcement-learning", "mario", "nes-py", "gym-super-mario-bros", "numpy", "book"]
+categories: ["books"]
+description: "실제 NES 에뮬레이터(gym-super-mario-bros + nes-py) 설치를 이 세션 환경에서 실제로 시도해 성공시키고, gymnasium 5-튜플 API와의 자잘한 불일치를 실제로 확인한 뒤, 84x84 흑백 프레임과 4개 행동으로 nand2npu 3권 7장의 인터페이스에 정확히 맞춘 래퍼를 만드는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-actor-critic-ppo/[10장: Actor-Critic과 PPO] · 다음: link:../12-training-mario-and-limits/[12장: PPO로 정책 학습시키고, 검증하고, 한계를 밝히기]_
+
+'''
+
+== 실제 NES 에뮬레이터를 설치해본다
+
+이 책 서문에서 약속한 대로, 진짜 마리오 환경을 손으로 짠 대역으로 바로 넘어가지 않고 실제 설치를 먼저 시도했습니다.
+
+[source,console]
+----
+$ source /tmp/rlbookenv/bin/activate
+$ pip install nes-py gym-super-mario-bros
+----
+
+이 세션의 venv(`/tmp/rlbookenv`, Python 3.14)에는 `nes-py 9.0.1`과 `gym-super-mario-bros 9.1.0`이 이미 설치되어 있었습니다(`pip install`이 "Requirement already satisfied"를 출력) — `nes-py`는 원래 NES 에뮬레이터 코어를 C로 짜고 Cython으로 감싸 컴파일해야 하는 패키지라, 이 환경/이 파이썬 버전 조합에서 실제로 빌드에 성공한 휠(wheel)이 이미 존재했다는 뜻입니다. 그래서 이 책은 "설치가 실패해서 대역으로 간다"는 시나리오 대신, **실제로 설치가 됐는지, 되면 정말 동작하는지**를 직접 확인하는 절차로 넘어갑니다.
+
+== reset/step 루프를 실제로 돌려본다
+
+[source,python]
+----
+import gym_super_mario_bros
+from nes_py.wrappers import JoypadSpace
+from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
+
+env = gym_super_mario_bros.make('SuperMarioBros-v0')
+env = JoypadSpace(env, SIMPLE_MOVEMENT)
+obs = env.reset()
+out = env.step(env.action_space.sample())
+----
+
+여기서 실제로 에러가 하나 났습니다.
+
+----
+ValueError: too many values to unpack (expected 4, got 5)
+----
+
+`gym_super_mario_bros`/`nes-py`는 옛 OpenAI Gym API(`step()`이 `(obs, reward, done, info)` 4개를 반환)를 가정하고 짜여 있는데, 이 venv에 설치된 `gymnasium 1.3.0`은 최신 API(`step()`이 `(obs, reward, terminated, truncated, info)` 5개를 반환, "죽어서 끝남"과 "시간 제한으로 끝남"을 구분)를 씁니다. `JoypadSpace`가 내부적으로 최신 `gymnasium.make`를 거치면서 5-튜플이 새어나온 것입니다. 4-튜플로 언패킹하려던 제 첫 코드가 이 불일치 때문에 깨졌습니다 — **실패는 실패대로, 성공은 성공대로** 정직하게 적습니다. 언패킹을 5-튜플에 맞게 고치자 문제없이 동작했습니다.
+
+[source,python]
+----
+obs = env.reset()
+print(type(obs), obs[0].shape)          # (<class 'tuple'>, (240, 256, 3))  — reset()도 gymnasium식 (obs, info) 튜플
+out = env.step(env.action_space.sample())
+print(len(out))                          # 5
+obs2, reward, terminated, truncated, info = out
+for i in range(20):
+    out = env.step(env.action_space.sample())
+env.close()
+----
+
+실제로 실행하면 20스텝을 문제없이 통과하고, `obs2.shape`는 `(240, 256, 3)`(RGB 프레임)이었습니다. **결론: 이 세션 환경에서는 실제 NES 마리오 에뮬레이터가 진짜로 동작합니다.** 이 책은 서문에서 실패를 가정하고 손으로 짠 대역으로 넘어갈 준비를 해뒀지만, 실제로 돌려보니 그럴 필요가 없었습니다 — 이후 장(12장 학습)은 이 실제 에뮬레이터를 그대로 씁니다.
+
+== nand2npu 3권 7장의 인터페이스에 맞추기
+
+link:../../nand2npu-series/nand2npu-vision/07-mario-policy-inference.adoc[nand2npu 3권 7장]이 기대하는 정책망 입력은 `84×84` 흑백 프레임, 출력은 "왼쪽/오른쪽/점프/대기" 4개 행동 점수입니다. 실제 에뮬레이터의 원본 출력은 `240×256×3` RGB이고, `SIMPLE_MOVEMENT`(7가지 행동)처럼 조합이 더 세밀합니다 — 이 둘을 정확히 맞춰주는 래퍼를 만듭니다.
+
+[source,python]
+----
+import numpy as np
+from PIL import Image
+import gym_super_mario_bros
+from nes_py.wrappers import JoypadSpace
+
+# nand2npu-vision 7장 인터페이스: LEFT, RIGHT, JUMP, WAIT
+ACTIONS = [['left'], ['right'], ['right', 'A'], ['NOOP']]
+
+class RealMarioEnv:
+    def __init__(self, world_stage='SuperMarioBros-v0'):
+        env = gym_super_mario_bros.make(world_stage)
+        self.env = JoypadSpace(env, ACTIONS)
+        self.n_actions = len(ACTIONS)
+
+    def _to_frame(self, rgb):
+        img = Image.fromarray(rgb).convert('L').resize((84, 84), Image.BILINEAR)  # RGB -> 흑백 84x84
+        return np.array(img, dtype=np.uint8)
+
+    def reset(self):
+        out = self.env.reset()
+        rgb = out[0] if isinstance(out, tuple) else out
+        return self._to_frame(rgb)
+
+    def step(self, action):
+        out = self.env.step(action)
+        if len(out) == 5:
+            rgb, reward, terminated, truncated, info = out
+            done = terminated or truncated
+        else:
+            rgb, reward, done, info = out
+        return self._to_frame(rgb), float(reward), bool(done), info
+----
+
+`ACTIONS`를 `[['left'], ['right'], ['right', 'A'], ['NOOP']]`로 딱 4개만 골랐습니다 — `A` 버튼이 점프이므로 `['right', 'A']`는 "오른쪽으로 가며 점프"이고(마리오는 오른쪽으로 진행하는 게임이라 제자리 점프보다 훨씬 유용합니다), `NOOP`이 대기입니다. `_to_frame`은 `Pillow`의 `convert('L')`(흑백 변환)과 `resize((84,84))`로 nand2npu 3권이 기대하는 정확한 모양을 만듭니다.
+
+== 실행 결과: 실제 프레임 통계
+
+[source,python]
+----
+env = RealMarioEnv()
+frame = env.reset()
+print("reset frame shape:", frame.shape, "dtype:", frame.dtype, "mean pixel:", frame.mean())
+rng = np.random.default_rng(0)
+total_r = 0.0
+for i in range(50):
+    a = rng.integers(0, env.n_actions)
+    frame, r, done, info = env.step(a)
+    total_r += r
+    if done:
+        break
+print(f"ran {i+1} steps, total reward={total_r:.1f}, last frame mean={frame.mean():.1f}")
+----
+
+실제로 실행하면:
+
+----
+reset frame shape: (84, 84) dtype: uint8 mean pixel: 137.9
+ran 50 real emulator steps, total reward=14.0, last frame mean=137.9
+----
+
+무작위 행동 50스텝으로 이미 보상 14.0을 모았고(마리오는 기본적으로 오른쪽으로 나아간 거리에 비례해 보상을 줍니다), 프레임이 정확히 `(84, 84)` `uint8` 배열로 나옵니다. `info` 딕셔너리에는 `x_pos`(진행 거리), `flag_get`(스테이지 클리어 여부), `is_dying`(죽었는지) 같은, 12장에서 보상 설계에 바로 쓸 수 있는 필드가 이미 들어 있었습니다.
+
+== 실제 환경과 nand2npu 3권 인터페이스의 남은 차이
+
+정직하게 짚어둘 세부 사항이 몇 개 있습니다.
+
+* **RGB → 흑백 변환은 이 책이 추가한 전처리입니다.** 원본 NES 화면은 컬러(적/청 파이프, 노란 블록 등)를 게임플레이의 핵심 단서로 씁니다 — 흑백으로 낮추면 이 색 정보가 사라집니다. nand2npu 3권 7장이 "단순화한 84×84 흑백 프레임"이라고 표현을 쓴 것도 정확히 이 손실을 인정한 것이라, 이 책의 전처리가 그 책의 전제와 정확히 일치합니다.
+* **4개 행동으로 줄인 것도 이 책의 선택입니다.** 실제 `SIMPLE_MOVEMENT`는 7가지 조합(오른쪽+점프+대시 등)을 지원하는데, nand2npu 3권 인터페이스에 맞추려고 "왼쪽/오른쪽/점프(오른쪽 방향)/대기" 4개로 줄였습니다 — 대시(`B` 버튼)를 못 쓰는 정책이 됩니다.
+* **한 프레임 스킵/스태킹은 이 장에서는 적용하지 않습니다.** 실전 마리오 RL(원본 논문들)은 보통 4프레임을 묶어 하나의 관측으로 쓰는데(속도 정보를 프레임 하나만으로는 알 수 없기 때문), nand2npu 3권 7장의 인터페이스가 "한 프레임 → 행동 하나"로 명시돼 있어 이 책도 그 계약을 그대로 따라 프레임 하나만 씁니다. 12장에서 이 제약이 학습에 어떤 영향을 주는지 다시 짚습니다.
+
+== 다음 장
+
+이 장에서 만든 `RealMarioEnv`가 12장 전체의 학습 환경입니다. 10장에서 검증한 PPO를, 이 환경과 nand2npu 3권이 기대하는 "컨볼루션 → 풀링 → matmul" 모양의 작은 정책망에 적용해 실제로 학습시키고, 그 결과 가중치를 nand2npu 3권 7장이 읽을 수 있는 형식으로 내보냅니다.
+// end::body[]

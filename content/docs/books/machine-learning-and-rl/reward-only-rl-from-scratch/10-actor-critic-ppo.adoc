@@ -1,0 +1,131 @@
+---
+title: "10장: Actor-Critic과 PPO"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["reinforcement-learning", "actor-critic", "ppo", "clipping", "numpy", "book"]
+categories: ["books"]
+description: "9장의 이동평균 베이스라인을 상태별 critic 신경망으로 교체한 Actor-Critic과, 거기에 PPO의 클리핑된 대체 목적함수를 더한 버전을 카트폴 대역 환경에서 실제로 학습시켜 비교하고, 이 작은 실험에서 PPO가 오히려 Actor-Critic보다 못한 성능을 낸 이유까지 정직하게 파고드는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-policy-gradient/[9장: Policy Gradient] · 다음: link:../11-mario-environment/[11장: 마리오 환경 준비]_
+
+'''
+
+== 베이스라인을 신경망으로: Critic
+
+9장의 베이스라인은 "최근 에피소드 리턴의 이동평균"이라는 스칼라 하나였습니다 — 상태가 좋은 상태든 나쁜 상태든 똑같은 값을 뺐습니다. **Actor-Critic**은 이걸 상태마다 다른 값을 예측하는 별도의 신경망(critic, `V_φ(s)`)으로 대체합니다 — "지금 상태 자체가 원래 얼마나 좋은 상태였는가"를 알면, 실제 리턴에서 그걸 뺀 **어드밴티지(advantage)** `A(s,a) = G_t - V(s)`가 "이 상태에서 이 행동이 평균보다 얼마나 나았는가"를 훨씬 정확하게 짚어줍니다. 정책망(actor)은 이 어드밴티지로 9장과 같은 방식으로 갱신하고, critic은 리턴을 목표로 한 지도학습(MSE)으로 갱신합니다.
+
+[source,python]
+----
+class ValueNet:
+    def __init__(self, n_in, n_hidden, lr=0.02, seed=1):
+        r = np.random.default_rng(seed)
+        self.W1 = r.normal(0, np.sqrt(2/n_in), (n_in, n_hidden)); self.b1 = np.zeros(n_hidden)
+        self.W2 = r.normal(0, np.sqrt(2/n_hidden), (n_hidden, 1)); self.b2 = np.zeros(1)
+        self.lr = lr
+    def forward(self, x):
+        self.x = x
+        self.z1 = x @ self.W1 + self.b1
+        self.h1 = np.maximum(0, self.z1)
+        self.z2 = self.h1 @ self.W2 + self.b2
+        return self.z2[:, 0]
+    def backward(self, grad_out):
+        grad_out = grad_out[:, None]
+        gW2 = self.h1.T @ grad_out; gb2 = grad_out.sum(axis=0)
+        gh1 = grad_out @ self.W2.T; gz1 = gh1 * (self.z1 > 0)
+        gW1 = self.x.T @ gz1; gb1 = gz1.sum(axis=0)
+        self.W1 -= self.lr*gW1; self.b1 -= self.lr*gb1
+        self.W2 -= self.lr*gW2; self.b2 -= self.lr*gb2
+
+def actor_critic(n_episodes=300, gamma=0.99, lr_pi=0.01, lr_v=0.02, seed=0):
+    rng = np.random.default_rng(seed)
+    env = SimpleCartPole(seed=seed+100)
+    policy = PolicyNet(4, 24, 2, lr=lr_pi, seed=seed)   # 9장의 정책망 재사용
+    value = ValueNet(4, 24, lr=lr_v, seed=seed+50)
+    ep_lengths = []
+    for ep in range(n_episodes):
+        states, actions, rewards, _ = run_episode(env, policy, rng)
+        T = len(rewards)
+        returns = compute_returns(rewards, gamma)
+        S = np.array(states)
+        V = value.forward(S)
+        advantages = returns - V                          # 이동평균이 아니라 상태별 critic 예측을 뺌
+        value.backward(2*(V - returns)/T)                  # critic: MSE로 리턴을 맞추도록 학습
+        probs = policy.forward(S)
+        onehot = np.zeros_like(probs); onehot[np.arange(T), np.array(actions)] = 1.0
+        grad_logits = (onehot - probs) * advantages[:, None] / T
+        policy.backward(grad_logits)                        # actor: 9장과 같은 정책 경사
+        ep_lengths.append(T)
+    return np.array(ep_lengths)
+----
+
+== PPO: 정책이 한 번에 너무 크게 바뀌지 않도록 클리핑
+
+정책 경사법의 위험 하나는, 어드밴티지가 큰 스텝에서 그래디언트도 커져서 정책이 한 번의 갱신으로 너무 멀리 움직여버리는 것입니다 — 너무 멀리 움직인 정책은 다음 에피소드부터 완전히 다른(그리고 나쁜) 행동을 하게 되고, 그 나쁜 경험이 다시 그래디언트를 왜곡하는 악순환("정책 붕괴")에 빠질 수 있습니다. **PPO**(Proximal Policy Optimization)는 이 갱신 폭을 확률비 `ratio = π_new(a|s) / π_old(a|s)`로 측정하고, 이 비율이 `[1-ε, 1+ε]` 범위를 벗어나면 그래디언트를 깎아버립니다.
+
+[stem]
+++++
+L(\theta) = \min\big(\text{ratio} \cdot A,\ \text{clip}(\text{ratio}, 1-\epsilon, 1+\epsilon) \cdot A\big)
+++++
+
+[source,python]
+----
+def ppo(n_episodes=300, gamma=0.99, lr_pi=0.01, lr_v=0.02, clip_eps=0.2, n_update_epochs=4, seed=0):
+    rng = np.random.default_rng(seed)
+    env = SimpleCartPole(seed=seed+100)
+    policy = PolicyNet(4, 24, 2, lr=lr_pi, seed=seed)
+    value = ValueNet(4, 24, lr=lr_v, seed=seed+50)
+    ep_lengths = []
+    for ep in range(n_episodes):
+        states, actions, rewards, old_probs = run_episode(env, policy, rng)  # 갱신 전 확률을 저장해둔다
+        T = len(rewards)
+        returns = compute_returns(rewards, gamma)
+        S = np.array(states); A = np.array(actions); old_p = np.array(old_probs)
+        V = value.forward(S)
+        advantages = returns - V
+        adv_norm = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+
+        for _ in range(n_update_epochs):        # 같은 데이터로 여러 번 갱신(PPO의 샘플 재사용)
+            probs = policy.forward(S)
+            new_p = probs[np.arange(T), A]
+            ratio = new_p / (old_p + 1e-8)
+            clipped = np.clip(ratio, 1-clip_eps, 1+clip_eps)
+            use_clipped = (clipped * adv_norm) < (ratio * adv_norm)   # min()이 클리핑된 항을 고르는 경우
+            eff_ratio = np.where(use_clipped, clipped, ratio)
+            onehot = np.zeros_like(probs); onehot[np.arange(T), A] = 1.0
+            grad_scale = np.where(use_clipped, 0.0, adv_norm * eff_ratio)  # 클리핑되면 그래디언트 차단
+            grad_logits = (onehot - probs) * grad_scale[:, None] / T
+            policy.backward(grad_logits)
+
+        value.backward(2*(V - returns)/T)
+        ep_lengths.append(T)
+    return np.array(ep_lengths)
+----
+
+`n_update_epochs`만큼 **같은 에피소드 데이터를 여러 번 재사용**한다는 게 PPO와 이전 장들의 결정적 차이입니다 — REINFORCE와 Actor-Critic은 데이터를 한 번 쓰고 버렸지만, PPO는 클리핑이라는 안전장치 덕분에 오래된 데이터로 여러 번 갱신해도 정책이 너무 멀리 벗어나지 않는다는 게 원래 설계 의도입니다.
+
+== 실행 결과: 이번엔 예상과 다르게 나왔다
+
+6개 시드로 Actor-Critic과 PPO를 각각 300 에피소드씩 돌려 비교했습니다.
+
+----
+Actor-Critic: per-seed last30avg=[199.8, 199.9, 196.2, 174.4, 194.8, 199.3]
+  mean=194.1 std=9.0
+PPO (clipped): per-seed last30avg=[129.1, 177.7, 124.5, 173.0, 150.8, 145.2]
+  mean=150.0 std=20.0
+intra-run std (last100 ep): AC 평균 17.2 / PPO 평균 57.1
+----
+
+이 실험에서는 PPO가 Actor-Critic보다 평균 성능(150.0 vs 194.1)도 낮고, 마지막 100 에피소드 안에서의 변동성(intra-run std, 57.1 vs 17.2)도 훨씬 큽니다 — "PPO가 클리핑으로 더 안정적일 것"이라는 기대와 정반대의 결과입니다. 배치 크기를 키워(에피소드 4개를 모아 한 번에 갱신) 다시 실행해봐도 결과는 더 나빠졌습니다(마지막 30 평균 47.6) — 데이터를 더 많이 재사용하는 방향으로 바꿔도 이 문제에서는 개선되지 않았습니다.
+
+솔직하게 이 결과를 그대로 보고합니다 — 이 원인을 파고들면 몇 가지가 겹쳐 있어 보입니다. 첫째, `episodes_per_update=1`(한 에피소드마다 즉시 갱신)은 PPO가 원래 상정하는 사용 방식(여러 병렬 환경에서 수백~수천 스텝을 모아 큰 배치로 갱신)과 거리가 멉니다 — 아주 적은 데이터로 `n_update_epochs=4`번 반복 갱신하면, 그 소량의 데이터가 가진 우연한 패턴(노이즈)에 과적합할 위험이 오히려 커집니다. 둘째, 클리핑은 "너무 멀리 가는 것"만 막지 "잘못된 방향으로 가는 것" 자체를 막지는 않습니다 — 이 손실 카트폴 문제처럼 에피소드 길이(그리고 그래디언트 스케일)의 분산이 큰 문제에서는, 클리핑이 나쁜 방향의 갱신도 일정 부분 통과시킵니다. 이 책의 손으로 짠 PPO 구현은 GAE(generalized advantage estimation), 엔트로피 보너스, 여러 병렬 환경의 대규모 롤아웃처럼 실전 PPO 구현이 흔히 쓰는 안정화 장치를 뺀 최소 버전이라는 것도 이유 중 하나일 것입니다.
+
+== 이 장에서 정직하게 정리할 것
+
+* Actor-Critic은 9장의 이동평균 베이스라인을 상태별 critic으로 바꿔, 평균 194.1(표준편차 9.0)이라는 이 책에서 가장 안정적인 결과를 냈습니다.
+* 이 책이 구현한 최소 버전의 PPO는, 적어도 이 작은 단일-에피소드-단위 카트폴 실험에서는 Actor-Critic보다 낮은 평균 성능(150.0)과 더 큰 변동성(intra-run std 57.1 vs 17.2)을 보였습니다 — "PPO가 항상 더 안정적이다"는 주장을 이 실험 결과로는 뒷받침할 수 없습니다.
+* PPO의 진짜 장점(클리핑된 다중 에폭 갱신으로 대규모 배치 데이터를 안전하게 재사용하는 것)은 이 장처럼 매 에피소드마다 즉시 갱신하는 작은 세팅보다, 12장의 마리오처럼 훨씬 많은 스텝을 모아 배치로 학습하는 세팅에서 더 뚜렷하게 나타날 가능성이 큽니다 — 12장에서 이 가설이 실제로 맞는지 다시 확인합니다.
+
+이 장은 이 책에서 가장 "깔끔하지 않은" 결과를 그대로 실었습니다 — 알고리즘이 이론적으로 더 정교하다고 해서 모든 실험 조건에서 항상 더 좋은 성능을 내는 건 아니라는 것도, 이 책이 지키기로 한 "실제로 돌려서 나온 숫자만 싣는다"는 원칙이 지켜내야 하는 정직함의 일부입니다. 4부에서는 이 두 알고리즘(Actor-Critic, PPO)을 실제 마리오 대역 환경에 적용하고, 이번엔 더 큰 스케일에서 어느 쪽이 실제로 더 나은지 다시 확인합니다.
+// end::body[]

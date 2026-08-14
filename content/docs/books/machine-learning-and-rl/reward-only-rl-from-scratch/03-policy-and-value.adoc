@@ -1,0 +1,142 @@
+---
+title: "3장: 정책과 가치"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["reinforcement-learning", "policy", "value-function", "numpy", "book"]
+categories: ["books"]
+description: "행동 선택 규칙인 정책을 도입하고 상태 가치·행동 가치·최적 정책을 정의한 뒤, 두 상태에 두 행동이 있는 작은 MDP에서 서로 다른 정책의 가치를 비교하고 실제로 더 나은 정책을 찾아내는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-mdp-and-bellman/[2장: MDP로 문제 정식화하기] · 다음: link:../04-dynamic-programming/[4장: 정책 반복과 가치 반복]_
+
+'''
+
+== 정책: 상태에서 행동으로 가는 규칙
+
+2장은 행동이 하나뿐인 문제(마르코프 보상 과정)만 다뤘습니다. 이제 각 상태에서 **어떤 행동을 고를지**가 선택지로 들어옵니다. 이 선택 규칙을 **정책(policy)** `π`라고 부릅니다 — 가장 단순한 형태는 상태마다 행동을 하나씩 정해주는 결정적 정책 `π(s) = a`이고, 일반적으로는 상태마다 행동에 대한 확률분포 `π(a|s)`로도 쓸 수 있습니다. 이 책은 당분간 결정적 정책으로 시작합니다.
+
+== 상태 가치와 행동 가치
+
+정책이 정해지면, 2장의 `V(s)`가 그 정책을 따를 때의 기대 누적 보상으로 다시 정의됩니다 — **정책 `π`의 상태 가치**입니다.
+
+[stem]
+++++
+V^\pi(s) = R(s, \pi(s)) + \gamma \sum_{s'} P(s'|s,\pi(s)) V^\pi(s')
+++++
+
+여기에 하나 더, **행동 가치(action value)** `Q(s,a)`를 정의합니다 — "상태 `s`에서 (지금 정책과 무관하게) 행동 `a`를 하고, 그 다음부터는 정책 `π`를 따를 때"의 기대 누적 보상입니다.
+
+[stem]
+++++
+Q^\pi(s,a) = R(s,a) + \gamma \sum_{s'} P(s'|s,a) V^\pi(s')
+++++
+
+`V`는 "정책을 따랐을 때 이 상태가 얼마나 좋은가"이고, `Q`는 "이 상태에서 이 행동을 했을 때 얼마나 좋은가"라는 한 단계 더 세밀한 질문입니다. `Q`가 중요한 이유는, 지금 정책보다 더 나은 행동이 있는지를 `Q`만 보고 바로 판단할 수 있기 때문입니다 — 이게 4장 정책 반복의 핵심 도구가 됩니다.
+
+== 두 정책을 실제로 비교하기
+
+상태 3개(0, 1, 2 — 2는 흡수 종료 상태), 행동 2개("신중하게"=0, "위험하게"=1)인 작은 MDP를 만듭니다. 위험한 행동은 보상이 더 크지만 종료 상태로 빨려 들어갈 확률도 더 높습니다.
+
+[source,python]
+----
+import numpy as np
+
+n_states, n_actions = 3, 2
+P = np.zeros((n_states, n_actions, n_states))
+R = np.zeros((n_states, n_actions))
+
+P[0,0] = [0.8, 0.2, 0.0]; R[0,0] = 0.0   # 상태0, 신중: 대부분 제자리
+P[0,1] = [0.0, 0.5, 0.5]; R[0,1] = 1.0   # 상태0, 위험: 보상 1, 종료 확률 0.5
+P[1,0] = [0.0, 0.7, 0.3]; R[1,0] = 1.0
+P[1,1] = [0.4, 0.0, 0.6]; R[1,1] = 2.0
+P[2,0] = [0.0, 0.0, 1.0]; R[2,0] = 0.0   # 상태2: 흡수
+P[2,1] = [0.0, 0.0, 1.0]; R[2,1] = 0.0
+
+gamma = 0.9
+
+def policy_evaluation(policy):
+    Pp = np.array([P[s, policy[s]] for s in range(n_states)])
+    Rp = np.array([R[s, policy[s]] for s in range(n_states)])
+    return np.linalg.solve(np.eye(n_states) - gamma * Pp, Rp)  # 2장과 같은 닫힌 해
+----
+
+"항상 신중하게" 정책과 "항상 위험하게"(단, 종료 상태에서는 행동이 의미 없으므로 0) 정책의 가치를 비교합니다.
+
+[source,python]
+----
+policy_careful = np.array([0, 0, 0])
+policy_risky   = np.array([1, 1, 0])
+V_careful = policy_evaluation(policy_careful)
+V_risky   = policy_evaluation(policy_risky)
+print("V(신중 정책):", V_careful)
+print("V(위험 정책):", V_risky)
+----
+
+실행 결과:
+
+----
+V(careful policy): [1.73745174 2.7027027  0.        ]
+V(risky policy): [2.2673031  2.81622912 0.        ]
+----
+
+상태 0, 1 양쪽 모두에서 위험 정책의 가치(2.267, 2.816)가 신중 정책의 가치(1.737, 2.703)보다 높습니다 — 종료될 위험을 감수하더라도 큰 보상을 자주 챙기는 쪽이 장기적으로 더 낫다는 뜻입니다. 이게 "정책마다 가치가 다르다"는 걸 숫자로 확인한 것입니다.
+
+== 어느 쪽이 최적인가: Q로 판단하기
+
+신중 정책의 가치 `V^{careful}`을 고정해두고, 각 상태에서 두 행동의 `Q`값을 비교하면 "지금 정책을 유지할지, 다른 행동으로 바꿀지"를 바로 판단할 수 있습니다.
+
+[source,python]
+----
+def action_value(V, s, a):
+    return R[s,a] + gamma * np.dot(P[s,a], V)
+
+for s in range(n_states):
+    qs = [action_value(V_careful, s, a) for a in range(n_actions)]
+    print(f"state {s}: Q(s,신중)={qs[0]:.3f} Q(s,위험)={qs[1]:.3f}")
+----
+
+----
+state 0: Q(s,careful)=1.737 Q(s,risky)=2.216
+state 1: Q(s,careful)=2.703 Q(s,risky)=2.625
+state 2: Q(s,careful)=0.000 Q(s,risky)=0.000
+----
+
+상태 0에서는 `Q(위험)=2.216 > Q(신중)=1.737`이라 위험한 행동으로 바꾸는 게 낫지만, 상태 1에서는 `Q(신중)=2.703 > Q(위험)=2.625`라 오히려 신중한 행동이 (`V^{careful}` 기준으로는) 더 낫다고 나옵니다 — 이 모순은 `V_careful` 자체가 "항상 신중하게"라는 낡은 정책의 가치라서 생기는 것으로, 상태를 하나씩 그 순간 더 좋아 보이는 행동으로 바꿔나가면 결국 자기모순 없는 정책에 도달할 것이라는 게 다음 절의 관찰입니다.
+
+== 최적 정책 찾기 (4장 예고)
+
+"각 상태에서 `Q`가 더 높은 행동으로 정책을 바꾸고, 다시 평가하고, 또 바꾸는" 과정을 정책이 더 이상 바뀌지 않을 때까지 반복하면 무슨 일이 일어나는지 미리 확인해봅니다.
+
+[source,python]
+----
+policy = np.zeros(n_states, dtype=int)
+for it in range(50):
+    V = policy_evaluation(policy)
+    new_policy = np.array([
+        np.argmax([action_value(V, s, a) for a in range(n_actions)])
+        for s in range(n_states)
+    ])
+    if np.all(new_policy == policy):
+        break
+    policy = new_policy
+print("최적 정책:", policy, "수렴까지", it, "번 반복")
+print("최적 V:", policy_evaluation(policy))
+----
+
+----
+optimal policy: [1 1 0] after 2 iterations
+optimal V: [2.2673031  2.81622912 0.        ]
+----
+
+단 2번 반복 만에 정책이 `[1, 1, 0]`(상태 0은 위험, 상태 1도 위험, 종료 상태는 의미 없음)로 고정됐고, 이때의 가치가 정확히 "항상 위험하게" 정책의 가치(`V_risky`)와 일치합니다 — 이 작은 문제에서는 "항상 위험하게"가 곧 최적 정책이었던 셈입니다. 이렇게 "평가 → 개선"을 번갈아 반복해서 최적 정책에 수렴하는 절차가 바로 **정책 반복(policy iteration)**이고, 다음 장에서 이걸 훨씬 큰 그리드월드 위에 정식으로 구현합니다.
+
+== 이 장에서 정리한 어휘
+
+* **정책 `π`**: 상태에서 행동으로 가는 규칙.
+* **상태 가치 `V^π(s)`**: 정책 `π`를 따를 때 이 상태의 기대 누적 보상.
+* **행동 가치 `Q^π(s,a)`**: 이 상태에서 이 행동을 하고 그 다음부터 `π`를 따를 때의 기대 누적 보상.
+* **최적 정책 `π*`**: 모든 상태에서 다른 어떤 정책보다도 가치가 낮지 않은 정책. `Q`를 보고 매 상태에서 더 나은 행동으로 바꾸는 것을 반복하면 도달할 수 있다는 것을 이 장의 마지막 실험으로 직접 확인했습니다.
+
+다음 장부터는 2부입니다 — 이 어휘들을 훨씬 큰 그리드월드 위에서 정식화된 알고리즘(정책 반복, 가치 반복, 몬테카를로, TD(0), Q-learning)으로 구현하고, 서로 다른 방법으로 얻은 답이 실제로 일치하는지 교차 검증합니다.
+// end::body[]

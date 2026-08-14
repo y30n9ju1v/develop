@@ -1,0 +1,131 @@
+---
+title: "7장: 표가 무너지는 지점"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["reinforcement-learning", "function-approximation", "mlp", "deadly-triad", "numpy", "book"]
+categories: ["books"]
+description: "16개 상태를 넘어서면 표를 다 나열할 수 없다는 문제를 짚고 손으로 짠 NumPy MLP로 함수 근사를 도입한 뒤, 함수 근사·부트스트래핑·오프폴리시가 겹치는 deadly triad 조건에서 TD 가중치가 실제로 발산함을 작은 반례로 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-q-learning/[6장: Q-learning으로 그리드월드 풀기] · 다음: link:../08-dqn/[8장: DQN]_
+
+'''
+
+== 표가 무너지는 이유
+
+2부의 그리드월드는 상태가 16개뿐이라 `Q(s,a)`를 크기 `16×4`짜리 배열 하나로 정확히 표현할 수 있었습니다. 그런데 이 책의 최종 목표인 마리오 대역 환경은 `84×84` 흑백 프레임을 상태로 씁니다 — 픽셀 하나가 256가지 값을 가질 수 있다면 가능한 상태 수는 `256^(84*84)`, 우주에 있는 원자 수보다 압도적으로 큰 숫자입니다. 이런 문제에는 상태마다 값을 하나씩 저장하는 표 자체가 애초에 존재할 수 없습니다.
+
+해법은 표 대신 **함수**를 씁니다 — 상태를 입력받아 가치(또는 행동 가치)를 출력하는 함수 `V_θ(s)`를 파라미터 `θ`로 근사하고, 한 상태에서 겪은 경험이 그 상태뿐 아니라 **비슷한** 상태들의 예측값도 함께 바꾸도록 합니다(일반화). 이 장은 그 함수로 신경망(다층 퍼셉트론, MLP)을 손으로 구현하고, 함수 근사가 표에는 없던 새로운 불안정성을 만들어낸다는 것도 함께 보입니다.
+
+== 손으로 짠 MLP: 순전파와 역전파
+
+프레임워크 없이 2층 MLP(은닉층 ReLU, 출력층 선형)를 NumPy 행렬 연산만으로 구현합니다. 이 클래스가 8장 DQN, 10장 Actor-Critic/PPO, 12장 마리오 정책망까지 이 책 전체에서 재사용하는 함수 근사기입니다.
+
+[source,python]
+----
+import numpy as np
+rng = np.random.default_rng(1)
+
+class MLP:
+    def __init__(self, n_in, n_hidden, n_out, lr=0.01):
+        self.W1 = rng.normal(0, np.sqrt(2/n_in), (n_in, n_hidden))
+        self.b1 = np.zeros(n_hidden)
+        self.W2 = rng.normal(0, np.sqrt(2/n_hidden), (n_hidden, n_out))
+        self.b2 = np.zeros(n_out)
+        self.lr = lr
+
+    def forward(self, x):
+        self.x = x
+        self.z1 = x @ self.W1 + self.b1
+        self.h1 = np.maximum(0, self.z1)          # ReLU
+        self.z2 = self.h1 @ self.W2 + self.b2
+        return self.z2
+
+    def backward(self, grad_out):
+        gW2 = self.h1.T @ grad_out
+        gb2 = grad_out.sum(axis=0)
+        gh1 = grad_out @ self.W2.T
+        gz1 = gh1 * (self.z1 > 0)                  # ReLU 미분
+        gW1 = self.x.T @ gz1
+        gb1 = gz1.sum(axis=0)
+        self.W1 -= self.lr * gW1
+        self.b1 -= self.lr * gb1
+        self.W2 -= self.lr * gW2
+        self.b2 -= self.lr * gb2
+----
+
+이 MLP가 제대로 동작하는지부터 확인합니다 — RL과 무관하게, `sin(x)`라는 매끄러운 함수를 얼마나 잘 맞추는지 보는 순수한 지도학습 sanity check입니다.
+
+[source,python]
+----
+X = rng.uniform(-np.pi, np.pi, (500, 1))
+Y = np.sin(X)
+net = MLP(1, 32, 1, lr=0.01)
+losses = []
+for epoch in range(2000):
+    pred = net.forward(X)
+    err = pred - Y
+    losses.append(np.mean(err**2))
+    net.backward(2 * err / len(X))
+print(f"초기 손실={losses[0]:.4f}, 최종 손실={losses[-1]:.6f}")
+----
+
+실제로 실행하면:
+
+----
+MLP sanity check: sin(x) fit, initial loss=3.5583, final loss=0.039564
+----
+
+2000 에폭 만에 평균제곱오차가 3.56에서 0.040까지, 약 90분의 1로 줄었습니다 — 역전파 구현이 정상적으로 그래디언트를 계산하고 있다는 뜻입니다. 이 MLP를 8장부터는 상태를 입력받아 `Q(s,a)`나 정책 점수를 출력하는 함수로 그대로 재사용합니다.
+
+== Deadly Triad: 세 가지가 겹치면 불안정해진다
+
+Sutton & Barto가 정리한 유명한 관찰이 있습니다 — 다음 세 가지가 동시에 존재하면 학습이 **발산**할 수 있습니다.
+
+1. **함수 근사(function approximation)** — 표가 아니라 파라미터를 공유하는 함수로 가치를 표현.
+2. **부트스트래핑(bootstrapping)** — TD처럼, 아직 완성되지 않은 자기 자신의 추정치를 목표로 사용.
+3. **오프폴리시(off-policy)** — 실제로 행동한 정책과 다른 정책의 가치를 학습.
+
+이 셋이 다 있으면 발산할 "수" 있다는 것이지 항상 발산한다는 뜻은 아닙니다 — 그래도 이 조건이 왜 위험한지, 아주 작은 2상태 반례로 직접 확인합니다.
+
+[source,python]
+----
+def semi_gradient_td(feat, n_steps=60, alpha=0.1, gamma=0.99):
+    # V(A) = feat[0]*w, V(B) = feat[1]*w  — 두 상태가 파라미터 w 하나를 공유(함수 근사)
+    # 전이는 항상 A -> B, 보상 0 (부트스트래핑: V(B)를 목표로 씀)
+    w = 1.0
+    ws = [w]
+    for t in range(n_steps):
+        v_s, v_s2 = feat[0] * w, feat[1] * w
+        target = 0.0 + gamma * v_s2
+        td_error = target - v_s
+        w += alpha * td_error * feat[0]
+        ws.append(w)
+        if abs(w) > 1e8:
+            break
+    return ws
+
+ws_div  = semi_gradient_td(feat=np.array([1.0, 2.0]))  # 목표 상태의 특징이 더 크다
+ws_conv = semi_gradient_td(feat=np.array([2.0, 1.0]))  # 반대로, 출발 상태의 특징이 더 크다
+----
+
+두 실험은 딱 하나만 다릅니다 — 상태 A와 B가 공유 파라미터 `w`에 곱해지는 특징(feature) 계수의 순서. `feat=[1,2]`(목표 상태 B의 특징이 더 큼)에서는 부트스트랩 목표가 매 스텝 자기 자신보다 체계적으로 더 크게 보이도록 만드는 양(+)의 되먹임 고리가 생기고, `feat=[2,1]`(반대 순서)에서는 그 되먹임이 음(-)이 되어 오차가 줄어드는 쪽으로 작동합니다.
+
+실제로 실행하면:
+
+----
+DIVERGENT setup:  w[0]=1.000 w[10]=2.547 w[30]=16.522 w[60]=2.730e+02
+CONVERGENT setup: w[0]=1.000 w[10]=0.104720 w[30]=0.001148 w[60]=0.000001
+----
+
+발산 조건에서는 가중치가 1.0 → 2.5(10스텝) → 16.5(30스텝) → 273(60스텝)으로 매 스텝 대략 8%씩 커지며 지수적으로 발산합니다 — 표 기반 방법(2부)에서는 이런 일이 아예 일어날 수 없었습니다(4~6장에서 모든 오차 곡선이 0으로 수렴했던 걸 떠올려보세요). 반대로 수렴 조건에서는 같은 알고리즘, 같은 스텝 수인데도 가중치가 0.10 → 0.0011 → 0.000001로 깔끔하게 0에 수렴합니다. 특징 계수 순서 하나만 바꿨을 뿐인데 결과가 정반대로 갈린다는 게 이 불안정성의 핵심입니다 — "부트스트랩 + 함수 근사 + 오프폴리시"라는 조합 자체가 위험한 것이지, 알고리즘이 근본적으로 잘못 짜인 게 아닙니다.
+
+== 이 장에서 확인한 것과 다음 장의 과제
+
+* 표는 상태 공간이 커지면(마리오의 84×84 프레임처럼) 근본적으로 쓸 수 없고, 함수 근사가 유일한 대안입니다.
+* NumPy만으로 순전파·역전파를 손으로 짠 MLP가 `sin(x)`를 실제로 잘 근사한다는 걸 확인했습니다 — 이 MLP를 이후 장에서 계속 재사용합니다.
+* 함수 근사 + 부트스트래핑 + 오프폴리시가 겹치면 TD 학습이 실제로 발산할 수 있다는 것을, 가중치가 지수적으로 커지는 실측 곡선으로 확인했습니다.
+
+다음 장(DQN)은 정확히 이 deadly triad의 세 조건을 모두 갖춘 알고리즘입니다(신경망 함수 근사, TD 부트스트래핑, 오프폴리시 Q-learning). DQN이 실전에서 쓸모 있으려면 이 장에서 본 발산 경향을 실제로 다스릴 방법이 필요하고, 그게 리플레이 버퍼와 타깃 네트워크입니다.
+// end::body[]

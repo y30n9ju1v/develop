@@ -48,6 +48,10 @@ title: "Books"
 - **[OpenCL로 배우는 헤테로지니어스 컴퓨팅: 3DGS와 디지털 트윈까지](systems-and-parallel-programming/heterogeneous-computing-opencl/)** — 호스트-디바이스 분리(1부) → 워크그룹과 SIMT 실행 모델(2부) → 메모리 계층구조(3부) → 3DGS 점군 래스터라이제이션(4부) → 실시간 시뮬레이션 루프(5부)까지, 어떤 GPU에서나 동작하는 개방 표준 OpenCL로 이 세션의 실제 GPU(Apple M4)에서 커널을 직접 컴파일·실행해 계산 강도·전송 손익분기점·분기 발산·배리어 누락·메모리 대역폭 병목을 전부 실측 수치로 확인하고, 타일링으로 행렬곱을 3.4배, 3DGS 래스터라이제이션을 최대 23.8배 가속하는 독립적인 입문서
 - **[학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다: ONNX 하드웨어 최적화](systems-and-parallel-programming/onnx-hardware-optimization/)** — 왜 최적화가 필요한가(1부) → 그래프 레벨 최적화(2부) → 양자화(3부) → MLIR lowering(4부) → 커널 최적화와 이기종 스케줄링(5부)까지, ResNet18 하나를 처음부터 끝까지 예제 삼아 onnxruntime과 IREE(MLIR 기반 컴파일러)로 실제 컴파일·실행해서, 연산자 융합은 5%뿐이고 진짜 이득은 레이아웃 변환에서 온다는 것과 동적 양자화가 17배 느려지는데 정적 양자화는 1.86배 빨라진다는 것, 범용 컴파일(344.7ms)과 NPU 위임(0.67ms) 사이에 515배 격차가 있다는 것을 실측하며 정확도 등 검증 못 한 한계까지 정직하게 밝히는 독립적인 입문서
 
+## 머신러닝과 강화학습
+
+- **[보상만으로 배운다: 강화학습을 밑바닥부터 마리오까지](machine-learning-and-rl/reward-only-rl-from-scratch/)** — nand2npu 3권이 "이 책은 강화학습 정책을 훈련하는 방법을 다루지 않는다"고 그은 경계선을 채우는 책. 강화학습 문제 정의하기(1부) → 표 기반 방법으로 확실히 검증하기: 정책/가치 반복·몬테카를로·TD(0)·Q-learning(2부) → 함수 근사와 딥 RL: DQN·REINFORCE·Actor-Critic·PPO(3부) → 마리오로 종합하기(4부)까지, NumPy만으로 손으로 짠 표 기반 RL과 신경망을 실제로 실행해 서로 다른 방법이 같은 최적해로 수렴함을 교차 검증하고, 실제로 설치·구동에 성공한 NES 마리오 에뮬레이터 위에서 정책을 학습시켜 그 가중치를 nand2npu 3권이 읽을 수 있는 형식으로 내보내며, 학습이 안정적으로 개선되지 않았다는 사실까지 정직하게 밝히는 독립적인 입문서
+
 ## 웹 개발
 
 - **[TypeScript + React 입문: react.dev와 Handbook을 왜라는 질문으로 잇기](web-development/ts-react-getting-started/)** — 공식 React 문서와 TypeScript Handbook을 재료로 "왜 이렇게 생겼는가"를 축으로 재구성한 입문서. 값과 타입(1부) → 컴포넌트·State·렌더링·useRef(2부) → API 호출·폼·React Router로 합치기(3부) 순서로 쌓아 올린다

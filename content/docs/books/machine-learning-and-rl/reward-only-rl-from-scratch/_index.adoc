@@ -1,0 +1,97 @@
+---
+title: "보상만으로 배운다: 강화학습을 밑바닥부터 마리오까지"
+draft: false
+---
+
+link:../../nand2npu-series/nand2npu-vision/[nand2npu 3권]이 서문과 7장에서 "이 책은 강화학습 정책을 훈련하는 방법을 다루지 않는다"고 명시적으로 그은 경계선을 채우는 책입니다. 그 책은 마리오를 플레이하는 정책망의 가중치를 "책 밖에서 미리 훈련해둔" 것으로 가정하고 추론만 다뤘는데, 이 책이 바로 그 "책 밖"입니다 — 정답 레이블 없이 보상만으로 행동을 고치는 강화학습을 표 기반 방법부터 시작해, 함수 근사와 딥 RL을 거쳐, 실제 NES 마리오 환경 위에서 정책을 학습시키고 그 가중치를 nand2npu 3권이 읽을 수 있는 형식으로 내보내는 것까지 이어갑니다.
+
+1부(1~3장)는 지도학습과 강화학습의 근본적인 차이를 작은 예제로 대조하고, MDP·벨만 방정식·정책·가치라는 이 책 전체의 어휘를 세웁니다. 2부(4~6장)는 4x4 그리드월드 하나를 예제 삼아 정책 반복·가치 반복(모델을 완전히 아는 경우)부터 몬테카를로·TD(0)·Q-learning(모델 없이 경험만으로 배우는 경우)까지, 서로 다른 방법이 같은 최적해로 소수점 단위까지 수렴한다는 걸 실제로 교차 검증합니다. 3부(7~10장)는 표가 왜 무너지는지 보이고 손으로 짠 NumPy MLP로 함수 근사를 도입한 뒤, DQN(리플레이 버퍼·타깃 네트워크), REINFORCE(정책 경사법과 분산, 베이스라인), Actor-Critic과 PPO(클리핑)를 각각 구현하고 실제 학습 곡선으로 비교합니다. 4부(11~12장)는 실제 `gym-super-mario-bros`/`nes-py` NES 에뮬레이터를 이 세션 환경에 설치해 실제로 동작시키고, 3부에서 검증한 PPO를 nand2npu 3권과 인터페이스가 맞는 컨볼루션 정책망(84×84 흑백 프레임, 왼쪽/오른쪽/점프/대기 4개 행동)에 적용해 학습시키며, 그 결과를 정직하게 — 학습이 안정적으로 개선되지 않았다는 것까지 포함해서 — 정리하고 가중치를 `mario_weights.bin` 형식으로 내보냅니다.
+
+이 책의 모든 코드는 `torch`, `gymnasium`의 내장 에이전트, `stable-baselines3` 없이 NumPy(그리고 마리오 환경 자체를 위한 `nes-py`/`gym-super-mario-bros`)만으로 손으로 짰습니다. 이 문서에 실린 모든 숫자(수렴 곡선, 분산 비교, 어블레이션 결과, 학습 곡선)는 이 책을 쓰면서 실제로 실행한 코드의 결과이고, 마리오 환경은 이 세션에서 실제로 설치·구동에 성공한 진짜 NES 에뮬레이터를 그대로 썼습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 보상만으로 배운다]*
+
+*1부: 강화학습 문제 정의하기*
+
+[start=1]
+. *link:01-supervised-vs-reward/[지도학습과 뭐가 다른가]*
+. *link:02-mdp-and-bellman/[MDP로 문제 정식화하기]*
+. *link:03-policy-and-value/[정책과 가치]*
+
+*2부: 표 기반 방법으로 확실히 검증하기*
+
+[start=4]
+. *link:04-dynamic-programming/[정책 반복과 가치 반복]*
+. *link:05-monte-carlo-and-td/[몬테카를로와 TD(0)]*
+. *link:06-q-learning/[Q-learning으로 그리드월드 풀기]*
+
+*3부: 함수 근사와 딥 RL*
+
+[start=7]
+. *link:07-function-approximation/[표가 무너지는 지점]*
+. *link:08-dqn/[DQN]*
+. *link:09-policy-gradient/[Policy Gradient]*
+. *link:10-actor-critic-ppo/[Actor-Critic과 PPO]*
+
+*4부: 마리오로 종합하기*
+
+[start=11]
+. *link:11-mario-environment/[마리오 환경 준비]*
+. *link:12-training-mario-and-limits/[PPO로 정책 학습시키고, 검증하고, 한계를 밝히기]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-supervised-vs-reward.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-mdp-and-bellman.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-policy-and-value.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-dynamic-programming.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-monte-carlo-and-td.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-q-learning.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-function-approximation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-dqn.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-policy-gradient.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-actor-critic-ppo.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-mario-environment.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-training-mario-and-limits.adoc[tag=body,leveloffset=+1]

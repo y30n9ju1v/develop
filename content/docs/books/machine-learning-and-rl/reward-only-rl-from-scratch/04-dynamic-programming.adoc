@@ -1,0 +1,152 @@
+---
+title: "4장: 정책 반복과 가치 반복"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["reinforcement-learning", "dynamic-programming", "gridworld", "numpy", "book"]
+categories: ["books"]
+description: "4x4 그리드월드를 NumPy로 손수 구현하고 정책 반복과 가치 반복 두 가지 동적 계획법으로 최적 정책을 각각 구해, 서로 다른 알고리즘이 정확히 같은 값과 정책으로 수렴함을 실제로 확인하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-policy-and-value/[3장: 정책과 가치] · 다음: link:../05-monte-carlo-and-td/[5장: 몬테카를로와 TD(0)]_
+
+'''
+
+== 이 부에서 쓸 예제: 4x4 그리드월드
+
+2부 전체(4~6장)는 같은 예제 하나를 씁니다 — 4x4 격자, 상태는 16개(0~15, 행 우선), 목표 칸(15번, 도착 시 보상 +10, 종료)과 함정 칸(7번, 도착 시 보상 -10, 종료)이 하나씩 있고, 그 외 모든 이동에는 -0.1의 스텝 보상(빨리 끝낼수록 좋도록 만드는 페널티)이 붙습니다. 행동은 4가지(상/하/좌/우)이고, 격자 밖으로 나가려는 이동은 제자리에 머뭅니다.
+
+[source,python]
+----
+import numpy as np
+
+SIZE = 4
+GOAL = 15
+PIT = 7
+N_STATES = SIZE * SIZE
+N_ACTIONS = 4
+GAMMA = 0.95
+
+def rc(s): return divmod(s, SIZE)
+def idx(r, c): return r * SIZE + c
+
+def step(s, a):
+    if s == GOAL or s == PIT:
+        return s, 0.0, True
+    r, c = rc(s)
+    if a == 0: r = max(0, r - 1)          # 상
+    elif a == 1: r = min(SIZE - 1, r + 1)  # 하
+    elif a == 2: c = max(0, c - 1)         # 좌
+    elif a == 3: c = min(SIZE - 1, c + 1)  # 우
+    s2 = idx(r, c)
+    if s2 == GOAL: return s2, 10.0, True
+    if s2 == PIT: return s2, -10.0, True
+    return s2, -0.1, False
+
+# 모든 (상태, 행동)에 대한 전이/보상을 미리 표로 만든다 — DP는 이 모델을 완전히 안다고 가정
+P = np.zeros((N_STATES, N_ACTIONS), dtype=int)
+R = np.zeros((N_STATES, N_ACTIONS))
+TERMINAL = np.zeros(N_STATES, dtype=bool)
+TERMINAL[GOAL] = True
+TERMINAL[PIT] = True
+for s in range(N_STATES):
+    for a in range(N_ACTIONS):
+        s2, r, done = step(s, a)
+        P[s, a] = s2
+        R[s, a] = r
+----
+
+이 장이 하는 실험은 정확히 이 모델(`P`, `R`)을 **완전히 알고 있다**고 가정하는 경우입니다 — 5장부터는 이 모델을 모른 채 경험만으로 배우는 방법으로 넘어갑니다.
+
+== 가치 반복(Value Iteration)
+
+2장에서 본 벨만 최적 방정식의 반복 대입을 그대로 적용합니다 — 매 스텝, 모든 상태에서 가능한 행동 중 최댓값으로 `V`를 갱신합니다.
+
+[source,python]
+----
+def value_iteration(theta=1e-8, max_iter=1000):
+    V = np.zeros(N_STATES)
+    deltas = []
+    for it in range(max_iter):
+        Q = np.where(TERMINAL[:, None], 0.0, R + GAMMA * V[P])
+        V_new = Q.max(axis=1)
+        V_new[TERMINAL] = 0.0
+        delta = np.max(np.abs(V_new - V))
+        deltas.append(delta)
+        V = V_new
+        if delta < theta:
+            break
+    policy = np.where(TERMINAL[:, None], 0, R + GAMMA * V[P]).argmax(axis=1)
+    return V, policy, it + 1, deltas
+----
+
+== 정책 반복(Policy Iteration)
+
+3장 마지막 절에서 미리 본 "평가 → 개선" 반복을 그리드월드 전체로 확장합니다. 평가 단계는 3장처럼 선형 연립방정식을 직접 풉니다.
+
+[source,python]
+----
+def policy_iteration(max_iter=1000):
+    policy = np.zeros(N_STATES, dtype=int)
+    for it in range(max_iter):
+        Pp = P[np.arange(N_STATES), policy]
+        Rp = np.where(TERMINAL, 0.0, R[np.arange(N_STATES), policy])
+        A = np.eye(N_STATES)
+        for s in range(N_STATES):
+            if not TERMINAL[s]:
+                A[s, Pp[s]] -= GAMMA
+        V = np.linalg.solve(A, Rp)                       # 정책 평가
+        Q = np.where(TERMINAL[:, None], 0.0, R + GAMMA * V[P])
+        new_policy = Q.argmax(axis=1)                      # 정책 개선
+        if np.all(new_policy == policy):
+            break
+        policy = new_policy
+    return V, policy, it + 1
+----
+
+== 실행 결과: 두 알고리즘이 같은 답에 도달하는가
+
+[source,python]
+----
+V_vi, pol_vi, n_iter_vi, deltas = value_iteration()
+V_pi, pol_pi, n_iter_pi = policy_iteration()
+
+print("value iteration 수렴:", n_iter_vi, "회")
+print("policy iteration 수렴:", n_iter_pi, "회 (정책 개선 스텝 기준)")
+print("max |V_vi - V_pi| =", np.max(np.abs(V_vi - V_pi)))
+print("두 정책이 일치:", np.all(pol_vi == pol_pi))
+----
+
+실제로 실행하면:
+
+----
+value iteration 수렴: 7 iterations
+policy iteration 수렴: 7 iterations (정책 개선 스텝 기준)
+max |V_vi - V_pi| = 8.881784197001252e-16
+두 정책이 일치: True
+
+V_vi grid:
+ [[ 7.285  7.774  8.288  7.774]
+ [ 7.774  8.288  8.83   0.   ]
+ [ 8.288  8.83   9.4   10.   ]
+ [ 8.83   9.4   10.     0.   ]]
+
+policy grid (0=up,1=down,2=left,3=right):
+ [[1 1 1 2]
+ [1 1 1 0]
+ [1 1 1 1]
+ [3 3 3 0]]
+
+delta trace: [10.0, 9.5, 9.025, 8.57375, 8.14506, 7.73781, 0.0]
+----
+
+가치 반복과 정책 반복은 완전히 다른 방식으로 계산하는데도(하나는 매 스텝 최댓값을 대입, 다른 하나는 선형방정식을 풀고 개선을 반복) 최종 가치가 소수점 15자리까지 일치하고(`8.88e-16`은 부동소수점 반올림 오차 수준), 정책도 완전히 같습니다 — 둘 다 같은 벨만 최적 방정식의 유일한 해로 수렴한다는 것을 실제 숫자로 확인한 것입니다.
+
+정책 그리드를 읽어보면 이해가 됩니다 — 왼쪽 위(`(0,0)`)에서 시작하면 정책은 "하(1)"를 골라 함정(`(1,3)`=상태 7) 방향을 피해 아래로, 그다음 오른쪽으로 돌아 목표(`(3,3)`=상태 15)로 향합니다. 함정 바로 위 칸(상태 3)의 정책은 "좌(2)"로, 함정 쪽(우)으로 가지 않고 반대로 도망칩니다. 가치 값도 목표에 가까운 칸일수록 높고(9.4, 10.0), 함정 바로 옆 칸(상태 3, 11)은 이웃보다 눈에 띄게 낮습니다.
+
+`delta` 추적 곡선을 보면 처음 6번의 반복 동안 오차가 10.0에서 7.74까지 완만하게 줄다가, 7번째 반복에서 갑자기 0으로 떨어집니다 — 이 그리드월드가 결정적(deterministic)이고 작아서, 가치 정보가 목표/함정에서 시작해 격자 전체로 다 퍼지고 나면 더 이상 바뀔 값이 남지 않는 것입니다. 확률적 전이가 있는 문제라면 이렇게 딱 떨어지지 않고 지수적으로 감쇠하는 곡선이 나옵니다.
+
+== 다음 장
+
+이 장의 두 알고리즘은 모두 전이 확률 `P`와 보상 `R`을 완전히 안다는 전제 위에 서 있습니다 — 실제 문제(마리오를 포함해서)에서는 이런 모델이 대개 없습니다. 다음 장에서는 이 모델을 전혀 쓰지 않고, 에이전트가 직접 격자를 걸어보며 얻은 경험만으로 같은 가치를 추정하는 몬테카를로와 TD(0)를 구현하고, 이 장의 `V_vi`를 정답 삼아 얼마나 잘 맞는지 검증합니다.
+// end::body[]
