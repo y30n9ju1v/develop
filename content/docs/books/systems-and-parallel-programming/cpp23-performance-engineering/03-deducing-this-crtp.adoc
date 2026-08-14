@@ -77,4 +77,29 @@ CRTP result buf1[2,1]=6.0, deducing-this result buf2[2,1]=6.0 (same=1)
 * ``TransformWorker``가 이제 PerfGrid의 실제 처리 로직을 담당하는 워커 타입이 되었고, 다음 장부터 그 `transform()` 구현을 바꿔가며 확장합니다.
 
 다음 장에서는 ``transform()``의 몸통(지금은 ``x * 2.0``이라는 자리표시자)을, `consteval` 조회 테이블을 쓰는 실제 계산으로 바꿉니다.
+
+== 팁 박스: C{pp}17 환경이라면
+
+`deducing this`(`this auto&& self`)는 **C{pp}23**부터입니다. 하지만 이 장이 `deducing this`로 대신한 원래 기법 — CRTP(Curiously Recurring Template Pattern) — 자체는 C{pp}17은 물론 C{pp}11보다도 훨씬 오래된 관용구입니다. 그러니 C{pp}17 환경이라면 이 장의 "새 방식"이 아니라 "옛 방식"을 그대로 씁니다.
+
+[source,cpp]
+----
+template <typename Derived>
+struct TransformWorkerBase {
+    void process(double* data, int n) {
+        auto& self = static_cast<Derived&>(*this);
+        for (int i = 0; i < n; ++i) {
+            data[i] = self.transform(data[i]);
+        }
+    }
+};
+
+struct DoubleWorker : TransformWorkerBase<DoubleWorker> {
+    double transform(double x) { return x * 2.0; }
+};
+----
+
+`DoubleWorker{}.process(data, 3)`를 불러보면 이 장의 `deducing this` 버전과 정확히 같은 결과(`x * 2.0`)가 나옵니다. `-std=c{pp}17`로 경고 없이 컴파일되는 것도 확인했습니다.
+
+잃는 건 문법적 보일러플레이트입니다. CRTP는 파생 클래스가 자기 자신을 템플릿 인자로 다시 넘겨줘야 하고(``struct DoubleWorker : TransformWorkerBase<DoubleWorker>``처럼 이름을 두 번 반복), 베이스 클래스 안에서는 매번 `static_cast<Derived&>(*this)`로 다운캐스트해야 `transform()`을 호출할 수 있습니다. `deducing this`는 이 캐스트와 반복을 문법 차원에서 없애줄 뿐 아니라, `self`가 값 범주(lvalue/rvalue)까지 그대로 전달받으므로 "이 워커가 임시 객체일 때와 아닐 때 다르게 동작해야 한다"처럼 더 정교한 오버로딩이 필요해지면 CRTP보다 훨씬 깔끔하게 확장됩니다 — 이 장의 단순한 `transform()` 예제에서는 그 차이가 드러나지 않지만요.
 // end::body[]

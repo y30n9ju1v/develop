@@ -124,4 +124,40 @@ worker 3 status=2 progress=1000
 * ``Coordinator``에 워커 상태를 조회하는 `flat_map` 레지스트리를 실제로 붙였습니다 — 조회가 잦고 삽입이 드문 자료구조에 딱 맞는 사용처입니다.
 
 다음 장에서는 이 레지스트리와 진행률을 ``std::views::zip``으로 묶어 보고하는 경로를 마무리하고, `\[[assume]]`/``std::unreachable()``로 컴파일러에게 힌트를 줍니다.
+
+== 팁 박스: C{pp}17 환경이라면
+
+``std::flat_map``은 **C{pp}23**부터입니다. C{pp}17에는 대응하는 표준 타입이 없으므로, `flat_map`이 내부적으로 하는 일 — 정렬된 배열 위에서 이진 탐색으로 조회하는 것 — 을 `std::vector<std::pair<Key, Value>>` 하나와 `std::lower_bound`로 직접 흉내 냅니다.
+
+[source,cpp]
+----
+class FlatMapLike {
+public:
+    void insert(int key, std::string value) {
+        auto it = std::lower_bound(
+            data_.begin(), data_.end(), key,
+            [](const auto& kv, int k) { return kv.first < k; });
+        if (it != data_.end() && it->first == key) {
+            it->second = std::move(value);
+        } else {
+            data_.emplace(it, key, std::move(value));
+        }
+    }
+
+    const std::string* find(int key) const {
+        auto it = std::lower_bound(
+            data_.begin(), data_.end(), key,
+            [](const auto& kv, int k) { return kv.first < k; });
+        if (it != data_.end() && it->first == key) return &it->second;
+        return nullptr;
+    }
+
+private:
+    std::vector<std::pair<int, std::string>> data_;
+};
+----
+
+`insert(3, ...)`, `insert(1, ...)`, `insert(2, ...)` 순서로 넣어도 `find(2)`가 제대로 찾아냅니다 — 정렬 불변조건을 `insert()`가 매번 유지해주기 때문입니다. `-std=c{pp}17 -Wall -Wextra`로 경고 없이 컴파일되는 것도 확인했습니다.
+
+잃는 건 세 가지입니다. 표준 어휘 타입이 아니므로 이 클래스는 그 프로젝트 안에서만 통하고, `std::flat_map`이 표준 라이브러리 수준에서 보장하는 인터페이스(반복자 무효화 규칙, 이종(heterogeneous) 조회 등)를 하나하나 직접 구현하고 검증해야 합니다. 삽입/삭제 시 벡터 원소를 밀어야 하는 정렬 불변조건 유지도 손으로 짠 `insert()`가 매번 옳게 해내야 하는 책임이고, `std::sorted_unique` 배치 생성자처럼 "이미 정렬된 데이터를 검증 없이 즉시 옮겨 넣는" 편의 기능도 없어서 대량 삽입은 항목마다 `lower_bound` 탐색을 반복하는 비용을 그대로 치릅니다.
 // end::body[]

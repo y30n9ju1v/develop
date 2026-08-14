@@ -77,4 +77,26 @@ requested: 10 ints (40 bytes), actually usable: 12 ints
 * ``TransformWorker``의 반복되는 임시 버퍼 할당에는 여유분 조회보다 더 근본적인 해법(할당 자체를 없애는 것)이 필요하다는 문제의식으로 다음 장을 엽니다.
 
 다음 장에서는 ``TransformWorker``에 실제로 임시 버퍼를 붙이고, PMR 스레드 로컬 아레나로 그 할당을 워커 간 경합 없이 재사용하게 만듭니다.
+
+== 팁 박스: C{pp}17 환경이라면
+
+``std::allocate_at_least``는 **C{pp}23**부터입니다. C{pp}17에는 "요청한 크기 이상으로 실제 얼마나 확보됐는지"를 묻는 표준 인터페이스가 아예 없습니다 — 이 장이 이미 보여줬듯 플랫폼별 API(macOS의 `malloc_size`, glibc/리눅스의 `malloc_usable_size`)를 직접 부르는 게 실무의 현실적인 대체법이고, 이식성을 지키려면 ``#ifdef``로 플랫폼을 갈라야 합니다.
+
+[source,cpp]
+----
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+inline std::size_t usable_size(void* p) { return malloc_size(p); }
+#elif defined(__linux__)
+#include <malloc.h>
+inline std::size_t usable_size(void* p) { return malloc_usable_size(p); }
+#else
+// 이식 가능한 조회 API가 없는 플랫폼: 요청 크기를 그대로 돌려준다(여유분 인지 불가).
+inline std::size_t usable_size(void* p, std::size_t requested) { return requested; }
+#endif
+----
+
+`std::malloc(40)`으로 받은 포인터에 이 함수를 적용하면 macOS에서는 6장 본문과 같은 여유분(예: `48`바이트)을 보고합니다. `-std=c{pp}17 -Wall -Wextra`로 경고 없이 컴파일되는 것도 확인했습니다.
+
+잃는 건 두 가지입니다. 첫째, 표준 인터페이스가 없으니 플랫폼마다 이름도 헤더도 다른 함수를 직접 관리해야 하고, 새 플랫폼을 지원할 때마다 이 `#ifdef` 사슬에 분기를 하나 더 추가해야 합니다. 둘째, 이 조회 함수 자체가 없는 플랫폼(위 코드의 `#else` 분기)에서는 조용히 "여유분 없음"으로 후퇴하는데, 이러면 `allocate_at_least`가 원래 주려던 "이미 확보된 여유 용량을 재사용해서 재할당을 줄인다"는 최적화 기회를 그 플랫폼에서는 아예 못 씁니다 — 컴파일은 되지만 최적화는 조용히 사라지는, 알아차리기 쉽지 않은 손실입니다.
 // end::body[]

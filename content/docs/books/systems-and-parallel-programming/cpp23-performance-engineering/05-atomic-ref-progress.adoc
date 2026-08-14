@@ -128,4 +128,31 @@ TSan이 깨끗합니다. ``Coordinator::progress_of``가 ``atomic_ref``로 읽�
 * 전작의 `GCounter`(나중에 합침)와 이 장의 `atomic_ref`(즉시 읽고 씀)는 같은 문제의 서로 다른 해법이라는 것도 짚었습니다.
 
 다음 장에서는 ``TransformWorker``가 세그먼트를 처리하며 쓰는 임시 버퍼의 할당 비용을, ``allocate_at_least``로 먼저 들여다봅니다.
+
+== 팁 박스: C{pp}17 환경이라면
+
+``std::atomic_ref``는 **C{pp}20**부터입니다. C{pp}17에는 "기존의 평범한 객체를 가리키면서 사후적으로 원자적 연산을 붙여주는" 참조 타입이 없습니다 — 대체법은 애초에 그 멤버 자체를 `std::atomic<T>`(C{pp}11부터 있는, 훨씬 오래된 타입)로 선언하는 것입니다.
+
+[source,cpp]
+----
+struct Coordinator {
+    std::vector<std::atomic<int>> progress_;
+
+    explicit Coordinator(std::size_t n) : progress_(n) {
+        for (auto& p : progress_) p.store(0, std::memory_order_relaxed);
+    }
+
+    void bump(std::size_t w) {
+        progress_[w].fetch_add(1, std::memory_order_relaxed);
+    }
+
+    int progress_of(std::size_t w) const {
+        return progress_[w].load(std::memory_order_relaxed);
+    }
+};
+----
+
+워커 스레드가 `bump()`를 100번 부르는 동안 다른 스레드가 `progress_of()`로 읽어도 안전합니다 — `atomic_ref` 버전과 동작은 동일합니다. `-std=c{pp}17`로 경고 없이 컴파일되는 것도 확인했습니다.
+
+잃는 건 설계의 유연성입니다. `std::atomic<T>`는 복사도 이동도 안 되므로(원자 타입 자체가 그렇게 정의돼 있습니다), `progress_`를 담은 `std::vector`를 통째로 복사하거나 리사이즈하는 연산이 이 장의 `atomic_ref` 버전보다 훨씬 제약이 큽니다. 더 근본적으로는, `atomic_ref`가 주는 "평소엔 평범한 필드로 두다가 필요한 구간에서만 원자적으로 접근한다"는 선택지가 아예 사라집니다 — C{pp}17에서는 그 필드가 처음부터 끝까지 항상 `std::atomic`이어야 하므로, 원자적 접근이 필요 없는 코드 경로에서도 매번 원자 연산의 비용(락보다는 싸지만 평범한 읽기/쓰기보다는 비싼)을 치르게 됩니다.
 // end::body[]

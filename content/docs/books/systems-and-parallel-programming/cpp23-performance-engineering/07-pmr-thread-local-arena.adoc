@@ -87,4 +87,20 @@ TransformWorker (per-thread arena): 4.26 ms
 * ``unsynchronized_pool_resource``는 스레드 로컬(또는 그에 준하는 격리된) 범위에서만 안전하다는 것도 짚었습니다.
 
 다음 장에서는 ``Coordinator``에 워커별 상태를 조회할 수 있는 레지스트리를, 캐시 친화적인 ``std::flat_map``으로 추가합니다.
+
+== 팁 박스: C{pp}17 환경이라면
+
+이 장은 앞선 장들과 다릅니다 — **바꿀 게 없습니다.** `std::pmr` 네임스페이스(``memory_resource``, ``monotonic_buffer_resource``, ``unsynchronized_pool_resource``, ``synchronized_pool_resource``, `std::pmr::vector` 등)는 전부 **C{pp}17**에서 이미 표준에 들어왔습니다. 이 장의 핵심 기법 — 워커별 스레드 로컬 아레나로 할당 경합을 없애는 것 — 은 C{pp}17에서도 한 글자도 안 바뀝니다.
+
+[source,cpp]
+----
+std::pmr::unsynchronized_pool_resource arena;
+std::pmr::vector<double> scratch(&arena);
+scratch.push_back(1.0);
+scratch.push_back(2.0);
+----
+
+`-std=c{pp}17 -Wall -Wextra`로 경고 없이 컴파일되는 것도 확인했습니다.
+
+다만 이 장이 확장하는 ``TransformWorker::process``의 시그니처(`void process(this auto&& self, ...)`)는 3장에서 `deducing this`(C{pp}23)로 바꾼 것이므로, ``TransformWorker`` 클래스 전체를 C{pp}17로 그대로 옮기려면 3장 팁 박스가 보여준 CRTP 버전과 이 장의 PMR 아레나를 같이 조합해야 합니다 — PMR 자체는 아무 문제가 없지만, 이 장이 확장하는 클래스의 다른 부분에는 C{pp}17 대체가 필요하다는 뜻입니다.
 // end::body[]
