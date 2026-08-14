@@ -1,0 +1,84 @@
+---
+title: "안전을 넘어 성능으로: C++23 최적화 기법"
+draft: false
+---
+
+link:../safe-parallel-cpp23/[『이론을 C++23으로 옮기다: 안전한 병렬 프로그래밍』]의 후속편입니다. 전작이 TaskGrid를 **정확하게** 만드는 데 집중했다면, 이 책은 같은 TaskGrid를 **빠르게** 만드는 데 집중합니다. `std::mdspan`으로 캐시 친화적인 메모리 뷰를 만들고(1부), `deducing this`와 `consteval`로 코드를 단순화하며 계산을 컴파일 타임으로 옮기고(2부), `allocate_at_least`와 PMR 아레나로 병렬 처리의 할당 병목을 없애고(3부), `views::zip`으로 중간 컨테이너 없는 파이프라인을 짜는 것(4부)까지, C++23이 새로 들여온 성능 관련 기능들을 실제로 벤치마크하며 다룹니다.
+
+이 책의 모든 벤치마크는 이 세션 환경에 실제로 설치된 Apple Clang 21(`-std=c++23`, `-O2`)로 컴파일하고 실행해서 나온 실측치입니다. 지어낸 숫자나 "이론적으로는 빨라야 한다"는 주장은 이 책에 없습니다 — 이 툴체인이 아직 구현하지 않은 기능(`std::submdspan`, `views::chunk`/`slide`/`stride`)도 실제 컴파일 에러로 확인하고 정직하게 짚었습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 안전을 넘어 성능으로]*
+
+*1부: 메모리 레이아웃과 캐시*
+
+[start=1]
+. *link:01-mdspan-cache-friendly-views/[std::mdspan으로 캐시 친화적 뷰 만들기]*
+. *link:02-layout-stride-tiling/[layout_stride로 타일 뷰 만들기]*
+
+*2부: 문법 단순화와 컴파일 타임 계산*
+
+[start=3]
+. *link:03-deducing-this-crtp/[deducing this로 CRTP 단순화하기]*
+. *link:04-constexpr-consteval-offload/[consteval로 런타임 계산을 컴파일 타임으로 옮기기]*
+
+*3부: 할당 병목 제거*
+
+[start=5]
+. *link:05-allocate-at-least/[allocate_at_least로 할당 낭비 줄이기]*
+. *link:06-pmr-thread-local-arena/[PMR 스레드 로컬 아레나로 할당 경합 없애기]*
+
+*4부: Ranges 파이프라인과 종합 실전*
+
+[start=7]
+. *link:07-ranges-zip-pipelines/[views::zip으로 중간 컨테이너 없는 파이프라인 짜기]*
+. *link:08-capstone-taskgrid-benchmark/[종합 실전 — TaskGrid 배치 파이프라인 다시 벤치마크하기]*
+
+*맺음말*
+
+[start=9]
+. *link:09-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-mdspan-cache-friendly-views.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-layout-stride-tiling.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-deducing-this-crtp.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-constexpr-consteval-offload.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-allocate-at-least.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-pmr-thread-local-arena.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-ranges-zip-pipelines.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-capstone-taskgrid-benchmark.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-afterword.adoc[tag=body,leveloffset=+1]

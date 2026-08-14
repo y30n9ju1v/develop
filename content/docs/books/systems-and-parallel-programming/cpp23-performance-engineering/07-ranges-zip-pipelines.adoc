@@ -1,0 +1,82 @@
+---
+title: "7장: views::zip으로 중간 컨테이너 없는 파이프라인 짜기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "ranges", "views-zip", "performance", "book"]
+categories: ["books"]
+description: "C++23의 std::views::zip으로 세그먼트 ID와 체크섬처럼 병렬로 관리되는 여러 배열을 임시 pair 벡터 없이 짝지어 순회하고, 그 결과가 지연 평가되는 뷰라서 zip을 통해 값을 대입하면 원본 컨테이너까지 실제로 갱신된다는 걸 확인한 뒤, 이 툴체인에는 아직 없는 chunk/slide/stride 어댑터를 정직하게 짚는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-pmr-thread-local-arena/[6장: PMR 스레드 로컬 아레나로 할당 경합 없애기] · 다음: link:../08-capstone-taskgrid-benchmark/[8장: 종합 실전 — TaskGrid 배치 파이프라인 다시 벤치마크하기]_
+
+'''
+
+TaskGrid의 코디네이터는 종종 "같은 순서로 대응되는" 여러 배열을 따로 관리합니다 — 세그먼트 ID 목록과 그 세그먼트들의 체크섬 목록처럼요. 이 둘을 같이 순회하려면 전통적으로 인덱스를 손으로 맞추거나(`for (i = 0; i < n; i++) { ids[i], checksums[i] }`), `std::pair`로 짝지은 임시 벡터를 새로 만들어야 했습니다. C++23의 **`std::views::zip`**은 그 임시 벡터 없이, 여러 range를 "동시에 순회하는 하나의 range"로 즉석에서 엮어줍니다.
+
+== `views::zip`: 여러 배열을 짝지어 순회하기
+
+[source,cpp]
+----
+#include <ranges>
+#include <vector>
+
+std::vector<int> segment_ids{7, 12, 3, 9};
+std::vector<double> checksums{1.5, 2.25, 0.0, 4.75};
+
+for (auto&& [id, checksum] : std::views::zip(segment_ids, checksums)) {
+  std::printf("segment %d: checksum %.2f%s\n", id, checksum, checksum == 0.0 ? " (suspicious)" : "");
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 ranges_zip.cpp -o ranges_zip && ./ranges_zip
+segment 7: checksum 1.50
+segment 12: checksum 2.25
+segment 3: checksum 0.00 (suspicious)
+segment 9: checksum 4.75
+----
+
+`std::views::zip(segment_ids, checksums)`는 두 벡터의 `i`번째 원소들을 튜플로 묶은 새로운 range를 즉석에서 만듭니다 — 그런데 이 "묶음"은 **뷰**입니다. 어딘가에 실제로 `std::pair`나 튜플이 담긴 새 컨테이너를 할당해서 채워 넣는 게 아니라, 순회할 때마다 원본 두 벡터의 해당 위치를 그때그때 참조해서 튜플을 즉석에서 만들어 돌려줍니다 — **지연 평가(lazy evaluation)**입니다.
+
+== 지연 평가의 결과: zip을 통한 쓰기가 원본까지 되돌아간다
+
+[source,cpp]
+----
+for (auto&& [id, checksum] : std::views::zip(segment_ids, checksums)) {
+  if (checksum == 0.0) checksum = -1.0;   // 의심스러운 체크섬을 무효값으로 표시
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 ranges_zip.cpp -o ranges_zip && ./ranges_zip
+after fixup: checksums[2] = -1.00
+----
+
+`checksum`이 값의 **복사본**이 아니라 원본 `checksums` 벡터 안의 원소를 가리키는 참조이므로, `checksum = -1.0`이라는 대입이 `zip` 뷰를 통과해 원본 `checksums[2]`까지 그대로 되돌아갑니다. 만약 `zip` 대신 손으로 `std::vector<std::pair<int, double>>`를 만들어서 순회했다면, 그 벡터는 원본과 **별개의 메모리**이므로 이런 식으로 값을 고쳐도 원본 `segment_ids`/`checksums`에는 아무 영향이 없었을 것입니다 — `zip`은 "복사해서 새로 만든 컨테이너"가 아니라 "원본 여러 개를 동시에 들여다보는 창"이라는 게 핵심입니다. 이 성질 덕분에 중간 컨테이너 할당이 아예 없다는 것과, 그 컨테이너를 만들고 다시 원본에 써넣는 왕복 비용도 같이 사라진다는 것이 이 어댑터의 진짜 이득입니다.
+
+== 정직하게 짚기: 이 툴체인에 아직 없는 어댑터들
+
+C++23 Ranges 표준에는 `views::zip` 외에도 `views::chunk`(고정 크기로 잘라서 부분 range들의 range를 만듦), `views::slide`(겹치는 슬라이딩 윈도우), `views::stride`(N칸씩 건너뛰며 순회) 같은, 병렬 처리에서 데이터를 워커별로 나눌 때 특히 쓸모 있는 어댑터들도 함께 채택되었습니다. 이 세션의 `libc++`로 실제로 컴파일해보면:
+
+[source]
+----
+$ clang++ -std=c++23 -O2 ranges_chunk_test.cpp -o /tmp/x
+ranges_chunk_test.cpp:9:28: error: no member named 'chunk' in namespace 'std::ranges::views'
+    9 |   auto r = v | std::views::chunk(2);
+      |                            ^~~~~
+1 error generated.
+----
+
+`views::chunk`, `views::slide`, `views::stride` 모두 아직 이 `libc++` 버전에는 구현되어 있지 않습니다(표준에는 있지만 구현이 따라잡지 못한 경우입니다 — 전작이 Darwin TSan의 lock-order-inversion 진단 부재를 정직하게 밝혔던 것과 같은 종류의 툴체인 간극입니다). "워커마다 세그먼트 N개씩 나눠 갖는다"는 TaskGrid의 흔한 요구는, `chunk`가 구현될 때까지는 여전히 손으로 짠 인덱스 슬라이싱(`std::span`의 `subspan`, 전작 13장에서 다룬 것과 같은 방식)으로 대신해야 합니다.
+
+== 요약
+
+* `std::views::zip`으로 여러 range를 중간 컨테이너 없이 동시에 순회할 수 있고, 이때 얻는 원소는 원본의 참조라서 순회 중 대입이 원본까지 되돌아간다는 걸 실제로 확인했습니다.
+* 이 지연 평가 덕분에, 짝지은 튜플을 담을 임시 벡터를 만들고 다시 원본에 써넣는 왕복 비용이 애초에 생기지 않습니다.
+* `views::chunk`/`slide`/`stride`처럼 표준에는 있지만 이 세션의 `libc++`에는 아직 없는 어댑터도 실제 컴파일 에러로 확인하고 정직하게 짚었습니다 — 이런 자리는 전작 13장의 `std::span` 분할 같은 손으로 짠 대안으로 여전히 메워야 합니다.
+
+마지막 장에서는 지금까지 다룬 기법 중 셋 — 메모리 레이아웃(`mdspan`), 컴파일 타임 조회 테이블(`consteval`), 할당 경합 제거(PMR 아레나) — 을 한 파이프라인에 모아, TaskGrid의 배치 처리 전체를 "고치기 전"과 "고친 후"로 나란히 벤치마크합니다.
+// end::body[]

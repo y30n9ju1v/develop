@@ -1,0 +1,82 @@
+---
+title: "6장: PMR 스레드 로컬 아레나로 할당 경합 없애기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "pmr", "memory-resource", "concurrency", "performance", "book"]
+categories: ["books"]
+description: "여러 워커 스레드가 전역 힙(operator new/delete)을 두고 경쟁할 때의 할당 병목을, 워커마다 독립된 std::pmr::unsynchronized_pool_resource로 바꿔 4스레드 벤치마크에서 4~5배 빠르게 만드는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-allocate-at-least/[5장: allocate_at_least로 할당 낭비 줄이기] · 다음: link:../07-ranges-zip-pipelines/[7장: views::zip으로 중간 컨테이너 없는 파이프라인 짜기]_
+
+'''
+
+TaskGrid의 워커 여러 개가 동시에 배치를 처리하다 보면, 각자 임시 버퍼를 `new`/`delete`(또는 `std::vector`의 재할당)로 자주 만들었다 지웠다 합니다. 문제는 전역 힙 할당자가 보통 **모든 스레드가 공유하는 자료구조**라는 점입니다 — 스레드 안전성을 위해 내부적으로 락(또는 락 없는 정교한 동기화)을 쓰는데, 워커가 늘어날수록 이 공유 자원을 두고 서로 기다리는 시간이 늘어납니다. C++17의 **PMR**(Polymorphic Memory Resource)로, 워커마다 **자기만의** 메모리 풀을 두어 이 경합을 원천적으로 없앨 수 있습니다.
+
+== 문제: 공유 힙을 두고 다투는 워커들
+
+[source,cpp]
+----
+void worker_shared_heap(int id) {
+  std::vector<std::vector<int>> local;
+  for (int i = 0; i < kAllocsPerThread; i++) {
+    std::vector<int> v(8, id);        // 매번 전역 힙에서 새로 할당
+    local.push_back(std::move(v));
+    if (local.size() > 100) local.clear();
+  }
+}
+----
+
+각 워커가 작은 `std::vector<int>`(원소 8개)를 20만 번 만들었다 지우기를 반복합니다 — 흔한 "배치 하나 처리할 때마다 임시 버퍼가 필요한" 패턴을 단순화한 것입니다. `std::vector`의 내부 할당은 결국 전역 `operator new`/`operator delete`로 이어지고, 이건 프로세스 전체가 공유하는 자원입니다.
+
+== 해법: 워커마다 독립된 PMR 풀
+
+[source,cpp]
+----
+#include <memory_resource>
+
+void worker_pmr_arena(int id) {
+  std::pmr::unsynchronized_pool_resource arena;      // 이 워커만 쓰는 메모리 풀
+  std::pmr::vector<std::pmr::vector<int>> local(&arena);
+  for (int i = 0; i < kAllocsPerThread; i++) {
+    std::pmr::vector<int> v(8, id, &arena);           // 이 풀에서만 할당
+    local.push_back(std::move(v));
+    if (local.size() > 100) local.clear();
+  }
+}
+----
+
+`std::pmr::unsynchronized_pool_resource`는 스레드 하나가 로컬 변수로 만들어서 그 함수 안에서만 쓰는 메모리 풀입니다 — "`unsynchronized`"라는 이름 그대로 락을 전혀 안 씁니다(여러 스레드가 공유하지 않는다는 게 전제이므로 락이 애초에 필요 없습니다). `std::pmr::vector`는 일반 `std::vector`와 인터페이스가 거의 같지만, 마지막 인자로 어떤 메모리 리소스에서 할당받을지 지정합니다. 풀 자체는 한 번 확보한 메모리 블록을 내부적으로 재사용하므로, 반복되는 할당/해제가 전역 힙까지 갈 필요 없이 이 풀 안에서 끝납니다.
+
+== 벤치마크: 4개 워커 스레드
+
+[source,cpp]
+----
+constexpr int kAllocsPerThread = 200'000;
+constexpr int kNumThreads = 4;
+
+// worker_shared_heap과 worker_pmr_arena를 각각 4개 스레드로 동시에 돌리고 시간을 잰다
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -pthread pmr_test.cpp -o pmr_test && ./pmr_test
+shared global heap (4 threads x 200000 allocs): 8.37 ms
+per-thread pmr arena (4 threads x 200000 allocs): 2.10 ms
+----
+
+같은 벤치마크를 여러 번 반복 실행해도 대세는 일관됩니다 — 전역 힙을 공유하는 버전이 워커별 PMR 아레나 버전보다 대략 4~5배 느립니다. 두 가지가 같이 작용합니다: (1) 여러 스레드가 같은 전역 할당자 내부 자료구조를 두고 경합하는 비용, (2) 풀 리소스가 한 번 확보한 블록을 재사용해서 `operator new`/`operator delete`를 실제로 부르는 횟수 자체가 훨씬 줄어드는 효과. 워커 스레드 수를 늘릴수록 (1)의 비중이 커지므로, TaskGrid처럼 워커 수가 늘어날 수 있는 시스템에서는 이 격차가 더 벌어질 가능성이 높습니다(다만 이 장에서는 4개 스레드 규모까지만 실측했습니다).
+
+== 주의할 점: `unsynchronized`는 진짜로 동기화가 없다
+
+`unsynchronized_pool_resource`라는 이름을 정확히 지켜야 합니다 — 이 리소스 객체 자체를 여러 스레드가 공유하면(예: 전역 변수 하나를 모든 워커가 같이 쓰면) 그 순간 동시성 버그가 됩니다. 이 장의 벤치마크가 안전한 이유는 `arena`가 **각 워커 함수의 로컬 변수**이기 때문입니다 — 스레드마다 독립적으로 만들어지고, 그 스레드 안에서만 쓰이고, 그 함수가 끝나면 같이 소멸합니다. 여러 스레드가 자원을 공유해야 하는 경우에는 `std::pmr::synchronized_pool_resource`(락을 포함한 버전)를 대신 써야 합니다 — 다만 그러면 이 장에서 없앤 바로 그 경합이 다시 생깁니다.
+
+== 요약
+
+* `std::pmr::unsynchronized_pool_resource`를 워커 스레드마다 독립적으로 만들어서 쓰면, 전역 힙을 공유할 때 생기는 할당자 내부 경합을 원천적으로 없앨 수 있습니다.
+* 4개 워커 스레드가 각각 20만 번 할당/해제하는 벤치마크에서, 워커별 PMR 아레나가 전역 힙 공유 버전보다 4~5배 빠르다는 걸 반복 실행으로 확인했습니다.
+* `unsynchronized_pool_resource`는 이름 그대로 스레드 간 공유를 전제하지 않으므로, 반드시 스레드 로컬(또는 그에 준하는 격리된) 범위에서만 써야 합니다 — 공유가 필요하면 `synchronized_pool_resource`로 바꿔야 하지만, 그 순간 이 장이 없앤 경합이 되돌아옵니다.
+
+다음 장에서는 할당을 아예 더 줄이는 방향 — `std::views::zip`으로 여러 배열을 중간 컨테이너 없이 짝지어 순회하는 법을 다룹니다.
+// end::body[]

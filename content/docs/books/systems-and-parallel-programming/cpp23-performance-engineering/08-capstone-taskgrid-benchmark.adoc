@@ -1,0 +1,94 @@
+---
+title: "8장: 종합 실전 — TaskGrid 배치 파이프라인 다시 벤치마크하기"
+date: 2026-08-12T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mdspan", "pmr", "consteval", "performance", "book"]
+categories: ["books"]
+description: "레이아웃이 접근 패턴과 어긋난 mdspan, 세그먼트마다 새로 할당하는 임시 버퍼, 매번 다시 계산하는 std::sin 호출을 가진 '고치기 전' TaskGrid 배치 파이프라인을, 올바른 레이아웃 + PMR 스레드 로컬 아레나 + consteval 조회 테이블로 다시 짠 '고친 후' 버전과 4워커 벤치마크로 나란히 비교하는 종합 실전 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-ranges-zip-pipelines/[7장: views::zip으로 중간 컨테이너 없는 파이프라인 짜기] · 다음: link:../09-afterword/[맺음말]_
+
+'''
+
+지금까지 여섯 장에 걸쳐 개별 기법을 하나씩 따로 벤치마크했습니다. 이 장은 그중 세 가지 — 메모리 레이아웃(1장), 컴파일 타임 조회 테이블(4장), PMR 스레드 로컬 아레나(6장) — 를 한 파이프라인에 모아서, TaskGrid의 배치 처리 하나를 "고치기 전"과 "고친 후"로 나란히 벤치마크합니다.
+
+== 시나리오: 세그먼트 4000개, 각 256개 원소
+
+[source,cpp]
+----
+constexpr std::size_t kNumSegments = 4000;
+constexpr std::size_t kSegmentSize = 256;
+constexpr std::size_t kNumWorkers = 4;
+----
+
+`4000`개의 세그먼트, 각 세그먼트마다 `256`개의 원소를 가진 버퍼가 있고, `4`개의 워커가 나눠서 각자 맡은 세그먼트들에 신호 변환(사인 함수 적용)을 적용한 뒤 합계를 낸다고 합시다 — TaskGrid의 배치 처리를 단순화한 모양입니다.
+
+== 고치기 전: 레이아웃이 어긋나고, 매번 할당하고, 매번 계산하는 버전
+
+[source,cpp]
+----
+// buf는 [element][segment] 순서로 저장 -- 세그먼트 단위로 처리하기엔 나쁜 레이아웃
+double naive_process_all(std::vector<double>& buf) {
+  std::mdspan<double, std::dextents<std::size_t, 2>> view(buf.data(), kSegmentSize, kNumSegments);
+  ...
+  for (std::size_t s = w * chunk; s < (w + 1) * chunk; s++) {
+    std::vector<double> temp;               // 세그먼트마다 새로 힙 할당
+    temp.reserve(kSegmentSize);
+    for (std::size_t e = 0; e < kSegmentSize; e++) temp.push_back(std::sin(view[e, s]));  // 매번 계산
+    for (double v : temp) local += v;
+  }
+  ...
+}
+----
+
+세 가지 문제가 한 함수 안에 다 들어 있습니다: (1) 버퍼가 `[element][segment]` 순서로 저장되어 있는데 세그먼트 단위로 순회하니 1장에서 본 것과 같은 캐시 미스가 나고, (2) 세그먼트마다 `std::vector<double> temp`를 새로 만드니 여러 워커 스레드가 전역 힙을 두고 경합하고(6장), (3) `std::sin`을 원소마다 실제로 계산합니다(4장).
+
+== 고친 후: 레이아웃을 맞추고, 아레나를 쓰고, 테이블을 조회하는 버전
+
+[source,cpp]
+----
+// buf를 [segment][element] 순서로 재해석 -- 세그먼트 단위 순회와 일치
+double optimized_process_all(std::vector<double>& buf) {
+  std::mdspan<double, std::dextents<std::size_t, 2>> view(buf.data(), kNumSegments, kSegmentSize);
+  ...
+  workers.emplace_back([&, w] {
+    std::pmr::unsynchronized_pool_resource arena;      // 워커별 아레나 (6장)
+    for (std::size_t s = w * chunk; s < (w + 1) * chunk; s++) {
+      std::pmr::vector<double> temp(&arena);            // 아레나에서 할당
+      temp.reserve(kSegmentSize);
+      for (std::size_t e = 0; e < kSegmentSize; e++) temp.push_back(fast_sin(view[s, e]));  // 조회 (4장)
+      for (double v : temp) local += v;
+    }
+    ...
+  });
+  ...
+}
+----
+
+같은 버퍼, 같은 논리적 계산이지만 세 가지를 동시에 고쳤습니다: `view`의 차원 순서를 `[segment][element]`로 바꿔서(같은 `buf` 메모리를 그냥 다르게 해석한 것뿐입니다 — 복사는 없습니다) 순회 순서와 저장 순서를 맞췄고, 세그먼트마다 새로 만들던 `std::vector`를 워커별 PMR 아레나에서 할당받는 `std::pmr::vector`로 바꿨고, `std::sin` 호출을 4장의 `fast_sin`(조회 테이블) 호출로 바꿨습니다.
+
+== 벤치마크
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -pthread capstone_bench.cpp -o capstone_bench && ./capstone_bench
+naive (bad layout + per-segment new + std::sin): 1.60 ms (checksum=470299.57)
+optimized (row-major layout + pmr arena + LUT):  0.75 ms (checksum=469633.94)
+----
+
+여러 번 반복 실행해도 일관되게 "고친 후" 버전이 대략 2배 빠릅니다. 체크섬 값이 완전히 똑같지 않다는 점(`470299.57` vs `469633.94`)도 눈여겨볼 만합니다 — 4장에서 짚었듯 `fast_sin`은 `4096`칸 조회 테이블에 의한 근사이므로 `std::sin`과 비트 단위로 같지는 않습니다. 이 파이프라인이 "정확히 같은 계산을 더 빠르게" 한 게 아니라 "약간의 정밀도를 속도와 맞바꿨다"는 걸 checksum 차이가 정직하게 보여줍니다 — 실전에서 이런 트레이드오프를 쓸지는 그 오차가 허용 가능한 자리인지에 달려 있습니다(순수하게 레이아웃과 아레나만 바꾸고 `std::sin`은 그대로 뒀다면, 정확한 값은 유지하면서도 여전히 속도 이득의 상당 부분을 가져갈 수 있었을 것입니다).
+
+== 어느 기법이 가장 크게 기여했는가
+
+이 장의 벤치마크는 세 가지를 한꺼번에 바꿨기 때문에, 그 자체로는 "어느 하나가 얼마나 기여했는지" 분리해서 보여주지 못합니다 — 그건 정확히 1, 4, 6장이 각자 따로 측정한 몫입니다(레이아웃 정렬은 최대 2배 넘게, LUT 조회는 최대 6배 가까이, PMR 아레나는 4~5배). 이 장이 보여주고 싶었던 건 "각각 따로 검증한 최적화들이 한 파이프라인 안에서 합쳐져도 서로 상쇄되지 않고 실제로 함께 작동한다"는 것입니다 — 개별 벤치마크가 실전 코드에서도 재현된다는 걸 확인하는 게 이 장의 요점입니다.
+
+== 요약
+
+* TaskGrid 배치 처리 파이프라인 하나를 두고, 레이아웃이 어긋나고 매번 할당하고 매번 계산하는 "고치기 전" 버전과, 세 가지를 동시에 고친 "고친 후" 버전을 나란히 벤치마크해서 약 2배의 속도 차이를 확인했습니다.
+* 그 속도 차이의 일부는 정밀도와 맞바꾼 것(`consteval` LUT의 근사 오차)이라는 걸 체크섬 값의 미세한 차이로 정직하게 드러냈습니다.
+* 개별 장에서 따로 검증한 최적화 기법들이 한 파이프라인에 합쳐져도 서로 상쇄되지 않고 함께 작동한다는 걸 확인했지만, 이 벤치마크만으로는 세 기법 각각의 개별 기여도를 분리할 수 없다는 것도 짚었습니다.
+
+맺음말에서는 이 책이 다룬 기법들을 다시 정리하고, 전작의 안전성 기법들과 이번 성능 기법들이 실전에서 어떻게 함께 쓰이는지, 그리고 이 책이 다루지 않은 것을 안내합니다.
+// end::body[]
