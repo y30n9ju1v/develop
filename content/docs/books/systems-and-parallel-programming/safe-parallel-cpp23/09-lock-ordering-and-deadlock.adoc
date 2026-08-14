@@ -166,6 +166,51 @@ void unsafe_variant(int from, int to) {
 
 `notify_and_maybe_relock()`이 내부에서 `pending_mus_[to]`를 다시 잠그려 시도한다면(또는 그 함수가 다시 우리 락을 필요로 하는 다른 함수를 부른다면), `scoped_lock`이나 락 순서 규칙 그 자체는 이 상황을 전혀 못 막습니다 — 둘 다 "지금 이 순간 동시에 잠그려는 락들"에 대해서만 작동하는 도구이기 때문입니다. 그래서 실전 규율은 도구 위에 하나 더 필요합니다 — **락을 쥔 채로 자기가 뭘 하는지 모르는 코드(콜백, 가상 함수, 다른 모듈의 함수)를 부르지 않는다**는 원칙, 또는 모든 자원(뮤텍스든 아니든)에 대해 앞서 정한 전역 순서를 예외 없이 지킨다는 원칙입니다. `std::scoped_lock`은 "같은 자리에서 여러 락을 잡을 때"의 실수를 도구로 없애주지만, "설계 전체에 걸쳐 일관된 락 순서를 지킬 것"이라는 더 큰 책임까지 대신 져주지는 않습니다 — 이 책이 4장에서 짚은 "도구의 보장은 정확히 여기서 끝나고, 그다음부터는 다시 프로그래머의 몫"이라는 패턴이 여기서도 그대로 반복됩니다. (13장에서는 이 패턴을 또 다른 도구 — TSan 자체 — 의 한계로 다시 만나게 됩니다.)
 
+== 실전 비교: 타입 상태 vs Clang Thread Safety Analysis
+
+이 책의 2~5장은 락과 채널의 안전성을 **타입 시스템**으로 강제했습니다(3장의 `Idle`/`Connected`처럼, 상태마다 다른 타입을 만들어 잘못된 순서를 컴파일 에러로 만드는 방식). 실전 대규모 C++ 프로젝트(구글 내부 코드베이스, Chromium, Abseil 등)에서는 이것과는 다른 축의 도구를 씁니다 — Clang이 제공하는 **Thread Safety Analysis**(`-Wthread-safety`)로, 뮤텍스와 "그 뮤텍스가 지켜야 할 변수"를 어노테이션으로 직접 엮습니다.
+
+[source,cpp]
+----
+#include <mutex>
+
+class __attribute__((capability("mutex"))) Mutex {
+public:
+  void Lock() __attribute__((acquire_capability())) { mu_.lock(); }
+  void Unlock() __attribute__((release_capability())) { mu_.unlock(); }
+private:
+  std::mutex mu_;
+};
+
+class Counter {
+  Mutex mu_;
+  int value_ __attribute__((guarded_by(mu_))) = 0;  // "이 변수는 mu_ 없이는 못 만진다"
+public:
+  void increment() {
+    mu_.Lock();
+    value_++;
+    mu_.Unlock();
+  }
+  int bad_read() {
+    return value_;  // 락 없이 guarded_by 변수를 읽음
+  }
+};
+----
+
+[source]
+----
+$ clang++ -std=c++23 -Wthread-safety -c tsa_example.cpp -o /tmp/tsa_example.o
+tsa_example.cpp:19:12: warning: reading variable 'value_' requires holding
+mutex 'mu_' [-Wthread-safety-analysis]
+   19 |     return value_;
+      |            ^
+1 warning generated.
+----
+
+`bad_read()`가 `mu_`를 안 잠그고 `value_`를 읽는데, 이건 **런타임 도구(TSan)가 아니라 정적 분석**(컴파일 시점)으로 잡힙니다 — `[[clang::guarded_by(mu_)]]`(실전에서는 보통 Abseil의 `ABSL_GUARDED_BY` 매크로로 감싸서 씁니다)라는 어노테이션이 "이 변수는 이 락을 쥐지 않고는 못 만진다"는 규칙을 컴파일러에게 알려주면, 컴파일러가 모든 읽기/쓰기 지점에서 그 락이 실제로 잡혀 있는지 정적으로 추적합니다.
+
+두 접근의 근본적인 차이는 **무엇을 타입으로 인코딩하는가**입니다. 이 책의 타입 상태 패턴은 "상태"(연결됐다/안 됐다) 자체를 새 타입(`Idle`/`Connected`)으로 만들어서, 그 상태 전이가 함수 시그니처 차원에서 강제됩니다 — 표준 C++ 문법(`class`, rvalue 한정)만으로 되므로 어떤 컴파일러에서도 동작하지만, 상태가 늘어날수록 타입도 그만큼 늘어나야 합니다. Clang TSA는 반대로 **기존 타입은 그대로 두고** 어노테이션만 덧붙입니다 — `int` 하나에 "이건 이 락으로 지켜진다"는 사실만 얹으면 되니 기존 코드베이스에 점진적으로 적용하기 쉽지만, `-Wthread-safety`를 지원하는 컴파일러(Clang 계열)에서만 동작하고 GCC나 MSVC로 옮기면 그 보장이 통째로 사라집니다. 이 책 전체가 "표준 C++만으로" 안전성을 인코딩하는 데 집중해온 이유가 바로 이식성이었던 만큼, TSA는 "Clang을 표준 빌드 컴파일러로 못 박을 수 있다면" 고려할 만한 보완재입니다 — 둘 중 하나를 고르는 문제라기보다는, 9장까지 다뤄온 타입 상태로 "무엇을 할 수 있는가"의 순서를, TSA로 "무엇을 잠그지 않고 만지면 안 되는가"를 각각 다른 층위에서 강제하는 조합으로 실전에서는 흔히 함께 씁니다.
+
 == 팁 박스: C++17 환경이라면
 
 [NOTE]
@@ -208,6 +253,7 @@ released segment 0
 * 이 세션 환경의 Apple Clang 21 / Darwin ThreadSanitizer는 뮤텍스 lock-order-inversion 진단을 내지 않는다는 걸 최소 재현 예제로 직접 검증하고 정직하게 밝혔습니다 — 대신 "고치기 전엔 실제로 멈추고, 고치고 나면 실제로 안 멈춘다"는 재현 가능한 전후 대비로 버그와 수정을 증명했습니다.
 * `std::scoped_lock`(여러 뮤텍스를 데드락 회피 알고리즘으로 한 번에 잠그는 1차 해법)과, 뮤텍스가 아닌 자원에도 적용되는 전역 락 순서 규칙(2차 해법) 모두 실제로 컴파일·실행해서 더는 멈추지 않는다는 걸 확인했습니다.
 * `std::scoped_lock`의 보장은 **그 호출 한 번에 동시에 넘겨진 락들 사이에서만** 유효하고, 락을 쥔 채로 다른 곳에서 또 락을 잡는 코드까지는 못 막는다는 걸 정직하게 짚었습니다 — 4장이 짚어온 "도구의 보장은 정확히 여기서 끝난다"는 패턴이 여기서도 그대로 반복됩니다.
+* 이 책의 타입 상태 패턴(상태를 타입으로 인코딩, 표준 C++이면 어디서든 동작)과 실전에서 널리 쓰이는 Clang Thread Safety Analysis(`guarded_by` 등 어노테이션으로 기존 타입에 락 규칙을 덧붙임, Clang 전용)를 실제로 컴파일해 비교하고, 서로 다른 층위(무엇을 할 수 있는가 vs 무엇을 잠그지 않고 만지면 안 되는가)를 강제하는 도구로 함께 쓸 수 있다는 것도 확인했습니다.
 
 4부에서는 이 책의 세 번째 이론 — 범주론 — 을 concepts로 인코딩합니다. 8장에서 완성한 `WorkerSession`이 배치를 처리한 **결과**를 `std::optional`/`std::expected` 기반 Functor/Monad 인터페이스로 감싸는 것부터 시작합니다.
 // end::body[]
