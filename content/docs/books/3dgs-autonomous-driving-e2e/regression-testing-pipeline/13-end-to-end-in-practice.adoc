@@ -1,0 +1,158 @@
+---
+title: "13장: 종합 실전 — 체크포인트 하나가 게이트에 막히기까지"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["end-to-end", "case-study", "argo-workflows", "regression-testing", "book"]
+categories: ["books"]
+description: "새 3DGS 체크포인트 하나가 push된 순간부터 Argo Workflow DAG 실행, 지표 계산, 통계적 게이트 판정, Rerun 시각화, PR 차단까지 전체 파이프라인을 실제 예시 숫자로 처음부터 끝까지 따라가는 종합 실전 13장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-scaling-to-cloud/[12장: 클라우드로 확장하기] · 다음: link:../14-closed-loop-driving-metrics/[14장: 폐루프 주행 평가 지표를 게이트에 통합하기]_
+
+'''
+
+지금까지 조각조각 쌓아온 파이프라인을 이 장에서 처음부터 끝까지 하나의 이야기로 따라갑니다. 3DGS 재구성 모델의 새 체크포인트 `checkpoint-2026-08-14-rc7`이 학습 파이프라인에서 막 나왔다고 가정합니다.
+
+== 0. 무대: 지금까지 쌓인 것
+
+* 활성 골든런은 `checkpoint-2026-05-18-rc3`(4장)이고, 전체 평균 PSNR `31.20dB`, SSIM `0.891`, 평균 재투영 오차 `0.68px`로 승격 당시 검증되었습니다.
+* 베이스라인 데이터셋은 슬라이스 `weather×time_of_day×road_type×speed_bucket` 조합으로 112개 시퀀스를 커버합니다(4장).
+* `tolerance_bands.yaml`(8장, 11장 노이즈 감시로 최근 갱신됨)은 PSNR `min_effect=0.15dB`, 신뢰수준 `95%`로 설정되어 있습니다.
+
+== 1. 트리거: 체크포인트 push
+
+학습 잡이 `s3://model-checkpoints/checkpoints/checkpoint-2026-08-14-rc7.pt`를 업로드합니다. 9장에서 구성한 Argo Events Sensor가 이 업로드를 감지하고, 6장의 `regression-workflow.yaml`을 자동 제출합니다.
+
+[source]
+----
+$ argo list -n argo
+NAME                          STATUS    AGE   DURATION   PRIORITY
+regression-test-auto-9k2lm    Running   12s   12s        0
+----
+
+== 2. DAG 실행: fetch-baseline과 render-candidate가 병렬로
+
+[source]
+----
+STEP                    TEMPLATE               PODNAME                       DURATION
+ ● regression-test-auto-9k2lm  regression-dag
+ ├─✔ fetch-baseline      fetch-baseline-tpl     ...-fetch-baseline-2k9x1       4s
+ └─● render-candidate    render-candidate-tpl   ...-render-candidate-8f31q     1m 52s
+----
+
+`render-candidate`는 12장에서 프로비저닝한 GPU 스팟 노드 위에서, 베이스라인 매니페스트 `v2026.05.20`의 112개 시퀀스 전체를 `checkpoint-2026-08-14-rc7`로 렌더링합니다(8장의 통계적 검정을 위해 노이즈가 큰 슬라이스로 표시된 시퀀스는 9회 반복, 나머지는 3회 반복 — 반복 횟수 자체를 슬라이스 노이즈 특성에 맞춰 차등화한 것은 11장 논의의 실전 적용입니다).
+
+== 3. 지표 계산: 슬라이스별 롤업까지
+
+`compute-metrics-tpl`(7장)이 끝나면 다음과 같은 리포트가 나옵니다(발췌).
+
+[source,json]
+----
+{
+  "checkpoint_uri": "s3://model-checkpoints/checkpoints/checkpoint-2026-08-14-rc7.pt",
+  "manifest_version": "v2026.05.20",
+  "overall": {
+    "psnr_db": {"mean": 31.08, "std": 0.44, "p95_worst": 30.02},
+    "ssim":    {"mean": 0.889, "std": 0.019, "p95_worst": 0.851},
+    "lpips":   {"mean": 0.094, "std": 0.015, "p95_worst": 0.128},
+    "mean_reprojection_error_px": {"mean": 0.71, "std": 0.29, "p95_worst": 1.31}
+  },
+  "by_slice": {
+    "weather=clear":  {"n_sequences": 68, "psnr_db_mean": 31.62, "ssim_mean": 0.903},
+    "weather=rain":   {"n_sequences": 14, "psnr_db_mean": 28.44, "ssim_mean": 0.842},
+    "time_of_day=night": {"n_sequences": 11, "psnr_db_mean": 28.61, "ssim_mean": 0.838}
+  }
+}
+----
+
+전체 평균 PSNR(`31.08dB`)만 보면 골든런(`31.20dB`) 대비 `0.12dB` 하락으로, `tolerance_bands.yaml`의 `min_effect=0.15dB`에도 못 미치는 미미한 차이처럼 보입니다. 하지만 `weather=rain` 슬라이스는 `28.44dB`로, 골든런 승격 당시 이 슬라이스의 기록값(`29.87dB`)보다 `1.43dB`나 낮습니다.
+
+== 4. 통계적 게이트: 전체는 통과, 슬라이스는 회귀
+
+8장의 부트스트랩 검정을 전체와 각 슬라이스에 대해 돌립니다.
+
+[source]
+----
+$ python -m compare.run_compare --baseline=... --candidate=... --report-out=/out/regression_report.json
+
+scope=overall            metric=psnr_db  delta=0.12   CI=[-0.05, 0.29]  regression=False
+scope=slice:weather=rain metric=psnr_db  delta=1.43   CI=[0.98, 1.87]   regression=True
+scope=slice:weather=rain metric=ssim     delta=0.041  CI=[0.021, 0.061] regression=True
+scope=slice:time_of_day=night metric=mean_reprojection_error_px delta=-0.08 CI=[-0.34, 0.19] regression=False
+
+overall_gate_result: FAIL (1개 슬라이스에서 회귀 감지: weather=rain)
+----
+
+전체 평균만 보는 대시보드였다면 이 회귀는 조용히 통과해 배포까지 흘러갔을 것입니다 — 2장에서 경고했던 "슬라이스를 나누지 않으면 놓치는 회귀"가 정확히 여기서 실현됩니다. `compare-and-gate` 컨테이너는 `overall_gate_result: FAIL`을 확인하고 종료 코드 1로 끝나, 워크플로 전체가 `Failed`로 표시됩니다.
+
+[source]
+----
+STEP                    TEMPLATE                PODNAME    DURATION  MESSAGE
+ ✔ fetch-baseline        fetch-baseline-tpl                 4s
+ ✔ render-candidate      render-candidate-tpl               1m52s
+ ✔ compute-metrics       compute-metrics-tpl                9s
+ ✘ compare-and-gate      compare-and-gate-tpl                3s        회귀 감지됨
+ ✔ visualize-on-failure  visualize-tpl                       41s
+----
+
+`compare-and-gate.Failed` 조건(10장)이 자동으로 `visualize-on-failure` 단계를 트리거해, `weather=rain` 슬라이스에 속한 14개 시퀀스에 대해 Rerun 레코딩을 생성합니다.
+
+== 5. 알림과 시각 확인
+
+9장의 Slack 알림이 도착합니다.
+
+[source]
+----
+*회귀 감지*: v2026.05.20 체크포인트 게이트 실패
+  - `slice:weather=rain` / `psnr_db`: Δ=1.430
+  - `slice:weather=rain` / `ssim`: Δ=0.041
+
+*시각적 확인*:
+  - <https://minio.internal/.../seq-0042_diff.rrd|seq-0042 Rerun 뷰어에서 열기>
+  - <https://minio.internal/.../seq-0055_diff.rrd|seq-0055 Rerun 뷰어에서 열기>
+  - ... (총 14개)
+----
+
+리뷰어가 `seq-0042`(우천 야간 도심 구간)를 Rerun에서 열어 프레임을 스크럽합니다. 프레임 120번 부근부터 후보(주황) 렌더링에서 젖은 노면의 반사가 심하게 뭉개지는 것을 확인하고, 같은 구간의 포인트클라우드를 겹쳐보니 후보의 가우시안들이 노면 근처에서 베이스라인보다 훨씬 넓게 흩어져 있는 것을 발견합니다.
+
+== 6. 원인 추적: 렌더링 문제인가, 포즈 문제인가
+
+7장에서 함께 계산해둔 재투영 오차를 확인합니다 — `weather=rain` 슬라이스의 재투영 오차는 회귀로 판정되지 않았습니다(`CI`가 0을 포함). 즉 입력 포즈 품질은 정상 범위이고, 문제는 모델 자체(혹은 5장에서 다룬 의존성 — 이번 학습에서 3DGS 밀도화 임계값을 조정한 이력이 있었습니다)에 있다는 결론을 내릴 수 있습니다. 이것이 바로 2장에서 렌더링 품질 지표와 기하 지표를 나란히 두기로 한 이유가 실전에서 값을 발휘하는 지점입니다 — 만약 재투영 오차도 함께 나빠졌다면 원인 후보가 완전히 달라졌을 것입니다.
+
+== 7. 게이트가 머지를 막다
+
+이 워크플로는 자동 트리거(체크포인트 push)로 시작됐지만, 같은 체크포인트를 릴리스 후보로 승격하려는 PR도 별도로 열려 있었습니다. 9장에서 설정한 브랜치 보호 규칙 덕분에, 이 PR의 필수 체크(`regression-gate`)가 `Failed` 상태를 그대로 반영해 머지 버튼이 비활성화됩니다.
+
+[source]
+----
+✘ regression-gate — 1개 슬라이스(weather=rain)에서 회귀 감지 (Details)
+   Merging is blocked
+----
+
+팀은 이번 학습에서 조정한 밀도화 임계값을 되돌리거나, 우천 야간 조건에 특화된 정규화를 추가하는 후속 실험을 시작합니다 — 다음 체크포인트(`rc8`)가 나오면 이 파이프라인이 다시 처음부터(1단계) 돌아갑니다.
+
+== 8. 이 사이클의 총 비용
+
+12장에서 다룬 자원 기록 로직으로 이번 실행의 비용을 확인합니다.
+
+[source]
+----
+{"workflow_name": "regression-test-auto-9k2lm", "gpu_node_seconds": 892,
+ "spot": true, "estimated_cost_usd": 0.0867}
+----
+
+스팟 인스턴스 덕분에 GPU 렌더링 약 15분(112개 시퀀스, 노이즈 큰 슬라이스는 9회 반복)에 대한 비용이 10센트 미만입니다. 이 비용으로 사람이 눈으로 검수했다면 몇 시간이 걸렸을 회귀(전체 평균으로는 드러나지 않는, 특정 조건에서만 나타나는 1.4dB 하락)를 자동으로, 반복 가능하게 잡아냈습니다 — 이것이 이 책 전체가 만들고자 한 것입니다.
+
+== 요약
+
+* 체크포인트 push 한 번이 Argo Events 트리거, 병렬 DAG 실행, 슬라이스별 지표 계산, 부트스트랩 통계 게이트, 조건부 Rerun 시각화, CI 게이트를 거쳐 자동으로 머지 차단까지 이어지는 전체 흐름을 확인했습니다.
+* 전체 평균 지표는 통과였지만 `weather=rain` 슬라이스만 유의한 회귀(PSNR -1.43dB)를 보인 사례로, 슬라이스별 판정(2장)의 실전 가치를 확인했습니다.
+* 렌더링 품질 지표와 재투영 오차를 나란히 봄으로써, 회귀의 원인이 입력 포즈가 아니라 모델(밀도화 임계값 변경) 쪽에 있다는 것을 구분할 수 있었습니다.
+* 스팟 인스턴스와 오토스케일링(12장) 덕분에 전체 사이클이 10센트 미만의 비용으로 끝났습니다.
+
+== 연습문제
+
+. 이 시나리오에서 만약 `weather=rain` 슬라이스의 시퀀스가 4장 기준(최소 3개) 미만이었다면 어떤 문제가 있었을지, 8장의 통계적 검정이 그런 상황에서 왜 신뢰하기 어려운지 설명해보세요.
+. 여러분이 이 팀의 엔지니어라면, 이번 회귀의 근본 원인(밀도화 임계값 변경)을 다음 체크포인트에서 어떻게 검증할지 — 즉 "이번엔 정말 고쳐졌다"를 어떻게 이 파이프라인으로 확인할지 — 계획을 세워보세요.
+// end::body[]

@@ -1,0 +1,165 @@
+---
+title: "12장: 클라우드로 확장하기"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["eks", "gke", "gpu-node-pool", "spot-instances", "autoscaling", "book"]
+categories: ["books"]
+description: "로컬 kind 클러스터에서 실제 클라우드 GPU 노드 풀(EKS/GKE)로 파이프라인을 옮기는 법, 스팟 인스턴스·오토스케일링을 통한 비용 통제, 그리고 Argo Workflow 매니페스트가 거의 그대로 포팅되는 이유를 다루는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-flaky-tests-and-noise/[11장: 플레이키 테스트와 노이즈] · 다음: link:../13-end-to-end-in-practice/[13장: 종합 실전]_
+
+'''
+
+지금까지 파이프라인 전체를 `kind` 클러스터 위에서 설계했습니다(그리고 로컬에서는 GPU가 필요한 렌더링 단계를 5장의 목 모드로 대체해 배선만 검증했습니다). 이 장에서는 이 파이프라인을 실제 GPU가 있는 클라우드 클러스터로 옮기는 법과, 클라우드 특유의 새로운 고려사항 — 비용 — 을 다룹니다.
+
+== 무엇이 그대로 옮겨가고, 무엇이 바뀌는가
+
+`kind`가 실제 Kubernetes API를 그대로 구현하기 때문에, 대부분의 자산은 변경 없이 포팅됩니다.
+
+**그대로 옮겨가는 것**: Argo Workflow DAG 정의(6장), 아티팩트 흐름 배선, `retryStrategy`(11장), Argo Events의 EventSource/Sensor 정의(9장), 컨테이너 이미지 자체(5장 — 다만 이미지 레지스트리 주소는 바뀝니다).
+
+**바뀌는 것**: 클러스터 프로비저닝 방식(`kind create cluster` 대신 관리형 서비스), GPU 노드 풀 설정과 드라이버 설치 방식, 아티팩트 저장소(MinIO 대신 실제 S3/GCS — 다만 API 호환 계층 덕에 클라이언트 코드는 거의 그대로), 그리고 무엇보다 **비용을 통제하는 계층**이 새로 필요해진다는 점입니다.
+
+== EKS에 GPU 노드 풀 만들기
+
+Amazon EKS를 예로 들면, GPU 노드 그룹을 별도로 정의하고 3장의 `nodeSelector: {workload: eval-jobs}` 패턴을 그대로 재사용합니다.
+
+[source,yaml]
+----
+# eksctl-gpu-nodegroup.yaml
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: regression-cluster
+  region: ap-northeast-2
+
+managedNodeGroups:
+  - name: gpu-eval-nodes
+    instanceType: g5.xlarge
+    minSize: 0
+    maxSize: 8
+    desiredCapacity: 0          # 오토스케일러가 필요할 때만 노드를 띄움
+    spot: true                  # 아래에서 다시 다룸
+    labels:
+      workload: eval-jobs
+    taints:
+      - key: nvidia.com/gpu
+        value: "true"
+        effect: NoSchedule
+    tags:
+      pipeline: regression-testing
+----
+
+`taints`를 GPU 노드에 걸어두면, GPU를 요구하지 않는 파드(6장의 `compute-metrics-tpl`, `compare-and-gate-tpl` 같은)가 실수로 비싼 GPU 노드에 스케줄링되는 것을 막을 수 있습니다. 6장의 `render-candidate-tpl`에는 이에 대응하는 `tolerations`를 추가합니다.
+
+[source,yaml]
+----
+      tolerations:
+        - key: "nvidia.com/gpu"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+----
+
+NVIDIA GPU 드라이버와 디바이스 플러그인은 클라우드 관리형 AMI에 이미 포함되어 있거나, `NVIDIA GPU Operator`를 클러스터에 설치해 자동으로 관리합니다 — `kind`에서는 이 단계가 없었지만(로컬에서는 목 모드로 우회했으므로), 클라우드에서는 필수 단계입니다.
+
+== 스팟 인스턴스와 오토스케일링으로 비용 통제하기
+
+렌더링 잡은 GPU를 요구하지만, 상시로 GPU 노드가 떠 있을 필요는 없습니다 — 9장에서 다룬 대로 이벤트(체크포인트 push, PR)가 있을 때만 워크플로가 실행되므로, 그 사이에는 GPU 노드가 0대여도 됩니다. 위 노드그룹 설정에서 `minSize: 0`, `desiredCapacity: 0`으로 두고, Kubernetes 클러스터 오토스케일러(Cluster Autoscaler)가 대기 중인(Pending) 파드가 생기면 자동으로 노드를 띄우고, 일정 시간 유휴 상태면 다시 0으로 줄이도록 설정합니다.
+
+[source,yaml]
+----
+# cluster-autoscaler 설정 (발췌)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      containers:
+        - name: cluster-autoscaler
+          image: registry.k8s.io/autoscaling/cluster-autoscaler:v1.29.3
+          command:
+            - ./cluster-autoscaler
+            - --scale-down-unneeded-time=5m
+            - --scale-down-delay-after-add=5m
+            - --nodes=0:8:regression-cluster-gpu-eval-nodes
+            - --balance-similar-node-groups
+----
+
+`spot: true`(스팟 인스턴스)는 온디맨드 가격의 60~90% 할인을 받는 대신, 클라우드 사업자가 필요하면 짧은 예고 후 인스턴스를 회수할 수 있다는 위험을 감수합니다. 렌더링 잡은 수 분 안에 끝나는 배치 작업이고 11장의 `retryStrategy`(`OnTransientError`)가 이미 인프라 수준 실패에 대한 재시도를 갖추고 있으므로, 스팟 인스턴스 회수는 대부분 재시도로 자연스럽게 흡수됩니다.
+
+[source,yaml]
+----
+      retryStrategy:
+        limit: 3                          # 스팟 회수 가능성을 고려해 재시도 횟수를 조금 늘림
+        retryPolicy: "OnTransientError"
+        backoff: {duration: "30s", factor: 2}
+      nodeSelector:
+        workload: eval-jobs
+        eks.amazonaws.com/capacityType: SPOT
+----
+
+비용에 특히 민감한 조직이라면, 골든런 승격이나 릴리스 후보 검증처럼 신뢰성이 중요한 실행만 온디맨드 노드에, 일상적인 PR 검증은 스팟 노드에 스케줄링하도록 `nodeSelector`를 워크플로 파라미터로 분기할 수도 있습니다.
+
+== 아티팩트 저장소를 MinIO에서 S3로
+
+3장에서 MinIO를 쓴 이유가 S3 API와 호환되기 때문이었다는 것을 기억하면, 이 전환은 설정값 몇 개를 바꾸는 것으로 끝납니다.
+
+[source,yaml]
+----
+# 클라우드용 artifact-repositories ConfigMap (발췌)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artifact-repositories
+  namespace: argo
+data:
+  s3-regression-bucket: |
+    s3:
+      bucket: regression-baselines-prod
+      region: ap-northeast-2
+      endpoint: s3.ap-northeast-2.amazonaws.com
+      useSDKCreds: true          # IRSA(IAM Role for Service Account)로 자격 증명 관리
+----
+
+애플리케이션 코드(4장의 `resolve_active_golden_run`, 7장의 지표 리포트 저장 로직)는 `boto3` 클라이언트를 그대로 쓰므로 엔드포인트만 바뀔 뿐 코드 변경이 필요 없습니다. 다만 자격 증명 방식은 MinIO의 고정된 액세스 키 대신, 클라우드 네이티브 방식(EKS의 IRSA, GKE의 Workload Identity)으로 바꾸는 것이 보안상 바람직합니다.
+
+== 여러 리전/클러스터로 파이프라인을 나눠야 할 때
+
+평가 데이터셋과 GPU 자원 규모가 커지면, 단일 클러스터로는 처리량이 부족해질 수 있습니다. 이 경우 6장의 DAG를 시퀀스 그룹 단위로 병렬 분산 실행하는 패턴(Argo Workflow의 `withParam`을 이용한 팬아웃)으로 확장할 수 있습니다. 다만 이 책은 그 세부 구현까지 깊이 들어가지는 않습니다 — 12장의 목표는 "포팅이 대부분 매니페스트 값 조정으로 끝난다"는 것을 확인하는 데 있고, 대규모 분산 스케줄링은 이 책이 다루지 않는 것(맺음말 참고)으로 남겨둡니다.
+
+== 비용 대시보드에 GPU 시간을 함께 기록하기
+
+회귀 리포트(7장 스키마)에 실행에 든 GPU 노드 시간을 함께 기록해두면, 나중에 "PR마다 얼마의 비용이 드는가"를 추적할 수 있습니다.
+
+[source,python]
+----
+def record_resource_usage(workflow_name: str, gpu_node_seconds: float, spot: bool) -> dict:
+    # 예시 단가: g5.xlarge 온디맨드 $1.006/hr, 스팟 약 $0.35/hr (리전/시점에 따라 변동)
+    hourly_rate = 0.35 if spot else 1.006
+    cost_usd = (gpu_node_seconds / 3600) * hourly_rate
+    return {"workflow_name": workflow_name, "gpu_node_seconds": gpu_node_seconds,
+            "spot": spot, "estimated_cost_usd": round(cost_usd, 4)}
+----
+
+이 값은 13장의 종합 실전 예시에서 다시 등장합니다.
+
+== 요약
+
+* `kind`에서 검증한 Argo Workflow DAG, 아티팩트 배선, 재시도 정책은 대부분 값만 바꿔 클라우드 클러스터로 그대로 포팅됩니다.
+* GPU 노드 풀은 `taints`/`tolerations`로 GPU가 필요 없는 파드가 스케줄링되지 않도록 분리하고, 오토스케일러로 유휴 시 노드를 0대까지 줄여 비용을 통제합니다.
+* 스팟 인스턴스는 큰 비용 절감을 주는 대신 회수 위험을 감수하며, 이미 갖춰둔 `retryStrategy`(11장)가 이 위험을 대부분 흡수합니다.
+* MinIO에서 실제 S3/GCS로의 전환은 API 호환성 덕분에 애플리케이션 코드 변경 없이 설정값 교체로 끝나지만, 자격 증명 방식은 클라우드 네이티브 방식으로 바꾸는 것이 바람직합니다.
+* GPU 노드 시간과 비용을 회귀 리포트에 함께 기록해두면 파이프라인 운영 비용을 지속적으로 추적할 수 있습니다.
+
+== 연습문제
+
+. `retryStrategy.limit`을 3으로 늘린 것이 스팟 인스턴스 회수 위험을 흡수하는 데 충분한지, 만약 재시도 3번이 모두 스팟 회수로 실패하면 어떤 안전장치(예: 마지막 시도만 온디맨드로 전환)를 추가로 둘 수 있을지 설계해보세요.
+. 여러분의 조직에서 이 파이프라인을 운영한다면, "PR 검증"과 "골든런 승격"에 각각 스팟과 온디맨드 중 어느 쪽을 쓸지 판단 기준(신뢰성 요구 수준 대 비용)을 정리해보세요.
+// end::body[]

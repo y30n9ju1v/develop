@@ -1,0 +1,184 @@
+---
+title: "10장: Rerun으로 베이스라인-후보 3D 시각 비교하기"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["rerun", "visualization", "3d", "point-cloud", "trajectory", "book"]
+categories: ["books"]
+description: "자동 게이트가 회귀를 감지했을 때, Rerun으로 베이스라인과 후보 체크포인트의 렌더링·포인트클라우드·궤적을 나란히 로깅해 사람이 원인을 눈으로 확인할 수 있는 리뷰 가능한 시각적 diff를 만드는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-cicd-integration/[9장: CI/CD 연동하기] · 다음: link:../11-flaky-tests-and-noise/[11장: 플레이키 테스트와 노이즈]_
+
+'''
+
+8장의 통계적 게이트가 "회귀 있음"이라고 판정했다고 해서 끝이 아닙니다 — 사람은 여전히 "정확히 어떤 장면에서, 어떻게 나빠졌는지" 눈으로 확인하고 싶어 합니다. 숫자 하나(PSNR -0.4dB)는 원인을 말해주지 않습니다. 이 장에서는 Rerun으로 베이스라인과 후보 체크포인트의 결과를 나란히 로깅해, 사람이 클릭 몇 번으로 원인을 파고들 수 있는 리뷰 화면을 만듭니다.
+
+== Rerun이 이 파이프라인에서 맡는 역할
+
+Rerun은 시간에 따라 변하는 멀티모달 데이터(이미지, 포인트클라우드, 3D 변환, 스칼라 시계열)를 하나의 타임라인 위에 로깅하고, 뷰어에서 인터랙티브하게 스크럽하며 볼 수 있게 해주는 도구입니다. 이 파이프라인에서는 자동 게이트가 실패한 경우에만 Rerun 로깅을 수행합니다 — 매 실행마다 모든 프레임을 로깅하면 저장 비용과 로깅 시간이 커지므로, "사람이 봐야 할 순간"으로 범위를 좁힙니다.
+
+== 로깅 스크립트: 베이스라인과 후보를 같은 좌표계에 나란히
+
+[source,python]
+----
+# viz/log_regression_diff.py
+import json
+from pathlib import Path
+
+import numpy as np
+import rerun as rr
+
+
+def log_sequence_comparison(
+    sequence_id: str,
+    baseline_dir: Path,
+    candidate_dir: Path,
+    poses_path: Path,
+) -> None:
+    rr.init(f"regression-diff/{sequence_id}", spawn=False)
+    rr.save(f"/out/{sequence_id}_diff.rrd")
+
+    poses = [json.loads(line) for line in poses_path.read_text().splitlines()]
+
+    for frame_idx, pose in enumerate(poses):
+        rr.set_time_sequence("frame", frame_idx)
+
+        # 카메라 자세: 베이스라인/후보를 서로 다른 엔티티 경로에 로깅해 같은 3D 뷰에서 겹쳐 봄
+        rr.log(
+            "world/camera_baseline",
+            rr.Transform3D(translation=pose["t_baseline"], mat3x3=pose["R_baseline"]),
+        )
+        rr.log(
+            "world/camera_candidate",
+            rr.Transform3D(translation=pose["t_candidate"], mat3x3=pose["R_candidate"]),
+        )
+
+        # 렌더링 이미지: 좌우로 나란히 볼 수 있게 별도 엔티티 경로
+        baseline_img = baseline_dir / f"render_{frame_idx:04d}.png"
+        candidate_img = candidate_dir / f"render_{frame_idx:04d}.png"
+        rr.log("world/camera_baseline/render", rr.Image.from_file(baseline_img))
+        rr.log("world/camera_candidate/render", rr.Image.from_file(candidate_img))
+
+        # 프레임 단위 스칼라 지표를 시계열로 함께 로깅 — 어느 프레임에서 벌어지는지 한눈에
+        rr.log("metrics/psnr_baseline", rr.Scalar(pose["psnr_baseline"]))
+        rr.log("metrics/psnr_candidate", rr.Scalar(pose["psnr_candidate"]))
+        rr.log("metrics/reprojection_error_px", rr.Scalar(pose["reproj_error_candidate"]))
+----
+
+`rr.set_time_sequence("frame", frame_idx)`로 모든 로그를 프레임 인덱스라는 하나의 타임라인에 붙이면, Rerun 뷰어에서 재생 바를 움직이는 것만으로 베이스라인·후보 렌더링과 스칼라 지표가 동시에 스크럽됩니다.
+
+== 포인트클라우드와 궤적 로깅
+
+렌더링 이미지만으로는 "왜" 나빠졌는지 알기 어려울 때가 많습니다 — 재구성된 3D 가우시안의 위치나 카메라 궤적 자체를 겹쳐보면 원인이 훨씬 명확해집니다.
+
+[source,python]
+----
+def log_trajectory_and_geometry(
+    sequence_id: str,
+    trajectory_baseline: np.ndarray,   # (N, 3)
+    trajectory_candidate: np.ndarray,  # (N, 3)
+    landmarks_baseline: np.ndarray,    # (M, 3) 재구성된 3D 점(또는 가우시안 중심)
+    landmarks_candidate: np.ndarray,
+) -> None:
+    rr.log(
+        "world/trajectory_baseline",
+        rr.LineStrips3D([trajectory_baseline], colors=[(80, 160, 255)]),
+        static=True,
+    )
+    rr.log(
+        "world/trajectory_candidate",
+        rr.LineStrips3D([trajectory_candidate], colors=[(255, 120, 80)]),
+        static=True,
+    )
+    rr.log(
+        "world/landmarks_baseline",
+        rr.Points3D(landmarks_baseline, colors=[(80, 160, 255)], radii=0.01),
+        static=True,
+    )
+    rr.log(
+        "world/landmarks_candidate",
+        rr.Points3D(landmarks_candidate, colors=[(255, 120, 80)], radii=0.01),
+        static=True,
+    )
+----
+
+파란색(베이스라인)과 주황색(후보) 궤적·포인트클라우드를 같은 3D 뷰에 겹쳐두면, 두 궤적이 갈라지는 정확한 위치(예: 급커브 구간)나 포인트클라우드가 유독 흩어지는 영역을 시각적으로 바로 짚을 수 있습니다. 이 궤적 데이터는 "흔들리는 로그를 선명한 3DGS로" 책 10~12장에서 만든 통합 파이프라인의 출력을 그대로 재사용합니다.
+
+== compare-and-gate 단계에서 Rerun 로깅을 조건부로 실행하기
+
+6장의 DAG에 "게이트가 실패한 경우에만" Rerun 로깅 잡을 실행하는 단계를 추가합니다. Argo Workflow의 `when` 조건을 씁니다.
+
+[source,yaml]
+----
+          - name: visualize-on-failure
+            template: visualize-tpl
+            depends: "compare-and-gate.Failed"
+            arguments:
+              artifacts:
+                - name: baseline-renders
+                  from: "{{tasks.fetch-baseline.outputs.artifacts.renders}}"
+                - name: candidate-renders
+                  from: "{{tasks.render-candidate.outputs.artifacts.renders}}"
+                - name: regression-report
+                  from: "{{tasks.compare-and-gate.outputs.artifacts.report}}"
+----
+
+`depends: "compare-and-gate.Failed"`는 Argo Workflow의 태스크 결과 조건 문법으로, 직전 태스크가 정확히 `Failed` 상태로 끝났을 때만 이 태스크를 실행합니다. 게이트를 통과한(정상) 실행에서는 이 무거운 시각화 단계를 건너뛰어 자원을 아낍니다.
+
+[source,yaml]
+----
+    - name: visualize-tpl
+      inputs:
+        artifacts:
+          - {name: baseline-renders, path: /in/baseline}
+          - {name: candidate-renders, path: /in/candidate}
+          - {name: regression-report, path: /in/regression_report.json}
+      container:
+        image: localhost:5001/regression-viz:dev
+        command: ["python", "-m", "viz.log_regression_diff"]
+        args:
+          - "--baseline-dir=/in/baseline"
+          - "--candidate-dir=/in/candidate"
+          - "--report=/in/regression_report.json"
+          - "--out=/out"
+        resources:
+          requests: {cpu: "1", memory: "2Gi"}
+      outputs:
+        artifacts:
+          - name: rrd-files
+            path: /out
+----
+
+== 사람이 결과를 확인하는 흐름
+
+`.rrd`(Rerun 레코딩) 파일이 MinIO에 업로드되면, 9장에서 만든 Slack 알림에 이 파일을 여는 링크를 함께 실어 보냅니다.
+
+[source,python]
+----
+def build_slack_message(report: dict, rrd_urls: dict[str, str]) -> dict:
+    failing_slices = [v for v in report["regression_verdicts"] if v["is_regression"]]
+    lines = [f"*회귀 감지*: {report['manifest_version']} 체크포인트 게이트 실패"]
+    for v in failing_slices:
+        lines.append(f"  - `{v['scope']}` / `{v['metric_name']}`: Δ={v['delta']:.3f}")
+    lines.append("")
+    lines.append("*시각적 확인*:")
+    for seq_id, url in rrd_urls.items():
+        lines.append(f"  - <{url}|{seq_id} Rerun 뷰어에서 열기>")
+    return {"text": "\n".join(lines)}
+----
+
+리뷰어는 이 링크를 열어 Rerun 뷰어에서 재생 바를 스크럽하며, 어느 프레임부터 후보(주황)와 베이스라인(파랑) 렌더링이 갈라지는지, 그 순간 궤적이나 포인트클라우드가 어떻게 다른지 직접 눈으로 확인합니다. 이 확인 결과가 "실제로 심각한 회귀라 롤백해야 한다"인지 "슬라이스 커버리지가 부족해서 생긴 우연한 신호"인지(4장의 골든런 검증으로 되돌아갈 수도 있습니다)를 최종 판단합니다.
+
+== 요약
+
+* Rerun은 게이트가 실패로 판정한 경우에만 조건부로 실행되어, 베이스라인과 후보의 렌더링·궤적·포인트클라우드·스칼라 지표를 하나의 프레임 타임라인 위에 나란히 로깅합니다.
+* Argo Workflow의 `depends: "<task>.Failed"` 조건을 이용하면 정상 실행에서는 이 무거운 시각화 단계를 건너뛰어 자원을 아낄 수 있습니다.
+* 궤적·포인트클라우드를 색으로 구분해 같은 3D 뷰에 겹치면, 렌더링 이미지만으로는 알기 어려운 "어디서, 왜" 갈라졌는지가 시각적으로 드러납니다.
+* Rerun 레코딩 링크를 Slack 알림에 실어 보내, 자동 게이트의 판정을 사람이 몇 클릭 안에 검증할 수 있는 흐름을 완성합니다.
+
+== 연습문제
+
+. `log_sequence_comparison`이 모든 프레임을 로깅하는 대신, 7장의 `by_sequence` 리포트에서 지표가 가장 나빴던 상위 N개 프레임만 골라 로깅하도록 바꿔보세요. 이렇게 하면 어떤 장단점이 생기는지 설명해보세요.
+. `depends: "compare-and-gate.Failed"` 조건 대신, "특정 슬라이스에서만 회귀가 났을 때는 그 슬라이스의 시퀀스만 시각화하는" 더 세밀한 조건부 실행을 설계해보세요(힌트: `withParam`으로 실패한 슬라이스 목록을 동적으로 태스크에 넘기는 방법을 생각해보세요).
+// end::body[]

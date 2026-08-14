@@ -1,0 +1,286 @@
+---
+title: "6장: Argo Workflow DAG로 파이프라인 엮기"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["argo-workflows", "dag", "kubernetes", "yaml", "book"]
+categories: ["books"]
+description: "베이스라인 가져오기부터 렌더링, 지표 계산, 비교, 게이트 판정까지 전체 단계를 Argo Workflow DAG YAML로 실제로 엮고, 아티팩트와 파라미터가 단계 사이를 어떻게 흐르는지 다루는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-containerizing-eval-jobs/[5장: 평가 잡 컨테이너화하기] · 다음: link:../07-metric-computation/[7장: 파이프라인 안에서 지표 계산 배선하기]_
+
+'''
+
+3~5장에서 클러스터, 아티팩트 저장소, 컨테이너 이미지를 준비했습니다. 이 장에서는 이 모든 조각을 하나의 Argo Workflow DAG로 엮어, "새 체크포인트 하나가 들어오면 끝까지 자동으로 회귀 여부가 판정되는" 파이프라인을 완성합니다.
+
+== DAG로 표현할 단계들
+
+2장과 3장에서 정한 흐름을 다시 정리하면 다음과 같은 의존관계를 가진 5단계입니다.
+
+----
+fetch-baseline ──┐
+                 ├──▶ compare-and-gate
+render-candidate┘
+       │
+       ▼
+compute-metrics
+----
+
+정확히는 `render-candidate`가 끝나야 `compute-metrics`를 돌릴 수 있고, `compute-metrics`와 `fetch-baseline`(베이스라인의 기존 지표 리포트를 가져오는 가벼운 단계)이 모두 끝나야 `compare-and-gate`를 돌릴 수 있습니다. Argo Workflow의 `dag` 템플릿은 이 의존관계를 `depends` 필드로 명시적으로 표현합니다.
+
+== 전체 Workflow 매니페스트
+
+[source,yaml]
+----
+# regression-workflow.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: regression-test-
+  namespace: argo
+spec:
+  entrypoint: regression-dag
+  arguments:
+    parameters:
+      - name: checkpoint-uri
+        value: "s3://model-checkpoints/checkpoint-2026-08-14-a.pt"
+      - name: golden-run-tag
+        value: "checkpoint-2026-05-18-rc3"
+      - name: manifest-version
+        value: "v2026.05.20"
+
+  artifactRepositoryRef:
+    configMap: artifact-repositories
+    key: minio-regression
+
+  templates:
+    - name: regression-dag
+      dag:
+        tasks:
+          - name: fetch-baseline
+            template: fetch-baseline-tpl
+            arguments:
+              parameters:
+                - {name: golden-run-tag, value: "{{workflow.parameters.golden-run-tag}}"}
+                - {name: manifest-version, value: "{{workflow.parameters.manifest-version}}"}
+
+          - name: render-candidate
+            template: render-candidate-tpl
+            arguments:
+              parameters:
+                - {name: checkpoint-uri, value: "{{workflow.parameters.checkpoint-uri}}"}
+                - {name: manifest-version, value: "{{workflow.parameters.manifest-version}}"}
+
+          - name: compute-metrics
+            template: compute-metrics-tpl
+            depends: "render-candidate"
+            arguments:
+              artifacts:
+                - name: candidate-renders
+                  from: "{{tasks.render-candidate.outputs.artifacts.renders}}"
+              parameters:
+                - {name: manifest-version, value: "{{workflow.parameters.manifest-version}}"}
+
+          - name: compare-and-gate
+            template: compare-and-gate-tpl
+            depends: "fetch-baseline && compute-metrics"
+            arguments:
+              artifacts:
+                - name: baseline-metrics
+                  from: "{{tasks.fetch-baseline.outputs.artifacts.metrics}}"
+                - name: candidate-metrics
+                  from: "{{tasks.compute-metrics.outputs.artifacts.metrics}}"
+
+    - name: fetch-baseline-tpl
+      inputs:
+        parameters:
+          - name: golden-run-tag
+          - name: manifest-version
+      container:
+        image: localhost:5001/regression-compare:dev
+        command: ["python", "-m", "compare.fetch_baseline"]
+        args:
+          - "--golden-run-tag={{inputs.parameters.golden-run-tag}}"
+          - "--manifest-version={{inputs.parameters.manifest-version}}"
+          - "--out=/out/baseline_metrics.json"
+        resources:
+          requests: {cpu: "250m", memory: "256Mi"}
+      outputs:
+        artifacts:
+          - name: metrics
+            path: /out/baseline_metrics.json
+
+    - name: render-candidate-tpl
+      inputs:
+        parameters:
+          - name: checkpoint-uri
+          - name: manifest-version
+      container:
+        image: localhost:5001/regression-eval:dev
+        command: ["python3", "-m", "eval.run_eval"]
+        args:
+          - "--checkpoint={{inputs.parameters.checkpoint-uri}}"
+          - "--sequence-dir=/data/baseline-inputs"
+          - "--out-dir=/out"
+        env:
+          - {name: EVAL_MOCK, value: "1"}   # 로컬 kind 검증 시 목 모드, 12장에서 GPU 클러스터로 전환 시 제거
+        resources:
+          requests: {cpu: "2", memory: "4Gi"}
+          limits: {nvidia.com/gpu: "1"}
+        volumeMounts:
+          - {name: baseline-inputs, mountPath: /data/baseline-inputs}
+      nodeSelector:
+        workload: eval-jobs
+      volumes:
+        - name: baseline-inputs
+          persistentVolumeClaim: {claimName: baseline-inputs-pvc}
+      outputs:
+        artifacts:
+          - name: renders
+            path: /out
+
+    - name: compute-metrics-tpl
+      inputs:
+        parameters:
+          - name: manifest-version
+        artifacts:
+          - name: candidate-renders
+            path: /in/renders
+      container:
+        image: localhost:5001/regression-compare:dev
+        command: ["python", "-m", "compare.summarize_metrics"]
+        args:
+          - "--renders-dir=/in/renders"
+          - "--manifest-version={{inputs.parameters.manifest-version}}"
+          - "--out=/out/candidate_metrics.json"
+        resources:
+          requests: {cpu: "500m", memory: "512Mi"}
+      outputs:
+        artifacts:
+          - name: metrics
+            path: /out/candidate_metrics.json
+
+    - name: compare-and-gate-tpl
+      inputs:
+        artifacts:
+          - name: baseline-metrics
+            path: /in/baseline_metrics.json
+          - name: candidate-metrics
+            path: /in/candidate_metrics.json
+      container:
+        image: localhost:5001/regression-compare:dev
+        command: ["python", "-m", "compare.run_compare"]
+        args:
+          - "--baseline=/in/baseline_metrics.json"
+          - "--candidate=/in/candidate_metrics.json"
+          - "--report-out=/out/regression_report.json"
+        resources:
+          requests: {cpu: "250m", memory: "256Mi"}
+      outputs:
+        artifacts:
+          - name: report
+            path: /out/regression_report.json
+----
+
+== 이 YAML에서 눈여겨볼 세 가지
+
+**첫째, `fetch-baseline`과 `render-candidate`는 서로 `depends`가 없어 병렬로 실행됩니다.** 베이스라인 지표는 이미 4장에서 골든런 승격 시 계산되어 MinIO에 저장돼 있으므로, 이번 실행에서 다시 렌더링할 필요 없이 가벼운 `fetch` 잡으로 가져오기만 하면 됩니다. 반면 `render-candidate`는 GPU를 쓰는 무거운 잡입니다. 이 둘을 병렬로 돌리는 것만으로 DAG의 전체 실행 시간(critical path)이 크게 줄어듭니다.
+
+**둘째, 아티팩트는 `outputs.artifacts` → `{{tasks.X.outputs.artifacts.Y}}` → `inputs.artifacts`로 연결되고, 실제 전달은 3장에서 배치한 MinIO를 거칩니다.** `render-candidate-tpl`이 `/out`에 쓴 렌더링 결과물은 컨트롤러가 자동으로 MinIO에 업로드하고, `compute-metrics-tpl`이 시작될 때 자동으로 `/in/renders`에 내려받습니다. 파드 사이의 데이터 흐름을 수동으로 배관할 필요가 없습니다.
+
+**셋째, GPU가 필요한 단계(`render-candidate-tpl`)만 `nodeSelector: {workload: eval-jobs}`와 `limits: {nvidia.com/gpu: "1"}`을 갖고, 나머지 단계는 가벼운 리소스 요청만 가집니다.** 이 구분은 5장에서 이미지를 GPU용/비GPU용으로 나눈 것과 짝을 이룹니다.
+
+== 워크플로 제출과 상태 확인
+
+[source,bash]
+----
+argo submit regression-workflow.yaml -n argo \
+  --parameter checkpoint-uri=s3://model-checkpoints/checkpoint-2026-08-14-a.pt \
+  --watch
+----
+
+다음과 같은 출력을 얻습니다.
+
+[source]
+----
+Name:                regression-test-8fkxr
+Namespace:           argo
+ServiceAccount:      unset
+Status:              Running
+Created:             Fri Aug 14 09:12:03 +0900 (now)
+Progress:            0/4
+
+STEP                    TEMPLATE               PODNAME                          DURATION  MESSAGE
+ ● regression-test-8fkxr regression-dag
+ ├─● fetch-baseline      fetch-baseline-tpl     regression-test-8fkxr-fetch...   3s
+ └─● render-candidate    render-candidate-tpl   regression-test-8fkxr-render...  42s
+----
+
+몇 분 뒤 전체 DAG가 끝나면 다음과 같이 완료됩니다.
+
+[source]
+----
+Name:                regression-test-8fkxr
+Status:              Succeeded
+Progress:            4/4
+
+STEP                    TEMPLATE                PODNAME    DURATION  MESSAGE
+ ✔ fetch-baseline        fetch-baseline-tpl                 3s
+ ✔ render-candidate      render-candidate-tpl                48s
+ ✔ compute-metrics       compute-metrics-tpl                6s
+ ✔ compare-and-gate      compare-and-gate-tpl                2s
+----
+
+`compare-and-gate` 단계의 출력 아티팩트(`regression_report.json`)가 최종 판정 결과입니다. 이 리포트의 스키마와, 그 안에 담기는 지표 계산 로직은 7장에서 자세히 다룹니다.
+
+== 게이트 실패를 워크플로 실패로 전파하기
+
+`compare-and-gate-tpl`이 회귀를 감지하면, 리포트를 남기는 것만으로는 CI가 자동으로 머지를 막지 않습니다. 컨테이너의 종료 코드(exit code)를 0이 아닌 값으로 만들어야 Argo Workflow 자체가 `Failed` 상태가 되고, 이 상태를 9장에서 CI가 체크하게 됩니다.
+
+[source,python]
+----
+# compare/run_compare.py 골격 (판정 로직 자체는 8장에서 통계적으로 확장)
+import json
+import sys
+
+def main():
+    with open("/in/baseline_metrics.json") as f:
+        baseline = json.load(f)
+    with open("/in/candidate_metrics.json") as f:
+        candidate = json.load(f)
+
+    delta_psnr = candidate["psnr_db"] - baseline["psnr_db"]
+    is_regression = delta_psnr < -0.2   # 2장의 임계값 스케치, 8장에서 통계적 검정으로 대체
+
+    report = {
+        "baseline_psnr_db": baseline["psnr_db"],
+        "candidate_psnr_db": candidate["psnr_db"],
+        "delta_psnr_db": delta_psnr,
+        "is_regression": is_regression,
+    }
+    with open("/out/regression_report.json", "w") as f:
+        json.dump(report, f, indent=2)
+
+    print(json.dumps(report, indent=2))
+    if is_regression:
+        print("회귀 감지됨 — 워크플로를 실패로 표시합니다.", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
+----
+
+== 요약
+
+* Argo Workflow의 `dag` 템플릿은 `depends` 필드로 단계 간 의존관계를 명시적으로 표현하며, 독립적인 단계(베이스라인 가져오기, 렌더링)는 자동으로 병렬 실행됩니다.
+* 아티팩트는 `outputs.artifacts`/`inputs.artifacts`와 `{{tasks.X.outputs...}}` 참조로 단계 사이를 흐르고, 실제 전달은 MinIO를 거쳐 컨트롤러가 자동으로 처리합니다.
+* GPU가 필요한 단계와 그렇지 않은 단계를 `nodeSelector`/`resources`로 구분해 클러스터 자원을 효율적으로 씁니다.
+* 회귀 판정 잡이 0이 아닌 종료 코드로 끝나면 워크플로 전체가 `Failed`로 표시되고, 이 신호를 9장에서 CI/CD가 감지해 머지를 막습니다.
+
+== 연습문제
+
+. 이 DAG에 "슬라이스별로 별도의 `compute-metrics`/`compare-and-gate` 태스크를 병렬로 돌리는" 구조를 추가하려면 `withItems`(Argo Workflow의 태스크 병렬 확장 문법)를 어떻게 활용할 수 있을지 YAML 스케치를 그려보세요.
+. `render-candidate-tpl`이 실패했을 때(예: 체크포인트 파일을 찾을 수 없음) `compute-metrics`와 `compare-and-gate`가 실행되지 않고 전체 워크플로가 즉시 실패로 끝나야 하는 이유를 `depends` 의미론과 연결해 설명해보세요.
+// end::body[]

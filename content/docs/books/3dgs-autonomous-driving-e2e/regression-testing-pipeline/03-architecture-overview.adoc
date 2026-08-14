@@ -1,0 +1,207 @@
+---
+title: "3장: 파이프라인 아키텍처 개요"
+date: 2026-08-14T00:00:00+09:00
+draft: false
+tags: ["kind", "kubernetes", "argo-workflows", "minio", "rerun", "architecture", "book"]
+categories: ["books"]
+description: "kind 클러스터를 CI 기반 인프라로, Argo Workflows를 오케스트레이터로, MinIO를 아티팩트 저장소로, Rerun을 시각화 계층으로 삼는 전체 회귀 테스트 파이프라인 아키텍처와 kind 클러스터 설정을 다루는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-defining-a-regression/[2장: "회귀"를 정의하기] · 다음: link:../04-baseline-datasets/[4장: 베이스라인 데이터셋 만들기]_
+
+'''
+
+2장에서 "무엇을 회귀라고 부를지" 정의했으니, 이제 그 판정을 자동으로, 반복 가능하게 실행할 인프라를 세울 차례입니다. 이 장은 2부 전체(3~6장)의 지도 역할을 합니다.
+
+== 왜 로컬/CI에서 Kubernetes를 흉내 내는가
+
+이 파이프라인은 최종적으로 클라우드 GPU 클러스터(12장)에서 실행되지만, 개발 중이나 CI(지속적 통합) 단계에서 매번 실제 클라우드 클러스터를 띄우는 것은 느리고 비쌉니다. `kind`(Kubernetes-in-Docker)는 Docker 컨테이너 안에 실제 Kubernetes 컨트롤 플레인과 워커 노드를 구현해, 몇 분 안에 로컬에서(혹은 GitHub Actions 러너 안에서) "진짜와 거의 같은" 클러스터를 띄우고 지울 수 있게 해줍니다. 여기서 검증한 Argo Workflow 매니페스트, `kubectl` 명령, RBAC 설정은 대부분 그대로 실제 클라우드 클러스터에 옮겨갈 수 있습니다 — 이 이식성이 12장의 핵심 전제입니다.
+
+== 전체 컴포넌트 지도
+
+파이프라인은 크게 네 레이어로 나뉩니다.
+
+----
+                    ┌─────────────────────────────┐
+                    │   CI/CD 트리거 (9장)          │
+                    │   GitHub Actions / Argo Events│
+                    └───────────────┬───────────────┘
+                                    │ 새 체크포인트 push
+                                    ▼
+┌───────────────────────────────────────────────────────────┐
+│                  kind 클러스터 (또는 클라우드, 12장)          │
+│                                                             │
+│   ┌─────────────────┐        Argo Workflow DAG (6장)       │
+│   │ 아티팩트 저장소    │◀──┐   ┌────────┐  ┌────────┐        │
+│   │ MinIO (S3 호환)  │    ├──▶│ render │─▶│ metric │        │
+│   │  - 베이스라인 렌더 │    │   │  job   │  │  job   │        │
+│   │  - 골든런 지표    │    │   └────────┘  └────┬───┘        │
+│   │  - 새 실행 결과   │────┘                    ▼            │
+│   └─────────────────┘                    ┌────────────┐     │
+│                                           │ compare +  │     │
+│                                           │ gate job   │     │
+│                                           └─────┬──────┘     │
+└─────────────────────────────────────────────────┼────────────┘
+                                                   │ 회귀 리포트
+                                                   ▼
+                                   ┌───────────────────────────┐
+                                   │  Rerun 시각화 (10장)         │
+                                   │  회귀 났을 때 사람이 확인      │
+                                   └───────────────────────────┘
+----
+
+* **오케스트레이션 레이어**: Argo Workflows가 "베이스라인 가져오기 → 새 체크포인트로 렌더링 → 지표 계산 → 비교 → 게이트 판정"이라는 DAG를 정의하고 실행합니다(6장).
+* **컴퓨트 레이어**: 각 단계는 독립된 컨테이너(파드)로 실행됩니다. 렌더링 잡은 GPU를 요구하고, 지표 계산·비교 잡은 CPU만으로 충분합니다(5장).
+* **아티팩트 레이어**: 렌더링된 이미지, 포즈 로그, 지표 JSON 리포트는 클러스터 안의 파드끼리 직접 주고받지 않고, S3 호환 오브젝트 스토리지(MinIO)를 거쳐 전달됩니다 — 이렇게 하면 어느 단계가 실패해도 이전 단계의 산출물이 남아 재실행이 쉽고, 나중에 클라우드 S3로 옮길 때도 API가 동일합니다.
+* **시각화 레이어**: 게이트가 회귀를 감지하면, Rerun으로 베이스라인과 신규 렌더링을 나란히 띄워 사람이 원인을 눈으로 확인합니다(10장).
+
+== kind 클러스터 설정
+
+`kind`는 하나의 YAML 설정 파일로 클러스터 구성을 정의합니다. 이 파이프라인에서는 컨트롤 플레인 노드 하나와 워커 노드 하나로 이루어진 최소 구성을 씁니다(실제로는 GPU가 없는 로컬 환경에서 렌더링 잡을 목(mock)으로 대체해 파이프라인 배선 자체를 검증하는 용도로 쓰고, GPU가 필요한 실제 렌더링은 12장에서처럼 GPU 노드가 있는 클러스터로 옮깁니다).
+
+[source,yaml]
+----
+# kind-config.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: regression-ci
+
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 8080
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 8443
+        protocol: TCP
+  - role: worker
+    labels:
+      workload: eval-jobs
+
+networking:
+  apiServerAddress: "127.0.0.1"
+  apiServerPort: 6443
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
+
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5001"]
+      endpoint = ["http://kind-registry:5001"]
+----
+
+클러스터를 만들고 확인하는 명령은 다음과 같습니다.
+
+[source,bash]
+----
+kind create cluster --config kind-config.yaml
+kubectl cluster-info --context kind-regression-ci
+kubectl get nodes
+----
+
+다음과 같은 출력을 얻습니다.
+
+[source]
+----
+Creating cluster "regression-ci" ...
+ ✓ Ensuring node image (kindest/node:v1.29.2) 🖼
+ ✓ Preparing nodes 📦 📦
+ ✓ Writing configuration 📜
+ ✓ Starting control-plane 🕹️
+ ✓ Installing CNI 🔌
+ ✓ Installing StorageClass 💾
+ ✓ Joining worker nodes 🚜
+Set kubectl context to "kind-regression-ci"
+
+NAME                            STATUS   ROLES           AGE   VERSION
+regression-ci-control-plane     Ready    control-plane   45s   v1.29.2
+regression-ci-worker            Ready    <none>          25s   v1.29.2
+----
+
+== Argo Workflows 설치
+
+`kind` 클러스터가 준비되면, Argo Workflows 컨트롤러와 CRD(Custom Resource Definition)를 그 위에 설치합니다.
+
+[source,bash]
+----
+kubectl create namespace argo
+kubectl apply -n argo -f \
+  https://github.com/argoproj/argo-workflows/releases/download/v3.5.8/install.yaml
+
+# Argo CLI로 워크플로 제출/조회를 할 수 있도록 포트포워딩
+kubectl -n argo port-forward deployment/argo-server 2746:2746 &
+----
+
+설치가 끝나면 `argo` CLI로 클러스터 안의 워크플로 상태를 확인할 수 있습니다. 이 CLI는 6장부터 DAG를 제출하고 상태를 조회하는 데 계속 사용합니다.
+
+== MinIO를 아티팩트 저장소로 배치하기
+
+Argo Workflows는 각 단계의 입출력 아티팩트를 S3 호환 스토리지에 저장하도록 기본 설계되어 있습니다. 클라우드가 아닌 로컬 `kind` 클러스터에서는 MinIO를 그 자리에 대신 띄웁니다.
+
+[source,yaml]
+----
+# minio-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: argo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: minio}
+  template:
+    metadata:
+      labels: {app: minio}
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-05-01T01-11-10Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              value: "regression-ci"
+            - name: MINIO_ROOT_PASSWORD
+              value: "regression-ci-secret"
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: argo
+spec:
+  selector: {app: minio}
+  ports:
+    - {name: api, port: 9000, targetPort: 9000}
+    - {name: console, port: 9001, targetPort: 9001}
+----
+
+Argo Workflows 컨트롤러의 설정(`workflow-controller-configmap`)에 이 MinIO를 아티팩트 저장소로 등록하면, DAG의 각 단계가 `outputs.artifacts`로 명시한 파일이 자동으로 이 버킷에 업로드되고, 다음 단계는 `inputs.artifacts`로 그걸 자동으로 내려받습니다 — 파드 사이에 파일을 직접 전달하는 배관을 만들 필요가 없습니다. 이 배선은 6장에서 실제 DAG 예제와 함께 구체적으로 다룹니다.
+
+== 이 아키텍처가 4장부터 6장까지 어떻게 채워지는가
+
+이번 장은 뼈대만 세웠습니다. 4장은 이 아키텍처가 비교할 대상 — 베이스라인/골든런 데이터를 어떻게 만들고 MinIO에 어떤 레이아웃으로 저장할지 — 를 다룹니다. 5장은 렌더링·평가 잡 자체를 재현 가능한 컨테이너로 패키징합니다. 6장은 이 모든 컨테이너들을 Argo Workflow DAG로 실제로 엮습니다.
+
+== 요약
+
+* `kind`는 로컬/CI 환경에서 실제 Kubernetes와 거의 동일한 오케스트레이션 방식을 재현해, 클라우드 클러스터로 이식 가능한 매니페스트를 저비용으로 검증하게 해줍니다.
+* 파이프라인은 오케스트레이션(Argo Workflows), 컴퓨트(컨테이너 잡), 아티팩트(MinIO/S3), 시각화(Rerun) 네 레이어로 구성됩니다.
+* `kind-config.yaml`로 컨트롤 플레인과 워커 노드를 정의하고, 그 위에 Argo Workflows 컨트롤러와 MinIO를 배치해 아티팩트 흐름의 기반을 만듭니다.
+* 이 인프라 뼈대는 4~6장에서 베이스라인 데이터, 컨테이너화된 잡, DAG 정의로 차례로 채워집니다.
+
+== 연습문제
+
+. 위 아키텍처 다이어그램에서 "아티팩트 레이어를 거치지 않고 파드끼리 직접 파일을 주고받는" 대안 설계를 상상해보고, 그 설계가 재실행성·디버깅 편의성 측면에서 왜 이 책의 설계보다 불리한지 설명해보세요.
+. `kind-config.yaml`에 워커 노드를 하나 더 추가하고(`role: worker`), 렌더링 잡 전용 노드와 지표 계산 잡 전용 노드로 역할을 분리하려면 `labels`와 `nodeSelector`를 어떻게 조합해야 할지 설계해보세요.
+// end::body[]
