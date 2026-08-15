@@ -18,10 +18,10 @@ _link:../[전체 목차] · 이전: link:../07-hybrid-dispatch/[7장: CPU vs GPU
 
 [source,cpp]
 ----
-void run_layer(cl_context ctx) {
+void run_layer(const GpuContext& gpu) {
   float data[4] = {1, 2, 3, 4};
-  DeviceBuffer buf1(ctx, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(data), data);
-  DeviceBuffer buf2(ctx, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(data), data);
+  DeviceBuffer buf1(gpu, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(data), data);
+  DeviceBuffer buf2(gpu, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(data), data);
   throw std::runtime_error("simulated mid-layer failure");  // 예: 잘못된 입력 크기 감지
 }
 ----

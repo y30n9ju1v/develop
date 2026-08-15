@@ -25,7 +25,7 @@ _link:../[전체 목차] · 다음: link:../01-mdspan-cache-friendly-views/[1장
 * *1부(1~2장)* 는 버퍼를 ``std::mdspan``으로 감싼 ``BatchBuffer``를 만들고, 워커마다 겹치지 않는 구간을 복사 없이 가리키는 ``tile()``을 얹습니다.
 * *2부(3~4장)* 는 그 타일을 처리하는 ``TransformWorker``를 ``deducing this``로 만들고, 워커의 변환 함수를 `consteval` 조회 테이블로 바꿉니다.
 * *3부(5장)* 는 ``std::atomic_ref``로 워커들의 진행률을 락 없이 추적하는 ``Coordinator``를 도입합니다 — 여기서부터 실제 ``std::thread``로 워커들이 병렬로 돕니다.
-* *4부(6~7장)* 는 ``TransformWorker``가 세그먼트를 처리하며 쓰는 임시 버퍼를, ``allocate_at_least``로 여유 용량을 살펴본 뒤 PMR 스레드 로컬 아레나로 바꿔 할당 경합을 없앱니다.
+* *4부(6~7장)* 는 ``TransformWorker``가 세그먼트를 처리하며 쓰는 임시 버퍼의 할당 경합을 없앱니다 — 6장은 ``allocate_at_least``로 할당자가 실제로 얼마나 여유 용량을 주는지 살펴보지만 이식성 있게 알아내기 번거롭다는 한계에 부딪히고, 7장이 PMR 스레드 로컬 아레나로 그 문제를 실제로 해결합니다(6장의 기법 자체는 ``TransformWorker``에 남지 않습니다).
 * *5부(8~9장)* 는 ``Coordinator``에 `std::flat_map` 기반 워커 상태 레지스트리를 추가하고, ``std::views::zip``과 `\[[assume]]`/``std::unreachable()``로 진행 상황 보고 경로를 마무리합니다.
 * *6부(10장)* 는 이렇게 완성된 `Coordinator`/`BatchBuffer`/`TransformWorker` 전체를, 최적화를 하나도 적용하지 않은 순진한 버전과 나란히 벤치마크합니다.
 

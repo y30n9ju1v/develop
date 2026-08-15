@@ -4,7 +4,7 @@ date: 2026-08-05T00:00:00+09:00
 draft: false
 tags: ["opencl", "gpu", "simulation", "realtime", "particle", "book"]
 categories: ["books"]
-description: "입자 10만 개를 중력·바닥 반사로 200프레임 시뮬레이션하면서 매 프레임 결과를 CPU로 읽어오는 방식과 GPU 메모리에 계속 남겨두고 마지막에만 읽어오는 방식을 실측 비교해, 6.3배 차이가 2장에서 배운 전송 병목이 프레임 루프에서 반복되는 것임을 확인하는 5부의 첫 장"
+description: "입자 10만 개를 중력·바닥 반사로 200프레임 시뮬레이션하면서 매 프레임 결과를 CPU로 읽어오는 방식과 GPU 메모리에 계속 남겨두고 마지막에만 읽어오는 방식을 실측 비교해, 4.9배 차이가 2장에서 배운 전송 병목이 프레임 루프에서 반복되는 것임을 확인하는 5부의 첫 장"
 ---
 
 // tag::body[]
@@ -20,6 +20,19 @@ _link:../[전체 목차] · 이전: link:../08-numpy-vs-opencl/[8장: NumPy와 �
 
 [source,python]
 ----
+N, FRAMES, DT = 100_000, 200, 1.0 / 60.0
+rng = np.random.default_rng(0)
+px = rng.uniform(-1, 1, N).astype(np.float32)
+py = rng.uniform(0, 1, N).astype(np.float32)
+vx = np.zeros(N, dtype=np.float32)
+vy = np.zeros(N, dtype=np.float32)
+
+mf = cl.mem_flags
+px_buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=px)
+py_buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=py)
+vx_buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=vx)
+vy_buf = cl.Buffer(ctx, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=vy)
+
 prg = cl.Program(ctx, """
 __kernel void step(__global float* px, __global float* py,
                     __global float* vx, __global float* vy, float dt) {
@@ -34,6 +47,7 @@ __kernel void step(__global float* px, __global float* py,
     px[i] = x; py[i] = y; vx[i] = u; vy[i] = v;
 }
 """).build()
+step = prg.step   # 3장에서 짚은 prg.<커널이름> 단축 호출 형태
 ----
 
 이 커널은 ``step``을 한 번 부르면 딱 한 프레임만큼만 전진합니다 — 애니메이션을 만들려면 이걸 반복 호출해야 합니다. 문제는 **어떻게** 반복하느냐입니다.
@@ -55,7 +69,7 @@ t1 = time.perf_counter()
 
 [source]
 ----
-readback every frame (200 frames): 80.89ms total, 0.404ms/frame
+readback every frame (200 frames): 99.41ms total, 0.497ms/frame
 ----
 
 == 방식 B: GPU에 계속 남겨두고 마지막에만 읽기
@@ -76,15 +90,15 @@ t1 = time.perf_counter()
 
 [source]
 ----
-stay resident, readback once (200 frames): 12.92ms total, 0.065ms/frame
-speedup: 6.3x
+stay resident, readback once (200 frames): 20.35ms total, 0.102ms/frame
+speedup: 4.9x
 ----
 
-**6.3배 빨라졌습니다.** 이 GPU는 통합 메모리라서(2장 참고) 전송 자체는 원래도 저렴했는데, 그런데도 이만큼 차이가 나는 건 `cl.enqueue_copy` + ``q.finish()``를 200번 부르는 데 드는 **동기화 오버헤드** 때문입니다 — ``q.finish()``는 "지금까지 큐에 넣은 모든 명령이 끝날 때까지 기다려라"는 뜻이라, 매번 호출할 때마다 호스트와 디바이스 사이에 왕복(host-device round-trip)이 생깁니다. 방식 B는 이 왕복을 200번에서 1번으로 줄였습니다.
+**4.9배 빨라졌습니다.** 이 GPU는 통합 메모리라서(2장 참고) 전송 자체는 원래도 저렴했는데, 그런데도 이만큼 차이가 나는 건 `cl.enqueue_copy` + ``q.finish()``를 200번 부르는 데 드는 **동기화 오버헤드** 때문입니다 — ``q.finish()``는 "지금까지 큐에 넣은 모든 명령이 끝날 때까지 기다려라"는 뜻이라, 매번 호출할 때마다 호스트와 디바이스 사이에 왕복(host-device round-trip)이 생깁니다. 방식 B는 이 왕복을 200번에서 1번으로 줄였습니다.
 
 == 왜 이게 "실시간"과 직결되는가
 
-디지털 트윈처럼 실시간으로 돌아가야 하는 시뮬레이션은 보통 초당 프레임 수(FPS) 목표가 있습니다 — 예를 들어 60FPS면 프레임 하나에 쓸 수 있는 시간이 16.6ms뿐입니다. 이 장의 방식 A(프레임당 0.404ms)는 이 예산 안에 여유 있게 들어가지만, 입자 수가 늘거나(4부의 3DGS처럼 수십만 점) 시뮬레이션이 더 복잡해지면 "매 프레임 CPU 왕복"이라는 고정 비용이 무시 못 할 크기로 자랍니다. 반대로 방식 B는 화면에 결과를 보여줘야 하는 프레임에만 읽어오고, 나머지 프레임은 GPU 안에서만 도는 식으로 설계하면 — 물리 시뮬레이션의 스텝 레이트(예: 240Hz로 안정적인 물리를 위해)와 화면 표시 레이트(60Hz)를 분리할 수 있습니다. 이건 게임 엔진이 "물리는 고정 타임스텝, 렌더링은 가변 타임스텝"으로 분리하는 것과 정확히 같은 이유입니다.
+디지털 트윈처럼 실시간으로 돌아가야 하는 시뮬레이션은 보통 초당 프레임 수(FPS) 목표가 있습니다 — 예를 들어 60FPS면 프레임 하나에 쓸 수 있는 시간이 16.6ms뿐입니다. 이 장의 방식 A(프레임당 0.497ms)는 이 예산 안에 여유 있게 들어가지만, 입자 수가 늘거나(4부의 3DGS처럼 수십만 점) 시뮬레이션이 더 복잡해지면 "매 프레임 CPU 왕복"이라는 고정 비용이 무시 못 할 크기로 자랍니다. 반대로 방식 B는 화면에 결과를 보여줘야 하는 프레임에만 읽어오고, 나머지 프레임은 GPU 안에서만 도는 식으로 설계하면 — 물리 시뮬레이션의 스텝 레이트(예: 240Hz로 안정적인 물리를 위해)와 화면 표시 레이트(60Hz)를 분리할 수 있습니다. 이건 게임 엔진이 "물리는 고정 타임스텝, 렌더링은 가변 타임스텝"으로 분리하는 것과 정확히 같은 이유입니다.
 
 == 팁 박스: 매 프레임 읽어와야 한다면
 
@@ -102,11 +116,11 @@ speedup: 6.3x
 ====
 [source]
 ----
-readback every frame (N=10,000, 200 frames): 71.60ms total, 0.358ms/frame
-stay resident, readback once (N=10,000, 200 frames): 11.19ms total, 0.056ms/frame
-speedup: 6.4x
+readback every frame (N=10,000, 200 frames): 76.88ms total, 0.384ms/frame
+stay resident, readback once (N=10,000, 200 frames): 13.05ms total, 0.065ms/frame
+speedup: 5.9x
 ----
 
-입자를 10분의 1로 줄여도 프레임당 시간은 거의 그대로입니다(0.404ms→0.358ms, 0.065ms→0.056ms) — 이 실험 규모(수만~수십만)에서는 계산 자체보다 **동기화 오버헤드(고정 비용)** 가 시간을 지배한다는 뜻입니다. speedup도 6.3배에서 6.4배로 거의 그대로입니다. 이건 2장의 "작은 데이터일수록 고정 오버헤드 비중이 커진다"는 교훈과 정확히 같은 패턴입니다 — 여기서는 데이터 전송량이 아니라 프레임 루프의 동기화 호출 횟수가 그 "고정 오버헤드" 역할을 합니다.
+입자를 10분의 1로 줄여도 프레임당 시간은 거의 그대로입니다(0.497ms→0.384ms, 0.102ms→0.065ms) — 이 실험 규모(수만~수십만)에서는 계산 자체보다 **동기화 오버헤드(고정 비용)** 가 시간을 지배한다는 뜻입니다. speedup도 4.9배에서 5.9배로 비슷한 수준입니다. 이건 2장의 "작은 데이터일수록 고정 오버헤드 비중이 커진다"는 교훈과 정확히 같은 패턴입니다 — 여기서는 데이터 전송량이 아니라 프레임 루프의 동기화 호출 횟수가 그 "고정 오버헤드" 역할을 합니다.
 ====
 // end::body[]

@@ -38,7 +38,7 @@ gid_buf = cl.Buffer(ctx, mf.WRITE_ONLY, gid.nbytes)
 lid_buf = cl.Buffer(ctx, mf.WRITE_ONLY, lid.nbytes)
 grp_buf = cl.Buffer(ctx, mf.WRITE_ONLY, grp.nbytes)
 
-prg.ids(q, (N,), (LOCAL,), gid_buf, lid_buf, grp_buf)
+prg.ids(q, (N,), (LOCAL,), gid_buf, lid_buf, grp_buf)  # 1~2장의 cl.Kernel(prg, "이름")과 동등한 축약형: prg.<커널이름>(...)
 cl.enqueue_copy(q, gid, gid_buf)
 cl.enqueue_copy(q, lid, lid_buf)
 cl.enqueue_copy(q, grp, grp_buf)
@@ -61,7 +61,7 @@ group_id:  [0 0 0 0 1 1 1 1 2 2 2 2 3 3 3 3]
 * ``local_id``는 워크그룹 안에서의 번호(0~3)로, 그룹이 바뀔 때마다 0부터 다시 시작합니다.
 * ``group_id``는 어느 워크그룹에 속하는지(0~3)를 나타내고, `global_id = group_id * LOCAL + local_id` 관계가 성립합니다(예: ``global_id=9``는 `group_id=2`, `local_id=1` → `2*4+1=9`).
 
-이 세 좌표가 왜 필요한가는 5장(메모리 계층구조)에서 바로 씁니다 — 워크그룹 하나는 (뒤에서 다룰) **로컬 메모리**를 공유하기 때문에, "같은 워크그룹에 속한 스레드끼리 협력한다"는 게 GPU 프로그래밍의 핵심 패턴입니다. ``group_id``로 "내가 어느 협력 단위에 속하는가"를, ``local_id``로 "그 단위 안에서 내 위치가 어디인가"를 알아내는 겁니다.
+이 세 좌표가 왜 필요한가는 6장(타일링)에서 바로 씁니다 — 워크그룹 하나는 (뒤에서 다룰) **로컬 메모리**를 공유하기 때문에, "같은 워크그룹에 속한 스레드끼리 협력한다"는 게 GPU 프로그래밍의 핵심 패턴입니다. ``group_id``로 "내가 어느 협력 단위에 속하는가"를, ``local_id``로 "그 단위 안에서 내 위치가 어디인가"를 알아내는 겁니다.
 
 == SIMT는 "락스텝"이다 — 분기가 있으면 무슨 일이 생기는가
 

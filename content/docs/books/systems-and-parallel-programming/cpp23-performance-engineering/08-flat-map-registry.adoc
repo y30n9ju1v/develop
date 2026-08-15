@@ -83,7 +83,11 @@ class Coordinator {
 public:
   Coordinator(BatchBuffer& buf, std::size_t num_workers)
       : buf_(buf), num_workers_(num_workers), progress_(num_workers, 0) {
-    for (std::size_t w = 0; w < num_workers; w++) registry_[static_cast<int>(w)] = WorkerStatus::Idle;
+    // 워커 ID는 0부터 이미 정렬된 순서이므로, 바로 위에서 확인한 sorted_unique 배치 생성자를 그대로 씁니다.
+    std::vector<int> ids(num_workers);
+    std::vector<WorkerStatus> statuses(num_workers, WorkerStatus::Idle);
+    for (std::size_t w = 0; w < num_workers; w++) ids[w] = static_cast<int>(w);
+    registry_ = std::flat_map<int, WorkerStatus>(std::sorted_unique, std::move(ids), std::move(statuses));
   }
 
   WorkerStatus status_of(int worker_id) { return registry_.at(worker_id); }

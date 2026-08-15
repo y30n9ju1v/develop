@@ -83,7 +83,7 @@ public:
 Device choose_device(std::size_t estimated_flops) {
   // 6~7장의 실측 교차점: 이 정도 연산량 아래에서는 GPU 디스패치 비용이
   // 계산 이득을 넘어선다는 걸 이 세션 환경에서 직접 쟀습니다.
-  constexpr std::size_t kGpuBreakEvenFlops = 50'000'000;  // 5천만 FLOP 안팎
+  constexpr std::size_t kGpuBreakEvenFlops = 50'000'000;  // 5천만 FLOP 안팎 (추정값, 실측으로 정밀 스윕한 값 아님)
   return estimated_flops >= kGpuBreakEvenFlops ? Device::GPU : Device::CPU;
 }
 ----

@@ -30,12 +30,11 @@ static const char* status_name(WorkerStatus st) {
 }
 
 void report() {
-  std::vector<int> ids;
-  for (std::size_t w = 0; w < num_workers_; w++) ids.push_back(static_cast<int>(w));
   std::vector<int> progresses;
   for (std::size_t w = 0; w < num_workers_; w++) progresses.push_back(progress_of(w));
 
-  for (auto&& [id, prog] : std::views::zip(ids, progresses)) {
+  // 워커 ID는 0부터 순번이므로 std::views::iota로 즉석에서 만들고, ids용 벡터를 따로 두지 않는다.
+  for (auto&& [id, prog] : std::views::zip(std::views::iota(0, static_cast<int>(num_workers_)), progresses)) {
     std::printf("worker %d: %s (progress=%d)\n", id, status_name(status_of(id)), prog);
   }
 }
@@ -50,7 +49,7 @@ worker 2: done (progress=1000)
 worker 3: done (progress=1000)
 ----
 
-``ids``와 ``progresses``를 ``std::pair``로 짝지은 임시 벡터를 새로 만드는 대신, ``std::views::zip(ids, progresses)``가 두 벡터를 즉석에서 짝지어 순회하는 뷰를 돌려줍니다 — 원소 하나하나를 튜플로 복사해 담는 중간 컨테이너가 없습니다. 7장의 ``TransformWorker``가 임시 버퍼 할당을 줄였던 것과 같은 정신입니다 — 여기서는 애초에 할당할 컨테이너 자체가 없습니다.
+``progresses``와 워커 ID를 ``std::pair``로 짝지은 임시 벡터를 새로 만드는 대신, ``std::views::zip(std::views::iota(...), progresses)``가 즉석에서 짝지어 순회하는 뷰를 돌려줍니다 — 원소 하나하나를 튜플로 복사해 담는 중간 컨테이너가 없습니다. ``std::views::iota``도 실제로 값을 담는 컨테이너가 아니라 "다음 정수"를 그때그때 계산해 내놓는 뷰라서, ``ids`` 벡터를 미리 만들어둘 필요가 아예 없어졌습니다 — 7장의 ``TransformWorker``가 임시 버퍼 할당을 줄였던 것과 같은 정신입니다.
 
 == `std::unreachable()`: "이 분기는 절대 안 온다"고 컴파일러에게 알리기
 

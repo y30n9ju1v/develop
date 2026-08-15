@@ -52,9 +52,11 @@ __kernel void rasterize(__global const float* px, __global const float* py,
     img[gy*W+gx] = sum;
 }
 """).build()
+step = step_prg.step
+rasterize = raster_prg.rasterize
 ----
 
-매 프레임의 루프는 두 커널을 순서대로 부르기만 하면 됩니다.
+버퍼(``px_buf``/``py_buf``/``vx_buf``/``vy_buf``는 9장과 동일하게, ``s_buf``/``c_buf``/``img_buf``는 7~8장과 동일하게 ``cl.Buffer``로 만들어둔 상태입니다. 매 프레임의 루프는 두 커널을 순서대로 부르기만 하면 됩니다.
 
 [source,python]
 ----
@@ -84,7 +86,7 @@ achievable FPS: 215
 
 == 9장과 다른 결론: 이번엔 표시 주기가 속도에 거의 안 미친다
 
-9장에서는 "매 프레임 CPU로 읽어오기" vs "GPU에 남겨두고 마지막에만 읽기"가 6.3배 차이를 냈습니다. 이 장에서 같은 비교를 해보면 어떨까요 — 매 프레임 ``img``를 읽어오는 것과, 10프레임에 한 번만 읽어오는 것을 비교합니다.
+9장에서는 "매 프레임 CPU로 읽어오기" vs "GPU에 남겨두고 마지막에만 읽기"가 4.9배 차이를 냈습니다. 이 장에서 같은 비교를 해보면 어떨까요 — 매 프레임 ``img``를 읽어오는 것과, 10프레임에 한 번만 읽어오는 것을 비교합니다.
 
 [source]
 ----

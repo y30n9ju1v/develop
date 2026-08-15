@@ -74,11 +74,38 @@ Hybrid:    2.850 ms
 max softmax diff CPU vs Hybrid: 0
 ----
 
-이 숫자는 7장에서 이미 본 것과 같습니다 — 다시 싣는 이유는, 이게 **개별 레이어 벤치마크가 아니라 conv부터 softmax까지 전체 파이프라인을 실제로 실행한 결과**라는 걸 강조하기 위해서입니다. 소프트맥스로 나온 확률 분포 16개가 CPU-only와 Hybrid에서 정확히 일치합니다(`max softmax diff: 0`) — 컨볼루션 하나만 비교했던 5장보다 훨씬 긴 계산 경로(컨볼루션 → 풀링 → 평탄화 → 행렬곱 → 지수함수 → 정규화)를 거쳤는데도, 부동소수점 오차 하나 없이 같은 결과가 나옵니다. 그리고 이 크기에서는 여전히 CPU-only가 이깁니다 — 7장의 결론이 파이프라인 전체 규모에서도 그대로 유지된다는 것도 같이 확인한 셈입니다.
+이 숫자는 7장에서 이미 본 것과 정확히 같습니다 — 다시 측정한 게 아니라 같은 숫자를 다시 싣는 이유는, 7장의 벤치마크가 사실 이미 conv부터 softmax까지 전체 파이프라인이었다는 걸 이 장에서 명확히 하기 위해서입니다(레이어 하나만 잰 건 5장의 컨볼루션 단독 비교뿐입니다). 소프트맥스로 나온 확률 분포 16개가 CPU-only와 Hybrid에서 정확히 일치합니다(`max softmax diff: 0`) — 컨볼루션 하나만 비교했던 5장보다 훨씬 긴 계산 경로(컨볼루션 → 풀링 → 평탄화 → 행렬곱 → 지수함수 → 정규화)를 거쳤는데도, 부동소수점 오차 하나 없이 같은 결과가 나옵니다. 그리고 이 크기에서는 여전히 CPU-only가 이깁니다 — 7장의 결론이 파이프라인 전체 규모에서도 그대로 유지된다는 것도 같이 확인한 셈입니다.
 
 == 타입 상태로 실행 전체를 감싸면
 
-1장의 ``Ready::infer``가 지금까지는 자리표시자였습니다. 실전에서는 이 자리에 위 파이프라인이 그대로 들어갑니다 — ``Ready``는 이미 ``compile()``을 거쳐 GPU 프로그램까지 준비된 상태이므로, `infer()` 안에서 ``GpuConvLayer``나 `matmul_tiled` 커널을 새로 빌드할 필요 없이 곧바로 실행에 들어갈 수 있습니다. ``Unloaded``나 `Loaded` 상태에서는 애초에 ``infer()``라는 이름의 메서드가 존재하지 않으므로, "GPU 프로그램이 아직 컴파일되지 않은 채로 커널을 실행하려는" 실수는 1장에서 확인했듯 컴파일 에러로 막힙니다 — 이 장에서 조립한 파이프라인 전체가, 그 컴파일 타임 보장 **안에서** 돌아간다는 뜻입니다.
+1장의 ``Ready::infer``가 지금까지는 자리표시자였습니다. ``Ready``를 4장의 ``GpuContext``까지 실제로 들고 있도록 확장하면, ``Loaded::compile()``이 "GPU 프로그램까지 준비된 상태"라는 1장의 약속을 실제 코드로 채울 수 있습니다.
+
+[source,cpp]
+----
+class Ready {
+  Loaded model_;
+  GpuContext gpu_;                 // 4장: 이동 전용 RAII 핸들
+public:
+  Ready(Loaded m, GpuContext gpu) : model_(std::move(m)), gpu_(std::move(gpu)) {}
+  float infer(float x) const {
+    // 실전이라면 gpu_.queue()로 위 파이프라인의 GpuConvLayer/matmul_tiled를 여기서 실행합니다.
+    return x * model_.conv_kernel()[0];
+  }
+};
+
+Ready Loaded::compile() && {
+  GpuContext gpu;   // 4장: 플랫폼 조회 -> 컨텍스트 -> 커맨드 큐를 여기서 한 번에 준비
+  return Ready(std::move(*this), std::move(gpu));
+}
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O0 -framework OpenCL -Wall ready_compile.cpp -o ready_compile && ./ready_compile
+infer(3.0) = 6.00
+----
+
+이제 ``compile()``이 4장의 ``GpuContext``를 실제로 생성해서 ``Ready``에 이동시켜 담습니다 — "GPU 프로그램까지 준비된 상태"가 더 이상 말뿐인 설명이 아니라, ``Ready`` 객체가 실제로 살아있는 `cl_context`/``cl_command_queue``를 들고 있다는 뜻이 됩니다. `infer()` 안에서 ``GpuConvLayer``나 `matmul_tiled` 커널을 새로 빌드할 필요 없이 ``gpu_.queue()``로 곧바로 실행에 들어갈 수 있는 이유입니다. ``Unloaded``나 `Loaded` 상태에서는 애초에 ``infer()``라는 이름의 메서드가 존재하지 않으므로, "GPU 프로그램이 아직 컴파일되지 않은 채로 커널을 실행하려는" 실수는 1장에서 확인했듯 컴파일 에러로 막힙니다 — 이 장 위의 `CPU-only`/`Hybrid` 벤치마크는 단순화를 위해 이 ``Ready`` 래핑 없이 함수 형태로 직접 실행한 것이지만, 실제 서비스 코드라면 그 함수 호출들이 정확히 이 ``Ready::infer`` 안에 들어갑니다.
 
 == 이 장이 증명한 것
 
