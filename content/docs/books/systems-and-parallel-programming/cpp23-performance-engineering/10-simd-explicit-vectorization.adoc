@@ -1,0 +1,145 @@
+---
+title: "10장: SIMD로 명시적 벡터화하기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["cpp23", "simd", "vectorization", "highway", "performance", "book"]
+categories: ["books"]
+description: "이 세션의 libc++에 std::experimental::simd가 없다는 걸 확인하고 Google Highway(오픈소스 SIMD 라이브러리)로 그 자리를 메워, 컴파일러가 이미 자동 벡터화하는 경우와 명시적 SIMD가 진짜 이득인 경우를 실측으로 갈라보는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-ranges-zip-and-hints/[9장: views::zip과 컴파일러 힌트로 보고 경로 마무리하기] · 다음: link:../11-capstone-perfgrid-benchmark/[11장: 종합 실전 — PerfGrid 전체 벤치마크하기]_
+
+'''
+
+1장은 저장 순서와 일치하는 순회가 캐시에 유리하다는 걸 실측으로 확인했지만, 그 레이아웃이 SIMD 벡터화에도 유리한지는 살펴보지 않고 넘어갔습니다. 이 장은 그 빈틈을 메웁니다 — SIMD(Single Instruction, Multiple Data, 레지스터 하나에 여러 값을 담아 한 명령어로 동시에 처리하는 것)를 명시적으로 써보고, 그게 컴파일러의 자동 벡터화보다 언제 진짜 이득인지 실측으로 가릅니다.
+
+== ``std::experimental::simd``부터 확인해봅니다
+
+C{pp}23 표준화 과정에서 함께 논의된 ``std::experimental::simd``(Parallelism TS2)가 있다면 제일 먼저 시도했을 것입니다. 이 세션의 ``libc{pp}``(Apple Clang 21)로 실제로 써보면:
+
+[source,cpp]
+----
+#include <experimental/simd>
+namespace stdx = std::experimental;   // error: expected namespace name
+----
+
+[source]
+----
+error: no member named 'native_simd' in namespace 'std'
+----
+
+``std::submdspan``과 똑같은 처지입니다 — 표준에는 있지만 이 툴체인에는 아직 없습니다. 2장에서 Kokkos의 mdspan 레퍼런스 구현으로 그 자리를 메웠던 것과 같은 방법을 씁니다 — https://github.com/google/highway[Google Highway]는 SIMD를 이식성 있게 다루는 오픈소스 C{pp} 라이브러리로, ``std::experimental::simd``와 마찬가지로 "레지스터 폭에 안 매인 코드를 한 번 짜면 SSE/AVX/NEON 등 실제 하드웨어에 맞춰 컴파일된다"는 목표를 갖고 있습니다. 헤더와 함께 작은 정적 라이브러리 하나(``libhwy``)를 빌드해서 링크합니다.
+
+[source]
+----
+$ cmake -S highway -B build -DHWY_ENABLE_TESTS=OFF -DHWY_ENABLE_EXAMPLES=OFF
+$ cmake --build build --target hwy
+----
+
+== 첫 실험: 가장 단순한 변환에 SIMD를 붙여보면
+
+``BatchBuffer::view()``가 돌려주는 뷰는 1장에서 확인했듯 완전히 연속된 메모리입니다. 그 위에서 가장 단순한 변환(``x * 2.0``, 3장에서 ``fast_sin``으로 교체되기 전의 자리표시자와 같은 연산)을 SIMD로 짜보면:
+
+[source,cpp]
+----
+#include <hwy/highway.h>
+namespace hn = hwy::HWY_NAMESPACE;
+
+void transform_simd(double* p, std::size_t n) {
+  const hn::ScalableTag<double> d;        // 이 하드웨어의 double 레지스터 폭에 맞는 태그
+  const auto two = hn::Set(d, 2.0);       // 레지스터 전체를 2.0으로 채움
+  std::size_t i = 0;
+  for (; i + hn::Lanes(d) <= n; i += hn::Lanes(d)) {
+    auto v = hn::Load(d, p + i);
+    hn::Store(hn::Mul(v, two), d, p + i);
+  }
+  for (; i < n; i++) p[i] *= 2.0;          // 레지스터 폭에 안 맞고 남는 꼬리 부분
+}
+----
+
+``hn::Lanes(d)``가 이 세션 환경(Apple Silicon, NEON)에서 돌려주는 값은 ``2``입니다 — 128비트 레지스터에 ``double``(8바이트) 두 개가 들어간다는 뜻입니다. 640만 개짜리 버퍼를 스칼라 버전과 나란히 재보면:
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -I highway hwy_transform.cpp libhwy.a -o hwy_transform && ./hwy_transform
+scalar: 2.58 ms
+simd:   2.96 ms
+speedup: 0.87x  match=true
+----
+
+**SIMD 버전이 오히려 더 느립니다.** 이유는 두 가지입니다 — 이 연산(원소 하나당 곱셈 한 번)은 산술 강도가 낮아 메모리 대역폭이 병목이라 병렬 계산 능력을 살릴 자리가 없고(link:../../heterogeneous-computing-opencl/[『OpenCL로 배우는 헤테로지니어스 컴퓨팅』] 6장이 확인한 것과 같은 패턴), ``-Rpass=loop-vectorize``로 확인해보면 **``clang``이 ``-O2``에서 이 스칼라 루프를 이미 자동으로 벡터화**하고 있었습니다:
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -Rpass=loop-vectorize hwy_transform.cpp -o /dev/null
+transform_scalar: vectorized loop (vectorization width: 2, ...)
+----
+
+1장이 던져둔 질문("컴파일러가 실제로 벡터화했는가")에 대한 답은 **"이 정도로 단순한 루프라면, 그렇다"** 입니다 — 그리고 이미 벡터화된 코드와 경쟁하는 명시적 SIMD는 함수 호출 오버헤드만 더할 뿐 이득이 없습니다. 명시적 SIMD 라이브러리를 들이기 전에 ``-Rpass=loop-vectorize``로 먼저 확인해보는 습관이, 괜히 코드만 복잡하게 만드는 걸 막아줍니다.
+
+== 두 번째 실험: 컴파일러가 못 하는 자리 — `std::sin` 대체하기
+
+4장의 ``fast_sin``은 조회 테이블로 ``std::sin``을 대체했습니다. 조회 테이블은 SIMD와 궁합이 나쁩니다 — 레인마다 다른 인덱스를 읽는 gather 연산이 필요해서, 단순 산술만큼 깔끔하게 벡터화되지 않습니다. 대신 **다항식 근사**를 씁니다 — ``sin(x) ≈ x - x³/6 + x⁵/120``(``[-π/2, π/2]`` 범위)은 곱셈과 덧셈만으로 이루어져 있어 SIMD에 잘 맞습니다.
+
+[source,cpp]
+----
+void sin_poly_simd(const double* in, double* out, std::size_t n) {
+  const hn::ScalableTag<double> d;
+  const auto c3 = hn::Set(d, -1.0/6.0), c5 = hn::Set(d, 1.0/120.0);
+  std::size_t i = 0;
+  for (; i + hn::Lanes(d) <= n; i += hn::Lanes(d)) {
+    auto x = hn::Load(d, in + i);
+    auto x2 = hn::Mul(x, x), x3 = hn::Mul(x2, x), x5 = hn::Mul(x3, x2);
+    auto r = hn::MulAdd(x3, c3, x);        // x + x3*c3를 곱셈-덧셈 한 번에(FMA)
+    r = hn::MulAdd(x5, c5, r);
+    hn::Store(r, d, out + i);
+  }
+  for (; i < n; i++) { double x = in[i]; out[i] = x - x*x*x/6.0 + x*x*x*x*x/120.0; }
+}
+----
+
+``std::sin`` 직접 호출, 같은 다항식을 스칼라로 쓴 버전, 이 SIMD 버전 세 개를 1000만 개 원소에 각각 7번 반복 측정해(워밍업 후 중앙값) 비교합니다.
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -I highway hwy_sin_poly.cpp libhwy.a -o hwy_sin_poly && ./hwy_sin_poly
+std::sin (scalar, median of 7):          17.31 ms
+poly approx, scalar (median of 7):        1.83 ms
+poly approx, Highway SIMD (median of 7):  1.80 ms
+speedup vs std::sin: 9.62x   speedup vs scalar poly: 1.02x
+max abs error (poly vs std::sin): 0.004525
+----
+
+**``std::sin``을 다항식 근사로 바꾼 것만으로 9.6배** 빨라집니다 — ``std::sin``은 라이브러리 함수 호출이라 컴파일러가 벡터화할 수 없는 반면(호출 하나하나가 불투명한 블랙박스입니다), 다항식은 순수한 산술이라 자동 벡터화든 명시적 SIMD든 다 통합니다. 그런데 정작 **스칼라 다항식과 Highway SIMD 다항식의 차이는 거의 없습니다**(1.02배) — 첫 실험과 같은 이유로, ``clang``이 이 곱셈-덧셈 나열도 이미 자동으로 벡터화했기 때문입니다. 정확도는 4장의 조회 테이블과 마찬가지로 근사이므로 오차가 있습니다(최대 절대오차 ``0.0045``) — 조회 테이블(``4096``칸, 양자화 오차)과는 다른 종류의 근사 오차지만, "정밀도를 속도와 맞바꾼다"는 트레이드오프의 성격은 같습니다.
+
+== 그렇다면 명시적 SIMD는 언제 쓸모가 있는가
+
+두 실험 모두 자동 벡터화가 이미 정답에 가까웠습니다 — 그런데 자동 벡터화는 **컴파일러 버전, 최적화 레벨, 루프의 복잡도에 따라 조용히 꺼질 수 있는 최적화**입니다. 같은 다항식 코드를 자동 벡터화를 강제로 끄고(``-fno-vectorize -fno-slp-vectorize``) 다시 재면:
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -fno-vectorize -fno-slp-vectorize -I highway hwy_sin_poly.cpp libhwy.a -o hwy_sin_poly_noauto && ./hwy_sin_poly_noauto
+poly approx, scalar (median of 7):        3.11 ms
+poly approx, Highway SIMD (median of 7):  1.81 ms
+speedup vs scalar poly: 1.72x
+----
+
+스칼라 버전은 자동 벡터화를 잃고 느려지지만, ``Highway`` SIMD 버전은 **컴파일러 플래그와 무관하게 그대로 빠릅니다** — ``hn::Load``/``hn::Mul``/``hn::MulAdd`` 자체가 이미 벡터 명령어로 컴파일되도록 지정된 코드이기 때문입니다. 이게 명시적 SIMD의 진짜 가치입니다 — "컴파일러가 알아서 벡터화해주길 바라는" 게 아니라, "이 연산은 반드시 SIMD 레지스터로 실행된다"는 걸 코드 자체에 못 박아두는 것입니다. ``-O0``이나 ``-O1``로 디버그 빌드를 돌릴 때, 혹은 최적화 휴리스틱이 다른 컴파일러(GCC, MSVC)로 옮길 때도 이 보장은 그대로 유지됩니다.
+
+== 요약
+
+* ``std::experimental::simd``가 이 세션의 ``libc{pp}``에 없다는 걸 실제 컴파일 에러로 확인하고, 2장의 ``std::submdspan``과 같은 방식으로 Google Highway(오픈소스)를 대신 씁니다.
+* 산술 강도가 낮은 단순 변환(``x*2``)에서는 ``clang``이 ``-O2``에서 이미 자동 벡터화하고 있어서, 명시적 SIMD가 오히려 손해였다는 걸 ``-Rpass=loop-vectorize``로 직접 확인했습니다.
+* ``std::sin``을 SIMD 친화적인 다항식 근사로 바꾸는 것만으로 9.6배가 나왔지만, 그 이득의 대부분은 "라이브러리 호출을 없앤 것"이지 "SIMD를 명시한 것" 자체가 아니었습니다 — 이 경우도 자동 벡터화가 이미 정답에 가까웠습니다.
+* 자동 벡터화를 강제로 끄면 명시적 SIMD만 그대로 빠르다는 걸 확인해, 명시적 SIMD의 진짜 가치가 "컴파일러 설정과 무관하게 벡터화를 보장하는 것"에 있다는 걸 짚었습니다.
+
+다음 장에서는 지금까지 만든 ``BatchBuffer``/``TransformWorker``/``Coordinator``를 재구성 없이 그대로 실행해 PerfGrid 전체를 벤치마크합니다.
+
+== 팁 박스: C{pp}17 환경이라면
+
+[NOTE]
+====
+Google Highway는 ``-std=c{pp}17``로도 그대로 컴파일되고 실행됩니다(직접 확인했습니다) — SIMD 자체는 C{pp}23 기능이 아니라 라이브러리이므로 표준 버전과 무관합니다. 다만 이 장에서 쓴 ``hn::MulAdd`` 같은 FMA(Fused Multiply-Add) 연산이 실제로 하드웨어 FMA 명령어로 컴파일되는지는 타깃 아키텍처(그리고 컴파일 플래그)에 따라 달라질 수 있으므로, C{pp}17이든 C{pp}23이든 이 장처럼 실제로 재보는 습관은 그대로 유효합니다.
+====
+// end::body[]

@@ -8,7 +8,7 @@ description: "Coordinator에 워커 ID와 진행률을 중간 컨테이너 없�
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../08-flat-map-registry/[8장: flat_map으로 워커 레지스트리 만들기] · 다음: link:../10-capstone-perfgrid-benchmark/[10장: 종합 실전 — PerfGrid 전체 벤치마크하기]_
+_link:../[전체 목차] · 이전: link:../08-flat-map-registry/[8장: flat_map으로 워커 레지스트리 만들기] · 다음: link:../10-simd-explicit-vectorization/[10장: SIMD로 명시적 벡터화하기]_
 
 '''
 

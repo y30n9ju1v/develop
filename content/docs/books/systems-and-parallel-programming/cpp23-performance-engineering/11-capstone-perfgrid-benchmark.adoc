@@ -1,5 +1,5 @@
 ---
-title: "10장: 종합 실전 — PerfGrid 전체 벤치마크하기"
+title: "11장: 종합 실전 — PerfGrid 전체 벤치마크하기"
 date: 2026-08-12T00:00:00+09:00
 draft: false
 tags: ["cpp23", "mdspan", "pmr", "consteval", "atomic-ref", "flat-map", "performance", "book"]
@@ -8,7 +8,7 @@ description: "1장부터 9장까지 조립한 BatchBuffer, TransformWorker, Coor
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../09-ranges-zip-and-hints/[9장: views::zip과 컴파일러 힌트로 보고 경로 마무리하기] · 다음: link:../11-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../10-simd-explicit-vectorization/[10장: SIMD로 명시적 벡터화하기] · 다음: link:../12-afterword/[맺음말]_
 
 '''
 
