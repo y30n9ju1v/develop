@@ -81,7 +81,7 @@ original buf[5,0] after writing through tile = -1
 
 == 팁 박스: C{pp}17 환경이라면
 
-1장에서 짚었듯 ``std::mdspan``에는 C{pp}17 대체 표준 타입이 없으므로, ``layout_stride``도 마찬가지로 손으로 조립해야 합니다. `offset`/`extents`/`strides`를 직접 들고 있는 `StridedView2D` 구조체 하나면 이 장의 `tile()`이 하는 일을 그대로 흉내 낼 수 있습니다.
+1장에서 짚었듯 ``std::mdspan``에는 C{pp}17 대체 표준 타입이 없으므로, ``layout_stride``도 마찬가지로 손으로 조립해야 합니다. `offset`/`extents`/``strides``를 직접 들고 있는 `StridedView2D` 구조체 하나면 이 장의 ``tile()``이 하는 일을 그대로 흉내 낼 수 있습니다.
 
 [source,cpp]
 ----
@@ -102,7 +102,7 @@ StridedView2D tile(double* base, std::size_t total_cols,
 }
 ----
 
-이 함수로 만든 타일에 값을 쓰면 원본 버퍼에도 그대로 반영됩니다 — 이 장이 확인한 "복사가 아니라 진짜 뷰"라는 성질은 그대로 유지됩니다. `-std=c{pp}17`로 경고 없이 컴파일되는 것도 확인했습니다.
+이 함수로 만든 타일에 값을 쓰면 원본 버퍼에도 그대로 반영됩니다 — 이 장이 확인한 "복사가 아니라 진짜 뷰"라는 성질은 그대로 유지됩니다. ``-std=c{pp}17``로 경고 없이 컴파일되는 것도 확인했습니다.
 
-잃는 건 두 가지입니다. 첫째, ``std::layout_stride``는 `std::mdspan`의 `layout_policy` 슬롯에 끼워 넣을 수 있는 표준 정책 타입이라 다른 레이아웃(행 우선, 열 우선)과 같은 인터페이스로 맞바꿀 수 있지만, `StridedView2D`는 그 자체로 고정된 하나의 타입이라 정책을 바꾸려면 새 구조체를 또 만들어야 합니다. 둘째, `mdspan`을 인자로 받는 표준/서드파티 알고리즘과 호환되는 어휘 타입(vocabulary type)이 아니라서, 이런 손으로 짠 뷰는 그 프로젝트 안에서만 통용됩니다.
+잃는 건 두 가지입니다. 첫째, ``std::layout_stride``는 ``std::mdspan``의 `layout_policy` 슬롯에 끼워 넣을 수 있는 표준 정책 타입이라 다른 레이아웃(행 우선, 열 우선)과 같은 인터페이스로 맞바꿀 수 있지만, ``StridedView2D``는 그 자체로 고정된 하나의 타입이라 정책을 바꾸려면 새 구조체를 또 만들어야 합니다. 둘째, ``mdspan``을 인자로 받는 표준/서드파티 알고리즘과 호환되는 어휘 타입(vocabulary type)이 아니라서, 이런 손으로 짠 뷰는 그 프로젝트 안에서만 통용됩니다.
 // end::body[]

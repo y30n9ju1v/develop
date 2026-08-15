@@ -94,7 +94,7 @@ int report(const std::vector<int>& ids, const std::vector<int>& progress) {
 }
 ----
 
-`\[[assume]]`과 ``std::unreachable()``도 둘 다 **C{pp}23**부터입니다. C{pp}17에는 표준 문법이 없으므로 컴파일러별 내장 함수를 매크로로 감싸서 씁니다 — Clang/GCC의 `__builtin_unreachable()`, MSVC의 `__assume()`이 흔한 조합입니다.
+``\[[assume]]``과 ``std::unreachable()``도 둘 다 **C{pp}23**부터입니다. C{pp}17에는 표준 문법이 없으므로 컴파일러별 내장 함수를 매크로로 감싸서 씁니다 — Clang/GCC의 ``{us}{us}builtin_unreachable()``, MSVC의 ``{us}{us}assume()``이 흔한 조합입니다.
 
 [source,cpp]
 ----
@@ -110,7 +110,7 @@ int report(const std::vector<int>& ids, const std::vector<int>& progress) {
 #endif
 ----
 
-두 스니펫 모두 `-std=c{pp}17 -Wall -Wextra`로 경고 없이 컴파일되고, `report()`와 `ASSUME`/`UNREACHABLE`을 쓰는 `classify()`가 기대한 값을 낸다는 것도 실행해서 확인했습니다.
+두 스니펫 모두 ``-std=c{pp}17 -Wall -Wextra``로 경고 없이 컴파일되고, ``report()``와 `ASSUME`/``UNREACHABLE``을 쓰는 ``classify()``가 기대한 값을 낸다는 것도 실행해서 확인했습니다.
 
-잃는 건 두 층위입니다. 인덱스 기반 루프는 `views::zip`이 주는 파이프 문법(``\|``로 다른 range 어댑터와 이어붙이는 것)을 전혀 못 쓰고, 인덱스 변수 하나를 양쪽 컨테이너에 동시에 맞춰 관리해야 해서 한쪽만 길이가 어긋나면 곧바로 버그가 됩니다. 컴파일러 내장 함수는 컴파일러마다 이름과 문법이 달라 이식성이 없고, 매크로로 감싸더라도 표준이 보장하는 문법이 아니라 "이 컴파일러가 이렇게 동작한다"는 관례에 기대는 것이라 새 컴파일러를 지원할 때마다 분기를 추가해야 합니다.
+잃는 건 두 층위입니다. 인덱스 기반 루프는 ``views::zip``이 주는 파이프 문법(``\|``로 다른 range 어댑터와 이어붙이는 것)을 전혀 못 쓰고, 인덱스 변수 하나를 양쪽 컨테이너에 동시에 맞춰 관리해야 해서 한쪽만 길이가 어긋나면 곧바로 버그가 됩니다. 컴파일러 내장 함수는 컴파일러마다 이름과 문법이 달라 이식성이 없고, 매크로로 감싸더라도 표준이 보장하는 문법이 아니라 "이 컴파일러가 이렇게 동작한다"는 관례에 기대는 것이라 새 컴파일러를 지원할 때마다 분기를 추가해야 합니다.
 // end::body[]

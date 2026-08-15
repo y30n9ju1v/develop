@@ -48,6 +48,8 @@ int main() {
 }
 ----
 
+``std::async``의 첫 인자 ``std::launch::async``는 **실행 정책(launch policy)**입니다 — "이 함수를 반드시 새 스레드에서 즉시 실행하라"는 명시적 지시입니다. 이 인자를 생략하면 구현체가 마음대로 ``std::launch::async``(즉시 새 스레드)와 ``std::launch::deferred``(스레드를 만들지 않고, 나중에 ``.get()``을 부르는 바로 그 순간 **그 자리에서 동기적으로** 실행) 중 하나를 고를 수 있습니다 — 즉 정책을 안 정하면 "진짜 병렬로 도는지"조차 보장이 안 됩니다. 이 장의 요점이 정확히 "두 워커가 진짜 동시에 돈다"는 것이므로, ``std::launch::async``를 빼먹으면 아래 벤치마크가 재는 게 병렬 실행 시간이 아니라 그냥 순차 실행 시간이 될 수도 있습니다.
+
 [source]
 ----
 $ clang++ -std=c++23 -O0 -pthread pipeline.cpp -o pipeline && ./pipeline

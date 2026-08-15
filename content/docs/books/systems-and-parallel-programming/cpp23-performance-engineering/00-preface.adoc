@@ -16,7 +16,7 @@ _link:../[전체 목차] · 다음: link:../01-mdspan-cache-friendly-views/[1장
 
 전작 link:../../safe-parallel-cpp23/[『이론을 C{pp}23으로 옮기다』]는 "이 프로그램이 정확한가"만 다뤘습니다 — 데이터 경쟁이 없는가, 프로토콜을 어긴 호출이 컴파일되지 않는가, merge가 항상 같은 값에 수렴하는가. 정확성은 확인했지만, 그 코드가 **얼마나 빠른가**는 의도적으로 다루지 않았습니다(전작 맺음말이 정직하게 그렇게 밝혔습니다).
 
-이 책은 그 빈자리를 채웁니다. C{pp}23이 새로 들여온 기능들 — `std::mdspan`, `layout_stride`, `deducing this`, 확장된 `constexpr`/`consteval`, `std::atomic_ref`, `allocate_at_least`, PMR(Polymorphic Memory Resource), `std::flat_map`, `std::views::zip`, `[[assume]]`/`std::unreachable()` — 을 실제로 써서, "정확했지만 딱히 빠르지는 않았던" 코드를 눈에 보이게 더 빠른 코드로 고칩니다. 전작과 똑같은 원칙을 지킵니다 — **이 책의 모든 벤치마크는 이 세션 환경에 실제로 설치된 Apple Clang 21(`-std=c{pp}23`, `-O2`)로 컴파일하고 실행해서 나온 실측치**입니다. 지어낸 숫자나 "이론적으로는 빨라야 한다"는 주장은 이 책에 없습니다.
+이 책은 그 빈자리를 채웁니다. C{pp}23이 새로 들여온 기능들 — `std::mdspan`, `layout_stride`, `deducing this`, 확장된 `constexpr`/`consteval`, `std::atomic_ref`, `allocate_at_least`, PMR(Polymorphic Memory Resource), `std::flat_map`, `std::views::zip`, `\[[assume]]`/`std::unreachable()` — 을 실제로 써서, "정확했지만 딱히 빠르지는 않았던" 코드를 눈에 보이게 더 빠른 코드로 고칩니다. 전작과 똑같은 원칙을 지킵니다 — **이 책의 모든 벤치마크는 이 세션 환경에 실제로 설치된 Apple Clang 21(`-std=c{pp}23`, `-O2`)로 컴파일하고 실행해서 나온 실측치**입니다. 지어낸 숫자나 "이론적으로는 빨라야 한다"는 주장은 이 책에 없습니다.
 
 == 하나의 시스템을 처음부터 끝까지: PerfGrid
 
@@ -26,7 +26,7 @@ _link:../[전체 목차] · 다음: link:../01-mdspan-cache-friendly-views/[1장
 * *2부(3~4장)* 는 그 타일을 처리하는 ``TransformWorker``를 ``deducing this``로 만들고, 워커의 변환 함수를 `consteval` 조회 테이블로 바꿉니다.
 * *3부(5장)* 는 ``std::atomic_ref``로 워커들의 진행률을 락 없이 추적하는 ``Coordinator``를 도입합니다 — 여기서부터 실제 ``std::thread``로 워커들이 병렬로 돕니다.
 * *4부(6~7장)* 는 ``TransformWorker``가 세그먼트를 처리하며 쓰는 임시 버퍼를, ``allocate_at_least``로 여유 용량을 살펴본 뒤 PMR 스레드 로컬 아레나로 바꿔 할당 경합을 없앱니다.
-* *5부(8~9장)* 는 ``Coordinator``에 `std::flat_map` 기반 워커 상태 레지스트리를 추가하고, ``std::views::zip``과 `[[assume]]`/``std::unreachable()``로 진행 상황 보고 경로를 마무리합니다.
+* *5부(8~9장)* 는 ``Coordinator``에 `std::flat_map` 기반 워커 상태 레지스트리를 추가하고, ``std::views::zip``과 `\[[assume]]`/``std::unreachable()``로 진행 상황 보고 경로를 마무리합니다.
 * *6부(10장)* 는 이렇게 완성된 `Coordinator`/`BatchBuffer`/`TransformWorker` 전체를, 최적화를 하나도 적용하지 않은 순진한 버전과 나란히 벤치마크합니다.
 
 맺음말에서는 이렇게 9개 장에 걸쳐 조립된 PerfGrid 전체를 다시 정리하고, 전작의 안전성 기법들과 이 책의 성능 기법들이 같은 코드베이스 위에서 어떻게 함께 동작하는지 살펴봅니다.

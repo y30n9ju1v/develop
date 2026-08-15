@@ -41,14 +41,14 @@ _link:../[전체 목차] · 이전: link:../10-full-pipeline/[10장: 종합 파�
 |===
 |개념 |OpenCL |CUDA |Metal
 
-|디바이스 실행 함수 |kernel |`__global__` 함수 |compute function
+|디바이스 실행 함수 |kernel |`{us}{us}global{us}{us}` 함수 |compute function
 |워크그룹 |work-group |thread block |threadgroup
 |락스텝 실행 단위 |(구현별, 보통 32) |warp(32) |SIMD-group
-|워크그룹 공유 메모리 |`__local` |`__shared__` |threadgroup memory
+|워크그룹 공유 메모리 |`{us}{us}local` |`{us}{us}shared{us}{us}` |threadgroup memory
 |동기화 |`barrier()` |`__syncthreads()` |`threadgroup_barrier()`
 |===
 
-이 책에서 4장의 배리어, 3장의 분기 발산, 5~6장의 타일링을 실제로 GPU에서 돌려보며 익혔다면, 나중에 NVIDIA GPU가 있는 환경에서 CUDA로 옮기더라도 ``__syncthreads()``가 왜 필요한지, `__shared__` 배열을 왜 쓰는지 헤매지 않을 겁니다 — 서문에서 약속한 대로, OpenCL이라는 문법 뒤에 있는 모델 자체를 익히는 게 이 책의 목표였습니다.
+이 책에서 4장의 배리어, 3장의 분기 발산, 5~6장의 타일링을 실제로 GPU에서 돌려보며 익혔다면, 나중에 NVIDIA GPU가 있는 환경에서 CUDA로 옮기더라도 ``{us}{us}syncthreads()``가 왜 필요한지, `{us}{us}shared{us}{us}` 배열을 왜 쓰는지 헤매지 않을 겁니다 — 서문에서 약속한 대로, OpenCL이라는 문법 뒤에 있는 모델 자체를 익히는 게 이 책의 목표였습니다.
 
 == 다음 단계: 진짜 3D로
 

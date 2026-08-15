@@ -100,7 +100,7 @@ scratch.push_back(1.0);
 scratch.push_back(2.0);
 ----
 
-`-std=c{pp}17 -Wall -Wextra`로 경고 없이 컴파일되는 것도 확인했습니다.
+``-std=c{pp}17 -Wall -Wextra``로 경고 없이 컴파일되는 것도 확인했습니다.
 
 다만 이 장이 확장하는 ``TransformWorker::process``의 시그니처(`void process(this auto&& self, ...)`)는 3장에서 `deducing this`(C{pp}23)로 바꾼 것이므로, ``TransformWorker`` 클래스 전체를 C{pp}17로 그대로 옮기려면 3장 팁 박스가 보여준 CRTP 버전과 이 장의 PMR 아레나를 같이 조합해야 합니다 — PMR 자체는 아무 문제가 없지만, 이 장이 확장하는 클래스의 다른 부분에는 C{pp}17 대체가 필요하다는 뜻입니다.
 // end::body[]
