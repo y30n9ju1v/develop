@@ -44,7 +44,7 @@ class Coordinator {
 
 * **SIMD 명시적 벡터화** — ``std::experimental::simd``나 컴파일러 내장 함수로 명시적으로 벡터 레지스터를 쓰는 것은 다루지 않았습니다. ``std::mdspan``의 레이아웃 정책은 벡터화하기 좋은 메모리 배치를 만들어주지만, 컴파일러가 실제로 자동 벡터화했는지는 확인하지 않았습니다.
 * **GPU 오프로딩** — ``TransformWorker``의 처리를 GPU로 옮기는 것(CUDA, SYCL, 또는 ``std::execution``의 GPU 실행기)은 다루지 않았습니다.
-* **`std::submdspan`, `views::chunk`/`slide`/`stride`, `std::start_lifetime_as`** — C{pp}23/26 표준에는 있지만 이 세션의 ``libc{pp}``에는 아직 구현되지 않은 기능들을 실제 컴파일 에러로 확인하고 넘어갔습니다. 구현이 따라잡으면 다시 살펴볼 만합니다 — 특히 ``start_lifetime_as``는 원시 바이트 버퍼를 복사 없이 구조체로 재해석하는 용도라, ``BatchBuffer``가 네트워크나 파일에서 받은 바이트를 다룰 일이 생기면 유용했을 도구입니다.
+* **`views::chunk`/`slide`/`stride`, `std::start_lifetime_as`** — C{pp}23/26 표준에는 있지만 이 세션의 ``libc{pp}``에는 아직 구현되지 않은 기능들을 실제 컴파일 에러로 확인하고 넘어갔습니다. 구현이 따라잡으면 다시 살펴볼 만합니다 — 특히 ``start_lifetime_as``는 원시 바이트 버퍼를 복사 없이 구조체로 재해석하는 용도라, ``BatchBuffer``가 네트워크나 파일에서 받은 바이트를 다룰 일이 생기면 유용했을 도구입니다. (``std::submdspan``도 같은 이유로 아직 없지만, 2장에서 Kokkos 레퍼런스 구현으로 실제로 메워서 썼습니다 — 표준 라이브러리에 없다고 항상 손 조립만이 답은 아니라는 것도 이 책이 확인한 것 중 하나입니다.)
 * **다른 컴파일러/플랫폼과의 비교** — 이 책의 모든 숫자는 Apple Clang 21, Darwin, `libc{pp}` 조합 하나에서만 나왔습니다. GCC/libstdc{pp}나 MSVC, 리눅스 환경에서는 같은 코드가 다른 절대 수치(그리고 어쩌면 다른 상대적 순위)를 낼 수 있습니다.
 +
 [NOTE]
