@@ -1,0 +1,131 @@
+---
+title: "12장: MLX 네이티브 런타임과 비교하기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["onnx", "mlx", "resnet18", "apple-silicon", "book"]
+categories: ["books"]
+description: "같은 ResNet18 가중치를 PyTorch에서 MLX nn.Module로 직접 이식해(가중치 변환만, 재학습 없음) 출력이 부동소수점 정밀도 수준까지 일치한다는 걸 확인하고, onnxruntime·IREE 없이 MLX 하나로 컴파일한 추론 속도가 이 책의 다른 경로들과 어디에 서는지 실측으로 확인하는 6부"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-heterogeneous-scheduling/[11장: 이기종 스케줄링] · 다음: link:../13-afterword/[맺음말]_
+
+'''
+
+이 책의 1~11장은 모두 ``onnxruntime``과 IREE라는, ONNX 그래프를 **받아서** 최적화하는 도구를 썼습니다. 이 장은 다른 경로를 시도합니다 — link:../../mlx-apple-silicon-optimization/[『복사 없는 GPU 프로그래밍』]에서 다룬 MLX는 ONNX를 거치지 않고, PyTorch 가중치를 직접 MLX 모델로 이식해서 이 세션의 Apple GPU(Metal)로 곧장 실행합니다. 같은 ResNet18, 같은 가중치로 세 번째 경로를 열어, 이 책이 지금까지 쌓아온 숫자들 사이 어디에 서는지 확인합니다.
+
+== ONNX 없이: PyTorch 가중치를 MLX로 직접 이식하기
+
+1장이 ``torch.onnx.export``로 그래프를 뽑아냈던 자리에서, 이 장은 대신 ``state_dict``(레이어 이름과 텐서 값의 딕셔너리)를 직접 읽습니다. ``mlx.nn``으로 같은 구조의 ``ResNet18``을 새로 정의하고, 그 위에 PyTorch의 학습된 가중치를 그대로 복사합니다 — 재학습은 없습니다.
+
+[source,python]
+----
+class BasicBlock(nn.Module):
+    def __init__(self, in_c, out_c, stride=1, downsample=False):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_c, out_c, 3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm(out_c)
+        self.conv2 = nn.Conv2d(out_c, out_c, 3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm(out_c)
+        self.downsample = [nn.Conv2d(in_c, out_c, 1, stride=stride, bias=False),
+                            nn.BatchNorm(out_c)] if downsample else None
+
+    def __call__(self, x):
+        identity = x
+        out = nn.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        if self.downsample is not None:
+            identity = self.downsample[1](self.downsample[0](x))
+        return nn.relu(out + identity)
+
+class ResNet18(nn.Module):
+    def __init__(self, num_classes=1000):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 64, 7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm(64)
+        self.maxpool = nn.MaxPool2d(3, stride=2, padding=1)
+        self.layer1 = [BasicBlock(64, 64), BasicBlock(64, 64)]
+        self.layer2 = [BasicBlock(64, 128, stride=2, downsample=True), BasicBlock(128, 128)]
+        self.layer3 = [BasicBlock(128, 256, stride=2, downsample=True), BasicBlock(256, 256)]
+        self.layer4 = [BasicBlock(256, 512, stride=2, downsample=True), BasicBlock(512, 512)]
+        self.fc = nn.Linear(512, num_classes)
+
+    def __call__(self, x):
+        x = nn.relu(self.bn1(self.conv1(x)))
+        x = self.maxpool(x)
+        for b in self.layer1: x = b(x)
+        for b in self.layer2: x = b(x)
+        for b in self.layer3: x = b(x)
+        for b in self.layer4: x = b(x)
+        x = x.mean(axis=(1, 2))    # 전역 평균 풀링(MLX는 NHWC라서 H,W가 axis 1,2)
+        return self.fc(x)
+----
+
+``torchvision``의 ``BasicBlock``/``ResNet``과 층 구성은 똑같지만, 두 가지가 다릅니다. 첫째, MLX의 ``nn.Conv2d``는 커널을 ``(out, kh, kw, in)``(NHWC 계열) 순서로 기대하는 반면 PyTorch는 ``(out, in, kh, kw)``(NCHW)를 씁니다 — 가중치를 복사할 때 ``transpose(0,2,3,1)``로 축을 맞춰야 합니다. 둘째, ``BatchNorm``은 학습 때 배치 통계를, 추론 때 저장된 ``running_mean``/``running_var``를 씁니다 — MLX 모듈도 ``model.eval()``을 부르지 않으면 기본값(학습 모드, 배치 통계 사용)으로 남아 있어서 값이 완전히 틀어집니다. 이 두 가지를 놓치면 모델이 "그냥 다른 답"을 내는 게 아니라 **조용히 틀린 답을** 냅니다.
+
+== 검증: 같은 입력, 같은 출력인가
+
+[source,python]
+----
+x_np = np.random.randn(1, 3, 224, 224).astype(np.float32)
+
+with torch.no_grad():
+    pt_out = pt_model(torch.from_numpy(x_np)).numpy()
+
+x_mlx = mx.array(x_np.transpose(0, 2, 3, 1))   # NCHW -> NHWC
+mlx_model.eval()
+out_mlx = mlx_model(x_mlx)
+mx.eval(out_mlx)
+----
+
+[source]
+----
+$ python3 resnet18_to_mlx.py
+pytorch output shape: (1, 1000) top1: 107
+mlx output shape: (1, 1000) top1: 107
+max abs diff: 3.4570694e-06 mean abs diff: 6.8545717e-07
+top1 match: True
+----
+
+top1 클래스가 일치하고(``107``), 로짓 1000개 전체의 최대 오차가 ``3.46e-06``입니다 — link:../../mlx-apple-silicon-optimization/03-autodiff-grad/[『복사 없는 GPU 프로그래밍』 3장]이 확인한 것과 같은 부동소수점 정밀도 수준입니다. 컨볼루션 21개, 배치정규화 21개, 스킵 연결 8개로 이루어진 이 모델 전체를 통과한 뒤에도 오차가 누적되지 않고 이 수준에 머문다는 게, 가중치 이식이 제대로 됐다는 증거입니다.
+
+== 실측: MLX는 이 책의 스펙트럼 어디에 서는가
+
+[source]
+----
+$ python3 resnet18_mlx_bench.py
+mlx-gpu:            4.72 ms/inference
+mlx-cpu:            13.4 ms/inference
+mlx-gpu (compiled):  4.04 ms/inference
+----
+
+11장까지 쌓은 표에 이 세 숫자를 더하면:
+
+[cols="2,2"]
+|===
+|경로 |지연 시간
+
+|9장: IREE llvm-cpu, 기본 |344.711ms
+|1장: PyTorch eager |10.675ms
+|이 장: MLX-CPU |13.4ms
+|1장: onnxruntime, 기본 최적화(NHWC+융합) |4.833ms
+|이 장: MLX-GPU(``mx.compile``) |4.04ms
+|11장: onnxruntime + CoreML(NPU 위임) |0.670ms
+|===
+
+**MLX-GPU(컴파일)가 onnxruntime의 CPU 벤더 최적화 경로(4.833ms)보다도 살짝 빠릅니다** — ONNX 그래프도, IREE 컴파일러도 거치지 않고, PyTorch 가중치를 직접 읽어서 Metal로 실행한 결과가 이 정도라는 건, MLX가 Apple Silicon의 GPU를 상당히 효율적으로 쓴다는 뜻입니다. link:../../mlx-apple-silicon-optimization/04-compile-fusion/[『복사 없는 GPU 프로그래밍』 4장]이 확인했듯 ``mx.compile``이 여기서도 이득을 줍니다(``4.72ms`` → ``4.04ms``). MLX-CPU(``13.4ms``)는 PyTorch eager(``10.675ms``)보다 살짝 느린데, link:../../mlx-apple-silicon-optimization/10-numpy-vs-mlx-cpu-vs-gpu/[같은 책 10장]이 짚었던 지연 평가 그래프 구성 오버헤드가 여기서도 비슷하게 작용합니다.
+
+그런데도 **11장의 NPU 위임(0.670ms)에는 MLX-GPU도 6배 가까이 못 미칩니다.** MLX는 GPU(Metal)까지만 씁니다 — CoreML처럼 이 칩의 신경망 전용 가속기(Apple Neural Engine)로 직접 위임하는 경로는 없습니다. 이 격차가 이 책의 결론을 한 번 더 확인해줍니다 — "범용 GPU 프레임워크"와 "이 칩 전용 신경망 가속기"는 같은 실리콘 위에서도 여전히 다른 층위이고, 그 사이의 격차는 소프트웨어 스택을 아무리 잘 짜도 좁혀지지 않습니다.
+
+== 이 장이 보여준 것: 세 번째 길도 있다, 하지만 만능은 아니다
+
+ONNX/onnxruntime/IREE 경로(1~11장)와 MLX 경로(이 장)는 서로 대체재가 아니라 **다른 절충**입니다. ONNX 경로는 PyTorch/TensorFlow/JAX 등 어디서 학습했든 표준 형식 하나로 모을 수 있고, CoreML·TensorRT 같은 벤더별 가속기까지 위임할 수 있습니다(11장). MLX 경로는 그 변환 단계 전부를 건너뛰고 Apple Silicon 하나에 최적화된 배열 프레임워크로 직접 갑니다 — 이식 코드가 필요하고(이 장에서 짠 ``BasicBlock``/``ResNet18``), NPU 위임도 없지만, ONNX 그래프 없이도 vendor-tuned CPU 경로와 맞먹는 속도가 나온다는 걸 이 장이 보여줬습니다.
+
+== 요약
+
+* PyTorch ResNet18의 ``state_dict``를 MLX ``nn.Module``로 직접 이식해(NCHW→NHWC 가중치 전치, ``eval()`` 모드 전환), ONNX를 거치지 않고도 출력이 부동소수점 정밀도 수준(``3.46e-06``)까지 일치한다는 걸 확인했습니다.
+* MLX-GPU(``mx.compile``)가 ``4.04ms``로, onnxruntime의 CPU 벤더 최적화 경로(``4.833ms``)보다 빠르다는 걸 실측했습니다 — ONNX/IREE 없이도 경쟁력 있는 속도가 나옵니다.
+* 그럼에도 11장의 NPU 위임(``0.670ms``)에는 6배 가까이 못 미친다는 것도 함께 실어, "GPU 프레임워크"와 "전용 신경망 가속기"가 여전히 다른 층위라는 이 책의 결론을 다시 확인했습니다.
+
+맺음말에서는 이 장의 숫자까지 포함해 이 책 전체가 실측한 스펙트럼을 다시 정리합니다.
+// end::body[]

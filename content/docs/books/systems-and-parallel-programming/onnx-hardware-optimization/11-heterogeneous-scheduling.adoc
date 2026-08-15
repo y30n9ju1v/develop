@@ -8,7 +8,7 @@ description: "CoreMLExecutionProvider로 ResNet18 그래프 49개 노드 전부�
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../10-winograd-convolution/[10장: 위노그라드 컨볼루션] · 다음: link:../12-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../10-winograd-convolution/[10장: 위노그라드 컨볼루션] · 다음: link:../12-mlx-native-runtime/[12장: MLX 네이티브 런타임과 비교하기]_
 
 '''
 
