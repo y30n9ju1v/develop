@@ -1,0 +1,76 @@
+---
+title: "1장: 통합 메모리 — 복사가 없다는 게 무슨 뜻인가"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["mlx", "unified-memory", "metal", "book"]
+categories: ["books"]
+description: "cl.Buffer/cl.enqueue_copy 없이 mx.array 하나로 CPU 연산과 GPU 연산을 섞어 쓸 수 있다는 걸 실제로 확인하고, 이게 정말 통합 메모리 덕분인지 mx.set_default_device로 오가며 검증하는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../02-lazy-evaluation/[2장: 지연 평가와 mx.eval]_
+
+'''
+
+link:../../heterogeneous-computing-opencl/[전작] 1장은 OpenCL로 배열을 GPU에 올리려면 ``cl.Buffer``를 만들고 ``mem_flags``로 읽기/쓰기 방향을 정하고, 계산이 끝나면 ``cl.enqueue_copy``로 다시 호스트로 읽어와야 한다는 걸 확인했습니다. MLX의 첫인상은 그 절차가 통째로 없다는 것입니다.
+
+== ``mx.array``: 만들면 끝
+
+[source,python]
+----
+import mlx.core as mx
+
+a = mx.array([1.0, 2.0, 3.0])
+print(a)
+print(mx.default_device())
+----
+
+[source]
+----
+$ python3 mlx_intro.py
+array([1, 2, 3], dtype=float32)
+Device(gpu, 0)
+----
+
+``mx.array``를 만드는 순간 이미 끝입니다 — ``cl.Buffer``도, ``mem_flags``도, 명시적으로 GPU에 "올리는" 단계도 없습니다. ``mx.default_device()``가 ``Device(gpu, 0)``을 돌려주는 건 이 세션 환경에 실제로 있는 Apple GPU를 Metal로 잡았다는 뜻입니다 — 이 책의 모든 코드가 여기서 실제로 실행됩니다.
+
+== CPU 연산과 GPU 연산을 섞어보기
+
+Apple Silicon은 CPU와 GPU가 물리적으로 같은 메모리를 공유합니다 — 그래서 MLX는 "이 배열은 지금 CPU에 있다/GPU에 있다"를 구분하지 않고, 대신 **어느 디바이스로 연산을 보낼지**만 그때그때 정합니다.
+
+[source,python]
+----
+a = mx.array([1.0, 2.0, 3.0])
+mx.eval(a)
+
+mx.set_default_device(mx.cpu)
+b = a + 1                        # CPU에서 실행
+mx.eval(b)
+
+mx.set_default_device(mx.gpu)
+c = b * 2                        # 방금 CPU가 만든 b를 그대로 GPU 연산에 사용
+mx.eval(c)
+
+print(c)
+----
+
+[source]
+----
+$ python3 mlx_mixed_device.py
+array([4, 6, 8], dtype=float32)
+----
+
+``b``는 CPU 연산으로 만들어졌지만, 그걸 GPU 연산(``c = b * 2``)에 바로 넘겨도 아무 변환이 필요 없습니다. OpenCL이었다면 이 지점에서 ``cl.enqueue_copy``로 호스트 메모리를 디바이스 메모리로 옮기는 단계가 필요했을 것입니다 — 여기서는 ``b``와 ``c``가 가리키는 물리 메모리가 애초에 같은 곳이라서, "옮긴다"는 개념 자체가 성립하지 않습니다.
+
+== 왜 이게 공짜가 아닌가
+
+통합 메모리가 전송 **비용**을 없애주는 것이지, 데이터 **경합**까지 없애주는 건 아닙니다 — CPU와 GPU가 같은 메모리를 물리적으로 공유한다는 건, 두 디바이스가 그 메모리의 대역폭을 나눠 쓴다는 뜻이기도 합니다. link:../../heterogeneous-computing-opencl/[전작] 6장이 확인한 "타일링이 버는 건 전역 메모리 접근 횟수를 줄이는 것"이라는 교훈은 여기서도 유효합니다 — 다만 이 책에서는 "호스트↔디바이스 전송"이라는 병목 하나가 통째로 빠진 채로, 나머지 병목(디스패치 오버헤드, 계산 강도)이 어떻게 나타나는지를 7장과 10장에서 실측으로 다시 확인합니다.
+
+== 요약
+
+* ``mx.array``는 만드는 순간 이미 사용 가능하며, OpenCL의 ``cl.Buffer``/``mem_flags``/``cl.enqueue_copy``에 대응하는 명시적 전송 단계가 없습니다.
+* ``mx.set_default_device``로 CPU와 GPU를 오가며 연산해도, 한쪽이 만든 배열을 다른 쪽 연산에 그대로 넘길 수 있다는 걸 실제로 확인했습니다 — Apple Silicon의 물리적으로 공유된 메모리 덕분입니다.
+* 통합 메모리가 없애는 건 **전송 비용**이지 **대역폭 경합**이 아니라는 것도 짚었습니다 — 이 구분은 7장(배치 크기)과 10장(종합 벤치마크)에서 다시 등장합니다.
+
+다음 장에서는 이 코드에서 이미 여러 번 등장한 ``mx.eval``이 정확히 무엇을 하는지 — MLX가 연산을 언제 "진짜로" 실행하는지 — 확인합니다.
+// end::body[]

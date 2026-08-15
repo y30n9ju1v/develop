@@ -1,0 +1,85 @@
+---
+title: "5장: mlx.nn으로 다층 퍼셉트론 짜기"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["mlx", "nn", "neural-network", "book"]
+categories: ["books"]
+description: "nn.Module과 nn.Linear로 다층 퍼셉트론을 짜고, model.parameters()가 딕셔너리 트리로 관리되는 파라미터 구조라는 걸 실제로 찍어 확인하는 5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-compile-fusion/[4장: mx.compile로 커널 퓨전하기] · 다음: link:../06-optimizers-training-loop/[6장: 옵티마이저와 학습 루프]_
+
+'''
+
+3장은 파라미터 ``W`` 하나짜리 선형 회귀로 ``mx.grad``를 검증했습니다. 이 장부터는 이 책의 캡스톤 — 3개의 나선형 팔로 뒤섞인 2차원 점을 클래스별로 분류하는 다층 퍼셉트론(MLP) — 을 짓기 시작합니다. 선형 회귀 하나로는 나선형을 분리할 수 없으므로(선형 분리 불가능), 은닉층과 비선형 함수가 실제로 필요합니다.
+
+== ``nn.Module``로 모델 정의하기
+
+[source,python]
+----
+import mlx.nn as nn
+
+class MLP(nn.Module):
+    def __init__(self, in_dim, hidden, out_dim):
+        super().__init__()
+        self.l1 = nn.Linear(in_dim, hidden)
+        self.l2 = nn.Linear(hidden, hidden)
+        self.l3 = nn.Linear(hidden, out_dim)
+
+    def __call__(self, x):
+        x = nn.relu(self.l1(x))
+        x = nn.relu(self.l2(x))
+        return self.l3(x)
+
+model = MLP(2, 64, 3)     # 입력 2차원 -> 은닉 64 -> 은닉 64 -> 출력 3클래스
+----
+
+``nn.Linear(in_dim, out_dim)``은 ``weight``와 ``bias``를 갖는 완전연결 레이어입니다. ``{us}{us}init{us}{us}``에서 인스턴스 속성으로 등록한 서브모듈(``self.l1``, ``self.l2``, ``self.l3``)은 ``nn.Module``이 자동으로 추적해서, 학습 가능한 파라미터 전체를 하나의 구조로 모아줍니다.
+
+== 파라미터는 딕셔너리 트리입니다
+
+[source,python]
+----
+print(list(model.parameters().keys()))
+print(list(model.parameters()['l1'].keys()))
+print(model.parameters()['l1']['weight'].shape)
+----
+
+[source]
+----
+$ python3 mlx_nn_params.py
+param tree keys: ['l1', 'l2', 'l3']
+l1 keys: ['weight', 'bias']
+l1 weight shape: (64, 2)
+total params: 4547
+----
+
+``model.parameters()``는 클래스 인스턴스가 아니라 **중첩 딕셔너리**입니다 — ``{'l1': {'weight': ..., 'bias': ...}, 'l2': {...}, 'l3': {...}}``. 이게 왜 중요하냐면, 6장의 옵티마이저와 3장의 ``mx.grad``가 이 구조를 그대로 재사용하기 때문입니다 — ``mx.grad``로 손실을 파라미터로 미분하면, 원본과 **똑같은 모양의 딕셔너리 트리**로 그래디언트가 나옵니다(각 리프가 원본 파라미터와 같은 위치에, 같은 shape로). 옵티마이저는 이 트리를 순회하면서 각 리프를 갱신 규칙에 따라 업데이트합니다 — 클래스 안에 숨겨진 상태를 직접 건드리지 않고, 딕셔너리 하나로 파라미터 전체를 함수형으로 다룰 수 있게 해주는 설계입니다.
+
+== 순전파 확인
+
+[source,python]
+----
+x = mx.random.normal((5, 2))    # 배치 5개, 각 2차원 점
+out = model(x)
+mx.eval(out)
+print(out.shape)
+----
+
+[source]
+----
+$ python3 mlx_nn_forward.py
+(5, 3)
+----
+
+입력 ``(5, 2)``가 ``(5, 3)``으로 나옵니다 — 배치 5개 각각에 대해 클래스 3개짜리 점수(로짓)를 냅니다. 이 시점의 ``model``은 무작위로 초기화된 상태라 이 점수는 아직 의미가 없습니다 — 6장에서 이 점수를 손실 함수와 옵티마이저로 실제로 의미 있게 만듭니다.
+
+== 요약
+
+* ``nn.Module``을 상속하고 서브모듈을 인스턴스 속성으로 등록하면, MLX가 학습 가능한 파라미터를 자동으로 추적한다는 걸 확인했습니다.
+* ``model.parameters()``가 클래스가 아니라 원본 구조를 그대로 반영한 중첩 딕셔너리라는 걸 실제로 찍어 확인했고, 이 구조를 3장의 ``mx.grad``와 6장의 옵티마이저가 그대로 재사용한다는 것도 짚었습니다.
+* 이 장에서 만든 ``MLP(2, 64, 3)``이 이 책의 캡스톤 나선형 분류기의 몸통이 됩니다.
+
+다음 장에서는 이 모델에 손실 함수와 옵티마이저를 붙여, 실제로 나선형 데이터를 학습시킵니다.
+// end::body[]

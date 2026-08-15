@@ -1,0 +1,98 @@
+---
+title: "복사 없는 GPU 프로그래밍: MLX로 배우는 Apple Silicon 최적화"
+draft: false
+---
+
+link:../heterogeneous-computing-opencl/[『OpenCL로 배우는 헤테로지니어스 컴퓨팅』]과 같은 구조의 독립적인 입문서입니다. Apple의 배열 프레임워크 **MLX**로 통합 메모리(1부), 지연 평가(1부), 자동 미분과 컴파일(2부), ``mlx.nn``으로 짓는 신경망(3부), 배치 크기·양자화 최적화(4부)까지 확인하며, 3개의 나선형 팔로 뒤섞인 2차원 점을 분류하는 다층 퍼셉트론 하나를 1장부터 10장까지 함께 만들고 NumPy·MLX-CPU·MLX-GPU로 나란히 벤치마크합니다(5부).
+
+이 책의 모든 코드는 이 세션 환경에 실제로 있는 Apple GPU(Metal, ``mx.default_device()``가 돌려주는 ``Device(gpu, 0)``)에서 실제로 실행됩니다. 손으로 미분한 그래디언트와 ``mx.grad``의 결과를 나란히 찍어 오차가 부동소수점 정밀도 수준(``1e-7`` 안팎)인지 확인하고, "GPU가 항상 빠르다"는 흔한 직관이 이 책의 작은 나선형 문제에서는 깨진다는 것(NumPy가 MLX-GPU보다 4.9배 빠릅니다)도 감추지 않고 그대로 싣습니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 복사 없는 GPU 프로그래밍]*
+
+*1부: 왜 MLX인가*
+
+[start=1]
+. *link:01-unified-memory/[통합 메모리 — 복사가 없다는 게 무슨 뜻인가]*
+. *link:02-lazy-evaluation/[지연 평가와 mx.eval]*
+
+*2부: 함수 변환*
+
+[start=3]
+. *link:03-autodiff-grad/[mx.grad로 자동 미분하기]*
+. *link:04-compile-fusion/[mx.compile로 커널 퓨전하기]*
+
+*3부: 신경망 구성 요소*
+
+[start=5]
+. *link:05-nn-modules/[mlx.nn으로 다층 퍼셉트론 짜기]*
+. *link:06-optimizers-training-loop/[옵티마이저와 학습 루프]*
+
+*4부: 성능 최적화*
+
+[start=7]
+. *link:07-batch-size-arithmetic-intensity/[배치 크기와 산술 강도]*
+. *link:08-quantization/[4비트 양자화로 크기와 속도 함께 줄이기]*
+
+*5부: 종합 실전*
+
+[start=9]
+. *link:09-full-pipeline-spiral-classifier/[종합 실전 — 나선형 분류기 파이프라인 조립하기]*
+. *link:10-numpy-vs-mlx-cpu-vs-gpu/[NumPy vs MLX-CPU vs MLX-GPU 종합 비교]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-unified-memory.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-lazy-evaluation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-autodiff-grad.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-compile-fusion.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-nn-modules.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-optimizers-training-loop.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-batch-size-arithmetic-intensity.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-quantization.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-full-pipeline-spiral-classifier.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-numpy-vs-mlx-cpu-vs-gpu.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]

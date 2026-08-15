@@ -1,0 +1,80 @@
+---
+title: "10장: NumPy vs MLX-CPU vs MLX-GPU 종합 비교"
+date: 2026-08-15T00:00:00+09:00
+draft: false
+tags: ["mlx", "numpy", "benchmark", "capstone", "book"]
+categories: ["books"]
+description: "9장의 나선형 분류기 학습 루프를 손으로 짠 NumPy backprop, MLX-CPU, MLX-GPU 세 갈래로 나란히 돌려, 이 작은 문제에서는 NumPy가 가장 빠르고 MLX-GPU가 가장 느리다는 걸 7장의 교차점 실측과 정확히 같은 이유로 확인하는 종합 실전 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-full-pipeline-spiral-classifier/[9장: 종합 실전 — 나선형 분류기 파이프라인 조립하기] · 다음: link:../11-afterword/[맺음말]_
+
+'''
+
+9장은 MLX-GPU로만 파이프라인을 조립했습니다. 이 장은 같은 문제(나선형 3클래스 분류, 200 에폭)를 3장의 손 미분을 확장한 순수 NumPy backprop, MLX-CPU, MLX-GPU 세 갈래로 나란히 돌려 마무리합니다.
+
+== 세 번째 구현: 손으로 짠 NumPy backprop
+
+3장은 선형 회귀 하나의 그래디언트만 손으로 미분했습니다. 이 장은 그걸 실제 2-은닉층 MLP 전체로 확장합니다 — ReLU의 그래디언트는 "``0``보다 큰 자리만 통과시킨다"는 마스크이고, 소프트맥스+교차 엔트로피의 그래디언트는 "``예측 확률 - 정답 원-핫``"이라는 잘 알려진 닫힌 형태를 씁니다.
+
+[source,python]
+----
+def softmax_ce_grad(logits, y):
+    m = logits.max(axis=1, keepdims=True)
+    probs = np.exp(logits - m); probs /= probs.sum(axis=1, keepdims=True)
+    N = logits.shape[0]
+    loss = -np.log(probs[np.arange(N), y] + 1e-12).mean()
+    dlogits = probs.copy()
+    dlogits[np.arange(N), y] -= 1
+    dlogits /= N
+    return loss, dlogits
+
+# 순전파
+z1 = X@W1+b1; a1 = np.maximum(z1, 0)
+z2 = a1@W2+b2; a2 = np.maximum(z2, 0)
+logits = a2@W3+b3
+loss, dlogits = softmax_ce_grad(logits, y)
+
+# 역전파 (체인 룰을 손으로)
+dW3 = a2.T@dlogits; db3 = dlogits.sum(0)
+da2 = dlogits@W3.T; dz2 = da2*(z2>0)
+dW2 = a1.T@dz2; db2 = dz2.sum(0)
+da1 = dz2@W2.T; dz1 = da1*(z1>0)
+dW1 = X.T@dz1; db1 = dz1.sum(0)
+----
+
+Adam 갱신 규칙도 옵티마이저 라이브러리 없이 직접 구현합니다(1차/2차 모멘트, 편향 보정). 3장이 확인했듯 ``mx.grad``가 하는 일이 정확히 이 체인 룰이므로, 이 코드는 6장의 학습 루프와 **수학적으로 동일한 일**을 합니다 — 단지 자동화 없이 손으로 짰을 뿐입니다.
+
+== 실측: 세 갈래 나란히
+
+같은 200 에폭, 같은 초기화 스케일, 같은 나선형 데이터로 세 구현을 재면:
+
+[source]
+----
+$ python3 mlx_three_way_bench.py
+numpy hand-written:   42.1 ms  (acc=0.997)
+mlx-cpu (compiled):   56.1 ms  (acc=0.997)
+mlx-gpu (compiled):  205.7 ms  (acc=0.997)
+----
+
+세 구현 모두 정확도는 동일하게 ``0.997``입니다 — 3장이 확인한 것처럼 ``mx.grad``가 손 미분과 수학적으로 같은 계산을 하므로 당연한 결과입니다. 그런데 속도는 정반대 순서입니다 — **손으로 짠 NumPy가 가장 빠르고, MLX-GPU가 가장 느립니다.** MLX-GPU가 NumPy보다 4.9배 느립니다.
+
+== 왜 이렇게 되는가 — 7장의 교차점이 다시 나타났습니다
+
+이 결과는 버그가 아니라 7장이 정확히 예측한 그대로입니다 — 나선형 데이터는 점 600개, 은닉층은 64차원입니다. 7장의 표에서 GPU가 CPU를 이기기 시작한 지점은 ``n=2048``(행렬 한 변의 길이)이었는데, 이 문제의 모든 행렬곱은 그보다 훨씬 작습니다(``600×2``, ``600×64``, ``64×64`` 수준). 이 크기에서는 계산량 자체가 너무 작아서, Metal에 커널을 디스패치하는 고정 비용이 실제 계산 시간을 압도합니다 — 4장에서 컴파일로 파이썬 오버헤드를 줄였는데도(``mx.compile`` 없이 MLX-GPU를 돌리면 이보다 훨씬 더 느립니다), 그 밑에 깔린 GPU 디스패치 자체의 오버헤드는 컴파일로 없앨 수 있는 종류가 아닙니다.
+
+NumPy가 MLX-CPU보다도 살짝 빠른 이유는 더 미묘합니다 — MLX는 매 연산마다 지연 평가 그래프를 구성하고 나중에 스케줄링하는 오버헤드가 있는 반면(2장), 손으로 짠 NumPy 코드는 각 줄이 즉시, 그 자리에서 최적화된 BLAS 루틴을 부릅니다. 이 문제 크기에서는 그 그래프 구성 비용이 계산 자체보다 무시할 수 없는 비중을 차지합니다. link:../../tinyrt-cpu-gpu-inference/[『TinyRT』]가 "작은 모델은 CPU가 80배 빠르다"고 정직하게 실었던 것과 같은 결론을, 이 책은 MLX라는 다른 도구로, 통합 메모리라서 전송 비용조차 없는 환경에서 다시 확인했습니다 — **디스패치 오버헤드는 전송 비용과 별개의, 그 자체로 실재하는 병목**입니다.
+
+== 그렇다면 언제 MLX-GPU를 써야 하는가
+
+7장의 표가 답을 줍니다 — 행렬 크기가 대략 ``2000`` 언저리를 넘어가는 문제(더 큰 은닉층, 더 큰 배치, 더 깊은 모델)부터는 MLX-GPU가 확실히 유리해집니다. 이 책의 나선형 분류기는 일부러 작게 잡은 교육용 예제라서 이 격차가 뚜렷하게 드러난 것이지, "MLX-GPU가 항상 느리다"는 결론이 아닙니다 — 8장의 630만 파라미터짜리 모델처럼 실제 크기의 문제로 가면 얘기가 달라집니다.
+
+== 요약
+
+* 나선형 분류기를 손으로 짠 NumPy backprop, MLX-CPU, MLX-GPU 세 갈래로 나란히 돌려, 정확도는 동일(``0.997``)하지만 속도는 NumPy > MLX-CPU > MLX-GPU 순서라는 걸 확인했습니다.
+* 이 결과가 7장에서 실측한 CPU/GPU 교차점(``n≈2048``)과 정확히 같은 이유(디스패치 오버헤드가 계산량을 압도)로 설명된다는 것도 확인했습니다.
+* 이 순서가 이 문제 크기에 한정된 결과이고, 8장 규모의 더 큰 모델에서는 역전된다는 것도 짚어, "어떤 백엔드가 항상 낫다"는 일반화를 피했습니다.
+
+맺음말에서는 이 책이 다루지 않은 것 — 분산 학습, ``mx.fast``의 커스텀 Metal 커널, 더 큰 실제 데이터셋 — 을 안내합니다.
+// end::body[]
