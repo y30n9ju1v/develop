@@ -200,7 +200,7 @@ argo submit regression-workflow.yaml -n argo \
   --watch
 ----
 
-다음과 같은 출력을 얻습니다.
+3장의 클러스터에 실제로 Argo Workflows 컨트롤러가 떠 있고 5장의 이미지가 로드돼 있다면 다음과 같은 출력을 얻습니다(이 세션에서 실제 클러스터에 제출해 얻은 출력이 아니라, `argo submit --watch`의 실제 동작 방식에 기반한 예시입니다).
 
 [source]
 ----

@@ -107,7 +107,7 @@ kubectl cluster-info --context kind-regression-ci
 kubectl get nodes
 ----
 
-다음과 같은 출력을 얻습니다.
+이 명령을 실제 `kind`/`kubectl`이 설치된 환경에서 실행하면 다음과 같은 출력을 얻습니다(서문에서 밝힌 대로, 이 출력은 이 세션에서 클러스터를 띄워 실행한 게 아니라 `kind`의 실제 동작 방식에 기반한 예시입니다).
 
 [source]
 ----

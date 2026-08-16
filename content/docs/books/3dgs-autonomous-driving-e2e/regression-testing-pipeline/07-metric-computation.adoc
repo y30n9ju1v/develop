@@ -90,6 +90,22 @@ def summarize_sequence(frame_metrics: list[dict]) -> dict:
 
 [source,python]
 ----
+def rollup_overall(sequence_summaries: dict[str, dict]) -> dict:
+    """시퀀스 요약(이미 mean/std/p95_worst로 집계된 딕셔너리)들을 다시 지표별로 평균 낸다.
+    summarize_sequence는 프레임 단위 스칼라 값을 기대하므로, 이미 집계된 시퀀스 요약에는 쓸 수 없다."""
+    keys = next(iter(sequence_summaries.values())).keys()
+    overall = {}
+    for key in keys:
+        means = [s[key]["mean"] for s in sequence_summaries.values()]
+        worsts = [s[key]["p95_worst"] for s in sequence_summaries.values()]
+        overall[key] = {
+            "mean": float(np.mean(means)),
+            "std": float(np.std(means)),
+            "p95_worst": float(np.mean(worsts)),
+        }
+    return overall
+
+
 def rollup_by_slice(sequence_summaries: dict[str, dict], manifest: list) -> dict:
     """sequence_summaries: {sequence_id: summary}, manifest: BaselineSequence 목록"""
     by_slice: dict[str, list[dict]] = {}
@@ -164,9 +180,7 @@ def main():
         frame_metrics = compute_frame_metrics_for_sequence(seq, args.renders_dir)
         sequence_summaries[seq.sequence_id] = summarize_sequence(frame_metrics)
 
-    overall = summarize_sequence(
-        [m for seq_metrics in sequence_summaries.values() for m in [seq_metrics]]
-    )
+    overall = rollup_overall(sequence_summaries)
     report = {
         "manifest_version": args.manifest_version,
         "overall": overall,
@@ -175,6 +189,8 @@ def main():
     }
     args.out.write_text(json.dumps(report, indent=2))
 ----
+
+NOTE: `overall`을 `summarize_sequence(sequence_summaries.values())`처럼 바로 넘기고 싶어질 수 있지만, `summarize_sequence`는 **프레임 단위 스칼라 값**(예: `{"psnr_db": 31.2}`)을 기대하는데 `sequence_summaries`의 값은 이미 `{"psnr_db": {"mean": .., "std": ..}}`처럼 한 겹 더 집계된 딕셔너리입니다. 그대로 넘기면 `np.array([m[key] for m in frame_metrics])`가 숫자가 아니라 딕셔너리로 채워진 배열을 만들어 `.mean()`에서 그대로 터집니다 — "이미 집계된 것을 다시 같은 집계 함수에 넣지 않는다"는 걸 위 `rollup_overall`처럼 별도 함수로 분리해 지키는 게 안전합니다.
 
 == 요약
 

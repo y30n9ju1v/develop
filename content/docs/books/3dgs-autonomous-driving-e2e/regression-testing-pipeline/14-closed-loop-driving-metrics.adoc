@@ -96,7 +96,7 @@ def main():
 
 == DAG에 `closed-loop-replay` 단계 추가하기
 
-6장의 `regression-dag`에 `render-candidate`가 끝난 뒤에만 실행되는 새 태스크를 추가합니다. `compute-metrics`와 병렬로 돌 수 있습니다 — 둘 다 `render-candidate`의 출력만 있으면 되고 서로 의존하지 않기 때문입니다.
+6장의 `regression-dag`에 `render-candidate`가 끝난 뒤에만 실행되는 새 태스크를 추가합니다. `closed-loop-replay`와 `compute-metrics`는 언뜻 병렬로 돌 수 있을 것 같지만(둘 다 `render-candidate`의 출력만 있으면 되므로), `compute-metrics`가 `closed-loop-metrics` 아티팩트를 `closed-loop-replay`의 출력에서 받아야 하므로 실제로는 `compute-metrics`가 `closed-loop-replay`를 **기다려야** 합니다 — Argo Workflow는 아티팩트 참조만으로는 실행 순서를 보장하지 않고, `depends` 필드에 태스크 이름을 직접 나열해야 합니다. 그래서 `compute-metrics`의 `depends`는 `render-candidate`뿐 아니라 `closed-loop-replay`도 포함해야 합니다.
 
 [source,yaml]
 ----
@@ -112,7 +112,7 @@ def main():
 
           - name: compute-metrics
             template: compute-metrics-tpl
-            depends: "render-candidate"
+            depends: "render-candidate && closed-loop-replay"
             arguments:
               artifacts:
                 - name: candidate-renders
@@ -126,16 +126,6 @@ def main():
             template: compare-and-gate-tpl
             depends: "fetch-baseline && compute-metrics"
             # ... 6장과 동일 ...
-----
-
-`compute-metrics`가 이제 `closed-loop-replay`에도 `depends`가 걸린 것처럼 아티팩트를 받지만(`closed-loop-metrics` 입력), Argo Workflow의 `depends` 필드 자체는 태스크 이름 목록에 `closed-loop-replay`를 추가해야 정확히 이 순서를 보장합니다. 즉 위 스케치에서 `compute-metrics`의 `depends`는 실제로는 `"render-candidate && closed-loop-replay"`로 적어야, 리포트 병합 시점에 폐루프 지표가 이미 준비되어 있음을 보장합니다.
-
-[source,yaml]
-----
-          - name: compute-metrics
-            template: compute-metrics-tpl
-            depends: "render-candidate && closed-loop-replay"
-            # ... 나머지는 위와 동일 ...
 ----
 
 `closed-loop-replay-tpl`은 렌더링과 마찬가지로 GPU와 시뮬레이터 이미지를 요구하므로, 5장의 패턴을 그대로 따라 `render-candidate-tpl`과 유사한 리소스·`nodeSelector`를 갖습니다.

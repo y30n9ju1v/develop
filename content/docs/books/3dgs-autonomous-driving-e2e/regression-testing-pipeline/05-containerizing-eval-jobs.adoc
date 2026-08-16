@@ -85,7 +85,11 @@ def render_and_evaluate(checkpoint_path: str, sequence_dir: Path, out_dir: Path,
 
     # 실제 경로: 3DGS 렌더러 로드 → 프레임별 렌더링 → 참조와 비교
     from src.renderer import GaussianSplatRenderer
-    from src.metrics import compute_psnr, compute_ssim, compute_lpips
+    # PSNR/SSIM/지각적 유사도는 "닮았다는 걸 어떻게 잴까" 책의 image_fidelity 패키지를
+    # 그대로 임포트합니다 — 이 책에서 새로 재구현하지 않습니다(7장에서 이 경계를 더 다룹니다).
+    from image_fidelity.psnr import compute_psnr
+    from image_fidelity.ssim import compute_ssim
+    from image_fidelity.perceptual import compute_lpips_like
 
     renderer = GaussianSplatRenderer.from_checkpoint(checkpoint_path)
     psnr_list, ssim_list, lpips_list = [], [], []
@@ -96,7 +100,7 @@ def render_and_evaluate(checkpoint_path: str, sequence_dir: Path, out_dir: Path,
         reference = renderer.load_reference(frame_path)
         psnr_list.append(compute_psnr(rendered, reference))
         ssim_list.append(compute_ssim(rendered, reference))
-        lpips_list.append(compute_lpips(rendered, reference))
+        lpips_list.append(compute_lpips_like(rendered, reference))
         renderer.save_render(out_dir / frame_path.name, rendered)
 
     n = len(frame_paths)
@@ -130,7 +134,7 @@ if __name__ == "__main__":
     main()
 ----
 
-`compute_psnr`/`compute_ssim`/`compute_lpips`는 "닮았다는 걸 어떻게 잴까" 책 3장·6장·9장에서 구현한 함수를 그대로 `src/metrics.py`로 옮겨온 것입니다 — 이 책에서 새로 재구현하지 않고, 검증된 구현을 재사용하는 것이 핵심입니다. 7장에서 이 재사용 경계를 더 명확히 다룹니다.
+`compute_psnr`/`compute_ssim`/`compute_lpips_like`는 "닮았다는 걸 어떻게 잴까" 책 3장·6장·9장에서 구현한 `image_fidelity` 패키지를 그대로 임포트한 것입니다 — 이 책에서 새로 재구현하지 않고, 검증된 구현을 재사용하는 것이 핵심입니다. 7장에서 이 재사용 경계를 더 명확히 다룹니다.
 
 == 컨테이너 이미지를 kind 클러스터에 넣기
 
