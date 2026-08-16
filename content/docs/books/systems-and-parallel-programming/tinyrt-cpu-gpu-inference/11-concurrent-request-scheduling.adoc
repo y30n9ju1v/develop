@@ -8,7 +8,7 @@ description: "std::jthread 풀로 CPU 추론 요청을 동시에 처리해 8스�
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../10-mobilenet-depthwise-separable-conv/[10장: MobileNet 스타일로 확장하기] · 다음: link:../12-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../10-mobilenet-depthwise-separable-conv/[10장: MobileNet 스타일로 확장하기] · 다음: link:../12-coreml-npu-dispatch/[12장: NPU라는 세 번째 선택지 — CoreML로 확장하기]_
 
 '''
 

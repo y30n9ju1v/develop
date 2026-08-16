@@ -8,7 +8,7 @@ description: "같은 ResNet18 가중치를 PyTorch에서 MLX nn.Module로 직접
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../11-heterogeneous-scheduling/[11장: 이기종 스케줄링] · 다음: link:../13-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../11-heterogeneous-scheduling/[11장: 이기종 스케줄링] · 다음: link:../13-coreml-direct/[13장: CoreML 직접 쓰기 — onnxruntime 없이]_
 
 '''
 

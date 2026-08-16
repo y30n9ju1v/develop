@@ -1,0 +1,129 @@
+---
+title: "13장: CoreML 직접 쓰기 — onnxruntime 없이"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["onnx", "coreml", "resnet18", "apple-silicon", "npu", "book"]
+categories: ["books"]
+description: "같은 ResNet18을 onnxruntime도 거치지 않고 coremltools로 곧장 CoreML로 변환해 네이티브 Objective-C++ MLModel API로 실행해서, 11장의 onnxruntime+CoreML(0.670ms)과 사실상 같은 속도(0.679ms)가 나온다는 걸 실측으로 확인해 onnxruntime의 실행 프로바이더 계층이 이 경로에서는 오버헤드를 거의 안 더한다는 걸 밝히는 7부"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-mlx-native-runtime/[12장: MLX 네이티브 런타임과 비교하기] · 다음: link:../14-afterword/[맺음말]_
+
+'''
+
+12장은 ONNX와 IREE를 건너뛰고 MLX로 직접 갔습니다. 이 장은 다른 방향으로 한 겹 더 벗깁니다 — 11장이 `onnxruntime`의 `CoreMLExecutionProvider`로 위임했던 그 Apple Neural Engine에, **onnxruntime 자체를 거치지 않고** 곧장 가면 무슨 차이가 있는지 확인합니다.
+
+== `coremltools`로 PyTorch에서 CoreML로 바로
+
+1장이 `torch.onnx.export`로 그래프를 뽑았고, 12장은 `state_dict`를 MLX로 직접 옮겼습니다. 이 장은 PyTorch 모델을 추적(trace)한 뒤 `coremltools`로 **CoreML 형식**으로 곧장 변환합니다 — ONNX 파일도, `onnxruntime` 세션도 이 경로에는 없습니다.
+
+[source,python]
+----
+import torch, torchvision
+import coremltools as ct
+
+model = torchvision.models.resnet18(weights=torchvision.models.ResNet18_Weights.DEFAULT)
+model.eval()
+example_input = torch.rand(1, 3, 224, 224)
+traced = torch.jit.trace(model, example_input)
+
+mlmodel = ct.convert(
+    traced,
+    inputs=[ct.TensorType(name="input", shape=example_input.shape)],
+    convert_to="neuralnetwork",   # 아래 팁 박스: mlprogram이 이 세션에서 안 되는 이유
+    compute_units=ct.ComputeUnit.ALL,
+)
+mlmodel.save("resnet18_direct.mlmodel")
+----
+
+[source]
+----
+$ python3 export_to_coreml.py
+saved mlpackage
+pytorch top1: 111
+----
+
+`ct.convert`가 PyTorch의 추적된 그래프(202개 연산)를 MIL(Model Intermediate Language)이라는 CoreML 자체의 중간 표현으로 옮기고, 다시 `NeuralNetwork` 백엔드로 낮춥니다 — 7장이 봤던 `torch` → `linalg` dialect 낮춤과 이름만 다를 뿐 같은 구조의 컴파일 과정입니다.
+
+== 컴파일과 네이티브 실행
+
+`.mlmodel` 파일 자체는 아직 실행 가능한 형태가 아닙니다 — `coremlcompiler`로 한 번 더 컴파일해야 합니다(11장의 `onnxruntime`이 세션 생성 시점에 내부적으로 하던 일을 여기서는 명시적으로 합니다).
+
+[source]
+----
+$ xcrun coremlcompiler compile resnet18_direct.mlmodel .
+----
+
+컴파일된 `.mlmodelc`를 Objective-C++로 직접 불러 실행합니다 — 11장의 `CoreMLExecutionProvider`가 내부적으로 부르던 바로 그 `CoreML.framework` API입니다.
+
+[source,objc]
+----
+MLModelConfiguration *config = [[MLModelConfiguration alloc] init];
+config.computeUnits = MLComputeUnitsAll;  // CPU+GPU+ANE 전부 허용, 스케줄러가 고름
+
+MLModel *model = [MLModel modelWithContentsOfURL:url configuration:config error:&err];
+
+MLMultiArray *input = [[MLMultiArray alloc] initWithShape:@[@1,@3,@224,@224]
+                                                  dataType:MLMultiArrayDataTypeFloat32 error:&arrErr];
+memcpy(input.dataPointer, input_data.data(), input_data.size()*sizeof(float));
+
+MLDictionaryFeatureProvider *provider =
+    [[MLDictionaryFeatureProvider alloc] initWithDictionary:@{@"input": input} error:&arrErr];
+
+id<MLFeatureProvider> result = [model predictionFromFeatures:provider error:&err];
+----
+
+`MLComputeUnitsAll`이 11장의 `CoreMLExecutionProvider`가 하던 것과 같은 일을 합니다 — CPU/GPU/ANE 중 이 그래프에 맞는 조합을 CoreML 런타임이 알아서 고릅니다.
+
+== 검증과 실측: onnxruntime을 거치나 안 거치나 정말 차이가 있는가
+
+[source]
+----
+$ clang++ -std=c++23 -x objective-c++ -fobjc-arc -O2 -framework CoreML -framework Foundation \
+    resnet18_coreml_direct.mm -o resnet18_coreml_direct && ./resnet18_coreml_direct
+model load time: 251.9 ms
+coreml direct (ComputeUnitsAll): 0.679 ms/inference
+coreml top1: 111, max abs diff vs pytorch: 0.008916
+----
+
+top1 클래스가 PyTorch와 정확히 일치하고(``111``), 로짓 최대 오차는 ``0.0089``입니다 — 12장의 MLX 이식(``3.46e-06``)보다는 크지만, CoreML의 `NeuralNetwork` 백엔드가 내부적으로 float16 연산을 섞어 쓰는 경우가 있어(ANE가 float16 네이티브 하드웨어입니다) 이 정도 오차는 top1이 안 바뀌는 한 정상 범위입니다.
+
+**속도가 핵심입니다 — ``0.679ms``는 11장의 ``onnxruntime`` + ``CoreMLExecutionProvider``(``0.670ms``)와 사실상 같습니다**(오차 범위 안). 3~5장이 실측했던 "onnxruntime의 그래프 최적화가 5%만큼만 벌어준다"는 것과 마찬가지로, 여기서도 onnxruntime이라는 계층 자체는 이 경로에서 **거의 아무 비용도 추가하지 않습니다.** 이유는 11장이 이미 확인했습니다 — 이 그래프의 노드 49개 전부가 CoreML로 위임되므로, onnxruntime은 사실상 "입력을 CoreML에 넘기고 결과를 받아오는" 얇은 다리 역할만 합니다. 그 다리를 치워도 실행 자체는 똑같이 CoreML 런타임이 하기 때문에, 속도가 안 변하는 게 당연합니다.
+
+== 이 책의 스펙트럼에 마지막 줄 하나
+
+[cols="2,2"]
+|===
+|경로 |지연 시간
+
+|9장: IREE llvm-cpu, 기본 |344.711ms
+|1장: PyTorch eager |10.675ms
+|12장: MLX-CPU |13.4ms
+|1장: onnxruntime, 기본 최적화(NHWC+융합) |4.833ms
+|12장: MLX-GPU(``mx.compile``) |4.04ms
+|11장: onnxruntime + CoreML(NPU 위임) |0.670ms
+|13장: CoreML 직접(onnxruntime 없이) |0.679ms
+|===
+
+515배 격차(9장 vs 11장)의 양 끝은 이미 11~12장에서 다 나왔습니다 — 이 장이 보탠 건 "그 끝에 도달하는 두 가지 길(onnxruntime을 거치거나, 안 거치거나)이 사실상 같은 곳에 도착한다"는 확인입니다. onnxruntime의 가치는 **속도**가 아니라 **하나의 API로 CPU/CoreML/CUDA/TensorRT 등 여러 백엔드를 그래프 수정 없이 오갈 수 있다는 이식성**에 있다는 것도, 이 장의 "차이 없음"이 오히려 더 선명하게 보여줍니다.
+
+== 팁 박스: `mlprogram`이 아니라 `neuralnetwork`를 쓴 이유
+
+`coremltools`는 최신 모델을 `mlprogram`(`.mlpackage`) 형식으로 내보내는 걸 권장합니다 — 더 최신 CoreML 런타임 기능을 쓸 수 있습니다. 이 세션 환경에서 실제로 시도해보면:
+
+[source]
+----
+RuntimeError: BlobWriter not loaded
+----
+
+`mlprogram` 저장에 필요한 네이티브 확장(`libmilstoragepython`)이 이 세션에 설치된 `coremltools` 빌드에 빠져 있습니다 — pip으로 받은 휠이 이 부분의 컴파일된 바이너리를 안 갖고 있는 경우입니다. 대신 더 오래된 `neuralnetwork` 백엔드(``.mlmodel`` 단일 파일)로 내보내면 문제없이 저장되고, 컴파일·실행·정확도 전부 이 장에서 실측한 대로 정상 동작합니다 — 이 책의 다른 장들처럼(4~5부의 `metal-spirv` 실행 미검증 등), "이 세션 툴체인의 한계"를 정직하게 남기고 대안으로 우회한 사례입니다.
+
+== 요약
+
+* PyTorch → `coremltools` → CoreML이라는, onnxruntime도 ONNX 파일 자체도 거치지 않는 세 번째 경로로 같은 ResNet18을 실행해, top1이 일치하고(``111``) 로짓 오차가 정상 범위(``0.0089``)라는 걸 확인했습니다.
+* 이 직접 경로(``0.679ms``)가 11장의 ``onnxruntime`` + CoreML 위임(``0.670ms``)과 사실상 같은 속도라는 걸 실측해, onnxruntime 계층이 이 그래프에서는 거의 오버헤드를 안 더한다는 걸 확인했습니다 — 49개 노드 전부가 CoreML로 위임되는 경우라서, onnxruntime이 사실상 얇은 다리 역할만 하기 때문입니다.
+* `coremltools`의 최신 `mlprogram` 백엔드가 이 세션에서 저장 단계부터 실패하는 툴체인 한계를 만나, 예전 `neuralnetwork` 백엔드로 우회해서 실측을 완성했다는 것도 정직하게 남겼습니다.
+
+맺음말에서는 이 장의 숫자까지 포함해 이 책 전체가 실측한 스펙트럼을 마지막으로 정리합니다.
+// end::body[]

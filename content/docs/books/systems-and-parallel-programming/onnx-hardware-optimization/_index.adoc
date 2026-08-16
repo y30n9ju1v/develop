@@ -3,7 +3,7 @@ title: "학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다: ONNX
 draft: false
 ---
 
-같은 ResNet18 하나를 처음부터 끝까지 예제로 써서, 학습이 끝난 ONNX 모델을 실제 하드웨어에 배포하기 직전 어떻게 최적화하는지를 왜 최적화가 필요한가(1부) → 그래프 레벨 최적화(2부) → 양자화(3부) → MLIR lowering(4부) → 커널 최적화와 이기종 스케줄링(5부) → ONNX 없는 길: MLX로 직접 이식하기(6부) 순서로 실측하는 독립적인 입문서입니다. `onnxruntime`과 IREE(MLIR 기반 컴파일러), 그리고 6부의 MLX까지 세 실제 오픈소스 도구를 씁니다.
+같은 ResNet18 하나를 처음부터 끝까지 예제로 써서, 학습이 끝난 ONNX 모델을 실제 하드웨어에 배포하기 직전 어떻게 최적화하는지를 왜 최적화가 필요한가(1부) → 그래프 레벨 최적화(2부) → 양자화(3부) → MLIR lowering(4부) → 커널 최적화와 이기종 스케줄링(5부) → ONNX 없는 길: MLX와 CoreML로 직접 이식하기(6부) 순서로 실측하는 독립적인 입문서입니다. `onnxruntime`과 IREE(MLIR 기반 컴파일러), 그리고 6부의 MLX·CoreML까지 네 실제 오픈소스/프레임워크 도구를 씁니다.
 
 이 책의 모든 수치는 이 세션 환경에서 ResNet18을 실제로 export하고, 실제로 컴파일·실행해서 얻은 결과입니다 — 연산자 융합이 겨우 5%만 개선하고 진짜 이득은 레이아웃 변환에서 온다는 것, 동적 양자화가 오히려 17배 느려지는데 정적 양자화는 1.86배 빨라진다는 것, 범용 컴파일러(344.7ms)와 벤더 최적화 라이브러리(4.83ms)와 ONNX 없이 MLX로 직접 이식한 경로(4.04ms)와 NPU 위임(0.67ms) 사이에 최대 515배 격차가 있다는 것 — 전부 실측으로 확인하고, 이 책이 검증하지 못한 것(정확도)도 정직하게 밝힙니다.
 
@@ -49,11 +49,12 @@ draft: false
 
 [start=12]
 . *link:12-mlx-native-runtime/[12장: MLX 네이티브 런타임과 비교하기]*
+. *link:13-coreml-direct/[13장: CoreML 직접 쓰기 — onnxruntime 없이]*
 
 *맺음말*
 
-[start=13]
-. *link:13-afterword/[맺음말]*
+[start=14]
+. *link:14-afterword/[맺음말]*
 
 '''
 
@@ -109,4 +110,8 @@ include::12-mlx-native-runtime.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::13-afterword.adoc[tag=body,leveloffset=+1]
+include::13-coreml-direct.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-afterword.adoc[tag=body,leveloffset=+1]

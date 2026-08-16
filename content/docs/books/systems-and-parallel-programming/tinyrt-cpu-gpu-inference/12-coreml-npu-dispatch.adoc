@@ -1,0 +1,133 @@
+---
+title: "12장: NPU라는 세 번째 선택지 — CoreML로 확장하기"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "coreml", "npu", "ane", "dispatch", "book"]
+categories: ["books"]
+description: "지금까지 CPU와 OpenCL GPU 둘로만 나눴던 LayerRegistry에 CoreML을 통해 Apple Neural Engine이라는 세 번째 실행 장치를 더해, 이 책의 작은 CNN에서는 ANE가 손으로 짠 CPU 삼중 루프(0.035ms)보다도 빠르고 OpenCL GPU 디스패치(2.850ms)보다는 150배 가까이 빠르다는 걸 실측하는 6부"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-concurrent-request-scheduling/[11장: 여러 추론 요청을 안전하게 동시에 처리하기] · 다음: link:../13-afterword/[맺음말]_
+
+'''
+
+7장은 이 책의 세계를 CPU와 GPU 둘로 나눴습니다 — 작은 모델은 CPU가 80배 빠르고, 큰 레이어는 GPU가 130배 빠르다는 실측 교차점이 이 책 전체의 핵심 발견이었습니다. 이 장은 그 이분법에 세 번째 선택지를 더합니다 — Apple Silicon에는 GPU 말고도 신경망 연산 전용 하드웨어인 **Neural Engine(ANE, 흔히 NPU라 부르는 것)**이 있고, link:../../onnx-hardware-optimization/[『학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다』] 11~13장이 확인했듯 **CoreML**로만 그 위임 경로가 열립니다. OpenCL로는 애초에 닿지 않는 하드웨어입니다.
+
+== 같은 CNN을 CoreML로 다시 짓기
+
+9장의 파이프라인(``66×66`` 입력 → ``3×3`` 컨볼루션+ReLU → ``2×2`` 맥스풀 → 완전연결 → 소프트맥스)과 정확히 같은 구조를, ``coremltools``의 신경망 빌더로 짭니다 — 가중치도 같은 값을 씁니다.
+
+[source,python]
+----
+from coremltools.models.neural_network import NeuralNetworkBuilder
+from coremltools.models import datatypes
+
+input_features = [('input', datatypes.Array(1, 1, 66, 66))]
+output_features = [('fc_out', datatypes.Array(16))]
+builder = NeuralNetworkBuilder(input_features, output_features, disable_rank5_shape_mapping=True)
+
+builder.add_convolution(name="conv", kernel_channels=1, output_channels=1, height=3, width=3,
+                         stride_height=1, stride_width=1, border_mode="valid", groups=1,
+                         W=kernel, b=None, has_bias=False,
+                         input_name="input", output_name="conv_out", input_shape=(1,1,66,66))
+builder.add_activation(name="relu", non_linearity="RELU", input_name="conv_out", output_name="relu_out")
+builder.add_pooling(name="pool", height=2, width=2, stride_height=2, stride_width=2,
+                     layer_type="MAX", padding_type="VALID", input_name="relu_out", output_name="pool_out")
+builder.add_flatten(name="flat", mode=0, input_name="pool_out", output_name="flat_out")
+builder.add_inner_product(name="fc", W=fc_w, b=None, input_channels=1024, output_channels=16,
+                           has_bias=False, input_name="flat_out", output_name="fc_out")
+----
+
+소프트맥스는 CoreML 그래프 안에 안 넣었습니다 — 원소 16개짜리 정규화는 7장이 이미 "계산량이 작아 GPU로 안 보낸다"고 결론 낸 연산입니다, CoreML로 위임할 이유가 없어서 9장처럼 여기서도 CPU에 남깁니다(``fc_out``의 로짓을 받아 C{pp} 쪽에서 직접 소프트맥스를 계산합니다).
+
+== ``LayerRegistry``에 세 번째 장치 추가하기
+
+7장의 ``Device`` 열거형에 ``NPU``를 더합니다.
+
+[source,cpp]
+----
+enum class Device { CPU, GPU, NPU };
+
+class LayerRegistry {
+  std::flat_map<std::string, Device> placement_;
+public:
+  void place(std::string layer_name, Device device) { placement_[std::move(layer_name)] = device; }
+  Device device_of(const std::string& layer_name) const { return placement_.at(layer_name); }
+};
+----
+
+``NPU``로 배치된 레이어는 ``MLModel``(CoreML의 실행 오브젝트, 4장의 ``GpuContext``에 대응하는 자리)로 실행됩니다 — Objective-C++로 짜야 합니다(CoreML은 C API가 없고 Objective-C 프레임워크입니다). 이 책이 지금까지 순수 C{pp}23만 썼던 것과 다른 지점이지만, ``.mm`` 파일 안에서는 C{pp}23 코드를 그대로 섞어 쓸 수 있습니다.
+
+[source,objc]
+----
+MLModelConfiguration *config = [[MLModelConfiguration alloc] init];
+config.computeUnits = MLComputeUnitsAll;   // CPU/GPU/ANE 중 CoreML 런타임이 알아서 고름
+
+MLModel *model = [MLModel modelWithContentsOfURL:url configuration:config error:&err];
+
+MLMultiArray *input = [[MLMultiArray alloc] initWithShape:@[@1,@1,@66,@66]
+                                                  dataType:MLMultiArrayDataTypeFloat32 error:&arrErr];
+memcpy(input.dataPointer, input_data.data(), input_data.size()*sizeof(float));
+MLDictionaryFeatureProvider *provider =
+    [[MLDictionaryFeatureProvider alloc] initWithDictionary:@{@"input": input} error:&arrErr];
+
+id<MLFeatureProvider> result = [model predictionFromFeatures:provider error:&err];
+MLMultiArray *out = [result featureValueForName:@"fc_out"].multiArrayValue;
+----
+
+== 검증: 정답이 맞는가
+
+9장의 CPU 기준 구현이 계산한 소프트맥스 확률과 대조합니다.
+
+[source]
+----
+$ clang++ -std=c++23 -x objective-c++ -fobjc-arc -O2 -framework CoreML -framework Foundation \
+    tinyrt_coreml.mm -o tinyrt_coreml && ./tinyrt_coreml
+coreml (ComputeUnitsAll): 0.0199 ms/inference
+max softmax diff vs CPU reference: 0.001210
+----
+
+오차 ``0.0012``는 9장의 GPU 경로가 CPU 경로와 완전히 일치(오차 0)했던 것보다는 큽니다 — CoreML의 실행 백엔드가 ANE에서 float16 연산을 섞어 쓰기 때문입니다(ANE는 애초에 float16 네이티브 하드웨어입니다). 이 정도 오차는 이 책이 4비트 양자화(link:../../mlx-apple-silicon-optimization/08-quantization/[『복사 없는 GPU 프로그래밍』 8장])에서 이미 마주쳤던 것과 같은 종류의 트레이드오프입니다 — 정밀도를 조금 내주고 속도를 얻습니다.
+
+== 실측: CPU, GPU, NPU 세 갈래
+
+``MLComputeUnits``를 바꿔가며 같은 모델을 CPU 전용, CPU+GPU, 전체(CPU+GPU+ANE) 세 조합으로 재면, CoreML 런타임이 실제로 뭘 고르는지도 간접적으로 드러납니다.
+
+[source]
+----
+$ ./tinyrt_coreml_units
+CPU only: 0.0245 ms/inference
+CPU+GPU: 0.0363 ms/inference
+All (CPU+GPU+ANE): 0.0199 ms/inference
+----
+
+7장의 결론이 CoreML 안에서도 그대로 재현됩니다 — **CPU+GPU가 CPU 단독보다 오히려 느립니다**(``0.0363ms`` vs ``0.0245ms``). 이 모델은 여전히 너무 작아서, GPU를 후보에 넣는 것 자체가 디스패치 판단 비용을 더할 뿐 이득이 없습니다. 반면 **전체 옵션(ANE 포함)이 가장 빠릅니다**(``0.0199ms``) — CoreML 런타임이 이 작은 컨볼루션+완전연결 조합을 ANE로 보낸 것으로 보입니다.
+
+이 책 전체의 숫자와 나란히 놓으면:
+
+[cols="2,2"]
+|===
+|경로 |지연 시간
+
+|7장: CPU-only(손으로 짠 삼중 루프) |0.035ms
+|이 장: CoreML CPU-only |0.0245ms
+|이 장: CoreML All(ANE 위임) |0.0199ms
+|7장: Hybrid(OpenCL GPU 디스패치) |2.850ms
+|===
+
+**CoreML의 CPU 전용 경로(``0.0245ms``)가 이 책이 7장에서 손으로 짠 CPU 컨볼루션(``0.035ms``)보다도 빠릅니다.** 이건 이 책의 CPU 구현이 잘못됐다는 뜻이 아니라, CoreML의 CPU 백엔드가 이 책의 교육용 삼중 루프보다 더 정교하게 최적화된(벡터화, 캐시 타일링을 컴파일러/런타임이 자동으로 적용하는) 실행 경로를 쓴다는 뜻입니다 — link:../../cpp23-performance-engineering/10-simd-explicit-vectorization/[『안전을 넘어 성능으로』 10장]이 확인했던 "컴파일러가 이미 자동 벡터화하고 있는지 먼저 확인하라"는 교훈이 여기서도 유효합니다. 그리고 **ANE 위임(``0.0199ms``)은 OpenCL GPU 디스패치(``2.850ms``)보다 143배 빠릅니다** — 7장이 "작은 모델에서 GPU가 지는 이유"로 짚었던 디스패치 오버헤드가, ANE에는 사실상 없거나 훨씬 작다는 뜻입니다.
+
+== 이 장이 검증하지 않은 것
+
+11장이 OpenCL 커널 오브젝트 공유로 겪었던 것과 똑같은 질문 — "``MLModel``을 여러 스레드가 동시에 호출해도 안전한가" — 을 CoreML에서는 다루지 않았습니다. Apple의 문서는 ``predictionFromFeatures:error:``가 스레드 안전하다고 밝히고 있지만, 이 책은 11장처럼 그걸 직접 스트레스 테스트로 재현하지는 않았습니다 — NPU 경로를 11장의 동시 요청 스케줄러에 실제로 통합하는 것은 이 책 밖의 다음 단계로 남겨둡니다.
+
+== 요약
+
+* 7장의 ``Device`` 열거형에 ``NPU``를 더해, ``LayerRegistry``가 CPU/GPU/NPU 세 갈래로 실행 장치를 고르는 구조로 넓혔습니다.
+* ``coremltools``로 9장과 같은 구조의 CNN을 CoreML로 다시 짓고, Objective-C++의 ``MLModel``로 실행해 CPU 기준 구현과 소프트맥스 확률이 정밀도 범위 안(``0.0012``)에서 일치한다는 걸 확인했습니다.
+* CPU/CPU+GPU/전체(ANE 포함) 세 조합을 실측해, 7장의 결론("이 크기에서는 GPU를 후보에 넣는 것 자체가 손해")이 CoreML 안에서도 재현된다는 것과, ANE 위임이 OpenCL GPU 디스패치보다 143배 빠르다는 걸 확인했습니다.
+* CoreML의 CPU 전용 경로가 이 책이 손으로 짠 CPU 구현보다도 빠르다는 것도 감추지 않고 실어, "직접 짠 최적화"와 "플랫폼이 이미 제공하는 최적화"를 비교하는 게 왜 항상 값어치 있는지 보여줬습니다.
+
+맺음말에서는 이 장까지 포함해 TinyRT 전체가 확인한 것을 다시 정리합니다.
+// end::body[]
