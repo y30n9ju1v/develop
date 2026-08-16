@@ -1,0 +1,93 @@
+---
+title: "7장: 여러 마리오 인스턴스 동시에"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "fork", "multiprocessing", "gil", "mario", "book"]
+categories: ["books"]
+description: "Python GIL 때문에 스레드가 아니라 fork()로 프로세스를 분리해 마리오 환경 여러 개를 동시에 돌리고, 처음엔 순진한 비교로 속도 이득이 안 보이다가 워커 초기화 비용을 따로 떼어 다시 재보니 4워커에서 실제로 3.2배 빨라진다는 걸 실측으로 바로잡는 7장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-ppo-with-mlx-autodiff/[6장: PPO를 MLX C++ 자동미분으로 구현하기] · 다음: link:../08-safe-rollout-buffer/[8장: 안전한 롤아웃 버퍼]_
+
+'''
+
+3장의 ``MarioEnv``는 CPython 인터프리터 하나를 통째로 품고 있습니다 — 그런데 CPython에는 **GIL**(Global Interpreter Lock)이 있어서, 한 인터프리터 안에서는 스레드를 몇 개 띄우든 파이썬 바이트코드가 한 번에 하나씩만 실행됩니다. link:../../tinyrt-cpu-gpu-inference/11-concurrent-request-scheduling/[11장의 전작]이 썼던 ``std::jthread`` 풀은 여기서 안 통합니다 — 인터프리터 자체를 여러 개 띄우려면 **프로세스**를 나눠야 합니다.
+
+== ``fork()``로 인터프리터를 통째로 복제하기
+
+[source,cpp]
+----
+std::vector<pid_t> pids;
+for (int w = 0; w < NWORKERS; w++) {
+  pid_t pid = fork();
+  if (pid == 0) {
+    Py_Initialize();               // 자식 프로세스가 자기만의 인터프리터를 새로 얻는다
+    run_mario_worker(w);
+    Py_Finalize();
+    _exit(0);
+  }
+  pids.push_back(pid);
+}
+for (pid_t pid : pids) { int status; waitpid(pid, &status, 0); }
+----
+
+``Py_Initialize()``를 **자식 프로세스 안에서** 부르는 게 중요합니다 — 이미 초기화된 인터프리터를 가진 채로 ``fork()``하면 위험합니다(자식이 부모의 락 상태를 그대로 물려받아 죽을 수 있습니다). 각 자식이 자기만의 GIL, 자기만의 마리오 환경을 갖습니다.
+
+== 첫 실측: 순진하게 재면 이득이 안 보입니다
+
+4워커로 각자 200스텝씩(총 800스텝) 돌리고, 단일 프로세스로 800스텝을 순차 실행한 것과 비교합니다.
+
+[source]
+----
+$ ./fork_envs_naive
+worker 0: 200 steps in 114.0 ms
+worker 1: 200 steps in 108.1 ms
+worker 2: 200 steps in 112.6 ms
+worker 3: 200 steps in 104.7 ms
+all 4 workers done, wall clock: 389.7 ms
+
+$ python3 -c "... 순차 800 steps ..."
+sequential 800 steps: 382.4 ms
+----
+
+**389.7ms vs 382.4ms — 사실상 차이가 없습니다.** 4개를 동시에 돌렸는데 왜 안 빨라졌을까요? 여기서 멈추면 "fork는 이 워크로드에 안 통한다"고 잘못 결론 내릴 뻔했습니다.
+
+== 다시 재기: 무엇을 비교했는지부터 다시 봅니다
+
+문제는 비교 기준이었습니다 — 워커 각각이 찍은 "``200`` 스텝에 ``110ms``"는 **스텝 루프만** 잰 시간이고, 프로세스 전체의 벽시계 시간(``389.7ms``)에는 ``fork()`` 자체, ``Py_Initialize()``, ``import gym_super_mario_bros``, ``env.reset()``까지 다 들어 있습니다. 이 **초기화 비용**을 따로 떼어 재봅니다.
+
+[source]
+----
+$ python3 -c "... 단일 프로세스, 초기화/워밍업/500스텝 각각 측정 ..."
+setup(import+make+reset): 157.0 ms
+500 steps (post-warmup): 239.4 ms
+total (setup+warmup+500steps): 419.6 ms
+----
+
+초기화만 ``157ms``입니다 — 앞의 "순진한" 비교가 스텝 실행 시간과 초기화 시간을 뒤섞어서 착시를 만들었던 것입니다. 이번엔 워커마다 초기화까지 포함한 전체 사이클(``setup + 워밍업 50스텝 + 500스텝``)을 4개 동시에 돌려 벽시계 시간을 잽니다.
+
+[source]
+----
+$ ./fork_envs_full_cycle
+worker 0: 500 steps in 279.1 ms
+worker 1: 500 steps in 282.2 ms
+worker 2: 500 steps in 279.3 ms
+worker 3: 500 steps in 280.5 ms
+wall clock for 4 workers x 500 steps (post-warmup): 524.7 ms
+----
+
+단일 프로세스 전체 사이클(``419.6ms``)을 4번 순차로 반복하면 ``1678ms``가 걸릴 일이, 4워커 동시 실행으로 ``524.7ms``에 끝납니다 — **실제로 3.2배 빨라졌습니다.**
+
+== 이 재측정이 알려준 두 가지
+
+**첫째**, ``fork`` 기반 프로세스 병렬화는 실제로 통합니다 — 처음 비교가 잘못된 것뿐이었습니다. **둘째**, 그리고 이게 더 중요한데, 워커 하나를 준비하는 데 드는 고정 비용(``157ms``)이 500스텝을 도는 시간(``239ms``)에 맞먹습니다 — 롤아웃을 짧게, 자주 도는 학습 루프라면 **매번 워커를 새로 fork하는 건 손해**입니다. 8~9장에서 이 책의 워커 풀은 학습 시작할 때 딱 한 번만 fork하고, 그 뒤로는 계속 살려둔 채 여러 번의 롤아웃에 재사용합니다 — link:../../tinyrt-cpu-gpu-inference/11-concurrent-request-scheduling/[전작]이 "락보다 안 나누기"를 확인했던 것처럼, 여기서는 "매번 새로 만들기보다 오래 재사용하기"가 이깁니다.
+
+== 요약
+
+* Python GIL 때문에 마리오 환경 병렬화는 스레드가 아니라 ``fork()``로 인터프리터를 통째로 복제해야 한다는 걸 확인했습니다.
+* 첫 비교(순진하게 벽시계 시간만 비교)에서는 병렬화 이득이 안 보였는데, 알고 보니 스텝 실행 시간과 초기화 시간(``157ms``)을 뒤섞은 비교였다는 걸 재측정으로 바로잡았습니다.
+* 초기화 비용까지 공정하게 포함해 다시 재니 4워커에서 실제로 3.2배 빨라졌고, 동시에 "워커는 자주 새로 만들지 말고 오래 재사용해야 한다"는 설계 원칙도 같이 얻었습니다.
+
+다음 장에서는 이 워커들이 만들어내는 롤아웃 데이터를 담을 안전한 버퍼 — PMR 아레나와 ``atomic_ref`` — 를 만듭니다.
+// end::body[]

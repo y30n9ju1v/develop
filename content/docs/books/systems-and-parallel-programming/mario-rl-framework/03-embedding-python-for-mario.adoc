@@ -1,0 +1,96 @@
+---
+title: "3장: CPython 임베딩으로 마리오 환경 부르기"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "cpython", "embedding", "raii", "mario", "book"]
+categories: ["books"]
+description: "PyInterpreter/MarioEnv 두 RAII 클래스로 CPython을 C++23 프로그램 안에 임베딩해, nes-py 마리오 환경을 프레임 단위로 부르고 관측 프레임(240x256x3)과 보상만 C++ 버퍼로 복사해오는 얇은 다리를 짓고 실제로 컴파일·실행해서 검증하는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-typestate-pipeline-lifecycle/[2장: 타입 상태로 파이프라인 생명주기 표현하기] · 다음: link:../04-mdspan-frame-buffers/[4장: mdspan으로 프레임 버퍼 감싸기]_
+
+'''
+
+``nes-py``는 Python 패키지입니다. 이 장은 그걸 C++23 프로그램 안에 통째로 담습니다 — 별도 프로세스로 띄워 IPC로 통신하는 게 아니라, ``Python.h``로 인터프리터 자체를 이 프로그램의 일부로 만듭니다.
+
+== ``PyInterpreter``: 인터프리터 생명주기를 RAII로
+
+[source,cpp]
+----
+class PyInterpreter {
+public:
+  PyInterpreter() { Py_Initialize(); }
+  PyInterpreter(const PyInterpreter&) = delete;
+  PyInterpreter& operator=(const PyInterpreter&) = delete;
+  ~PyInterpreter() { if (Py_IsInitialized()) Py_Finalize(); }
+};
+----
+
+전작 link:../../safe-parallel-cpp23/06-move-only-types/[『이론을 C{pp}23으로 옮기다』]가 OS 자원(뮤텍스, 파일 핸들)에 썼던 것과 똑같은 패턴입니다 — 복사는 막고, 소멸자가 정확히 한 번 정리합니다. ``main()``에서 이 객체 하나를 스택에 두면, 프로그램이 어떻게 끝나든(정상 종료든 예외든) 인터프리터가 정확히 한 번 초기화되고 정리된다는 게 보장됩니다.
+
+== ``MarioEnv``: 프레임과 보상만 넘어오는 얇은 경계
+
+[source,cpp]
+----
+class MarioEnv {
+  PyObject* env_ = nullptr;
+public:
+  explicit MarioEnv(const std::string& rom_id) {
+    PyRun_SimpleString(
+      "import gym_super_mario_bros\n"
+      "from nes_py.wrappers import JoypadSpace\n"
+      "from gym_super_mario_bros.actions import SIMPLE_MOVEMENT\n"
+      "_env = gym_super_mario_bros.make('SuperMarioBros-v0')\n"
+      "_env = JoypadSpace(_env, SIMPLE_MOVEMENT)\n"
+      "_env.reset()\n"
+    );
+    PyObject* main_mod = PyImport_AddModule("__main__");
+    env_ = PyObject_GetAttrString(main_mod, "_env");
+    if (!env_) throw std::runtime_error("failed to get mario env");
+  }
+  MarioEnv(const MarioEnv&) = delete;
+  MarioEnv(MarioEnv&& other) noexcept : env_(other.env_) { other.env_ = nullptr; }
+  ~MarioEnv() { Py_XDECREF(env_); }
+
+  float step(int action, std::vector<unsigned char>& frame_out) {
+    PyObject* result = PyObject_CallMethod(env_, "step", "(i)", action);
+    if (!result) { PyErr_Print(); throw std::runtime_error("env.step failed"); }
+    PyObject* obs = PyTuple_GetItem(result, 0);
+    PyObject* reward = PyTuple_GetItem(result, 1);
+
+    // obs는 (240,256,3) uint8 numpy 배열 -- 항상 연속이 보장되는 tobytes()로 복사
+    PyObject* bytes = PyObject_CallMethod(obs, "tobytes", nullptr);
+    char* buf; Py_ssize_t len;
+    PyBytes_AsStringAndSize(bytes, &buf, &len);
+    frame_out.assign(reinterpret_cast<unsigned char*>(buf), reinterpret_cast<unsigned char*>(buf) + len);
+    Py_DECREF(bytes);
+
+    float r = static_cast<float>(PyFloat_AsDouble(reward));
+    Py_DECREF(result);
+    return r;
+  }
+};
+----
+
+``step()``이 넘겨받는 건 딱 두 가지입니다 — 프레임 원시 바이트(``frame_out``에 복사)와 보상(``float``). ``PyObject*`` 자체는 이 함수 밖으로 절대 안 나갑니다 — C++ 쪽 코드는 그 뒤로 파이썬 오브젝트를 하나도 안 건드립니다. 이게 "프레임 단위 경계"의 실체입니다.
+
+== 검증: 실제로 프레임과 보상을 받아오는가
+
+[source]
+----
+$ clang++ -std=c++23 $(python3-config --includes) mario_env.cpp $(python3-config --ldflags --embed) -o mario_env && ./mario_env
+frame bytes: 184320 (expect 240*256*3=184320)
+total reward over 5 steps: 0.000000
+----
+
+바이트 수가 정확히 ``240×256×3``과 일치합니다 — 프레임이 손실 없이 넘어왔다는 뜻입니다. 이 과정에서 두 가지 함정을 실제로 만나 고쳤습니다(둘 다 이 장 코드에 이미 반영돼 있습니다) — ``env.step()``을 부르기 전에 ``reset()``을 안 부르면 ``gymnasium.error.ResetNeeded``가 나고, ``obs``를 ``PyObject_GetBuffer``로 직접 읽으려 하면 이 numpy 배열이 **C-연속(C-contiguous)이 아니라서** 실패합니다(래퍼가 씌운 뷰라서) — ``tobytes()``로 항상 연속인 바이트열로 바꿔 받는 쪽이 더 안전합니다.
+
+== 요약
+
+* ``PyInterpreter``로 CPython 인터프리터의 생명주기를 RAII로 관리해, 프로그램이 어떻게 끝나든 정확히 한 번 초기화·정리된다는 걸 보장했습니다.
+* ``MarioEnv``가 ``nes-py`` 환경을 감싸, ``step()``이 프레임 원시 바이트와 보상만 C++ 쪽 버퍼로 복사해 돌려주는 얇은 경계를 실제로 컴파일·실행해서 검증했습니다.
+* ``reset()`` 누락과 비연속 배열이라는 두 가지 실제 함정을 만나 고치는 과정 자체가, "프레임 단위 경계"가 왜 이렇게 좁게 그어야 하는지 보여줬습니다 — 파이썬 쪽 세부사항(래퍼, 버퍼 레이아웃)이 C++ 쪽으로 새어 나오지 않게 막는 게 이 경계의 역할입니다.
+
+다음 장에서는 이 원시 프레임 바이트를 ``mdspan``으로 감싸, 그레이스케일·리사이즈·프레임 스택을 짭니다.
+// end::body[]

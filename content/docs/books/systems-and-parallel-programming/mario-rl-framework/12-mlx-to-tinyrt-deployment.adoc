@@ -1,0 +1,74 @@
+---
+title: "12장: 학습 런타임에서 배포 런타임으로"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mlx", "coreml", "tinyrt", "deployment", "book"]
+categories: ["books"]
+description: "5장의 MLX 정책망 가중치를 CoreML로 이식하다가 NHWC(MLX)와 NCHW(CoreML)의 flatten 순서 차이라는 새로운 함정을 만나 고치고, LayerRegistry로 컨볼루션 레이어를 실측 기준 배치하되 GPU 옵션도 후보에 남겨 왜 안 뽑히는지 확인하는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-full-pipeline-and-training/[11장: 프레임워크 전체 조립과 학습] · 다음: link:../13-afterword/[맺음말]_
+
+'''
+
+MLX(5~6장)는 그래디언트가 필요한 **학습**에 맞는 런타임입니다. 배포는 다른 문제입니다 — 추론만 하면 되므로, link:../../tinyrt-cpu-gpu-inference/[『TinyRT』]와 link:../../onnx-hardware-optimization/13-coreml-direct/[『학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다』 13장]이 확인한 CoreML/ANE 경로를 쓸 수 있습니다. 이 장은 학습 런타임에서 배포 런타임으로 가중치를 옮기고, TinyRT의 ``LayerRegistry``로 실행 장치를 정합니다.
+
+== 가중치 이식: 또 다른 레이아웃 함정
+
+onnx책 12장이 PyTorch(NCHW)에서 MLX(NHWC)로 옮길 때 축 순서 전치가 필요했던 것처럼, 이번엔 MLX(NHWC)에서 CoreML(NCHW)로 반대 방향 이식을 하며 **같은 종류지만 다른 함정**을 만났습니다.
+
+[source,python]
+----
+# 1차 시도: 커널 축만 전치하면 될 줄 알았다
+W1_kernel = W1.transpose(1,2,3,0)  # MLX (outC,kh,kw,inC) -> CoreML이 기대하는 (kh,kw,inC,outC)
+----
+
+[source]
+----
+$ ./test_policy_coreml   # 1차 시도
+coreml logits: 0.000946 0.000885 0.000504 0.000320 0.000259 -0.000534 -0.000458
+max diff vs MLX: 0.001092
+----
+
+로짓 값 자체가 다릅니다 — 단순 반올림 오차가 아니라 뭔가 잘못됐다는 신호입니다. 원인은 컨볼루션이 아니라 **완전연결 직전의 ``flatten``** 에 있었습니다 — MLX는 NHWC라서 ``h2``를 ``(h,w,c)`` 순서로 한 줄로 펴는데, CoreML의 ``flatten``은 NCHW 관례로 ``(c,h,w)`` 순서로 폅니다. 컨볼루션 결과 자체는 (전치만 맞으면) 같아도, 그걸 1차원으로 펴는 순서가 다르면 완전연결 가중치의 행이 전부 엉뚱한 자리에 곱해집니다.
+
+[source,python]
+----
+# 완전연결 가중치도 같은 순서로 다시 배열해야 한다
+Wfc_mlx_order = Wfc.reshape(9, 9, 32, 7)                                # (h,w,c,actions)
+Wfc_coreml_order = Wfc_mlx_order.transpose(2,0,1,3).reshape(9*9*32, 7)  # (c,h,w,actions)로
+----
+
+[source]
+----
+$ ./test_policy_coreml   # 수정 후
+coreml logits: 0.000427 0.000183 0.000549 -0.000320 -0.001083 0.000168 0.000183
+max diff vs MLX: 0.000251
+----
+
+오차가 ``0.001092``에서 ``0.000251``로(4.3배) 줄었습니다 — flatten 순서가 진짜 원인이었다는 뜻입니다. 다만 정직하게 남겨야 할 게 있습니다: 13장의 ResNet18 이식(오차 ``0.0089``, 로짓 크기 자체가 훨씬 큼)만큼 깔끔하게 떨어지지 않았습니다 — 이 정책망의 로짓 크기 자체가 아주 작아서(``~0.001`` 안팎) 상대 오차로 보면 여전히 큽니다. Espresso 백엔드의 컨볼루션 구현 세부사항(패딩 경계 처리 등)까지 완전히 추적하지는 못했습니다 — 이 잔차는 이 책이 다 풀지 못하고 남긴 문제입니다.
+
+== ``LayerRegistry``로 배치하기, GPU도 후보에 남긴 채
+
+link:../../tinyrt-cpu-gpu-inference/12-coreml-npu-dispatch/[『TinyRT』 12장]의 ``LayerRegistry``를 그대로 가져다 씁니다.
+
+[source,cpp]
+----
+enum class Device { CPU, GPU, NPU };
+LayerRegistry registry;
+registry.place("conv1", /* 9장의 배치 크기 실측으로 CPU/GPU/NPU 중 결정 */);
+registry.place("conv2", /* 같은 기준 */);
+registry.place("fc", Device::CPU);   // 10장: 작은 완전연결은 산술 강도가 낮아 CPU
+----
+
+9장이 이 정책망(배치 1)에서 GPU가 7배 느렸다는 걸 이미 실측했으므로, 실시간 추론(환경 하나에서 프레임 한 장씩 순차로 행동을 고르는 상황)이라면 ``Device::GPU``는 후보에 있어도 실제로는 거의 안 뽑힙니다 — link:../../tinyrt-cpu-gpu-inference/12-coreml-npu-dispatch/[TinyRT 12장]이 이 책보다 작은 CNN에서 이미 확인한 것과 같은 패턴입니다(CPU+GPU가 CPU 단독보다 느림). ``Device::NPU``(CoreML)가 이 배포 시나리오의 유력한 선택지입니다.
+
+== 요약
+
+* MLX(NHWC)에서 CoreML(NCHW)로 가중치를 이식하며, 커널 축 전치만으로는 부족하고 **완전연결 직전 flatten의 순서**까지 맞춰야 한다는 새로운 함정을 만나 고쳤습니다(오차 4.3배 감소).
+* 이 잔차 오차가 13장의 ResNet18 이식만큼 깔끔하지 않다는 것도 감추지 않고 남겼습니다 — 이 책이 완전히 추적하지 못한 한계입니다.
+* TinyRT의 ``LayerRegistry``를 재사용해 배포 경로를 CPU/GPU/NPU 세 갈래로 열되, 9장의 실측 근거로 이 정책망 크기에서는 GPU가 후보에 남아 있어도 거의 선택되지 않는다는 것도 확인했습니다.
+
+맺음말에서는 이 책 전체가 확인한 것과 다루지 않은 것을 정리합니다.
+// end::body[]

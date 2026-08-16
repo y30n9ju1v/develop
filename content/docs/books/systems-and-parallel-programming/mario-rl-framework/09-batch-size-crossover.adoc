@@ -1,0 +1,55 @@
+---
+title: "9장: 환경 개수와 배치 크기의 교차점"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mlx", "batch-size", "arithmetic-intensity", "book"]
+categories: ["books"]
+description: "5장의 정책망을 배치 크기 1/4/16/64/256으로 CPU와 GPU에서 나란히 재서, 배치 16 언저리에서 GPU가 역전하고 배치 256에서는 6.7배 빨라진다는 실측 교차점을 찾아 7장의 워커 개수를 이 기준으로 정하는 9장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-safe-rollout-buffer/[8장: 안전한 롤아웃 버퍼] · 다음: link:../10-frame-preprocessing-placement/[10장: 프레임 전처리는 어디서]_
+
+'''
+
+7장은 워커를 4개 띄웠습니다 — 왜 4개였을까요? 사실 그 숫자는 아무 근거가 없었습니다. link:../../mlx-apple-silicon-optimization/07-batch-size-arithmetic-intensity/[『복사 없는 GPU 프로그래밍』 7장]과 link:../../tinyrt-cpu-gpu-inference/07-hybrid-dispatch/[『TinyRT』 7장]이 반복해서 확인한 원칙 — GPU가 유리한지는 배치 크기에 달려 있고, 그 경계는 실측해야 안다 — 을 이 정책망에 그대로 적용합니다.
+
+== 배치 크기를 바꿔가며 CPU와 GPU를 나란히
+
+7장의 워커가 많아질수록, 9장부터는 그 워커들이 채운 프레임을 한 번에 몇 개씩 묶어 정책망에 넣을지가 배치 크기가 됩니다. ``mx::set_default_device``로 같은 5장의 정책망을 CPU와 GPU 양쪽에서 재봅니다.
+
+[source,cpp]
+----
+for (int batch : {1, 4, 16, 64, 256}) {
+  double cpu_ms = bench(batch, mx::Device::cpu);
+  double gpu_ms = bench(batch, mx::Device::gpu);
+  printf("batch=%3d  cpu=%.4fms  gpu=%.4fms  gpu/cpu=%.2fx\n", batch, cpu_ms, gpu_ms, gpu_ms/cpu_ms);
+}
+----
+
+== 실측: 교차점은 배치 16 언저리
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -I mlx/include -L mlx/lib -lmlx batch_crossover.cpp -o batch_crossover && ./batch_crossover
+batch=  1  cpu=0.0774ms  gpu=0.5388ms  gpu/cpu=6.96x
+batch=  4  cpu=0.2118ms  gpu=0.5364ms  gpu/cpu=2.53x
+batch= 16  cpu=0.6682ms  gpu=0.5177ms  gpu/cpu=0.77x
+batch= 64  cpu=3.0968ms  gpu=0.9063ms  gpu/cpu=0.29x
+batch=256  cpu=11.6480ms  gpu=1.7455ms  gpu/cpu=0.15x
+----
+
+배치 ``1``(워커 하나가 프레임 한 장씩 넣는 것)에서는 GPU가 **7배 느립니다** — 5장이 CPU에서도 이미 빨랐던(``0.58ms``) 이 작은 정책망에, GPU 디스패치 비용까지 얹으면 손해입니다. 배치 ``16``에서 이미 GPU가 근소하게 앞서고(``0.77x``), 배치 ``64``에서는 3.4배, ``256``에서는 6.7배 빨라집니다 — GPU의 계산 능력이 배치가 커질수록 CPU보다 훨씬 잘 버는데, 그 능력을 쓰려면 애초에 한 번에 처리할 양이 그만큼 있어야 한다는 뜻입니다.
+
+== 이 결과가 7장의 워커 개수를 정합니다
+
+7장에서 임의로 골랐던 워커 4개는, 이 실측 기준으로 보면 **딱 GPU가 손해인 구간**입니다(배치 4, ``2.53x`` 느림). 이 정책망을 실시간으로(워커 하나가 만드는 프레임을 바로바로) 쓴다면 CPU가 답이지만, 여러 워커의 프레임을 모아 한 번에 배치로 추론하는 구조라면 워커를 최소 ``16~64``개는 굴려야 GPU를 쓸 근거가 생깁니다 — 11장에서 이 책의 학습 루프가 실제로 워커를 몇 개 쓸지, 이 교차점을 근거로 정합니다.
+
+== 요약
+
+* 5장의 정책망을 배치 크기 1/4/16/64/256에서 CPU와 GPU로 나란히 재서, 배치 16 언저리부터 GPU가 유리해지는 교차점을 실측으로 찾았습니다.
+* 7장이 임의로 고른 워커 4개(배치 4)가 사실은 GPU가 2.5배 손해인 구간이었다는 것도 확인했습니다.
+* 이 실측 교차점이 11장에서 이 책의 학습 루프가 워커 개수와 배치 크기를 정하는 근거가 됩니다.
+
+다음 장에서는 4장의 프레임 전처리(그레이스케일·리사이즈)를 CPU와 GPU 중 어디에 둘지, 같은 방식으로 실측해서 결정합니다.
+// end::body[]

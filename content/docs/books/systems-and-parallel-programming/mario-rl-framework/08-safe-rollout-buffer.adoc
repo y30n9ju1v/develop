@@ -1,0 +1,83 @@
+---
+title: "8장: 안전한 롤아웃 버퍼"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "pmr", "atomic_ref", "reinforcement-learning", "book"]
+categories: ["books"]
+description: "여러 롤아웃마다 새로 std::vector를 만드는 대신 PMR 아레나로 메모리를 재사용해 2.33배 빠르게 만들고, atomic_ref로 워커별 진행률을 락 없이 추적하는 RolloutBuffer를 만드는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-parallel-env-stepping/[7장: 여러 마리오 인스턴스 동시에] · 다음: link:../09-batch-size-crossover/[9장: 환경 개수와 배치 크기의 교차점]_
+
+'''
+
+7장의 워커 4개가 매 스텝 만들어내는 데이터(프레임, 행동, 보상, 가치 추정, 로그 확률)를 어딘가에 쌓아야 합니다. link:../../cpp23-performance-engineering/07-pmr-thread-local-arena/[『안전을 넘어 성능으로』 7장]의 PMR 아레나와 link:../../cpp23-performance-engineering/05-atomic-ref-progress/[5장]의 ``atomic_ref``를 그대로 가져옵니다 — 이번엔 배치 처리가 아니라 강화학습 롤아웃이라는 다른 문제에 적용합니다.
+
+== ``RolloutBuffer``: PMR 아레나 위의 전이(transition) 저장소
+
+[source,cpp]
+----
+struct Transition {
+  float obs[84*84*4];   // 4장의 프레임 스택
+  int action;
+  float reward, value, log_prob;
+};
+
+class RolloutBuffer {
+  std::pmr::unsynchronized_pool_resource arena_;
+  std::pmr::vector<Transition> transitions_;
+  std::vector<int> worker_progress_;
+public:
+  RolloutBuffer(std::size_t capacity, std::size_t num_workers)
+      : transitions_(&arena_), worker_progress_(num_workers, 0) {
+    transitions_.reserve(capacity);
+  }
+  void record(std::size_t worker_id, const Transition& t) {
+    transitions_.push_back(t);
+    std::atomic_ref<int>(worker_progress_[worker_id]).fetch_add(1);
+  }
+  int progress_of(std::size_t worker_id) {
+    return std::atomic_ref<int>(worker_progress_[worker_id]).load();
+  }
+};
+----
+
+7장의 각 워커 프로세스가 자기 몫의 전이를 ``record()``로 넣고, 자기 인덱스의 진행률만 원자적으로 늘립니다 — 5장의 ``Coordinator`` 진행률 추적과 정확히 같은 구조입니다.
+
+== 검증: 진행률이 정확히 쌓이는가
+
+[source]
+----
+$ clang++ -std=c++23 -O2 rollout_buffer.cpp -o rollout_buffer && ./rollout_buffer
+recorded 2048 transitions in 31.329 ms
+worker 0 progress: 512
+worker 1 progress: 512
+worker 2 progress: 512
+worker 3 progress: 512
+----
+
+``2048``개 전이를 4워커에 고르게 기록하면 워커마다 정확히 ``512``씩 쌓입니다.
+
+== PMR이 정말 버는가: 매 롤아웃 새로 만드는 것과 비교
+
+강화학습 학습 루프는 롤아웃을 반복합니다 — 한 롤아웃이 끝나면 버퍼를 비우고 다음 롤아웃을 또 채웁니다. ``std::pmr::vector``가 아니라 평범한 ``std::vector``를 롤아웃마다 새로 만들면(``reserve`` 없이) 어떻게 다른지, 20번의 롤아웃을 반복해서 비교합니다.
+
+[source]
+----
+$ ./rollout_compare
+plain std::vector, 20 rollouts: 12.180 ms/rollout avg
+pmr pool + reserve, 20 rollouts: 5.226 ms/rollout avg
+speedup: 2.33x
+----
+
+**2.33배 빨라졌습니다.** 평범한 ``std::vector``는 원소가 늘어날 때마다 용량을 넘기면 재할당하고 기존 원소를 복사합니다(``Transition``이 ``84×84×4`` 크기의 배열을 품고 있어서 이 복사가 특히 비쌉니다) — PMR 풀은 한 번 확보한 메모리 블록을 롤아웃이 끝나고 ``clear()``한 뒤에도 계속 갖고 있다가 다음 롤아웃에 그대로 재사용합니다. link:../../cpp23-performance-engineering/07-pmr-thread-local-arena/[전작]이 확인한 이득이, 여기서는 "매 학습 반복마다 되풀이되는 롤아웃"이라는 자리에서 그대로 재현됩니다.
+
+== 요약
+
+* ``RolloutBuffer``가 PMR 아레나 위에 전이를 저장하고, ``atomic_ref``로 워커별 진행률을 락 없이 추적하도록 만들었습니다.
+* 4워커가 채운 진행률이 정확히 균등하게(``512``씩) 쌓인다는 걸 확인했습니다.
+* 롤아웃마다 새 버퍼를 만드는 것과 PMR 풀을 재사용하는 것을 비교해, 2.33배 빠르다는 걸 실측했습니다 — ``Transition`` 구조체가 큰 배열을 품고 있어서 재할당 비용이 특히 두드러졌습니다.
+
+다음 장에서는 이 롤아웃 버퍼를 실제로 채우는 워커 개수를 늘려가며, 정책망 순전파를 몇 개씩 배치로 묶어야 MLX GPU 경로가 CPU보다 유리해지는 교차점을 실측으로 찾습니다.
+// end::body[]

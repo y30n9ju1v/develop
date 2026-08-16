@@ -1,0 +1,80 @@
+---
+title: "6장: PPO를 MLX C++ 자동미분으로 구현하기"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mlx", "ppo", "autodiff", "reinforcement-learning", "book"]
+categories: ["books"]
+description: "PPO의 클리핑된 목적함수를 MLX C++로 짜서 mx::grad로 5장 정책망 전체(conv-conv-fc)를 통과하는 그래디언트를 얻고, 유한 차분으로 계산한 수치 그래디언트와 대조해 오차가 6e-6 수준으로 일치한다는 걸 확인하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-policy-network-in-mlx-cpp/[5장: MLX C++로 정책망 짓기] · 다음: link:../07-parallel-env-stepping/[7장: 여러 마리오 인스턴스 동시에]_
+
+'''
+
+전작 link:../../../machine-learning-and-rl/reward-only-rl-from-scratch/10-actor-critic-ppo/[『보상만으로 배운다』]는 PPO의 역전파를 손으로 유도해서 짰습니다. 이 장은 link:../../mlx-apple-silicon-optimization/03-autodiff-grad/[『복사 없는 GPU 프로그래밍』 3장]이 확인한 것과 같은 도구 — ``mx::grad`` — 로 그 역전파를 자동으로 계산합니다.
+
+== PPO의 클리핑된 목적함수
+
+PPO는 정책을 업데이트할 때 한 번에 너무 많이 바꾸지 않도록 **비율(ratio)을 클리핑**합니다 — 새 정책과 옛 정책의 확률 비율이 ``[1-ε, 1+ε]``을 벗어나면 그 지점에서 그래디언트가 깎입니다.
+
+[source,cpp]
+----
+auto ppo_loss = [&](const std::vector<mx::array>& params) -> mx::array {
+  PolicyParams pp{params[0], params[1], params[2]};
+  auto logits = policy_logits(x, pp);
+  auto log_probs_all = logits - mx::logsumexp(logits, -1, true);       // log softmax
+  auto log_probs = mx::take_along_axis(log_probs_all,
+                                        mx::reshape(actions_taken, {BATCH,1}), -1);
+  log_probs = mx::reshape(log_probs, {BATCH});
+
+  auto ratio = mx::exp(log_probs - old_log_probs);
+  constexpr float eps = 0.2f;
+  auto clipped = mx::clip(ratio, mx::array(1.0f - eps), mx::array(1.0f + eps));
+  auto surrogate1 = ratio * advantages;
+  auto surrogate2 = clipped * advantages;
+  return -mx::mean(mx::minimum(surrogate1, surrogate2));
+};
+----
+
+``old_log_probs``와 ``advantages``는 7~8장에서 롤아웃 버�퍼가 채워줄 값입니다 — 지금은 무작위 값으로 채워 손실 함수 자체가 옳게 도는지만 확인합니다. 5장의 ``policy_logits``(conv-conv-fc)를 그대로 통과시켜 로그 확률을 얻는다는 게 핵심입니다 — 이 손실 함수는 5장 전체를 그래프 안에 포함합니다.
+
+== ``mx::grad``로 세 파라미터 전부 미분하기
+
+[source,cpp]
+----
+auto grad_fn = mx::grad(ppo_loss, std::vector<int>{0, 1, 2});   // W1, W2, Wfc 전부
+auto grads = grad_fn({p.W1, p.W2, p.Wfc});
+mx::eval(grads);
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 -I mlx/include -L mlx/lib -lmlx ppo_grad.cpp -o ppo_grad && ./ppo_grad
+ppo policy loss: 0.222021
+grad W1 mean abs: 0.000219
+grad W2 mean abs: 0.000155
+grad Wfc mean abs: 0.000083
+----
+
+``argnums``에 ``{0,1,2}``를 넘기면 세 파라미터(``W1``, ``W2``, ``Wfc``) 전부에 대한 그래디언트를 한 번에 얻습니다 — 컨볼루션 두 겹을 관통하는 체인 룰을 단 한 줄도 손으로 안 썼습니다.
+
+== 검증: 유한 차분과 대조하기
+
+link:../../mlx-apple-silicon-optimization/03-autodiff-grad/[『복사 없는 GPU 프로그래밍』 3장]이 선형 회귀로 했던 것과 같은 방식으로, ``mx::grad``가 진짜 옳은 값을 내는지 확인합니다 — ``Wfc``의 원소 하나를 아주 조금 흔들어서(``h=0.001``) 손실이 얼마나 바뀌는지 직접 재는 **유한 차분(finite difference)** 과 대조합니다.
+
+[source]
+----
+finite-diff grad Wfc[0]: 0.000052, mx::grad Wfc[0]: 0.000058 (diff=0.000006)
+----
+
+두 값이 거의 일치합니다 — 오차 ``0.000006``은 유한 차분 자체가 근사(``h``를 아무리 작게 잡아도 완전히 정확할 수 없는 방법)라는 걸 감안하면 기대한 수준입니다. 컨볼루션 두 겹과 클리핑, ``min`` 연산까지 뒤섞인 손실 함수인데도 ``mx::grad``가 정확한 그래디언트를 낸다는 게 이걸로 확인됩니다.
+
+== 요약
+
+* PPO의 클리핑된 목적함수를 MLX C++로 짜고, ``mx::grad``로 5장의 정책망 전체(두 컨볼루션 + 완전연결)를 관통하는 그래디언트를 얻었습니다.
+* 손으로 미분하지 않고도 ``argnums``만 지정하면 여러 파라미터를 한 번에 미분할 수 있다는 것도 확인했습니다.
+* 유한 차분으로 계산한 수치 그래디언트와 대조해, 오차가 근사 방법 자체의 한계 수준(``6e-6``)이라는 걸 확인해 정확성을 검증했습니다.
+
+다음 장에서는 이 학습 스텝이 실제로 소비할 롤아웃 데이터를 만드는 쪽 — 마리오 인스턴스 여러 개를 동시에 굴리는 병렬 환경 스테핑 — 을 다룹니다.
+// end::body[]

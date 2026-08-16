@@ -1,0 +1,50 @@
+---
+title: "서문: 강화학습 프레임워크 하나 처음부터 끝까지 짓기"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mlx", "reinforcement-learning", "mario", "coreml", "book"]
+categories: ["books"]
+description: "link:../../../machine-learning-and-rl/reward-only-rl-from-scratch/[『보상만으로 배운다』]가 순수 NumPy로 마리오를 학습시키다 남긴 한계에서 이어받아, safe-parallel-cpp23·cpp23-performance-engineering·heterogeneous-computing-opencl·tinyrt·mlx-apple-silicon-optimization·onnx-hardware-optimization 여섯 책의 기법을 한데 모아 C++23 핵심 + Python 프레임 브릿지로 실제 병렬 강화학습 프레임워크 MarioRL을 처음부터 끝까지 만드는 서문"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../01-profiling-the-numpy-baseline/[1장: 이전 책 프로파일링하기]_
+
+'''
+
+== 이 책이 이어받는 지점
+
+link:../../../machine-learning-and-rl/reward-only-rl-from-scratch/[『보상만으로 배운다: 강화학습을 밑바닥부터 마리오까지』]는 NumPy만으로 손으로 짠 PPO를 실제 마리오 환경(``gym-super-mario-bros``/``nes-py``)에 적용했습니다 — 그리고 그 책은 정직하게 "학습이 안정적으로 개선되지 않았다"고 인정하며 끝났습니다. 그 책은 애초에 속도나 병렬성을 목표로 하지 않았습니다(순수 NumPy, 환경 하나, 순차 실행). 이 책은 정반대 질문에서 시작합니다 — **속도와 안정성 자체를 프레임워크 수준에서 제대로 만들면, 그 한계가 어디까지 걷히는가?**
+
+이 시리즈가 지금까지 따로 검증한 여섯 권의 기법을 한데 모읍니다.
+
+* link:../../safe-parallel-cpp23/[『이론을 C{pp}23으로 옮기다』] — 타입 상태로 파이프라인의 잘못된 사용을 컴파일 타임에 막고, ``std::scoped_lock``으로 공유 자원을 안전하게 지킵니다.
+* link:../../cpp23-performance-engineering/[『안전을 넘어 성능으로』] — ``mdspan``으로 프레임 버퍼를 감싸고, PMR 아레나와 ``atomic_ref``로 반복되는 롤아웃 할당과 진행률 추적을 락 없이 합니다.
+* link:../../heterogeneous-computing-opencl/[『OpenCL로 배우는 헤테로지니어스 컴퓨팅』] — 산술 강도로 CPU/GPU 배치를 판단하는 원칙을 프레임 전처리에 적용합니다.
+* link:../../tinyrt-cpu-gpu-inference/[『TinyRT』] — ``LayerRegistry``로 레이어별 실행 장치를 실측 기준으로 정하는 디스패치 구조를 그대로 재사용합니다.
+* link:../../mlx-apple-silicon-optimization/[『복사 없는 GPU 프로그래밍』] — MLX로 정책망을 학습시키고, ``mx::compile``로 컴파일합니다.
+* link:../../onnx-hardware-optimization/[『학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다』] — 학습이 끝난 가중치를 다른 런타임으로 이식하고 검증하는 방법을 그대로 씁니다.
+
+== 언어 경계: C++23이 핵심, Python은 프레임 하나짜리 다리
+
+이 책의 대부분은 C++23입니다 — 타입 상태, PMR, ``atomic_ref``, ``std::scoped_lock``, MLX의 C++ API를 그대로 씁니다. 문제는 ``nes-py``(NES 에뮬레이터)가 Python 패키지라는 것입니다. 이 책은 CPython을 C++ 프로그램 안에 **임베딩**해서, 매 프레임 관측(240×256×3)과 보상만 C++ 쪽으로 넘기는 얇은 다리로 씁니다 — 이 세션에서 실제로 컴파일하고 실행해서 확인한 방법입니다.
+
+[source]
+----
+$ clang++ -std=c++23 $(python3-config --includes) embed_test.cpp $(python3-config --ldflags --embed) -o embed_test
+$ ./embed_test
+python side: obs shape (240, 256, 3) uint8
+python side: step reward 0.0
+C++ side: embedding + Mario env call succeeded
+----
+
+이 경계 안에서는 Python이 ``nes-py``를 부르는 것 말고 아무 일도 안 합니다 — 프레임 전처리, 롤아웃 버퍼, 정책망 학습, 디스패치 전부 C++23입니다.
+
+== 이 책의 검증 원칙
+
+전작들과 같습니다 — 이 책의 모든 벤치마크는 이 세션 환경(Apple Silicon)에서 실제로 컴파일·실행해서 잰 숫자입니다. 특히 4부(병렬 환경 스테핑)에서는 "프로세스를 여러 개 포크하면 당연히 빨라진다"는 직관이 순진하게 적용되지 않는다는 것도(워커 초기화 비용을 어떻게 셈하느냐에 따라 결과가 크게 달라집니다) 실측으로 직접 확인하고 넘어갑니다.
+
+== 누구를 위한 책인가
+
+여섯 권을 전부 읽었다면 가장 매끄럽게 읽히지만, 이 책도 각 장에서 재사용하는 개념을 그때그때 다시 설명합니다 — C{pp}23을 어느 정도 다뤄봤고, "안전하고 빠른 시스템 하나를 실제 게임 환경에 붙여보고 싶다"는 독자를 위한 책입니다.
+// end::body[]

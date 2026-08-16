@@ -1,0 +1,74 @@
+---
+title: "4장: mdspan으로 프레임 버퍼 감싸기"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mdspan", "image-preprocessing", "mario", "book"]
+categories: ["books"]
+description: "3장이 받아온 원시 프레임 바이트를 std::mdspan으로 감싸 그레이스케일+리사이즈와 4프레임 스택을 짜고, 인덱스 계산 실수 없이 84x84x4 정책망 입력을 만드는 4장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-embedding-python-for-mario/[3장: CPython 임베딩으로 마리오 환경 부르기] · 다음: link:../05-policy-network-in-mlx-cpp/[5장: MLX C++로 정책망 짓기]_
+
+'''
+
+3장이 넘겨받은 건 ``240×256×3`` 크기의 원시 바이트 뭉치입니다. 이 장은 그걸 link:../../cpp23-performance-engineering/01-mdspan-cache-friendly-views/[『안전을 넘어 성능으로』 1장]의 ``std::mdspan``으로 감싸, 인덱스를 손으로 계산하지 않고 그레이스케일·리사이즈·프레임 스택을 짭니다.
+
+== 원시 바이트에 다차원 해석 얹기
+
+[source,cpp]
+----
+using FrameView = std::mdspan<const unsigned char, std::dextents<std::size_t, 3>>;  // H,W,3(RGB)
+
+void grayscale_resize(FrameView src, std::mdspan<float, std::dextents<std::size_t,2>> dst) {
+  std::size_t SH = src.extent(0), SW = src.extent(1);
+  std::size_t DH = dst.extent(0), DW = dst.extent(1);
+  for (std::size_t y = 0; y < DH; y++) {
+    std::size_t sy = y * SH / DH;
+    for (std::size_t x = 0; x < DW; x++) {
+      std::size_t sx = x * SW / DW;
+      dst[y, x] = (src[sy, sx, 0] + src[sy, sx, 1] + src[sy, sx, 2]) / 3.0f / 255.0f;
+    }
+  }
+}
+----
+
+3장의 ``frame_out``(``std::vector<unsigned char>``)을 복사 없이 ``FrameView(frame_out.data(), 240, 256, 3)``으로 감싸기만 하면, ``src[y, x, c]``처럼 채널까지 3차원으로 바로 접근합니다 — 1장의 전작 코드가 ``gray = frame.mean(axis=2)`` 한 줄로 하던 일을 여기서는 다중 첨자로 표현합니다. ``sy``/``sx`` 계산이 최근접 이웃 리샘플링(nearest-neighbor)입니다 — 1장이 NumPy로 했던 것과 같은 방식입니다.
+
+[source]
+----
+$ clang++ -std=c++23 -O2 mdspan_frame.cpp -o mdspan_frame && ./mdspan_frame
+dst[0,0]=0.5020 dst[41,41]=0.5020 (expect ~0.502 for gray128)
+----
+
+회색값 ``128``짜리 테스트 프레임을 넣으면 ``128/255 ≈ 0.502``가 정확히 나옵니다.
+
+== 4프레임 스택: 3차원 뷰 하나로
+
+강화학습 정책망은 보통 프레임 한 장이 아니라 최근 4장을 겹쳐서 입력으로 씁니다(마리오가 어느 방향으로 움직이는지는 정지 프레임 한 장으로는 알 수 없습니다 — 속도 정보가 프레임 사이의 차이에 있습니다). 이것도 ``mdspan`` 3차원 뷰 하나로 표현됩니다.
+
+[source,cpp]
+----
+std::vector<float> buf(84*84*4, 0.0f);
+std::mdspan<float, std::dextents<std::size_t,3>> stack(buf.data(), 84, 84, 4);
+
+// 슬롯 인덱스를 순환시키며 최근 4프레임을 계속 갱신
+stack[y, x, slot] = gray_value;
+----
+
+[source]
+----
+$ clang++ -std=c++23 -O2 mdspan_stack.cpp -o mdspan_stack && ./mdspan_stack
+stack[10,10,0]=0.00 stack[10,10,3]=0.30
+----
+
+이 ``stack``이 5장에서 MLX 정책망의 입력이 됩니다 — ``mdspan``이 여기서 실제로 버는 건, ``buf[y*84*4 + x*4 + slot]`` 같은 오프셋 계산을 손으로 안 하고 ``stack[y, x, slot]``으로 바로 쓸 수 있다는 것입니다. 원본 버퍼는 여전히 하나의 연속된 ``std::vector<float>``입니다 — ``mdspan``은 그 위에 얹은 해석일 뿐, 복사가 아닙니다.
+
+== 요약
+
+* 3장이 넘겨받은 원시 프레임 바이트를 ``FrameView``(``mdspan``)로 감싸, 인덱스 계산 없이 그레이스케일·리사이즈를 짰습니다.
+* 회색 테스트 프레임으로 계산이 정확하다는 걸 실측으로 확인했습니다(``128/255 ≈ 0.502``).
+* 프레임 4장을 겹치는 스택도 3차원 ``mdspan`` 뷰 하나로 표현했습니다 — 이게 5장의 정책망 입력이 됩니다.
+
+다음 장에서는 이 ``84×84×4`` 입력을 받는 CNN 정책망을 MLX의 C++ API로 짓습니다.
+// end::body[]

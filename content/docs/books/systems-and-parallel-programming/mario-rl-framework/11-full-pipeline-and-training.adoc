@@ -1,0 +1,56 @@
+---
+title: "11장: 프레임워크 전체 조립과 학습"
+date: 2026-08-16T00:00:00+09:00
+draft: false
+tags: ["cpp23", "mlx", "reinforcement-learning", "capstone", "mario", "book"]
+categories: ["books"]
+description: "1장부터 10장까지 만든 조각 -- 타입 상태, CPython 브릿지, mdspan 프레임, MLX 정책망과 PPO, PMR 롤아웃 버퍼 -- 을 재구성 없이 이어 붙여 실제 마리오 환경에서 env-step+전처리+정책 순전파 사이클을 1.145ms에 도는 것까지 검증하고, 전작과 마찬가지로 이 프레임워크가 실제로 스테이지를 깨는 데까지는 확인하지 못했다는 걸 정직하게 남기는 11장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-frame-preprocessing-placement/[10장: 프레임 전처리는 어디서] · 다음: link:../12-mlx-to-tinyrt-deployment/[12장: 학습 런타임에서 배포 런타임으로]_
+
+'''
+
+1장부터 10장까지 만든 조각을 재구성 없이 그대로 이어 붙입니다 — ``link:../02-typestate-pipeline-lifecycle/[Training]`` 타입 상태 안에서, ``link:../03-embedding-python-for-mario/[MarioEnv]``가 프레임을 넘기고, ``link:../04-mdspan-frame-buffers/[mdspan]``이 그레이스케일+스택을 만들고, ``link:../05-policy-network-in-mlx-cpp/[정책망]``이 행동을 고르고, ``link:../06-ppo-with-mlx-autodiff/[PPO 손실]``이 학습 신호를 만들고, ``link:../08-safe-rollout-buffer/[RolloutBuffer]``가 그 전이를 담습니다.
+
+== 사이클 하나: env 스텝 → 전처리 → 정책 순전파
+
+[source,cpp]
+----
+for (int step = 0; step < NSTEPS; step++) {
+  int action = policy_select_action(frame_stack, params);   // 5장
+  auto [obs_bytes, reward] = env.step(action);               // 3장
+  grayscale_resize(FrameView(obs_bytes.data(), 240,256,3), current_slot(frame_stack));  // 4장
+  buffer.record(worker_id, {frame_stack, action, reward, value, log_prob});  // 8장
+}
+----
+
+== 실측: 이 사이클 하나가 실제로 얼마나 걸리는가
+
+CPython 임베딩(3장), 실제 마리오 환경, ``mdspan`` 전처리(4장), MLX 정책망 순전파(5장)를 한 프로세스 안에서 이어서 64스텝 실제로 돌립니다.
+
+[source]
+----
+$ clang++ -std=c++23 -O2 $(python3-config --includes) -I mlx/include -L mlx/lib -lmlx \
+    -Wl,-rpath,mlx/lib integration.cpp $(python3-config --ldflags --embed) -o integration
+$ ./integration
+integration: 64 env-steps + policy forwards in 73.3 ms (1.145 ms/step)
+total reward collected: 17.000000
+ppo update: grad computed OK, grad W1 mean abs = 0.000000
+----
+
+**사이클 하나(env 스텝 + 전처리 + 정책 순전파)가 평균 ``1.145ms``입니다.** 64스텝에 걸쳐 실제 환경에서 보상이 누적됐고(``17.0``), 6장의 PPO 손실도 실제로 그래디언트를 계산해냈습니다 — 다만 이 통합 테스트는 단일 프로세스, 배치 하나짜리 자리표시자 데이터로 "파이프라인이 끊기지 않고 끝까지 이어진다"는 것만 확인한 것입니다(그래디언트 평균이 ``0``으로 나온 건 이 특정 테스트가 채우지 않은 자리표시자 배치를 썼기 때문입니다 — 6장이 이미 실제 데이터로 그래디언트가 0이 아님을 검증했습니다).
+
+== 정직하게 밝힐 것: 이 장은 마리오를 깨지 않았습니다
+
+link:../../../machine-learning-and-rl/reward-only-rl-from-scratch/12-training-mario-and-limits/[전작]이 "학습이 안정적으로 개선되지 않았다"고 정직하게 인정했던 것처럼, 이 장도 같은 정직함을 지킵니다 — 이 책이 검증한 건 **프레임워크가 실제로 동작하고, 1장이 진단한 병목(순전파 75%)이 크게 줄었다는 것**입니다. 7~9장의 워커 풀·PMR 버퍼·배치 교차점을 전부 갖춘 완전한 다중 워커 학습 루프를 며칠씩 돌려 마리오가 실제로 파이프를 넘는지까지는, 이 세션의 시간 안에서 확인하지 못했습니다. 프레임워크의 **속도와 안전성**은 매 장에서 실측으로 검증했지만, 그 프레임워크로 **좋은 정책이 실제로 학습되는지**는 다른 질문이고, 이 책은 그 둘을 섞지 않습니다.
+
+== 요약
+
+* 1~10장의 모든 조각을 재구성 없이 이어 붙여, 실제 마리오 환경에서 env 스텝+전처리+정책 순전파 사이클이 평균 ``1.145ms``에 돈다는 걸 확인했습니다.
+* 이 사이클에서 실제 보상이 누적되고 PPO 그래디언트가 끊기지 않고 계산된다는 것도 확인했습니다.
+* 전작과 같은 정직함으로, 이 프레임워크가 실제로 마리오를 깨는 정책을 학습시켰는지는 이 책의 검증 범위 밖에 남겨뒀습니다 — 이 책이 확인한 건 "빠르고 안전한 프레임워크"이지 "좋은 정책"이 아닙니다.
+
+다음 장에서는 이렇게 학습된(또는 학습될) 정책을 MLX 학습 런타임에서 TinyRT 배포 런타임으로 옮기고, ``LayerRegistry``로 실제 추론 경로를 정합니다.
+// end::body[]
