@@ -58,7 +58,9 @@ consteval std::array<double, kLutSize> make_sin_table() {
 }
 constexpr std::array<double, kLutSize> kSinTable = make_sin_table();
 double fast_sin(double x) {
-  std::size_t idx = static_cast<std::size_t>((x / (2.0 * 3.14159265358979323846)) * kLutSize) % kLutSize;
+  double t = x / (2.0 * 3.14159265358979323846);
+  t -= std::floor(t);  // [0,1)로 접어 넣는다 -- x가 음수여도 안전(아래 참고)
+  std::size_t idx = static_cast<std::size_t>(t * kLutSize) % kLutSize;
   return kSinTable[idx];
 }
 
@@ -73,6 +75,8 @@ struct TransformWorker {
 ----
 
 ``kSinTable``은 `constexpr` 전역 변수로 선언했고 초기값이 `consteval` 함수 호출이므로, ``4096``칸 전부가 **컴파일이 끝나는 시점에 이미 계산되어 실행 파일 안에 상수 데이터로 박혀** 있습니다. ``TransformWorker::process``의 나머지 부분은 3장과 완전히 동일합니다 — ``transform``의 몸통만 바뀌었습니다.
+
+``fast_sin``의 인덱스 계산에서 ``std::floor``로 먼저 ``[0,1)`` 구간에 접어 넣는 이유도 짚어둘 만합니다 — ``x``가 음수면 ``(x / 2π) * kLutSize``도 음수인데, **음수 부동소수점 값을 ``std::size_t``(부호 없는 정수)로 캐스팅하는 것은 정의되지 않은 동작(UB)** 입니다(정수끼리의 부호 없는 변환이 모듈로 규칙으로 잘 정의된 것과 다릅니다). ``BatchBuffer``에 담기는 값이 항상 양수라는 보장은 어디에도 없으므로, ``std::floor``로 미리 음수가 안 나오게 접어두는 게 이 UB를 피하는 값싼 방법입니다.
 
 == 벤치마크: 조회 vs 매번 계산
 

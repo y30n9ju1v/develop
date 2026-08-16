@@ -12,7 +12,7 @@ _link:../[전체 목차] · 이전: link:../06-quantization-tradeoffs/[6장: 양
 
 '''
 
-2~3부는 그래프를 최적화했습니다. 이 최적화들은 여전히 "ONNX 연산자"라는 추상화 수준에서 이루어졌습니다 — 실제 하드웨어는 `Conv`나 `MatMul` 같은 이름을 모릅니다, 명령어와 루프만 압니다. 이 장부터는 ONNX 그래프가 그 격차를 메우기 위해 어떤 중간 단계들을 거치는지, **MLIR**(Multi-Level Intermediate Representation)이라는 실제 컴파일러 인프라로 직접 확인합니다.
+2~3부는 그래프를 최적화했습니다. 이 최적화들은 여전히 "ONNX 연산자"라는 추상화 수준에서 이루어졌습니다 — 실제 하드웨어는 `Conv`나 `MatMul` 같은 이름을 모릅니다, 명령어와 루프만 압니다. 이 장부터는 ONNX 그래프가 그 격차를 메우기 위해 어떤 중간 단계들을 거치는지, **MLIR**(Multi-Level Intermediate Representation)이라는 실제 컴파일러 인프라로 직접 확인합니다. 이 장은 MLIR을 "ONNX 그래프를 낮추는 도구"로 바로 들어가므로, SSA(정적 단일 대입)나 "dialect가 정확히 뭔가" 같은 MLIR 자체의 기본기가 낯설다면 이 시리즈의 link:../../building-a-language-from-scratch/10-emitting-mlir-ir/[『언어를 처음부터 끝까지』 10장]이 작은 언어 하나로 그 기본기를 처음부터 다집니다 — 그 장은 일반 목적 언어를 낮추는 방향에서, 이 장은 텐서 그래프를 낮추는 방향에서 같은 MLIR 인프라를 씁니다.
 
 == 작은 예제로 시작하기: MatMul + Add + ReLU
 

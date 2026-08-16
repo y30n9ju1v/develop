@@ -30,6 +30,8 @@ func.func @main() -> i64 {
 
 `%0`, `%1`, `%2`는 SSA(Static Single Assignment) 값입니다 — 한 번 정해지면 절대 다시 바뀌지 않는 이름입니다. `arith.constant`는 상수를, `arith.addi`는 정수 덧셈을 뜻합니다. `func.func`는 함수 정의이고, `Twig` 프로그램 전체를 일단 `main`이라는 함수 하나로 감쌉니다.
 
+이 장이 다루는 `arith`/`func` 다이얼렉트는 일반 목적 언어(`Twig`)를 낮추는 데 쓰이는 다이얼렉트입니다 — 같은 MLIR 인프라가 텐서 그래프를 낮추는 데도 쓰인다는 걸, 이 시리즈의 link:../../onnx-hardware-optimization/07-onnx-to-mlir/[『학습이 끝난 모델을 하드웨어에 맞게 다시 깎는다』 7장]이 `torch`/`linalg` 다이얼렉트로 보여줍니다 — SSA와 다이얼렉트라는 이 절의 기본기를 그대로 가져가서 읽으면 그 장의 lowering 과정이 더 빨리 눈에 들어옵니다.
+
 == 방출기: AST를 순회하며 MLIR 줄을 쌓기
 
 [source,python]

@@ -127,7 +127,7 @@ int main() {
 
 [source]
 ----
-$ clang++ -std=c++23 -O0 -fcoroutines coroutine_pipeline.cpp -o coroutine_pipeline && ./coroutine_pipeline
+$ clang++ -std=c++23 -O0 coroutine_pipeline.cpp -o coroutine_pipeline && ./coroutine_pipeline
 coordinator connected to worker
 acquired segment 7
 coroutine pipeline succeeded: 1
@@ -176,7 +176,7 @@ int main() {
 
 [source]
 ----
-$ clang++ -std=c++23 -O0 -fcoroutines coroutine_cancel.cpp -o coroutine_cancel && ./coroutine_cancel
+$ clang++ -std=c++23 -O0 coroutine_cancel.cpp -o coroutine_cancel && ./coroutine_cancel
 coordinator connected to worker
 acquired segment 7
 cancelled run: 0 (cancelled after process_batch)

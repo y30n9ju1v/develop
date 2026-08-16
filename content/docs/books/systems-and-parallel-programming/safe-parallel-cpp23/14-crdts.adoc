@@ -98,27 +98,9 @@ idempotent (merge again with worker1): 1
 
 ``w1``은 ``worker0_progress``만, ``w2``는 ``worker1_progress``만 건드립니다 — **뮤텍스도, ``std::atomic``도 안 씁니다.** 두 워커 스레드가 물리적으로 같은 메모리를 만질 방법이 없기 때문입니다(13장의 분리 논리와 같은 발상이 여기서도 배경에 깔려 있습니다 — 다만 이 장에서는 그게 목적이 아니라 전제 조건입니다). ThreadSanitizer를 켜도 경고가 없고, ``merge(w0,w1)``와 ``merge(w1,w0)``가 정확히 같은 값(`200000`, 즉 전체 진행률)에 수렴한다는 것과, 이미 합친 결과에 ``worker1_progress``를 또 합쳐도 값이 안 바뀐다는 것(멱등)까지 실제로 확인됩니다 — 이게 1장의 ``std::atomic<int> progress``가 원자적 연산으로 매번 경합했던 것과 정반대로, **코디네이터가 원할 때 각 워커의 로컬 카운터를 동기화 없이 읽어다 합치기만 하면 되는** 진행률 집계입니다.
 
-== 실전 팁: 카운터를 하나만 공유하면 False Sharing이 생긴다
+== 여담: ``GCounter<N>``를 하나만 공유하면 생기는 성능 문제는 이 책의 범위 밖입니다
 
-위 검증은 ``worker0_progress``와 ``worker1_progress``를 **완전히 별도의 객체**로 뒀습니다 — 그래서 ``w1``과 ``w2``가 물리적으로 같은 메모리조차 만지지 않습니다. 하지만 `GCounter<N>` **하나**를 여러 워커가 공유하며 각자 ``counts_[worker_id]``만 건드리는 식으로 바꾸고 싶어질 수 있습니다(merge를 나중에 한 번만 하면 되니 코디네이터 쪽 코드가 단순해집니다). 정확성만 보면 이것도 데이터 경쟁은 아닙니다 — 서로 다른 인덱스니까요. 하지만 ``std::array<int, N>``의 원소들은 메모리에 연속으로 붙어 있어서, ``counts_[0]``과 ``counts_[1]``이 같은 **CPU 캐시 라인**(보통 64바이트)에 들어갑니다. 그러면 워커 0이 ``counts_[0]``을 쓸 때마다 워커 1의 코어가 들고 있는 ``counts_[1]``의 캐시 라인까지 무효화되고, 그 반대도 마찬가지입니다 — 이게 **거짓 공유(false sharing)**입니다. 데이터 경쟁처럼 결과가 틀리는 건 아니지만, 코어끼리 캐시 라인을 서로 뺏고 뺏기느라 실제 멀티코어 성능이 락을 쓴 것과 비슷한 수준까지 떨어질 수 있습니다.
-
-[source,cpp]
-----
-#include <new>  // std::hardware_destructive_interference_size
-
-template <std::size_t N>
-class GCounterPadded {
-  struct alignas(std::hardware_destructive_interference_size) PaddedInt {
-    int value = 0;
-  };
-  std::array<PaddedInt, N> counts_{};  // 원소마다 캐시 라인 하나를 통째로 차지
-public:
-  void increment(std::size_t worker_id) { counts_[worker_id].value++; }
-  int value() const { int sum = 0; for (auto& c : counts_) sum += c.value; return sum; }
-};
-----
-
-`std::hardware_destructive_interference_size`(C{pp}17)는 "이 값보다 떨어뜨려 두면 거짓 공유가 안 생긴다"고 표준 라이브러리가 보장하는 크기(대부분의 x86-64/ARM64 플랫폼에서 `64`)입니다. ``alignas``로 각 워커의 칸을 그 크기만큼 정렬하면, ``counts_[0]``과 ``counts_[1]``이 서로 다른 캐시 라인에 놓여 물리적으로도 간섭하지 않습니다 — 대신 ``GCounter<N>``이 차지하는 메모리는 ``N * 64``바이트로 늘어나므로(캐시 라인 하나에 `int` 하나만 쓰는 셈), 이 트레이드오프는 워커 수가 아주 많지 않은 한(그리고 실제로 ``increment``가 뜨거운 경로일 때만) 적용할 가치가 있습니다.
+위 검증은 ``worker0_progress``와 ``worker1_progress``를 **완전히 별도의 객체**로 뒀습니다 — 그래서 ``w1``과 ``w2``가 물리적으로 같은 메모리조차 만지지 않습니다. ``GCounter<N>`` **하나**를 여러 워커가 공유하며 각자 ``counts_[worker_id]``만 건드리는 식으로 바꾸면(merge를 나중에 한 번만 하면 되니 편리해 보입니다), 데이터 경쟁은 아니지만(서로 다른 인덱스) ``std::array``의 원소들이 메모리에 연속으로 붙어 있어서 캐시 라인을 공유하는 거짓 공유(false sharing)가 생겨 성능이 떨어질 수 있습니다 — 다만 이 책은 안전성(정확성)만 다루기로 했으므로, 이 성능 트레이드오프 자체는 여기서 더 파고들지 않습니다.
 
 == 왜 멱등성이 진짜 중요한가: 순진한 병합과 대조하기
 
@@ -244,7 +226,7 @@ static_assert(is_join_semilattice<GCounter<2>>::value, "GCounter should be a joi
 * ``GCounter``로 두 워커가 뮤텍스도 원자 연산도 없이 각자의 진행률 칸만 늘리고, 코디네이터가 반대 순서로 합쳐도 같은 값에 수렴하며 이미 합친 걸 또 합쳐도 안 바뀐다는 걸 TSan까지 켜서 실제로 확인했습니다 — 1장의 그 위험했던 공유 ``int progress``가 이렇게 마침내 안전해졌습니다.
 * 멱등하지 않은 "그럴듯한" 병합(`NaiveCounter`)이 중복 병합 시 실제로 잘못된 값을 낸다는 걸 대조해서, 세 법칙 중 멱등성이 왜 장식이 아니라 실전 안전장치인지 확인했습니다.
 * 안전성이 "접근을 거부한다"가 아니라 "순서가 안 중요하도록 설계한다"는 전혀 다른 층위에서 나올 수 있다는 것으로, 이 책이 반복해온 "이론마다 안전을 얻는 방식이 다르다"는 주제의 마지막 사례를 보탰습니다.
-* 실전 성능 팁으로 ``counts_[worker_id]``를 여러 워커가 한 ``GCounter``에서 공유하면 캐시 라인을 두고 다투는 거짓 공유(false sharing)가 생길 수 있다는 것과, ``alignas(std::hardware_destructive_interference_size)``로 이를 피하는 법을 짚었습니다. 또한 merge가 스레드와 무관한 순수 계산이라는 점을 이용해 ``constexpr``과 ``static_assert``로 세 법칙을 컴파일 타임에 직접 검증하는 방법도 확인했습니다.
+* merge가 스레드와 무관한 순수 계산이라는 점을 이용해 ``constexpr``과 ``static_assert``로 세 법칙을 컴파일 타임에 직접 검증하는 방법도 확인했습니다.
 
 맺음말에서는 이 CRDT까지 포함해 이 책이 다룬 다섯 이론 전체를 다시 정리하고, 1장부터 이 장까지 조립해온 TaskGrid 전체를 한자리에 모아 봅니다.
 // end::body[]

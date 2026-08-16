@@ -43,11 +43,11 @@ concurrent 8 threads, 20000 requests: 47.61 ms (420103 req/s, 6.16x vs sequentia
 
 == GPU 경로: 커널 오브젝트를 공유하면 무슨 일이 생기는가
 
-CPU 경로는 공유 상태가 없어서 쉬웠습니다. GPU 경로는 다릅니다 — 4장의 ``GpuContext``가 들고 있는 ``cl_kernel``은 **인자 값을 자기 안에 저장하는 가변 상태**입니다(``clSetKernelArg``로 넣은 값이 그 커널 오브젝트에 남아 있다가, ``clEnqueueNDRangeKernel``이 실행될 때 쓰입니다). 여러 스레드가 같은 커널 오브젝트에 동시에 인자를 설정하면 어떻게 될까요?
+CPU 경로는 공유 상태가 없어서 쉬웠습니다. GPU 경로는 다릅니다 — 이 장에서 새로 만드는 ``FcKernelContext``는 4장의 ``GpuContext``(컨텍스트/커맨드 큐를 이동 전용 RAII로 관리)와 5장의 ``GpuConvLayer``(``cl_kernel``까지 클래스 안에 들고 있는 것)를 합친 모양입니다 — 여기서 문제가 되는 건 그 ``cl_kernel``입니다. ``cl_kernel``은 **인자 값을 자기 안에 저장하는 가변 상태**입니다(``clSetKernelArg``로 넣은 값이 그 커널 오브젝트에 남아 있다가, ``clEnqueueNDRangeKernel``이 실행될 때 쓰입니다). 여러 스레드가 같은 커널 오브젝트에 동시에 인자를 설정하면 어떻게 될까요?
 
 [source,cpp]
 ----
-void run_fc_unsafe(GpuContext& gpu, const std::vector<float>& in, const std::vector<float>& w,
+void run_fc_unsafe(FcKernelContext& gpu, const std::vector<float>& in, const std::vector<float>& w,
                     std::vector<float>& out) {
   // ... 버퍼 생성 ...
   clSetKernelArg(gpu.kernel(), 0, sizeof(cl_mem), &in_buf);   // 락 없음
@@ -142,12 +142,17 @@ concurrent 8 threads, 2000 calls (per-thread queue): 235.51 ms (8492 req/s)
 
 정답도 여전히 맞고(``all outputs match: true``), 처리량은 순차 실행(``2227 req/s``)의 **약 3.8배**, 락으로 막았던 버전(``2075 req/s``)의 **약 4배**입니다. 잠금(lock)이 아니라 **공유 자체를 없애는 것**(전작 link:../../safe-parallel-cpp23/[『이론을 C{pp}23으로 옮기다』] 전체를 관통한 원칙 — "락을 잘 거는 것보다, 애초에 공유 자원을 안 만드는 게 낫다")이 여기서도 정답이었습니다.
 
+== 9장의 ``Ready``는 이 그림에 어떻게 들어맞는가
+
+9장은 ``Ready``가 ``GpuContext`` **하나**(컨텍스트, 큐, 커널 전부 합쳐 하나)를 들고 있는 걸 "GPU 프로그램까지 준비된 상태"의 증거로 삼았습니다. 이 장의 결론(커널·큐는 스레드마다 따로 있어야 안전하다)과 정면으로 맞부딪힙니다 — ``Ready`` 하나가 여러 스레드에서 동시에 ``infer()``를 받는다면, 9장의 설계 그대로는 이 장이 재현한 바로 그 레이스에 걸립니다. 실제로 합치려면 ``Ready``가 ``GpuContext`` 하나 대신 **스레드 수만큼의 ``FcKernelContext``** (또는 요청이 들어올 때마다 풀에서 하나씩 꺼내 쓰는 오브젝트 풀)를 들고 있어야 합니다 — ``Loaded::compile()``이 GPU 프로그램을 한 번만 빌드하고 그 결과(``cl_program``)를 여러 스레드 전용 큐/커널에 나눠주는 형태로 바뀌는 것입니다. 이 책은 그 재설계까지는 하지 않았습니다 — 9장의 타입 상태와 이 장의 동시성 해법은 아직 같은 클래스 안에 합쳐지지 않은, 나란히 검증된 두 조각으로 남아 있습니다.
+
 == 요약
 
 * CPU 경로(상태 없는 순수 함수)는 ``std::jthread`` 풀로 나누기만 해도 8스레드에서 6.16배 처리량이 났습니다.
 * 공유된 ``cl_kernel``에 락 없이 동시 접근하면 API 에러 없이 결과만 조용히 틀어진다는 걸 재현했고, 이 레이스가 시스템 프레임워크 내부 상태라서 ThreadSanitizer로는 검증되지 않는다는 것도 정직하게 확인했습니다 — 결과를 직접 대조하는 것만이 이 경우의 유일한 검증 수단이었습니다.
 * ``std::scoped_lock``으로 임계 구역을 감싸면 정답은 돌아오지만, 임계 구역이 너무 넓어서(인자 설정+실행+결과 읽기 전부) 사실상 직렬화되어 처리량이 그대로였다는 것도 실측으로 확인했습니다.
 * 스레드마다 독립된 커맨드 큐와 커널 오브젝트로 애초에 공유 자원을 없애자, 정답을 유지하면서 락 버전 대비 4배 처리량을 얻었습니다 — "잠그기"보다 "안 나누기"가 이겼습니다.
+* 9장의 ``Ready``가 ``GpuContext`` 하나만 들고 있는 설계로는 이 장의 동시성 해법(스레드별 큐/커널)을 그대로 못 담는다는 것도 정직하게 짚었습니다 — 실제로 합치려면 ``Ready``가 스레드별 자원 풀을 들고 있도록 재설계해야 하는데, 이 책은 거기까지는 하지 않았습니다.
 
 맺음말에서는 이 장까지 포함해 TinyRT 전체가 확인한 것을 다시 정리합니다.
 
