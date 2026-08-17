@@ -18,7 +18,7 @@ title: "Books"
 ## 범주론과 함수형 프로그래밍
 
 - **[Category Theory for Programmers](category-theory-and-fp/category-theory-for-programmers/)** — Bartosz Milewski가 프로그래머를 위해 쓴 범주론 입문서를 장별로 옮긴 한국어 번역
-- **[화살표로 생각하기](category-theory-and-fp/category-theory-made-simple/)** — 코드 없이 일상적인 비유와 그림만으로 범주론을 쉽게 푸는 독립적인 입문서. 기초(1부: 범주·함수자·자연변환) → 구조(2부: 곱과 합·보편성질) → 응용(3부: 모나드·프로그래밍이 사실 범주다·범주론이 잇는 세계들) → 심화(4부: 극한과 쌍대극한·요네다 렘마·수반)
+- **[화살표로 생각하기](category-theory-and-fp/category-theory-made-simple/)** — 본문은 코드 없이 일상적인 비유와 그림만으로 범주론을 쉽게 푸는 독립적인 입문서. 기초(1부: 범주·함수자·자연변환) → 구조(2부: 곱과 합·보편성질) → 응용(3부: 모나드·프로그래밍이 사실 범주다·범주론이 잇는 세계들) → 심화(4부: 극한과 쌍대극한·요네다 렘마·수반), 맺음말 뒤 설문 응답 파이프라인으로 핵심 개념을 파이썬으로 다시 확인하는 짧은 부록까지
 - **[함수형 프로그래밍으로 보는 비동기의 근간](category-theory-and-fp/fp-backbone-of-async/)** — Python의 async/await, Monad, Functor, Applicative, Observable이 사실은 함수형 프로그래밍의 오래된 개념 위에 서 있다는 것을 따라가고, 마지막 장에서 그 패턴이 TypeScript의 Promise에서도 그대로 성립하는지(단, 구조적 동시성처럼 언어마다 보장 수준이 다른 지점도 있는지) 실제 컴파일·실행으로 검증하는 책
 
 ## nand2npu 시리즈

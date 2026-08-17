@@ -1,0 +1,188 @@
+---
+title: "부록: 파이썬으로 다시 확인하기"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["category-theory", "python", "book"]
+categories: ["books"]
+description: "설문 응답을 처리하는 아주 작은 파이썬 프로젝트 하나로, 3장의 함수자 법칙·4장의 자연성·5장의 곱과 합·8장의 모나드 bind를 실제 코드로 다시 확인하는 부록"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../14-afterword/[맺음말]_
+
+'''
+
+이 부록은 본문과 독립적입니다 — 건너뛰어도 이 책을 이해하는 데 전혀 지장이 없습니다. 다만 3·4·5·8장에서 그림으로만 확인했던 것들을, "설문 응답을 처리한다"는 아주 작은 파이썬 프로젝트 하나로 다시 확인하고 싶은 독자를 위해 준비했습니다. 새 개념은 하나도 없습니다 — 본문에서 이미 다진 그림을 코드로 다시 그리는 것뿐입니다.
+
+== 프로젝트: 설문 응답 처리 파이프라인
+
+설문에 이름과 나이를 적어 낸 응답이 여러 건 있습니다. 그런데 실제 데이터는 지저분합니다 — 나이를 안 적은 사람도 있고, 미성년자도 섞여 있습니다. 이 파이프라인은 "이름과 나이가 둘 다 있고, 성인인 응답만" 걸러내려고 합니다.
+
+[source,python]
+----
+from dataclasses import dataclass
+from typing import Callable, TypeVar, Optional, Union
+
+A = TypeVar("A")
+B = TypeVar("B")
+
+RAW_ROWS = [
+    {"name": "철수", "age": "17"},
+    {"name": "영희", "age": None},   # 나이 데이터 누락
+    {"name": "민수", "age": "20"},
+]
+----
+
+== 5장: 곱과 합을 데이터 타입으로
+
+5장에서 곱은 "여러 조각을 동시에 유지하는 가장 효율적인 방법", 합은 "여럿 중 하나를 표시와 함께 담는 가장 효율적인 방법"이었습니다. 파이썬에서는 이게 각각 `dataclass`와 `Union`으로 그대로 나타납니다.
+
+[source,python]
+----
+# 곱: 이름과 나이를 동시에 들고 다니는 Respondent
+@dataclass(frozen=True)
+class Respondent:
+    name: str
+    age: int
+
+# 합: 연락 수단은 이메일이거나 전화번호, 둘 중 하나
+@dataclass(frozen=True)
+class Email:
+    address: str
+
+@dataclass(frozen=True)
+class Phone:
+    number: str
+
+Contact = Union[Email, Phone]
+
+def notify(contact: Contact) -> str:
+    # 5장이 보장한 것: 이메일 쪽 규칙과 전화번호 쪽 규칙만 각각 정하면
+    # Contact 전체에 대한 규칙이 자동으로 완성된다.
+    if isinstance(contact, Email):
+        return f"이메일 발송: {contact.address}"
+    return f"문자 발송: {contact.number}"
+----
+
+[source]
+----
+>>> r = Respondent(name="철수", age=17)
+>>> r
+Respondent(name='철수', age=17)
+>>> notify(Email("a@b.com"))
+'이메일 발송: a@b.com'
+>>> notify(Phone("010-0000-0000"))
+'문자 발송: 010-0000-0000'
+----
+
+`Respondent`는 `name`과 `age`가 **둘 다** 있어야 값이 되니 곱이고, `Contact`는 `Email`**이거나** `Phone`이어야 하니 합입니다 — `isinstance` 분기 하나로 `notify`가 두 갈래 모두를 처리하는 게, 5장에서 본 "합쳐진 타입 전체에 대한 규칙이 유일하게 결정된다"는 조건이 실제 코드에서 나타나는 모습입니다.
+
+== 3장: 함수자 법칙을 직접 확인하기
+
+3장의 함수자 조건은 `F(g ∘ f) = F(g) ∘ F(f)`였습니다. `Optional`을 "값이 있거나 없는 상자"로 보고, 상자 안의 값에 함수를 적용하는 `opt_map`을 짜서 이 법칙을 직접 확인해봅니다.
+
+[source,python]
+----
+def opt_map(box: Optional[A], f: Callable[[A], B]) -> Optional[B]:
+    if box is None:
+        return None
+    return f(box)
+
+def to_greeting(r: Respondent) -> str:
+    return f"{r.name}님 안녕하세요"
+
+def shout(s: str) -> str:
+    return s + "!!!"
+
+def compose(g, f):
+    return lambda x: g(f(x))
+
+some_r: Optional[Respondent] = Respondent(name="영희", age=25)
+path1 = opt_map(some_r, compose(shout, to_greeting))   # F(g∘f)
+path2 = opt_map(opt_map(some_r, to_greeting), shout)    # F(g)∘F(f)
+----
+
+[source]
+----
+>>> path1
+'영희님 안녕하세요!!!'
+>>> path2
+'영희님 안녕하세요!!!'
+>>> path1 == path2
+True
+----
+
+"먼저 두 함수를 합성한 뒤 상자에 적용하는 것"과 "먼저 상자에 하나씩 적용하는 것"이 정확히 같은 결과를 냅니다 — 3장에서 그림으로 확인했던 조건이, 여기서는 `==` 비교 하나로 검증됩니다.
+
+== 8장: `bind`로 파이프라인 잇기
+
+8장의 문제는 "이름 → 상자에 담긴 사람" 다음에 "사람 → 상자에 담긴 결과"를 이어붙이면 상자 안에 상자가 생긴다는 것이었고, `bind`(`flatMap`)가 그 이중 포장을 매번 손으로 까지 않고 정리해준다고 했습니다.
+
+[source,python]
+----
+def opt_bind(box: Optional[A], f: Callable[[A], Optional[B]]) -> Optional[B]:
+    if box is None:
+        return None
+    return f(box)
+
+def parse_respondent(row: dict) -> Optional[Respondent]:
+    if row.get("age") is None:
+        return None
+    return Respondent(name=row["name"], age=int(row["age"]))
+
+def require_adult(r: Respondent) -> Optional[Respondent]:
+    return r if r.age >= 18 else None
+
+def pipeline(row: dict) -> Optional[Respondent]:
+    # parse_respondent 다음에 require_adult를 상자를 까지 않고 그대로 이어붙인다.
+    return opt_bind(parse_respondent(row), require_adult)
+----
+
+[source]
+----
+>>> for row in RAW_ROWS:
+...     print(f"{row} -> {pipeline(row)}")
+{'name': '철수', 'age': '17'} -> None
+{'name': '영희', 'age': None} -> None
+{'name': '민수', 'age': '20'} -> Respondent(name='민수', age=20)
+----
+
+철수는 나이는 있지만 미성년자라서 `require_adult`에서 걸러지고, 영희는 애초에 나이 데이터가 없어서 `parse_respondent`에서 걸러집니다 — 어느 단계에서 실패하든 `opt_bind`가 자동으로 `None`을 전파하고, 성공한 민수만 끝까지 살아남습니다. 8장에서 "찾기 다음 생일조회를 이어붙이면, 실패가 자동으로 전파된다"고 했던 게 정확히 이 모습입니다.
+
+== 4장: 자연변환의 정사각형을 코드로
+
+4장의 자연성 조건은 "먼저 바꾸고 꺼내기"와 "먼저 꺼내고 바꾸기"가 항상 같은 결과를 내야 한다는 것이었습니다. "리스트의 첫 원소를 `Optional`로 꺼낸다"는 자연변환을 코드로 다시 확인합니다.
+
+[source,python]
+----
+def first(xs: list) -> Optional[object]:
+    return xs[0] if xs else None
+
+xs = [3, 7, 1]
+f = lambda n: n * 2
+
+path_a = first([f(x) for x in xs])   # 먼저 리스트 전체에 f를 적용(함수자 map)한 뒤 first
+path_b = opt_map(first(xs), f)        # 먼저 first로 꺼낸 뒤 f를 적용(Optional 쪽 map)
+----
+
+[source]
+----
+>>> path_a
+6
+>>> path_b
+6
+>>> path_a == path_b
+True
+----
+
+`[f(x) for x in xs]`라는 리스트 컴프리헨션이 사실 3장 5절에서 짚었던 "리스트 함수자의 `map`"이고, `first`가 정확히 4장의 자연변환 `α`입니다 — 두 경로가 일치한다는 게, `α(B) ∘ F(f) = G(f) ∘ α(A)`라는 정사각형이 실제 데이터에서 무너지지 않는다는 걸 보여줍니다.
+
+== 요약
+
+* 5장의 곱과 합은 `dataclass`(여러 필드를 동시에)와 `Union`(여럿 중 하나)으로 그대로 코드가 됩니다.
+* 3장의 함수자 법칙은 `Optional`에 정의한 `opt_map`으로, 합성 순서를 바꿔도 결과가 같다는 걸 직접 확인할 수 있습니다.
+* 8장의 모나드 `bind`(`opt_bind`)는 실패할 수 있는 단계들을 이어붙이면서, 실패를 매번 손으로 확인하지 않고 자동으로 전파시킵니다.
+* 4장의 자연변환은 "리스트 전체에 적용 후 첫 원소 꺼내기"와 "첫 원소를 꺼낸 후 적용하기"가 일치한다는 것으로, 코드에서도 그대로 확인됩니다.
+
+이 부록에서 다룬 네 가지는 이 책이 다진 개념의 아주 작은 일부일 뿐입니다 — 함수자·자연변환·모나드·수반을 더 폭넓게, 더 엄밀한 코드로 보고 싶다면 이 사이트의 *Category Theory for Programmers*로 넘어가는 걸 권합니다.
+// end::body[]
