@@ -39,6 +39,7 @@ title: "함수형 프로그래밍으로 보는 비동기의 근간"
 [start=12]
 . *link:12-toward-the-future/[미래를 향하여: async/await의 비밀과 Effect System]*
 . *link:13-algebra-and-automaton/[대수와 오토마타: 두 개의 렌즈로 다시 보는 비동기]*
+. *link:14-python-vs-typescript-async/[언어를 넘어서: Python asyncio와 TypeScript Promise]*
 
 '''
 
@@ -137,3 +138,10 @@ include::12-toward-the-future.adoc[tag=body,leveloffset=+1]
 == 13. 대수와 오토마타: 두 개의 렌즈로 다시 보는 비동기
 
 include::13-algebra-and-automaton.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-14]
+== 14. 언어를 넘어서: Python asyncio와 TypeScript Promise
+
+include::14-python-vs-typescript-async.adoc[tag=body,leveloffset=+1]

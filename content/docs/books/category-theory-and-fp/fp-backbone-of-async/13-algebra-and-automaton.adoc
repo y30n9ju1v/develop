@@ -8,7 +8,7 @@ description: "지금까지 이 책이 대수(Monad, Applicative)로 설명해온
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../12-toward-the-future/[미래를 향하여: async/await의 비밀과 Effect System]_
+_link:../[전체 목차] · 이전: link:../12-toward-the-future/[미래를 향하여: async/await의 비밀과 Effect System] · 다음: link:../14-python-vs-typescript-async/[14장: 언어를 넘어서: Python asyncio와 TypeScript Promise]_
 
 '''
 
