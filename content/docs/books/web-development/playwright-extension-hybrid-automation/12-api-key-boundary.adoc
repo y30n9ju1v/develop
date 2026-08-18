@@ -1,0 +1,86 @@
+---
+title: "12장: API 키 저장과 경계 설계"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "security", "book"]
+categories: ["books"]
+description: "API 키를 service worker의 chrome.storage.local에만 두고 content script와 페이지에는 절대 넘어가지 않도록 배선한 뒤, 그 경계가 실제로 지켜지는지 Playwright로 직접 검증하는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-calling-llm-from-service-worker/[11장: service worker에서 LLM API 호출] · 다음: link:../13-screenshot-to-llm-seatmap/[13장: 스크린샷을 LLM에 보내 좌석맵 읽기]_
+
+'''
+
+이 책에서 가장 중요한 보안 포인트입니다 — LLM API 키가 content script(페이지와 DOM을 공유하는 컨텍스트)로 단 한 번도 넘어가지 않도록 배선합니다.
+
+== 키는 storage.local에, 오직 service worker만 읽는다
+
+[source,javascript]
+----
+// background.js
+async function getApiKey() {
+  const { llmApiKey } = await chrome.storage.local.get('llmApiKey');
+  return llmApiKey;
+}
+
+async function pickSeat(screenshotDataUrl, preference) {
+  const key = await getApiKey();
+  const res = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    body: JSON.stringify({ /* ... */ }),
+  });
+  // ...
+}
+----
+
+`getApiKey()`를 호출하는 곳은 `background.js`뿐입니다 — `content.js`에는 `chrome.storage`를 다루는 코드가 아예 없습니다. content script가 보내는 메시지(`PICK_SEAT`)에는 스크린샷과 선호도만 들어있고, 키는 물리적으로 그 메시지 안에 존재하지 않습니다.
+
+== 이 경계가 실제로 지켜지는지 검증하기
+
+주장으로 끝내지 않고, Playwright로 직접 확인합니다.
+
+[source,javascript]
+----
+// 서비스 워커에 직접 키를 저장 (실제로는 options 페이지 등에서 사용자가 입력)
+await sw.evaluate(() => chrome.storage.local.set({ llmApiKey: 'sk-test-123' }));
+
+// ... popup에서 좌석 판단을 트리거한 뒤 ...
+
+// content script/페이지 world에 키가 흘러들어갔는지 확인
+const leaked = await page.evaluate(() =>
+  typeof window.llmApiKey !== 'undefined' ||
+  document.documentElement.innerHTML.includes('sk-test-123')
+);
+console.log('api key leaked into page/content script world:', leaked);
+----
+
+[source]
+----
+$ node pw_key_stream.js
+api key stored in chrome.storage.local (service worker only)
+...
+api key leaked into page/content script world: false
+----
+
+`false`입니다 — 키가 `window` 전역에도, DOM 어디에도 나타나지 않습니다. 그리고 mock LLM 서버 쪽 로그를 보면 키가 실제로 요청에 실려서 도착했다는 것도 확인됩니다.
+
+[source]
+----
+Authorization header received: Bearer sk-test-123
+----
+
+== 왜 이 경계가 중요한가
+
+content script는 페이지의 DOM과 같은 공간에서 돕니다 — 페이지 자체가 악성이거나, 페이지에 삽입된 다른 스크립트(광고, 서드파티 위젯)가 있다면, content script가 접근할 수 있는 모든 값은 잠재적으로 그쪽에도 노출될 위험이 있습니다. API 키처럼 유출되면 비용이 청구되거나 남용될 수 있는 비밀은, **애초에 content script가 접근할 수 있는 범위 밖**(service worker, `chrome.storage`)에만 둬야 합니다. 이건 "실수로 안 새어나가길 바라는" 게 아니라, 구조적으로 새어나갈 경로 자체가 없게 만드는 것입니다.
+
+== 요약
+
+* API 키는 `chrome.storage.local`에 저장하고, 오직 service worker(`background.js`)만 읽습니다 — content script엔 관련 코드가 아예 없습니다.
+* Playwright로 페이지/content script world를 직접 조사해서, 키가 실제로 새어나가지 않는다는 걸(`false`) 검증했습니다.
+* mock LLM 서버가 받은 `Authorization` 헤더로, 키가 정확히 의도한 경로(service worker → LLM)로만 전달됐다는 것도 확인했습니다.
+// end::body[]

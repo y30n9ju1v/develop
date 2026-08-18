@@ -1,0 +1,96 @@
+---
+title: "7장: content script로 예매 페이지에 개입하기"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "content-script", "book"]
+categories: ["books"]
+description: "content script가 페이지와 같은 DOM을 공유하면서도 서로 다른 window를 갖는 격리된 world라는 것을, 실제로 겪은 실패(page.evaluate에서 함수가 안 보이는 버그)로 확인하는 7장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-manifest-v3-skeleton/[6장: Manifest V3 뼈대] · 다음: link:../08-popup-and-side-panel/[8장: popup과 side panel]_
+
+'''
+
+이 장의 코드는 이 책을 쓰면서 실제로 한 번 실패한 뒤 고친 것입니다 — 그 실패 자체가 이 장에서 가장 중요한 교훈이라, 실패 로그를 그대로 남겨둡니다.
+
+== content.js: 좌석맵을 캡처해서 클릭까지
+
+[source,javascript]
+----
+// ext/content.js
+async function pickAndReserve(preference) {
+  const canvas = document.getElementById('seatmap');
+  if (!canvas) return { ok: false, reason: 'no seatmap yet' };
+
+  const screenshotDataUrl = canvas.toDataURL('image/png');
+  const result = await chrome.runtime.sendMessage({
+    type: 'PICK_SEAT',
+    screenshotDataUrl,
+    preference,
+  });
+
+  const cellW = 45, cellH = 40;
+  const rect = canvas.getBoundingClientRect();
+  const x = rect.left + 10 + cellW * result.col + cellW / 2;
+  const y = rect.top + 10 + cellH * result.row + cellH / 2;
+
+  canvas.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
+  return { ok: true, chosen: result };
+}
+
+window.__seatHelperPickAndReserve = pickAndReserve;
+----
+
+`canvas.toDataURL('image/png')`으로 캔버스를 그냥 이미지 데이터 URL로 뽑아낼 수 있습니다 — `chrome.tabs.captureVisibleTab`처럼 탭 전체를 캡처하는 API도 있지만(13장에서 차이를 다룹니다), 캔버스 하나만 필요하다면 이쪽이 훨씬 정확하고 간단합니다.
+
+== 실패: window에 함수를 달았는데 Playwright에서 안 보인다
+
+이 함수를 Playwright의 `page.evaluate()`로 직접 호출해보려 했습니다.
+
+[source,javascript]
+----
+const result = await page.evaluate(async () => {
+  return await window.__seatHelperPickAndReserve('3루측 그늘, 앞뒤 여유 있는 자리');
+});
+----
+
+[source]
+----
+$ node pw_full.js
+extension service worker loaded: chrome-extension://.../background.js
+content script fn exists: undefined
+queue cleared, seatmap visible
+page.evaluate: TypeError: window.__seatHelperPickAndReserve is not a function
+----
+
+content script가 로드된 건 콘솔 로그로 확인했는데(`content script fn exists: undefined`로 찍은 진단 로그 이전에 실제로 content script의 `console.log`도 찍혔습니다), `window.__seatHelperPickAndReserve`는 `undefined`입니다. 함수를 분명히 `window`에 달았는데 왜 안 보일까요?
+
+== 원인: content script는 격리된 world에서 돈다
+
+크로미움은 content script를 페이지의 자바스크립트와 **같은 DOM을 보지만 완전히 다른 `window` 객체**에서 실행합니다 — 이걸 **격리된 world(isolated world)**라고 부릅니다. `document.getElementById(...)`처럼 DOM을 읽고 쓰는 건 격리된 world에서도 그대로 되지만, `window.__seatHelperPickAndReserve = pickAndReserve`로 저장한 함수는 **content script만의 `window`**에 달린 것이지, 페이지 자신의 스크립트나 `page.evaluate()`(둘 다 메인 world에서 돕니다)에서는 보이지 않습니다.
+
+이건 버그가 아니라 **의도된 보안 경계**입니다 — 페이지의 자바스크립트가 content script의 내부 상태를 마음대로 들여다보거나 조작하지 못하게 막는 장치입니다.
+
+== 고침: 팝업이 실제로 쓰는 방식으로 호출하기
+
+익스텐션의 실제 UI(팝업)는 이 함수를 `chrome.scripting.executeScript`로 호출합니다 — 이 API는 기본적으로 **격리된 world**에서 실행되므로, content script가 만든 함수가 그대로 보입니다.
+
+[source,javascript]
+----
+// ext/popup.js (8장에서 전체를 다룹니다)
+const [{ result }] = await chrome.scripting.executeScript({
+  target: { tabId: tab.id },
+  func: (pref) => window.__seatHelperPickAndReserve(pref),
+  args: [preference],
+});
+----
+
+Playwright 테스트도 `page.evaluate()`로 직접 부르는 대신, 실제 팝업 페이지를 열어 그 버튼을 눌러야 합니다 — 15장에서 이 방식으로 전체 파이프라인을 다시 검증합니다.
+
+== 요약
+
+* content script는 페이지와 DOM은 공유하지만 `window`는 별도인 격리된 world에서 실행됩니다 — 이건 보안을 위한 의도된 설계입니다.
+* `page.evaluate()`(메인 world)에서 content script가 만든 함수를 직접 부르면 `TypeError`가 납니다 — 실제로 겪은 실패입니다.
+* 익스텐션의 실제 UI가 쓰는 `chrome.scripting.executeScript`(기본이 격리된 world)로 불러야 하고, 테스트도 같은 경로를 타야 합니다.
+// end::body[]

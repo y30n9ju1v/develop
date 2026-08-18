@@ -1,0 +1,60 @@
+---
+title: "8장: popup과 side panel"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "popup", "book"]
+categories: ["books"]
+description: "사용자가 좌석 선호를 직접 입력하고 chrome.scripting.executeScript로 격리된 world의 함수를 호출하는 popup UI를 실제로 만들고 실행해 확인하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-content-scripts/[7장: content script로 예매 페이지에 개입하기] · 다음: link:../09-message-passing/[9장: 메시지 패싱]_
+
+'''
+
+익스텐션 UI 표면은 여러 가지가 있습니다 — 툴바 아이콘을 눌렀을 때 뜨는 `popup`, 브라우저 옆에 계속 붙어있는 `side panel`, 설정 페이지인 `options`. 이 책은 `popup` 하나로 좌석 선호를 입력받습니다 — 매번 열고 닫는 짧은 상호작용에 적합하기 때문입니다. side panel은 예매 진행 상황을 계속 띄워두고 싶을 때(예: 여러 경기를 동시에 지켜볼 때) 더 어울리는 선택지지만, 이 책은 다루지 않습니다.
+
+== popup.html
+
+[source,html]
+----
+<!doctype html>
+<html>
+<body style="width:240px">
+  <input id="pref" placeholder="예: 3루측 그늘, 앞자리" style="width:100%" />
+  <button id="go">이 조건으로 좌석 고르기</button>
+  <pre id="out"></pre>
+</body>
+</html>
+----
+
+== popup.js: 7장의 함정을 피해서 호출하기
+
+7장에서 확인했듯, content script가 만든 함수는 `chrome.scripting.executeScript`로만 안전하게 호출됩니다.
+
+[source,javascript]
+----
+document.getElementById('go').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ url: 'http://localhost:4100/*' });
+  const preference = document.getElementById('pref').value;
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: (pref) => window.__seatHelperPickAndReserve(pref),
+    args: [preference],
+  });
+  document.getElementById('out').textContent = JSON.stringify(result, null, 2);
+});
+----
+
+`chrome.tabs.query({ active: true, currentWindow: true })`가 흔히 쓰는 패턴이지만, 이 책에서는 URL로 직접 찾습니다(`{ url: 'http://localhost:4100/*' }`). 이유가 있습니다 — 이 익스텐션은 애초에 이 사이트 하나만 다루도록 설계했으니 URL로 찾는 게 더 명확하고, 나중에 15장에서 Playwright로 popup 자체를 별도 페이지로 열어 테스트할 때 `active`/`currentWindow` 기준이 예상과 다르게 동작하는 걸 피할 수 있습니다(팝업을 일반 탭처럼 열면 팝업 자신이 "활성 탭"이 되어버립니다).
+
+== 실행 확인
+
+15장에서 Playwright로 이 popup을 실제로 열어 값을 채우고 버튼을 누르는 전체 과정을 검증합니다. 지금은 코드가 실제로 동작한다는 것만 미리 확인해둡니다 — 이 popup 버튼을 눌렀을 때 나오는 결과는 11장(LLM 호출)과 13장(좌석맵 판단)에서 만드는 로직이 그대로 반환한 값입니다.
+
+== 요약
+
+* popup은 짧은 상호작용(선호 입력 → 즉시 실행)에 적합하고, side panel은 지속적인 상태 표시에 더 어울립니다 — 이 책은 popup만 씁니다.
+* popup.js는 `chrome.scripting.executeScript`로 격리된 world의 함수를 호출해야 content script와 안전하게 통신할 수 있습니다.
+* `chrome.tabs.query`를 `active`/`currentWindow`가 아니라 URL 패턴으로 쓰면, 이 익스텐션처럼 단일 사이트 전용일 때 더 명확하고 테스트에도 안전합니다.
+// end::body[]

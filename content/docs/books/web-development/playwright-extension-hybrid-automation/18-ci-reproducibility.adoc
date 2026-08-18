@@ -1,0 +1,92 @@
+---
+title: "18장: CI에서 재현 가능하게 돌리기"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["playwright", "ci", "chrome-extension", "book"]
+categories: ["books"]
+description: "기본 headless 모드는 익스텐션을 아예 로드하지 못한다는 것을 실측으로 확인하고, --headless=new 인자로 헤드리스에서도 서비스 워커가 뜬다는 것까지 검증한 뒤 GitHub Actions 워크플로로 정리하는 18장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../17-chaos-testing-fake-site/[17장: 가짜 사이트에 혼란을 주입해 견고성 실측하기] · 다음: link:../19-afterword/[맺음말]_
+
+'''
+
+지금까지 모든 스크립트에서 `--headless=new`라는 인자를 별다른 설명 없이 써왔습니다. 이 장에서 왜 이게 필요한지 정식으로 확인합니다 — 이 책을 쓰면서 실제로 부딪힌 문제입니다.
+
+== 기본 헤드리스는 익스텐션을 로드하지 못한다
+
+[source,javascript]
+----
+const context = await chromium.launchPersistentContext(userDataDir, {
+  headless: true, // 기본 헤드리스
+  args: [`--disable-extensions-except=${extPath}`, `--load-extension=${extPath}`],
+});
+let sw = await context.waitForEvent('serviceworker', { timeout: 10000 });
+----
+
+[source]
+----
+$ node check_headless.js
+browserContext.waitForEvent: Timeout 10000ms exceeded while waiting for event "serviceworker"
+    at TimeoutError
+----
+
+10초를 기다려도 서비스 워커가 뜨지 않습니다 — 기본 헤드리스 모드(구 헤드리스 아키텍처)는 확장 프로그램을 아예 지원하지 않습니다. CI에는 화면이 없으니 헤드리스가 필수인데, 이대로는 이 책의 익스텐션을 CI에서 테스트할 방법이 없어 보입니다.
+
+== 해법: `--headless=new`를 직접 인자로
+
+Playwright의 `headless: true` 옵션이 아니라, Chromium 자체의 새 헤드리스 아키텍처를 인자로 직접 지정하면 됩니다.
+
+[source,javascript]
+----
+const context = await chromium.launchPersistentContext(userDataDir, {
+  headless: false, // Playwright 자신의 headless 옵션은 꺼두고
+  args: [
+    '--headless=new', // Chromium에게 새 헤드리스 모드로 뜨라고 직접 지시
+    `--disable-extensions-except=${extPath}`,
+    `--load-extension=${extPath}`,
+  ],
+});
+let sw = await context.waitForEvent('serviceworker', { timeout: 10000 });
+----
+
+[source]
+----
+$ node check_headlessnew.js
+headless=new -> service worker url: chrome-extension://hljlhnmjmlkmhddabgoojhmekdpjfnnh/background.js
+----
+
+화면 없이도 서비스 워커가 정상적으로 뜹니다. `headless: false`로 두고 `--headless=new`를 인자로 직접 넣는 게 핵심입니다 — `headless: true`로 두면 Playwright가 구 헤드리스 인자를 붙여버려서, `--headless=new`와 충돌하거나 무시됩니다.
+
+== GitHub Actions 워크플로
+
+[source,yaml]
+----
+name: hybrid-pipeline-test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: node site/server.js &
+      - run: node mock_llm.js &
+      - run: sleep 1
+      - run: node pw_full.js
+----
+
+`site/server.js`와 `mock_llm.js`를 CI 러너 안에서 백그라운드로 띄우고, `pw_full.js`가 `--headless=new`로 익스텐션을 로드해 전체 파이프라인을 검증합니다 — 로컬에서 15장에 돌렸던 것과 정확히 같은 스크립트가, 화면이 없는 CI 환경에서도 그대로 재현됩니다.
+
+== 요약
+
+* 기본 `headless: true`는 익스텐션의 서비스 워커를 아예 띄우지 못한다는 걸 타임아웃 에러로 직접 확인했습니다.
+* `headless: false` + Chromium 인자 `--headless=new`의 조합으로, 화면 없이도 익스텐션이 정상 로드된다는 걸 검증했습니다.
+* 이 조합 덕분에 15장의 전체 파이프라인 스크립트를 수정 없이 GitHub Actions 같은 CI 환경에서도 그대로 재현할 수 있습니다.
+
+5부가 여기서 끝났습니다. 맺음말에서 이 책 전체가 확인한 것과, 이 기술을 실제 예매 사이트에 적용하면 안 되는 이유를 다시 한번 정리합니다.
+// end::body[]

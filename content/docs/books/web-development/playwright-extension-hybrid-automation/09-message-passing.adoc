@@ -1,0 +1,75 @@
+---
+title: "9장: 메시지 패싱"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "message-passing", "book"]
+categories: ["books"]
+description: "content script와 popup이 service worker에 요청-응답으로 말을 거는 chrome.runtime.sendMessage 패턴과, service worker가 여러 곳에 동시에 방송하는 브로드캐스트 패턴을 실제 코드로 구분하는 9장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-popup-and-side-panel/[8장: popup과 side panel] · 다음: link:../10-permissions/[10장: 권한 설계]_
+
+'''
+
+이 익스텐션의 세 조각(content script, popup, service worker)은 서로 직접 함수를 호출할 수 없습니다 — 격리된 컨텍스트마다 자기만의 `window`가 있기 때문입니다(7장). 대신 메시지를 주고받습니다. 이 책에는 실제로 **두 가지 다른 패턴**이 등장합니다.
+
+== 패턴 1: 요청-응답 (`sendMessage` + `sendResponse`)
+
+content script가 좌석맵 스크린샷을 찍고, service worker에게 "이거 봐줘"라고 묻고, 답을 기다리는 경우입니다.
+
+[source,javascript]
+----
+// content.js: 요청을 보내고 응답을 기다린다
+const result = await chrome.runtime.sendMessage({
+  type: 'PICK_SEAT',
+  screenshotDataUrl,
+  preference,
+});
+----
+
+[source,javascript]
+----
+// background.js: 요청을 받아 비동기로 처리한 뒤 응답한다
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'PICK_SEAT') {
+    pickSeat(msg.screenshotDataUrl, msg.preference).then(sendResponse);
+    return true; // 이 return true가 없으면 sendResponse가 비동기로 호출됐을 때 무시됩니다
+  }
+});
+----
+
+`return true`가 핵심입니다 — 리스너가 동기적으로 끝나면 크로미움은 메시지 채널을 바로 닫아버립니다. `pickSeat(...).then(sendResponse)`처럼 응답이 비동기로(LLM API 호출이 끝난 뒤) 온다면, `return true`로 "이 채널을 열어두라"고 명시적으로 알려야 합니다. 이걸 빠뜨리면 `sendResponse`를 호출해도 아무 일도 일어나지 않고, `sendMessage` 쪽의 `await`는 영원히 끝나지 않습니다.
+
+== 패턴 2: 방송 (`sendMessage` without 응답 대기)
+
+14장에서 다룰 스트리밍은 다른 모양입니다 — service worker가 LLM으로부터 조각(chunk)을 받을 때마다, 그 조각을 **누가 요청했는지와 상관없이 popup에 계속 흘려보냅니다**.
+
+[source,javascript]
+----
+// background.js: 응답을 기다리지 않고 계속 쏜다
+chrome.runtime.sendMessage({ type: 'STREAM_CHUNK', delta });
+----
+
+[source,javascript]
+----
+// popup.js: 리스너로 계속 받는다 (요청-응답이 아니라 구독에 가깝다)
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'STREAM_CHUNK') {
+    document.getElementById('streamOut').textContent += msg.delta;
+  }
+});
+----
+
+이 경우 popup은 하나의 요청에 대한 응답 하나를 기다리는 게 아니라, service worker가 몇 번이고 보내는 메시지를 계속 받아 화면에 이어 붙입니다 — 요청-응답이라기보다는 구독에 가깝습니다.
+
+== 두 패턴을 구분해야 하는 이유
+
+`PICK_SEAT`(요청-응답)에 `STREAM_CHUNK`(방송) 스타일을 섞어 쓰면, 예를 들어 `sendResponse`를 여러 번 호출하려 하면 두 번째 호출부터는 무시됩니다 — 채널은 한 번의 응답만 위해 열립니다. 반대로 방송 패턴에 `return true`를 써봐야 아무 의미가 없습니다(애초에 응답을 안 하니까요). 이 책의 `background.js`는 메시지 타입(`msg.type`)으로 두 패턴을 명시적으로 나눠 처리합니다 — 실제 코드는 11장과 14장에서 전체 맥락과 함께 다시 봅니다.
+
+== 요약
+
+* content script/popup이 service worker에게 답을 기다리며 묻는 요청-응답은 `sendMessage` + `sendResponse` + (`비동기라면`) `return true`로 구현합니다.
+* service worker가 여러 조각을 계속 흘려보내는 스트리밍은 응답을 기다리지 않는 방송(`sendMessage`)과, 그걸 구독하는 리스너로 구현합니다.
+* 두 패턴을 메시지 타입으로 명시적으로 구분해야, `return true` 누락이나 응답 중복 호출 같은 실수를 피할 수 있습니다.
+// end::body[]

@@ -1,0 +1,39 @@
+---
+title: "10장: 권한 설계"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "permissions", "book"]
+categories: ["books"]
+description: "host_permissions을 이 익스텐션이 실제로 필요한 두 도메인으로만 좁히고, activeTab과 scripting 권한이 각각 왜 필요한지 정리하는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-message-passing/[9장: 메시지 패싱] · 다음: link:../11-calling-llm-from-service-worker/[11장: service worker에서 LLM API 호출]_
+
+'''
+
+이 익스텐션의 `manifest.json`은 권한을 최소한으로 요청합니다.
+
+[source,json]
+----
+"permissions": ["storage", "activeTab", "scripting"],
+"host_permissions": ["http://localhost:4100/*", "http://localhost:4200/*"]
+----
+
+== 각 권한이 필요한 이유
+
+* **`storage`**: 12장에서 API 키를 `chrome.storage.local`에 저장하기 위해 필요합니다.
+* **`activeTab`**: 사용자가 popup을 열어 명시적으로 상호작용한 그 순간에만, 현재 탭에 접근할 수 있게 해줍니다. `<all_urls>`처럼 항상 모든 탭에 접근하는 권한보다 훨씬 좁습니다.
+* **`scripting`**: `chrome.scripting.executeScript`를 쓰려면(8장) 반드시 있어야 합니다.
+* **`host_permissions`**: `fetch`로 네트워크 요청을 보낼 수 있는 도메인을 정확히 두 개(예매 사이트, LLM 서버)로 제한합니다. 여기 없는 도메인으로는 service worker가 `fetch`를 해도 CORS 이전에 브라우저가 자체적으로 막습니다.
+
+== 넓게 요청했다면 무엇이 달라졌을까
+
+만약 `host_permissions`을 `["<all_urls>"]`로 뒀다면, 이 익스텐션은 예매 사이트가 아닌 **어떤 사이트에서든** 네트워크 요청을 보내고 스크립트를 실행할 수 있는 권한을 갖게 됩니다. 이 익스텐션이 실제로 필요한 건 두 도메인뿐인데, 잠재적인 공격 표면(코드에 버그가 있거나 침해당했을 때 할 수 있는 일의 범위)은 훨씬 커집니다. Chrome Web Store에 익스텐션을 올릴 때도(16장) 넓은 권한을 요청하면 심사가 더 까다로워지고, 사용자에게 보여지는 권한 요청 문구도 더 위협적으로 보입니다("이 확장 프로그램이 모든 웹사이트의 데이터를 읽고 변경할 수 있습니다").
+
+== 요약
+
+* `storage`, `activeTab`, `scripting`, `host_permissions` 네 가지 권한이 각각 정확히 어떤 기능(12장의 키 저장, 8장의 스크립트 실행, 11장의 네트워크 요청)에 대응하는지 짝지었습니다.
+* `host_permissions`을 두 도메인으로 좁힌 덕분에, 이 도메인 밖으로는 service worker가 `fetch`조차 할 수 없습니다.
+* 권한을 넓게 요청할수록 잠재적 공격 표면이 커지고, Web Store 심사와 사용자 신뢰에도 불리해집니다.
+// end::body[]

@@ -1,0 +1,139 @@
+---
+title: "1장: 가짜 예매 사이트 뼈대"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["express", "nodejs", "book"]
+categories: ["books"]
+description: "대기열, 캔버스로 그린 좌석맵, 예매 API까지 실제 티켓 사이트의 뼈대를 흉내 낸 연습용 Express 서버를 직접 짓는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-realistic-traps/[2장: 실제 사이트를 흉내 낸 함정들]_
+
+'''
+
+이 책 전체가 자동화할 대상을 먼저 만듭니다. 실제 예매 사이트가 보통 갖는 세 단계 — 대기열 → 좌석 선택 → 예매 확정 — 를 최소한의 Express 서버로 구현합니다.
+
+== 서버 뼈대
+
+[source,javascript]
+----
+// site/server.js
+const express = require('express');
+const app = express();
+app.use(express.json());
+
+const SEAT_ROWS = 5, SEAT_COLS = 8;
+let seats = Array.from({ length: SEAT_ROWS }, () =>
+  Array.from({ length: SEAT_COLS }, () => (Math.random() < 0.3 ? 'sold' : 'open'))
+);
+let queuePosition = 37;
+----
+
+좌석은 5행 8열 그리드이고, 시작할 때 30% 확률로 미리 팔려있게(`sold`) 해서 실제 인기 경기의 좌석 현황을 흉내 냅니다.
+
+== 대기열과 좌석 API
+
+[source,javascript]
+----
+app.get('/api/queue', (req, res) => {
+  queuePosition = Math.max(0, queuePosition - Math.floor(Math.random() * 10) - 5);
+  res.json({ position: queuePosition });
+});
+
+app.get('/api/seats', (req, res) => res.json(seats));
+
+app.post('/api/reserve', (req, res) => {
+  const { row, col } = req.body;
+  if (row < 0 || row >= SEAT_ROWS || col < 0 || col >= SEAT_COLS) {
+    return res.json({ ok: false, message: '좌석 범위 밖입니다' });
+  }
+  if (seats[row][col] === 'sold') {
+    return res.json({ ok: false, message: '이미 매진된 좌석입니다' });
+  }
+  seats[row][col] = 'sold';
+  res.json({ ok: true, message: `예매 완료: ${row}행 ${col}열` });
+});
+----
+
+`/api/queue`를 호출할 때마다 순번이 무작위로(5~14씩) 줄어듭니다 — 실제 대기열처럼 "얼마나 기다려야 할지 정확히 알 수 없는" 상황을 흉내 냅니다.
+
+== 캔버스로만 그린 좌석맵
+
+여기가 이 책의 핵심 설계입니다 — 좌석맵을 HTML 표가 아니라 **`<canvas>`에 색칠**해서 그립니다. 실제 티켓 사이트 다수가 좌석맵을 이미지나 캔버스로 렌더링해서, DOM 셀렉터로 "이 좌석이 비어있나"를 알 수 없게 만드는 것과 같은 상황을 재현하려는 의도입니다.
+
+[source,javascript]
+----
+app.get('/', (req, res) => {
+  res.send(`<!doctype html>
+  <html><body>
+    <h1>가짜 KBO 예매</h1>
+    <div id="queue">대기 순번: <span id="qpos">${queuePosition}</span></div>
+    <button id="enter" onclick="enterQueue()">입장하기</button>
+    <div id="seatmap-area" style="display:none">
+      <canvas id="seatmap" width="400" height="250"></canvas>
+      <div id="status"></div>
+    </div>
+    <script>
+      async function enterQueue() {
+        const r = await fetch('/api/queue');
+        const data = await r.json();
+        document.getElementById('qpos').textContent = data.position;
+        if (data.position <= 0) {
+          document.getElementById('seatmap-area').style.display = 'block';
+          drawSeatmap();
+        }
+      }
+      async function drawSeatmap() {
+        const r = await fetch('/api/seats');
+        const seats = await r.json();
+        const canvas = document.getElementById('seatmap');
+        const ctx = canvas.getContext('2d');
+        const cellW = 45, cellH = 40;
+        seats.forEach((row, ri) => row.forEach((s, ci) => {
+          ctx.fillStyle = s === 'sold' ? '#888' : '#4caf50';
+          ctx.fillRect(ci * cellW + 10, ri * cellH + 10, cellW - 6, cellH - 6);
+        }));
+      }
+      document.getElementById('seatmap')?.addEventListener('click', (e) => {
+        const canvas = document.getElementById('seatmap');
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left, y = e.clientY - rect.top;
+        const ci = Math.floor((x - 10) / 45), ri = Math.floor((y - 10) / 40);
+        fetch('/api/reserve', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ row: ri, col: ci })
+        }).then(r => r.json()).then(d => {
+          document.getElementById('status').textContent = d.message;
+        });
+      });
+    </script>
+  </body></html>`);
+});
+
+const PORT = process.env.PORT || 4100;
+app.listen(PORT, () => console.log(`fake ticket site on http://localhost:${PORT}`));
+----
+
+== 실행 확인
+
+[source]
+----
+$ node site/server.js &
+fake ticket site on http://localhost:4100
+
+$ curl -s http://localhost:4100/api/seats | head -c 300
+[["sold","open","sold","sold","open","open","sold","sold"],["sold","open","open","open","open","sold","open","sold"], ...]
+
+$ curl -s http://localhost:4100/api/queue
+{"position":26}
+----
+
+좌석 현황과 대기열 API가 실제로 응답합니다. 이제 이 사이트를 브라우저로 열면 대기열 버튼을 누를 때마다 순번이 줄고, 0이 되면 초록/회색 사각형으로 채워진 좌석맵이 나타납니다 — 초록은 빈 자리, 회색은 매진입니다. 다음 장에서는 이 사이트에 조금 더 성가신 함정들(좌석맵 좌표를 코드로 계산하기 어렵게 만드는 요소, 페이지 구조가 바뀌는 상황)을 추가합니다.
+
+== 요약
+
+* 대기열·좌석맵·예매 확정이라는 실제 티켓 사이트의 세 단계를 최소한의 Express 서버로 구현했습니다.
+* 좌석맵을 의도적으로 `<canvas>`에 색칠해서, DOM 셀렉터로는 좌석 상태를 알 수 없게 만들었습니다 — 이게 3부에서 LLM이 필요해지는 이유의 기반이 됩니다.
+* 대기열 순번이 호출마다 무작위로 줄어들게 해서, 정확한 완료 시점을 예측할 수 없는 실제 대기열 상황을 흉내 냈습니다.
+// end::body[]

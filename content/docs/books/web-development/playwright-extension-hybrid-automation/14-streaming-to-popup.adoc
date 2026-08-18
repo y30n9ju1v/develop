@@ -1,0 +1,91 @@
+---
+title: "14장: 스트리밍 응답을 popup에 실시간으로"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "llm", "sse", "book"]
+categories: ["books"]
+description: "service worker가 LLM의 SSE 스트림을 fetch의 ReadableStream으로 직접 파싱해, 9장의 방송 패턴으로 popup에 실시간 중계하는 것을 실제로 검증하는 14장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../13-screenshot-to-llm-seatmap/[13장: 스크린샷을 LLM에 보내 좌석맵 읽기] · 다음: link:../15-playwright-drives-extension/[15장: Playwright가 익스텐션을 구동하기]_
+
+'''
+
+3부의 마지막 조각입니다 — 좌석 판단처럼 짧은 답은 한 번에 받아도 되지만(11장), 더 긴 설명을 요청할 땐 토큰이 오는 대로 화면에 흘려보내는 스트리밍이 체감 반응 속도를 훨씬 낫게 만듭니다.
+
+== service worker에서 SSE 직접 파싱하기
+
+브라우저의 `EventSource`는 `Authorization` 헤더를 못 붙이는 제약이 있어서(GET 요청만 지원), service worker에서는 `fetch`의 `ReadableStream`을 직접 읽어 SSE 프로토콜(`data: ...\n\n`)을 손으로 파싱합니다.
+
+[source,javascript]
+----
+async function streamPick(preference, sender) {
+  const key = await getApiKey();
+  const res = await fetch(`${LLM_BASE_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    body: JSON.stringify({ model: 'gpt-mock', stream: true, messages: [{ role: 'user', content: preference }] }),
+  });
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n\n');
+    buffer = lines.pop(); // 마지막 조각은 아직 완성되지 않았을 수 있으니 버퍼에 남긴다
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      const payload = line.slice(6);
+      if (payload === '[DONE]') { chrome.runtime.sendMessage({ type: 'STREAM_DONE' }); return; }
+      const parsed = JSON.parse(payload);
+      chrome.runtime.sendMessage({ type: 'STREAM_CHUNK', delta: parsed.choices[0].delta.content || '' });
+    }
+  }
+}
+----
+
+`buffer.split('\n\n')`로 자르고 마지막 조각을 다시 버퍼에 남기는 부분이 중요합니다 — 네트워크 청크가 SSE 이벤트 경계와 정확히 맞아떨어진다는 보장이 없어서, 완성되지 않은 조각을 섣불리 파싱하면 `JSON.parse`가 깨집니다.
+
+== popup에서 받기: 9장의 방송 패턴
+
+[source,javascript]
+----
+document.getElementById('stream').addEventListener('click', () => {
+  document.getElementById('streamOut').textContent = '';
+  chrome.runtime.sendMessage({ type: 'STREAM_PICK', preference: document.getElementById('pref').value });
+});
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'STREAM_CHUNK') {
+    document.getElementById('streamOut').textContent += msg.delta;
+  }
+});
+----
+
+== 실행 확인
+
+[source]
+----
+$ node pw_key_stream.js
+api key stored in chrome.storage.local (service worker only)
+streamed text in popup: 요청 확인: 스트리밍 테스트
+api key leaked into page/content script world: false
+----
+
+popup의 `#streamOut`에 조각들이 실제로 이어붙어 완성된 문장이 나타났습니다 — mock 서버가 응답을 6글자씩 잘라 20ms 간격으로 흘려보내는데도(`mock_llm.js`의 스트리밍 분기), 조각이 몇 개로 쪼개지든 popup 쪽에선 매끄럽게 이어집니다.
+
+== 요약
+
+* service worker에서는 `EventSource` 대신 `fetch`의 `ReadableStream`을 직접 읽어 SSE를 파싱해야 `Authorization` 헤더를 붙일 수 있습니다.
+* 네트워크 청크와 SSE 이벤트 경계가 다를 수 있으므로, 완성되지 않은 마지막 조각을 버퍼에 남겨두는 처리가 필요합니다.
+* 9장에서 구분한 방송 패턴 그대로, service worker가 청크마다 메시지를 쏘고 popup은 리스너로 받아 이어붙이는 구조로 실시간 스트리밍이 실제로 동작하는 걸 확인했습니다.
+
+3부가 여기서 끝났습니다. 4부에서는 지금까지 따로 다룬 Playwright(2부)와 익스텐션(3부)을 하나의 파이프라인으로 잇습니다.
+// end::body[]

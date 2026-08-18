@@ -1,0 +1,71 @@
+---
+title: "13장: 스크린샷을 LLM에 보내 좌석맵 읽기"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "llm", "vision", "book"]
+categories: ["books"]
+description: "canvas.toDataURL과 chrome.tabs.captureVisibleTab의 차이를 정리하고, 좌표를 클릭 픽셀로 환산하는 전체 왕복을, 5장의 재시도 설계와 다시 연결하는 13장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-api-key-boundary/[12장: API 키 저장과 경계 설계] · 다음: link:../14-streaming-to-popup/[14장: 스트리밍 응답을 popup에 실시간으로]_
+
+'''
+
+11~12장에서 LLM 호출과 키 관리를 다졌습니다. 이 장은 "좌석맵을 어떻게 이미지로 뽑아내는가"와 "판단 결과를 어떻게 다시 클릭 좌표로 바꾸는가"를 마무리합니다.
+
+== 캔버스를 캡처하는 두 가지 방법
+
+`canvas.toDataURL('image/png')`은 캔버스 **하나만** 정확하게 이미지로 뽑아냅니다 — 이 책이 쓰는 방법입니다. 반면 `chrome.tabs.captureVisibleTab()`은 탭 화면 전체를 스크린샷으로 찍습니다.
+
+[cols="1,1,1"]
+|===
+|방법 |필요 권한 |언제 쓰는가
+
+|`canvas.toDataURL()`
+|없음 (같은 페이지의 canvas 엘리먼트에 직접 접근)
+|좌석맵처럼 캡처할 대상이 명확한 캔버스 하나일 때 (이 책의 경우)
+
+|`chrome.tabs.captureVisibleTab()`
+|`activeTab` 또는 host 권한
+|화면 전체의 레이아웃까지 봐야 판단할 수 있을 때 (예: 좌석맵이 여러 캔버스/이미지로 나뉜 경우)
+|===
+
+이 책의 좌석맵은 `<canvas id="seatmap">` 하나뿐이라 `toDataURL()`이 더 정확합니다 — 다른 UI 요소(버튼, 텍스트)가 섞여 들어가지 않고, 딱 필요한 픽셀만 LLM에 보냅니다.
+
+== 좌표를 클릭 픽셀로 환산하기
+
+좌석맵은 5행 8열, 각 칸은 가로 45px·세로 40px, 캔버스 시작 여백은 10px입니다(1장에서 정한 값). LLM이 `{row: 2, col: 3}`을 돌려주면, 이걸 실제 클릭 좌표로 환산해야 합니다.
+
+[source,javascript]
+----
+const cellW = 45, cellH = 40;
+const rect = canvas.getBoundingClientRect();
+const x = rect.left + 10 + cellW * result.col + cellW / 2;
+const y = rect.top + 10 + cellH * result.row + cellH / 2;
+
+canvas.dispatchEvent(new MouseEvent('click', { clientX: x, clientY: y, bubbles: true }));
+----
+
+`+ cellW / 2`, `+ cellH / 2`로 칸의 정중앙을 클릭합니다 — 칸의 경계에 가깝게 클릭하면, 픽셀 계산이 1~2px만 어긋나도 옆 칸을 눌러버릴 수 있습니다.
+
+== 후보를 여러 개 받도록 확장하기
+
+5장에서 재시도 루프를 만들며 "LLM이 후보를 여러 개, 우선순위와 함께 돌려주면 좋겠다"고 예고했습니다. `mock_llm.js`의 응답을 배열로만 바꾸면 이 확장이 됩니다.
+
+[source,javascript]
+----
+// LLM 프롬프트에 "1순위부터 3순위까지 후보를 배열로 달라"고 요청하고,
+// 응답을 [{row,col,reason}, {row,col,reason}, ...] 형태로 파싱한다고 하면:
+const candidates = JSON.parse(data.choices[0].message.content); // 배열
+return reserveWithRetry(page, candidates); // 5장의 그 함수
+----
+
+이러면 1순위 좌석이 (2장의 경쟁 조건 때문에) 이미 팔렸어도, LLM을 다시 호출하지 않고 2순위로 바로 넘어갈 수 있습니다 — 매번 새로 LLM을 부르는 것보다 훨씬 빠르고 저렴합니다.
+
+== 요약
+
+* `canvas.toDataURL()`은 캡처 대상이 캔버스 하나로 명확할 때 `captureVisibleTab()`보다 정확하고 권한도 덜 필요합니다.
+* LLM이 돌려준 `{row, col}`을 칸 크기와 여백으로 환산해 칸의 정중앙을 클릭하도록 좌표를 계산했습니다.
+* LLM이 후보를 배열로 돌려주게 확장하면, 5장의 재시도 루프가 LLM을 다시 부르지 않고도 다음 후보로 넘어갈 수 있습니다.
+// end::body[]

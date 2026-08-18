@@ -1,0 +1,96 @@
+---
+title: "6장: Manifest V3 뼈대"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["chrome-extension", "manifest-v3", "book"]
+categories: ["books"]
+description: "manifest.json의 핵심 필드와 서비스 워커가 예전 background page와 근본적으로 다른 점(항상 살아있지 않고 이벤트가 올 때만 깨어난다)을 실제로 로드해 확인하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-retries-and-failure/[5장: 실패를 전제로 짜기] · 다음: link:../07-content-scripts/[7장: content script로 예매 페이지에 개입하기]_
+
+'''
+
+3부에서는 `ext/`라는 디렉토리에 익스텐션을 짓습니다. 이 익스텐션의 목적은 딱 하나 — 1장의 가짜 예매 사이트에서, 캔버스 좌석맵을 읽고 LLM의 판단으로 좌석을 클릭하는 것입니다. 이 장은 그 뼈대인 `manifest.json`부터 시작합니다.
+
+== manifest.json
+
+[source,json]
+----
+{
+  "manifest_version": 3,
+  "name": "seat-helper",
+  "version": "1.0",
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html" },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["http://localhost:4100/*", "http://localhost:4200/*"],
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:4100/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+----
+
+* `manifest_version: 3`는 이 책 전체가 다루는 최신 규격입니다(구버전 Manifest V2는 2024년부터 크롬에서 단계적으로 제거되고 있습니다).
+* `background.service_worker`는 익스텐션의 "두뇌"입니다 — 이 장 뒷부분에서 왜 `background page`가 아니라 `service_worker`인지 다룹니다.
+* `action.default_popup`은 툴바 아이콘을 눌렀을 때 뜨는 UI입니다(8장).
+* `host_permissions`는 이 익스텐션이 네트워크 요청을 보낼 수 있는 도메인을 명시적으로 제한합니다 — 예매 사이트(4100)와 LLM 서버(4200)만 허용합니다(10장에서 이 최소 권한 원칙을 더 다룹니다).
+* `content_scripts`는 어느 페이지에 어떤 스크립트를 자동으로 심을지 정합니다(7장).
+
+== 서비스 워커: background page와 다른 점
+
+Manifest V2 시절엔 익스텐션의 백그라운드 로직이 **항상 떠 있는 페이지**(`background page`)였습니다. Manifest V3는 이걸 **서비스 워커**로 바꿨습니다 — 서비스 워커는 이벤트가 있을 때만 깨어나고, 한동안 아무 일도 없으면(보통 30초) 브라우저가 그냥 종료시킵니다.
+
+[source,javascript]
+----
+// ext/background.js (뼈대만)
+console.log("pw-check background service worker alive");
+self.__pwCheckMarker = "hello-from-extension";
+----
+
+== 실제로 로드해서 확인하기
+
+익스텐션이 정말로 로드되는지, 10장에서 자세히 다룰 Playwright로 미리 확인해봅니다.
+
+[source,javascript]
+----
+const { chromium } = require('playwright');
+const path = require('path');
+
+const context = await chromium.launchPersistentContext('./udata', {
+  headless: false,
+  args: [
+    '--disable-extensions-except=./ext',
+    '--load-extension=./ext',
+  ],
+});
+
+let [sw] = context.serviceWorkers();
+if (!sw) sw = await context.waitForEvent('serviceworker', { timeout: 10000 });
+console.log('service worker url:', sw.url());
+const marker = await sw.evaluate(() => self.__pwCheckMarker);
+console.log('marker:', marker);
+----
+
+[source]
+----
+$ node check.js
+service worker url: chrome-extension://hljlhnmjmlkmhddabgoojhmekdpjfnnh/background.js
+marker: hello-from-extension
+----
+
+익스텐션이 실제로 로드됐고, 서비스 워커 내부 상태(`self.__pwCheckMarker`)를 CDP를 통해 밖에서 읽어낼 수 있다는 것까지 확인됩니다. 한 가지 중요한 제약도 여기서 같이 확인해둡니다 — `chromium.launch()`가 아니라 반드시 **`launchPersistentContext()`**를 써야 합니다. 익스텐션은 일반 브라우저 컨텍스트가 아니라 영속 컨텍스트에만 로드됩니다.
+
+또, 기본 `headless: true`로는 서비스 워커가 아예 뜨지 않습니다(`waitForEvent('serviceworker')`가 타임아웃됩니다) — 헤드리스 환경에서 익스텐션을 테스트하는 법은 10장과 18장에서 `--headless=new` 인자로 정식으로 다룹니다.
+
+== 요약
+
+* `manifest.json`의 `background`, `action`, `permissions`, `host_permissions`, `content_scripts`가 이 익스텐션의 뼈대를 이룹니다.
+* Manifest V3의 서비스 워커는 항상 떠 있지 않고 이벤트가 있을 때만 깨어난다는 점이 예전 background page와 근본적으로 다릅니다.
+* 익스텐션은 `launchPersistentContext()` + `--load-extension` 인자로만 Playwright에 로드되고, 기본 헤드리스 모드는 이를 지원하지 않습니다 — 이 두 제약이 이후 모든 장의 전제입니다.
+// end::body[]

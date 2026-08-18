@@ -1,0 +1,60 @@
+---
+title: "3장: 로그인과 폼 채우기"
+date: 2026-08-18T00:00:00+09:00
+draft: false
+tags: ["playwright", "book"]
+categories: ["books"]
+description: "가짜 예매 사이트에 추가한 로그인 폼을 Playwright의 fill·click·waitForSelector로 자동화하며, 규칙이 명확한 작업에는 왜 Playwright만으로 충분한지 확인하는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-realistic-traps/[2장: 실제 사이트를 흉내 낸 함정들] · 다음: link:../04-queue-and-timing/[4장: 대기열 감지와 정시 진입]_
+
+'''
+
+2부의 원칙은 단순합니다 — "무엇을 해야 할지가 화면 구조만으로 정확히 결정되는 작업"은 Playwright가 가장 빠르고 안정적입니다. 로그인 폼이 정확히 이런 경우입니다.
+
+== 사이트에 로그인 폼 추가하기
+
+1장 사이트에 이름·전화번호 입력과 로그인 버튼을 추가합니다. 로그인이 성공해야 대기열 버튼이 보이도록 만들었습니다.
+
+[source,javascript]
+----
+// site/server.js
+app.post('/api/login', (req, res) => {
+  const { name, phone } = req.body;
+  if (!name || !phone) return res.json({ ok: false, message: '이름과 전화번호를 입력하세요' });
+  res.json({ ok: true });
+});
+----
+
+`login-area`는 처음엔 보이고 `queue`/`enter`는 숨겨져 있다가, `/api/login`이 `ok: true`를 돌려주면 자바스크립트가 `display` 속성을 바꿔서 순서를 강제합니다.
+
+== Playwright로 채우기
+
+[source,javascript]
+----
+const { chromium } = require('playwright');
+
+const browser = await chromium.launch({ headless: true });
+const page = await browser.newPage();
+await page.goto('http://localhost:4100');
+
+await page.fill('#name', '홍길동');
+await page.fill('#phone', '010-1234-5678');
+await page.click('#login');
+await page.waitForSelector('#enter', { state: 'visible' });
+----
+
+`page.fill`은 입력 필드를 클릭·포커스·타이핑까지 한 번에 처리하고, `waitForSelector({ state: 'visible' })`는 "로그인 버튼을 눌렀다"가 아니라 "로그인 처리가 끝나서 다음 UI가 실제로 나타났다"까지 기다립니다 — 이 구분이 중요합니다. 클릭 직후 바로 다음 동작으로 넘어가면, 서버 응답이 아직 안 왔을 때 레이스 컨디션이 생깁니다.
+
+== 실행 확인
+
+이 스크립트를 4장에서 만들 전체 파이프라인의 맨 앞에 그대로 씁니다 — 실제로 로그인 후 `#enter` 버튼이 나타나는 것까지 확인됩니다(4장 실행 로그에서 이어서 확인합니다). 로그인처럼 "필드가 정해져 있고, 성공/실패 조건이 명확한" 작업에는 LLM이 전혀 필요 없습니다 — 오히려 LLM을 쓰면 매번 스크린샷을 찍고 API를 호출하는 만큼 느리고 비쌉니다. 이 판단 기준(언제 Playwright, 언제 LLM)은 10장에서 정면으로 다룹니다.
+
+== 요약
+
+* 로그인처럼 성공/실패 조건이 명확한 폼은 `page.fill`/`page.click`만으로 충분합니다.
+* `waitForSelector({ state: 'visible' })`로 "클릭했다"가 아니라 "다음 상태로 실제로 넘어갔다"를 확인해야 레이스 컨디션을 피할 수 있습니다.
+* 규칙이 명확한 작업에 LLM을 쓰는 건 속도와 비용 면에서 손해입니다 — 이 경계는 10장에서 다시 정리합니다.
+// end::body[]
