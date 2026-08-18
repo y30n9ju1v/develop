@@ -55,42 +55,43 @@ self.__pwCheckMarker = "hello-from-extension";
 
 == 실제로 로드해서 확인하기
 
-익스텐션이 정말로 로드되는지, 10장에서 자세히 다룰 Playwright로 미리 확인해봅니다.
+익스텐션이 정말로 로드되는지, 10장에서 자세히 다룰 Playwright로 미리 확인해봅니다 — 서문에서 밝힌 대로 Playwright 구동 스크립트는 Python(`playwright-python`)으로 씁니다.
 
-[source,javascript]
+[source,python]
 ----
-const { chromium } = require('playwright');
-const path = require('path');
+from playwright.sync_api import sync_playwright
 
-const context = await chromium.launchPersistentContext('./udata', {
-  headless: false,
-  args: [
-    '--disable-extensions-except=./ext',
-    '--load-extension=./ext',
-  ],
-});
-
-let [sw] = context.serviceWorkers();
-if (!sw) sw = await context.waitForEvent('serviceworker', { timeout: 10000 });
-console.log('service worker url:', sw.url());
-const marker = await sw.evaluate(() => self.__pwCheckMarker);
-console.log('marker:', marker);
+with sync_playwright() as p:
+    context = p.chromium.launch_persistent_context(
+        "./udata",
+        headless=False,
+        args=[
+            "--disable-extensions-except=./ext",
+            "--load-extension=./ext",
+        ],
+    )
+    sw = next(iter(context.service_workers), None)
+    if sw is None:
+        sw = context.wait_for_event("serviceworker", timeout=10000)
+    print("service worker url:", sw.url)
+    marker = sw.evaluate("() => self.__pwCheckMarker")
+    print("marker:", marker)
 ----
 
 [source]
 ----
-$ node check.js
+$ python check.py
 service worker url: chrome-extension://hljlhnmjmlkmhddabgoojhmekdpjfnnh/background.js
 marker: hello-from-extension
 ----
 
-익스텐션이 실제로 로드됐고, 서비스 워커 내부 상태(`self.__pwCheckMarker`)를 CDP를 통해 밖에서 읽어낼 수 있다는 것까지 확인됩니다. 한 가지 중요한 제약도 여기서 같이 확인해둡니다 — `chromium.launch()`가 아니라 반드시 **`launchPersistentContext()`**를 써야 합니다. 익스텐션은 일반 브라우저 컨텍스트가 아니라 영속 컨텍스트에만 로드됩니다.
+익스텐션이 실제로 로드됐고, 서비스 워커 내부 상태(`self.__pwCheckMarker`)를 CDP를 통해 밖에서 읽어낼 수 있다는 것까지 확인됩니다. 한 가지 중요한 제약도 여기서 같이 확인해둡니다 — `chromium.launch()`가 아니라 반드시 **`launch_persistent_context()`**를 써야 합니다. 익스텐션은 일반 브라우저 컨텍스트가 아니라 영속 컨텍스트에만 로드됩니다.
 
-또, 기본 `headless: true`로는 서비스 워커가 아예 뜨지 않습니다(`waitForEvent('serviceworker')`가 타임아웃됩니다) — 헤드리스 환경에서 익스텐션을 테스트하는 법은 10장과 18장에서 `--headless=new` 인자로 정식으로 다룹니다.
+또, 기본 `headless=True`로는 서비스 워커가 아예 뜨지 않습니다(`wait_for_event("serviceworker")`가 타임아웃됩니다) — 헤드리스 환경에서 익스텐션을 테스트하는 법은 10장과 18장에서 `--headless=new` 인자로 정식으로 다룹니다.
 
 == 요약
 
 * `manifest.json`의 `background`, `action`, `permissions`, `host_permissions`, `content_scripts`가 이 익스텐션의 뼈대를 이룹니다.
 * Manifest V3의 서비스 워커는 항상 떠 있지 않고 이벤트가 있을 때만 깨어난다는 점이 예전 background page와 근본적으로 다릅니다.
-* 익스텐션은 `launchPersistentContext()` + `--load-extension` 인자로만 Playwright에 로드되고, 기본 헤드리스 모드는 이를 지원하지 않습니다 — 이 두 제약이 이후 모든 장의 전제입니다.
+* 익스텐션은 `launch_persistent_context()` + `--load-extension` 인자로만 Playwright에 로드되고, 기본 헤드리스 모드는 이를 지원하지 않습니다 — 이 두 제약이 이후 모든 장의 전제입니다.
 // end::body[]

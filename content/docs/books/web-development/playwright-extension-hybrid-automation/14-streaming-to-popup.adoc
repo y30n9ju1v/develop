@@ -73,7 +73,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 [source]
 ----
-$ node pw_key_stream.js
+$ python pw_key_stream.py
 api key stored in chrome.storage.local (service worker only)
 streamed text in popup: 요청 확인: 스트리밍 테스트
 api key leaked into page/content script world: false

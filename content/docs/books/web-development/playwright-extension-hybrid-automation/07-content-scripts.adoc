@@ -48,20 +48,20 @@ window.__seatHelperPickAndReserve = pickAndReserve;
 
 이 함수를 Playwright의 `page.evaluate()`로 직접 호출해보려 했습니다.
 
-[source,javascript]
+[source,python]
 ----
-const result = await page.evaluate(async () => {
-  return await window.__seatHelperPickAndReserve('3루측 그늘, 앞뒤 여유 있는 자리');
-});
+result = page.evaluate(
+    "() => window.__seatHelperPickAndReserve('3루측 그늘, 앞뒤 여유 있는 자리')"
+)
 ----
 
 [source]
 ----
-$ node pw_full.js
+$ python pw_full.py
 extension service worker loaded: chrome-extension://.../background.js
 content script fn exists: undefined
 queue cleared, seatmap visible
-page.evaluate: TypeError: window.__seatHelperPickAndReserve is not a function
+playwright._impl._errors.Error: Page.evaluate: TypeError: window.__seatHelperPickAndReserve is not a function
 ----
 
 content script가 로드된 건 콘솔 로그로 확인했는데(`content script fn exists: undefined`로 찍은 진단 로그 이전에 실제로 content script의 `console.log`도 찍혔습니다), `window.__seatHelperPickAndReserve`는 `undefined`입니다. 함수를 분명히 `window`에 달았는데 왜 안 보일까요?

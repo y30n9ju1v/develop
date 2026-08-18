@@ -39,4 +39,8 @@ _link:../[전체 목차] · 다음: link:../01-fake-ticket-site-skeleton/[1장: 
 == 사전 지식
 
 JavaScript 기본 문법과 브라우저 개발자 도구를 다뤄본 경험이면 충분합니다. Playwright나 크로미움 익스텐션을 한 번도 안 써봤어도, 이 책 안에서 필요한 만큼 문법과 개념을 함께 설명합니다.
+
+== 어떤 언어로 쓰는가
+
+크로미움 익스텐션(manifest.json, service worker, content script, popup)은 규격상 JavaScript로만 작성할 수 있습니다 — 이건 선택의 여지가 없습니다. 반면 **Playwright를 구동하는 스크립트(2·4·5·15·17·18장)는 Python(`playwright-python`)으로 씁니다** — Python API는 JavaScript판과 메서드 이름까지 거의 1:1로 대응해서 기능 손실이 없고, 익스텐션 코드와 언어가 섞이는 대신 "이 파일은 익스텐션, 이 파일은 자동화 스크립트"라는 경계가 파일 확장자(`.js` vs `.py`)만으로도 분명해집니다.
 // end::body[]

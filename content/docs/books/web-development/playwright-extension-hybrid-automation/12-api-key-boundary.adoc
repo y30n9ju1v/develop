@@ -44,30 +44,30 @@ async function pickSeat(screenshotDataUrl, preference) {
 
 주장으로 끝내지 않고, Playwright로 직접 확인합니다.
 
-[source,javascript]
+[source,python]
 ----
-// 서비스 워커에 직접 키를 저장 (실제로는 options 페이지 등에서 사용자가 입력)
-await sw.evaluate(() => chrome.storage.local.set({ llmApiKey: 'sk-test-123' }));
+# 서비스 워커에 직접 키를 저장 (실제로는 options 페이지 등에서 사용자가 입력)
+sw.evaluate("() => chrome.storage.local.set({ llmApiKey: 'sk-test-123' })")
 
-// ... popup에서 좌석 판단을 트리거한 뒤 ...
+# ... popup에서 좌석 판단을 트리거한 뒤 ...
 
-// content script/페이지 world에 키가 흘러들어갔는지 확인
-const leaked = await page.evaluate(() =>
-  typeof window.llmApiKey !== 'undefined' ||
-  document.documentElement.innerHTML.includes('sk-test-123')
-);
-console.log('api key leaked into page/content script world:', leaked);
+# content script/페이지 world에 키가 흘러들어갔는지 확인
+leaked = page.evaluate(
+    "() => typeof window.llmApiKey !== 'undefined' || "
+    "document.documentElement.innerHTML.includes('sk-test-123')"
+)
+print("api key leaked into page/content script world:", leaked)
 ----
 
 [source]
 ----
-$ node pw_key_stream.js
+$ python pw_key_stream.py
 api key stored in chrome.storage.local (service worker only)
 ...
-api key leaked into page/content script world: false
+api key leaked into page/content script world: False
 ----
 
-`false`입니다 — 키가 `window` 전역에도, DOM 어디에도 나타나지 않습니다. 그리고 mock LLM 서버 쪽 로그를 보면 키가 실제로 요청에 실려서 도착했다는 것도 확인됩니다.
+`False`입니다 — 키가 `window` 전역에도, DOM 어디에도 나타나지 않습니다. 그리고 mock LLM 서버 쪽 로그를 보면 키가 실제로 요청에 실려서 도착했다는 것도 확인됩니다.
 
 [source]
 ----
@@ -81,6 +81,6 @@ content script는 페이지의 DOM과 같은 공간에서 돕니다 — 페이�
 == 요약
 
 * API 키는 `chrome.storage.local`에 저장하고, 오직 service worker(`background.js`)만 읽습니다 — content script엔 관련 코드가 아예 없습니다.
-* Playwright로 페이지/content script world를 직접 조사해서, 키가 실제로 새어나가지 않는다는 걸(`false`) 검증했습니다.
+* Playwright로 페이지/content script world를 직접 조사해서, 키가 실제로 새어나가지 않는다는 걸(`False`) 검증했습니다.
 * mock LLM 서버가 받은 `Authorization` 헤더로, 키가 정확히 의도한 경로(service worker → LLM)로만 전달됐다는 것도 확인했습니다.
 // end::body[]

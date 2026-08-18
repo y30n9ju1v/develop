@@ -16,75 +16,76 @@ _link:../[전체 목차] · 이전: link:../14-streaming-to-popup/[14장: 스트
 
 == 전체 스크립트
 
-[source,javascript]
+[source,python]
 ----
-const { chromium } = require('playwright');
-const path = require('path');
+from playwright.sync_api import sync_playwright
 
-const extPath = path.join(__dirname, 'ext');
-const context = await chromium.launchPersistentContext('./udata', {
-  headless: false,
-  args: [
-    '--headless=new', // 18장에서 다시 다룹니다
-    `--disable-extensions-except=${extPath}`,
-    `--load-extension=${extPath}`,
-  ],
-});
+with sync_playwright() as p:
+    ext_path = "./ext"
+    context = p.chromium.launch_persistent_context(
+        "./udata",
+        headless=False,
+        args=[
+            "--headless=new",  # 18장에서 다시 다룹니다
+            f"--disable-extensions-except={ext_path}",
+            f"--load-extension={ext_path}",
+        ],
+    )
 
-let [sw] = context.serviceWorkers();
-if (!sw) sw = await context.waitForEvent('serviceworker', { timeout: 10000 });
-const extensionId = sw.url().split('/')[2];
+    sw = next(iter(context.service_workers), None)
+    if sw is None:
+        sw = context.wait_for_event("serviceworker", timeout=10000)
+    extension_id = sw.url.split("/")[2]
 
-const page = await context.newPage();
-await page.goto('http://localhost:4100');
+    page = context.new_page()
+    page.goto("http://localhost:4100")
 
-// 3장: 로그인
-await page.fill('#name', '홍길동');
-await page.fill('#phone', '010-1234-5678');
-await page.click('#login');
-await page.waitForSelector('#enter', { state: 'visible' });
+    # 3장: 로그인
+    page.fill("#name", "홍길동")
+    page.fill("#phone", "010-1234-5678")
+    page.click("#login")
+    page.wait_for_selector("#enter", state="visible")
 
-// 4장: 대기열
-let position = Infinity;
-while (position > 0) {
-  await page.click('#enter');
-  position = Number(await page.locator('#qpos').innerText());
-}
-await page.waitForSelector('#seatmap-area', { state: 'visible' });
-console.log('queue cleared, seatmap visible');
+    # 4장: 대기열
+    position = float("inf")
+    while position > 0:
+        page.click("#enter")
+        position = int(page.locator("#qpos").inner_text())
+    page.wait_for_selector("#seatmap-area", state="visible")
+    print("queue cleared, seatmap visible")
 
-// 8장: 실제 팝업을 별도 페이지로 열어 그대로 조작한다 (7장의 격리된 world 함정을 피하는 방법)
-const popup = await context.newPage();
-await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-await popup.fill('#pref', '3루측 그늘, 앞뒤 여유 있는 자리');
-await popup.click('#go');
-await popup.waitForTimeout(500);
-console.log('popup result:', await popup.locator('#out').innerText());
+    # 8장: 실제 팝업을 별도 페이지로 열어 그대로 조작한다 (7장의 격리된 world 함정을 피하는 방법)
+    popup = context.new_page()
+    popup.goto(f"chrome-extension://{extension_id}/popup.html")
+    popup.fill("#pref", "3루측 그늘, 앞뒤 여유 있는 자리")
+    popup.click("#go")
+    popup.wait_for_timeout(500)
+    print("popup result:", popup.locator("#out").inner_text())
 
-console.log('final reservation status on the ticket page:', await page.locator('#status').innerText());
+    print("final reservation status on the ticket page:", page.locator("#status").inner_text())
 
-await context.close();
+    context.close()
 ----
 
 == 실행 확인
 
 [source]
 ----
-$ node pw_full.js
+$ python pw_full.py
 extension id: iadoncnhoibfgfimpeklloaicnhndaph
 queue cleared, seatmap visible
 popup result: {
   "chosen": {
-    "col": 3,
+    "col": 4,
     "reason": "3루측 그늘, 앞뒤 여유 있는 자리",
-    "row": 2
+    "row": 0
   },
   "ok": true
 }
-final reservation status on the ticket page: 예매 완료: 2행 3열
+final reservation status on the ticket page: 예매 완료: 0행 4열
 ----
 
-한 프로세스 안에서 Playwright가 로그인 폼을 채우고, 대기열을 뚫고(6번의 폴링), 실제 익스텐션 팝업을 열어 선호도를 입력하고, 그 팝업이 content script → service worker → LLM(모크) → content script로 이어지는 전체 왕복을 실행해 좌석을 클릭했고, 원래 예매 페이지에 `예매 완료: 2행 3열`이 떴습니다. 이게 이 책이 처음부터 짓고 있던 하이브리드 파이프라인입니다 — 규칙이 명확한 부분은 Playwright가, 판단이 필요한 부분은 익스텐션과 LLM이 처리했습니다.
+한 프로세스 안에서 Playwright가 로그인 폼을 채우고, 대기열을 뚫고, 실제 익스텐션 팝업을 열어 선호도를 입력하고, 그 팝업이 content script → service worker → LLM(모크) → content script로 이어지는 전체 왕복을 실행해 좌석을 클릭했고, 원래 예매 페이지에 `예매 완료: 0행 4열`이 떴습니다(모크 LLM이 매번 후보 중 하나를 무작위로 고르므로, 실행마다 좌표는 달라질 수 있습니다 — 13장 참고). 이게 이 책이 처음부터 짓고 있던 하이브리드 파이프라인입니다 — 규칙이 명확한 부분은 Playwright가, 판단이 필요한 부분은 익스텐션과 LLM이 처리했습니다.
 
 == 요약
 
