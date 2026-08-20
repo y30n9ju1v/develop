@@ -1,0 +1,72 @@
+---
+title: "12장: rayon으로 병렬 파싱하기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "rayon", "parallelism", "book"]
+categories: ["books"]
+description: "20만 줄짜리 JSON Lines 파일을 Arc로 감싼 버퍼를 여러 스레드가 공유하며 rayon의 par_iter로 병렬 파싱하고, 스레드 수를 1·2·4·10으로 바꿔가며 실측 속도 향상을 확인하는 12장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-what-the-borrow-checker-caught/[11장: 빌림 체커가 실제로 잡아준 버그] · 다음: link:../13-data-races-that-do-not-compile/[13장: 컴파일되지 않는 데이터 경쟁]_
+
+'''
+
+서로 독립적인 JSON 문서 여러 개(한 줄에 하나씩, JSON Lines 형식)를 병렬로 파싱하면 속도를 얻을 수 있습니다 — 5장까지 만든 파서를 전혀 고치지 않고, 그 위에 병렬처리 계층만 얹습니다.
+
+== `rayon`과 `Arc`
+
+[source,rust]
+----
+use rayon::prelude::*;
+use std::sync::Arc;
+
+fn main() {
+    let content = std::fs::read_to_string("lines.ndjson").unwrap();
+    // Arc로 감싸서 여러 스레드가 같은 버퍼를 공유해서 읽는다 -- 복사하지 않는다.
+    let lines: Arc<Vec<&str>> = Arc::new(content.lines().collect());
+
+    let count = lines.par_iter() // .iter() 대신 .par_iter()만 바꿨다
+        .filter(|line| parser::parse(line).is_ok())
+        .count();
+
+    println!("parsed={count}");
+}
+----
+
+`Arc<T>`("Atomically Reference Counted")는 여러 스레드가 같은 데이터를 **읽기 전용으로 안전하게 공유**하게 해주는 스마트 포인터입니다 — 참조 카운트를 스레드 안전한 방식(원자적 연산)으로 관리해서, 마지막 소유자가 스코프를 벗어날 때만 데이터를 해제합니다. `content`를 스레드마다 복사하는 대신, `Arc`로 감싸면 "이 버퍼를 가리키는 참조가 몇 개 살아있는지"만 스레드 간에 안전하게 공유됩니다.
+
+`.iter()`를 `.par_iter()`로 바꾼 게 코드 변경의 전부입니다 — `rayon`의 `par_iter`는 표준 이터레이터와 거의 같은 API를 제공하면서, 내부적으로 작업을 스레드 풀에 나눠 돌립니다. 7장에서 본 이터레이터 체인(`filter`, `count`)이 순차 버전과 병렬 버전 모두에서 똑같이 동작한다는 것도 눈여겨볼 만합니다.
+
+== 실측: 순차 vs 병렬, 스레드 수별
+
+20만 줄짜리 JSON Lines 파일(약 200,000개의 작은 객체)로 실측했습니다. 테스트 머신은 10코어입니다.
+
+[source]
+----
+$ ./target/release/parse_lines lines.ndjson sequential
+mode=sequential parsed=200000 elapsed=91.111833ms
+
+$ RAYON_NUM_THREADS=1  ./target/release/parse_lines lines.ndjson parallel
+mode=parallel parsed=200000 elapsed=83.861ms
+
+$ RAYON_NUM_THREADS=2  ./target/release/parse_lines lines.ndjson parallel
+mode=parallel parsed=200000 elapsed=56.666166ms
+
+$ RAYON_NUM_THREADS=4  ./target/release/parse_lines lines.ndjson parallel
+mode=parallel parsed=200000 elapsed=20.470417ms
+
+$ RAYON_NUM_THREADS=10 ./target/release/parse_lines lines.ndjson parallel
+mode=parallel parsed=200000 elapsed=18.453875ms
+----
+
+스레드 1개일 때(83.9ms)는 순차 버전(91.1ms)과 거의 같습니다 — 병렬화 자체의 오버헤드(작업을 나누고 모으는 비용)가 크지 않다는 뜻입니다. 스레드를 2, 4개로 늘리면 20.5ms까지 거의 선형으로 빨라지고, 10개(이 머신의 전체 코어 수)에서는 18.5ms로 4개 대비 개선 폭이 눈에 띄게 줄어듭니다 — 200,000개의 작은 파싱 작업을 나누는 오버헤드와 다른 시스템 부하가 코어 수만큼 완벽하게 선형으로 이어지지는 않는다는 걸 보여줍니다. 그래도 순차 대비 최대 약 **4.9배**(91.1ms → 18.5ms) 빨라졌습니다.
+
+== 요약
+
+* `Arc`로 감싼 공유 버퍼와 `rayon`의 `par_iter`로, 5장의 파서를 전혀 고치지 않고 병렬 파싱 계층을 얹었습니다 — `.iter()`를 `.par_iter()`로 바꾸는 것이 코드 변경의 전부였습니다.
+* 스레드 수를 1·2·4·10으로 바꿔가며 실측했고, 순차 91.1ms에서 10스레드 18.5ms까지 약 4.9배의 실제 속도 향상을 확인했습니다.
+* 코어 수(10개)에 다가갈수록 개선 폭이 줄어드는 것도 감추지 않고 그대로 실었습니다 — 이상적인 선형 확장은 아니었습니다.
+
+다음 장에서는 이 안전한 공유(`Arc`)를 깨고 여러 스레드가 같은 데이터를 동시에 **가변으로** 건드리려 하면 어떤 일이 일어나는지 봅니다.
+// end::body[]

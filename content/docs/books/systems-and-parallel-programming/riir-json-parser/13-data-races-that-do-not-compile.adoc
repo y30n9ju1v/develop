@@ -1,0 +1,109 @@
+---
+title: "13장: 컴파일되지 않는 데이터 경쟁"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "concurrency", "data-race", "book"]
+categories: ["books"]
+description: "여러 스레드가 동기화 없이 같은 Vec에 동시에 쓰려는 코드가 실제로 세 가지 다른 컴파일 에러로 거부되는 걸 재현하고, Arc<Mutex<...>>로 고쳐 안전하게 동작시키며 서문에서 예고한 Fearless Concurrency를 실제로 확인하는 13장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-parallel-parsing-with-rayon/[12장: rayon으로 병렬 파싱하기] · 다음: link:../14-afterword/[맺음말]_
+
+'''
+
+서문에서 Rust의 "Fearless Concurrency"(데이터 경쟁을 컴파일 타임에 막아주는 것)가 속도의 원인이 아니라 별도의 이점이라고 짚었습니다. 이 장에서 그 이점을 직접 확인합니다 — 데이터 경쟁이 있는 코드를 일부러 짜서, 컴파일이 되는지 봅니다.
+
+== 동기화 없이 여러 스레드가 같은 `Vec`을 건드리려는 시도
+
+[source,rust]
+----
+use std::thread;
+
+fn main() {
+    let mut results: Vec<i32> = Vec::new();
+
+    let handles: Vec<_> = (0..4)
+        .map(|i| {
+            thread::spawn(|| {
+                // 여러 스레드가 같은 results를 동시에 mutable하게 건드리려는 시도
+                results.push(i);
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().unwrap();
+    }
+    println!("{:?}", results);
+}
+----
+
+C였다면 이 코드에 대응하는 `pthread_create` 버전은 **아무 경고 없이 컴파일됩니다** — 여러 스레드가 동시에 `vector`(혹은 손으로 짠 동적 배열)에 `push`하면, 내부 포인터나 길이 필드가 두 스레드에서 동시에 갱신되면서 데이터가 깨지거나 크래시하는 데이터 경쟁이 생깁니다. 이런 버그는 대개 재현하기 어렵고(타이밍에 따라 어떨 때는 괜찮아 보입니다), 프로덕션에서 드물게 터지는 가장 골치 아픈 부류의 버그입니다.
+
+== 실제 컴파일 에러
+
+[source]
+----
+$ rustc --edition 2024 race_demo.rs
+error: lifetime may not live long enough
+error[E0373]: closure may outlive the current function, but it borrows `i`, which is owned by the current function
+error[E0597]: `results` does not live long enough
+error[E0502]: cannot borrow `results` as immutable because it is also borrowed as mutable
+error: aborting due to 4 previous errors
+----
+
+**네 개의 서로 다른 규칙이 동시에 이 코드를 거부합니다.** `thread::spawn`에 넘긴 클로저가 `results`(스택에 있는, 함수가 끝나면 사라질 데이터)를 참조로 캡처하는데, 스레드는 부모 함수보다 더 오래 살아있을 수 있으므로 Rust는 `thread::spawn`에 넘기는 클로저가 `'static`(프로그램 전체 수명 동안 유효함)이거나 소유권을 가져가야 한다고 요구합니다. 이 요구가 "여러 스레드가 스택 데이터를 동시에 가리키다가, 그중 하나가 먼저 끝나 데이터가 사라진 뒤에도 다른 스레드가 그 데이터를 계속 쓰는" 시나리오 자체를 원천 차단합니다 — 11장에서 본 빌림 체커 규칙이, 여러 스레드로 확장된 것입니다.
+
+== 고치기: `Arc<Mutex<...>>`
+
+[source,rust]
+----
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let results = Arc::new(Mutex::new(Vec::new()));
+
+    let handles: Vec<_> = (0..4)
+        .map(|i| {
+            let results = Arc::clone(&results); // 참조 카운트만 늘어난다, 데이터는 복사 안 됨
+            thread::spawn(move || {
+                results.lock().unwrap().push(i); // 락을 잡아야만 내부 Vec에 접근 가능
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().unwrap();
+    }
+    let mut final_results = results.lock().unwrap().clone();
+    final_results.sort();
+    println!("{:?}", final_results);
+}
+----
+
+`Mutex<Vec<i32>>`는 "이 `Vec`에 접근하려면 반드시 락을 먼저 잡아야 한다"는 걸 **타입 자체**에 새깁니다 — `results.push(i)`처럼 락 없이 직접 접근하는 코드는 애초에 컴파일되지 않습니다(`Mutex<T>`는 `T`를 직접 노출하지 않고, `.lock()`이 돌려주는 가드를 통해서만 접근을 허용합니다). `Arc::clone(&results)`는 데이터를 복사하는 게 아니라 참조 카운트만 원자적으로 증가시키므로, 4개의 스레드가 정말로 같은 `Mutex`를 공유합니다.
+
+== 실행 확인
+
+[source]
+----
+$ rustc --edition 2024 race_fixed.rs && ./race_fixed
+[0, 1, 2, 3]
+----
+
+컴파일도 통과했고, 4개의 스레드가 각자 락을 잡고 순서대로 값을 밀어넣어 `[0, 1, 2, 3]`이 정확히 나왔습니다 — 락 경합이 있었다면 순서가 실행마다 달라질 수 있지만(정렬해서 출력하므로 이 예제에서는 순서 문제 자체가 드러나지 않습니다), 데이터가 깨지는 일은 `Mutex`가 구조적으로 막아줍니다.
+
+== 이게 바로 서문에서 말한 "추가 이점"
+
+9장에서 첫 버전 Rust가 C보다 근소하게 느렸다가, 10장에서 C++23과 같은 설계(제로카피 슬라이스, 정렬 없는 벡터)를 적용하니 오히려 C와 C++23보다도 빨라졌던 것을 기억해보면, 이 장의 결론이 더 명확해집니다 — Rust의 가치는 "무조건 더 빠르다"가 아니라, **"이런 종류의 버그(데이터 경쟁)를 프로덕션에서 겪는 대신, 컴파일 시점에 겪는다"**는 것입니다. C로 같은 실수를 했다면 코드는 조용히 컴파일되고, 버그는 어느 날 예측 불가능한 타이밍에 나타났을 것입니다.
+
+== 요약
+
+* 동기화 없이 여러 스레드가 같은 `Vec`을 공유하려는 코드가 `E0373`, `E0502`, `E0597`을 포함한 네 개의 에러로 거부되는 걸 재현했습니다.
+* `Arc<Mutex<Vec<i32>>>`로 고쳐, 락을 통해서만 데이터에 접근할 수 있게 만들었고 실제로 정상 동작하는 걸 확인했습니다.
+* 9~10장(첫 버전은 C보다 느렸지만, 설계를 C++23과 맞추자 C·C++23보다도 빨라졌던 벤치마크)과 나란히 놓으면, Rust의 실질적 가치가 "무조건적인 속도 우위"가 아니라 "데이터 경쟁을 프로덕션이 아니라 컴파일 시점에 잡아준다"는 것이라는 이 책의 핵심 주장이 완성됩니다.
+
+5부가 여기서 끝났습니다. 맺음말에서 이 책이 확인한 것과 다루지 않은 것을 정리합니다.
+// end::body[]

@@ -1,0 +1,109 @@
+---
+title: "10장: C++23 기법을 Rust로 다시 적용하기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "cpp23", "benchmark", "book"]
+categories: ["books"]
+description: "9장에서 진단만 하고 넘어간 성능 차이의 원인(HashMap, String 할당)을 cpp23-performance-engineering 책의 기법(PMR 아레나, flat 컬렉션, string_view)으로 C++23에서 먼저 확인한 뒤, 같은 설계를 Rust에 적용해 C와 C++23 둘 다보다 빨라지는 걸 실측하는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-benchmarking-against-c/[9장: hyperfine으로 실측 벤치마크하기] · 다음: link:../11-what-the-borrow-checker-caught/[11장: 빌림 체커가 실제로 잡아준 버그]_
+
+'''
+
+9장은 원인을 **진단만 하고** 멈췄습니다 — `HashMap`의 해시 알고리즘, 문자열마다의 `String` 할당을 그럴듯한 원인으로 짚었지만, 실제로 고쳐서 다시 재보지는 않았습니다. 이 장에서 그 진단이 맞는지 직접 확인합니다.
+
+== 먼저 C++23으로 가설을 검증한다
+
+이 시리즈의 다른 책 `cpp23-performance-engineering`이 다룬 기법 셋을 그대로 적용한 C++23 버전을 만들었습니다.
+
+* **PMR 아레나**(그 책 7장) — `std::pmr::monotonic_buffer_resource`로 모든 `Value`·벡터 할당을 하나의 아레나에서 순서대로 떼어줍니다. `malloc`/`free`를 값마다 부르는 대신, 할당은 포인터를 앞으로 미는 수준이고 해제는 아레나가 통째로 사라질 때 한 번뿐입니다.
+* **flat 컬렉션**(그 책 8장의 `flat_map` 교훈) — 객체를 해시맵이 아니라 정렬 없는 `std::pmr::vector<std::pair<...>>`로 저장합니다. `cJSON`도 정확히 이 방식(연결 리스트)입니다 — 필드가 2~4개뿐인 작은 객체에서는 해시 계산보다 선형 탐색이 더 쌉니다.
+* **`string_view`로 제로카피** — 이스케이프 없는 문자열은 원본 버퍼를 그대로 가리키고, 복사하지 않습니다.
+
+[source]
+----
+$ hyperfine --warmup 5 --min-runs 30 \
+    -n "c (cJSON)" "./c_ref/parse_file big.json" \
+    -n "c++23 (PMR+flat vector+string_view)" "./cpp23/parse_file big.json"
+
+Benchmark 1: c (cJSON)                                        28.4 ms
+Benchmark 2: c++23 (PMR+flat vector+string_view)              28.8 ms
+
+Summary
+  c (cJSON) ran
+    1.01 ± 0.04 times faster than c++23 (PMR+flat vector+string_view)
+----
+
+C++23 버전이 `cJSON`과 사실상 동률(1.01배 차이, 오차 범위 안)까지 따라잡았습니다 — 9장의 진단이 맞았다는 뜻입니다. `cJSON`이 빨랐던 건 "C라서"가 아니라, 아레나 할당·flat 저장·제로카피라는 **설계** 덕분이었습니다.
+
+== 같은 설계를 Rust로
+
+이제 같은 세 가지를 Rust에 적용합니다. `Value`를 라이프타임을 가진 버전으로 다시 정의합니다 — 3장에서 이미 다룬 패턴을 최종 타입에도 적용하는 것입니다.
+
+[source,rust]
+----
+// String 대신 &'a str: 3장의 라이프타임을 최종 타입에도 적용한다
+#[derive(Debug, Clone, PartialEq)]
+pub enum FastValue<'a> {
+    Null,
+    Bool(bool),
+    Number(f64),
+    Str(&'a str),
+    Array(Vec<FastValue<'a>>),
+    Object(Vec<(&'a str, FastValue<'a>)>), // HashMap 대신 정렬 없는 Vec
+}
+----
+
+[source,rust]
+----
+// 이스케이프가 없다는 전제로, 원본 input을 복사 없이 슬라이스로 돌려준다 (3장과 같은 패턴)
+fn parse_string_slice(&mut self) -> FResult<&'a str> {
+    self.expect(b'"')?;
+    let start = self.pos;
+    while self.peek()? != b'"' {
+        self.pos += 1;
+    }
+    let s = &self.input[start..self.pos];
+    self.pos += 1;
+    Ok(s)
+}
+----
+
+객체 파싱도 `HashMap::new()` 대신 `Vec::new()`로 바뀌고, 키를 `push`로 순서대로 쌓기만 합니다(정렬하지 않습니다 — cJSON, C++23 버전과 같습니다).
+
+NOTE: 이 버전은 이스케이프 문자(`\"`, `\\` 등) 처리를 아예 생략했습니다 — C++23 버전과 공정하게 비교하기 위한 축소입니다. 이 장의 벤치마크 데이터(`big.json`)에는 애초에 이스케이프가 없으므로 결과에는 영향이 없지만, 실전에서 쓰려면 이스케이프가 있는 문자열만 예외적으로 `String`을 새로 할당하는 하이브리드 방식이 필요합니다 — 이건 이 책이 다루지 않는 다음 과제로 남겨둡니다.
+
+== 실측: 넷을 한 번에
+
+[source]
+----
+$ hyperfine --warmup 5 --min-runs 30 \
+    -n "rust (원본, HashMap+String)"     "./target/release/parse_file big.json" \
+    -n "rust (최적화, Vec+&str)"         "./target/release/parse_file_fast big.json" \
+    -n "c (cJSON)"                       "./c_ref/parse_file big.json" \
+    -n "c++23 (PMR+flat vector+string_view)" "./cpp23/parse_file big.json"
+
+Benchmark 1: rust (원본, HashMap+String)             31.7 ms
+Benchmark 2: rust (최적화, Vec+&str)                 13.3 ms
+Benchmark 3: c (cJSON)                               27.3 ms
+Benchmark 4: c++23 (PMR+flat vector+string_view)     28.2 ms
+
+Summary
+  rust (최적화, Vec+&str) ran
+    2.06 ± 0.08 times faster than c (cJSON)
+    2.13 ± 0.05 times faster than c++23 (PMR+flat vector+string_view)
+    2.39 ± 0.07 times faster than rust (원본, HashMap+String)
+----
+
+최적화한 Rust가 원본 대비 **2.39배**, C보다 **2.06배**, 같은 기법을 적용한 C++23 버전보다도 **2.13배** 빨랐습니다. 원본 Rust가 C보다 느렸던 게 "Rust이기 때문"이 아니었다는 9장의 결론이 다시 확인됐을 뿐 아니라, 예상보다 더 나아갔습니다 — C++23 버전도 아직 `std::pmr::vector`(PMR 할당자를 매번 통해야 하는 벡터)와 `std::variant`(태그 검사 오버헤드)를 쓰는데, Rust는 이 책 전체에서 그냥 표준 `Vec`과 `enum`을 썼을 뿐입니다. 이 차이가 정확히 어디서 오는지는 이 책에서 명령어 수준까지 프로파일링하지 않았습니다 — 맺음말에서 다시 정직하게 남깁니다.
+
+== 요약
+
+* 9장에서 진단만 했던 원인(해시맵, 문자열 할당)을, `cpp23-performance-engineering` 책의 기법(PMR 아레나, flat 컬렉션, `string_view`)으로 C++23에서 먼저 검증했고, C와 사실상 동률까지 따라잡았습니다.
+* 같은 설계(정렬 없는 `Vec`, 제로카피 `&str`)를 Rust에 그대로 적용해, 원본 대비 2.39배, C보다 2.06배, C++23보다도 2.13배 빠른 결과를 실측했습니다.
+* "Rust로 다시 쓰면 자동으로 빨라진다"도, "C가 항상 이긴다"도 아닌, **설계가 언어보다 크게 좌우한다**는 게 9장과 10장을 나란히 놓았을 때 이 책이 실제로 확인한 결론입니다.
+
+다음 장에서는 이 책 전체에서 가장 자주 언급된 "빌림 체커"가 실제로 어떤 버그를 잡아주는지, 구체적인 코드로 확인합니다.
+// end::body[]

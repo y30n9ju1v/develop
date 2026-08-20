@@ -1,0 +1,92 @@
+---
+title: "3장: 라이프타임 정면으로 다루기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "lifetimes", "book"]
+categories: ["books"]
+description: "입력 문자열을 복사하지 않고 슬라이스로 빌리는 함수를 짜다가 만나는 실제 E0106 컴파일 에러로, 반환값의 라이프타임이 어느 참조를 따라야 하는지 컴파일러에게 명시해야 하는 이유를 확인하는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-naive-parser/[2장: 첫 번째 파서 — 안전하지 않게] · 다음: link:../04-result-and-error-propagation/[4장: Result로 에러 전파하기]_
+
+'''
+
+2장의 파서는 `input.chars().collect()`로 입력 전체를 `Vec<char>`에 복사했습니다 — 짧은 입력에서는 눈에 안 띄지만, 큰 JSON 파일을 다룰 4부에서는 이 복사 자체가 낭비입니다. 숫자나 문자열처럼 이스케이프가 없는 조각은, 복사하지 않고 원본 문자열의 **슬라이스(부분 참조)**로 돌려줄 수 있습니다.
+
+== 슬라이스를 돌려주는 함수를 짜본다
+
+[source,rust]
+----
+pub fn borrow_number(input: &str, pos: &mut usize) -> &str {
+    let start = *pos;
+    while *pos < input.len() && input.as_bytes()[*pos].is_ascii_digit() {
+        *pos += 1;
+    }
+    &input[start..*pos]
+}
+----
+
+[source]
+----
+$ rustc --edition 2024 --crate-type lib lifetime_demo.rs
+error[E0106]: missing lifetime specifier
+ --> lifetime_demo.rs:3:55
+  |
+3 | pub fn borrow_number(input: &str, pos: &mut usize) -> &str {
+  |                             ----       ----------     ^ expected named lifetime parameter
+  |
+  = help: this function's return type contains a borrowed value, but the signature does not say whether it is borrowed from `input` or `pos`
+----
+
+컴파일이 안 됩니다. 이 함수는 참조를 **두 개**(`input`, `pos`) 받고 참조를 **하나** 돌려줍니다 — 돌려준 참조가 `input`에서 나온 건지 `pos`에서 나온 건지, 함수 시그니처만 봐서는 알 길이 없습니다. 함수 본문을 보면 당연히 `input`에서 나온 슬라이스라는 게 명백하지만, **Rust는 함수 시그니처만 보고 호출하는 쪽의 코드를 검증합니다** — 본문을 읽지 않고도 타입 검사가 끝나야, 이 함수를 쓰는 다른 코드도 빠르고 독립적으로 컴파일할 수 있기 때문입니다.
+
+== 라이프타임을 명시하기
+
+에러 메시지가 제안하는 수정은 이렇습니다.
+
+[source,rust]
+----
+pub fn borrow_number<'a>(input: &'a str, pos: &'a mut usize) -> &'a str {
+----
+
+그런데 이건 **너무 강한** 제약입니다 — `input`과 `pos` 둘 다 같은 라이프타임 `'a`로 묶이면, `pos`(그냥 파싱 위치를 담은 `usize` 참조)가 `input`만큼 오래 살아있어야 한다는 조건이 생겨버립니다. 실제로 필요한 건 "반환값이 `input`을 따라간다"는 것뿐입니다.
+
+[source,rust]
+----
+pub fn borrow_number<'a>(input: &'a str, pos: &mut usize) -> &'a str {
+    let start = *pos;
+    while *pos < input.len() && input.as_bytes()[*pos].is_ascii_digit() {
+        *pos += 1;
+    }
+    &input[start..*pos]
+}
+----
+
+`pos`는 `'a`와 무관한 평범한 `&mut usize`로 남겨두고, `input`과 반환값만 `'a`로 묶었습니다. 이렇게 하면 "반환된 슬라이스는 `input`이 살아있는 동안만 유효하다"는 것만 정확히 표현됩니다.
+
+== 실행 확인
+
+[source]
+----
+$ rustc --edition 2024 --crate-type lib lifetime_demo.rs
+(에러 없음 — 컴파일 통과)
+
+$ cargo run
+slice: "12345", pos now: 5
+----
+
+`"12345 rest"`에서 숫자 부분만 슬라이스로 뽑아냈고, `pos`는 5까지 전진했습니다 — 복사 없이, 원본 문자열 안의 한 구간을 그대로 참조한 것입니다.
+
+== 라이프타임은 "새 규칙"이 아니라 "숨어있던 규칙을 드러낸 것"
+
+라이프타임이 낯설게 느껴지는 이유는, 사실 C에서도 "이 포인터가 언제까지 유효한가"라는 질문이 항상 존재했기 때문입니다 — C는 그 질문에 답하는 걸 전적으로 프로그래머에게 맡기고, 틀리면 댕글링 포인터(가리키는 대상이 이미 해제된 포인터)로 이어집니다. Rust의 라이프타임 표기(`'a`)는 새로운 제약을 추가하는 게 아니라, **원래도 존재했던 "이 참조가 유효한 범위"라는 사실을 컴파일러가 검증할 수 있는 형태로 명시적으로 적어두는 것**입니다.
+
+== 요약
+
+* 참조 두 개를 받고 참조 하나를 돌려주는 함수는, 반환값이 어느 참조를 따라가는지 컴파일러가 추론할 수 없어 `E0106` 에러가 난다는 걸 재현했습니다.
+* 컴파일러의 제안을 그대로 따르면 과하게 강한 제약이 생길 수 있다는 것도 확인했습니다 — `input`과 `pos`를 같은 라이프타임으로 묶는 대신, 반환값이 실제로 의존하는 `input`에만 라이프타임을 걸었습니다.
+* 이 함수가 원본 문자열을 복사하지 않고 슬라이스로 안전하게 빌려준다는 걸 실행 결과로 확인했습니다.
+
+다음 장에서는 2장의 `panic!` 기반 에러 처리를, `Result`로 안전하게 바꿉니다.
+// end::body[]

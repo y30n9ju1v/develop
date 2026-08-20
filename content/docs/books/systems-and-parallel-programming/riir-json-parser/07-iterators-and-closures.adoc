@@ -1,0 +1,81 @@
+---
+title: "7장: 이터레이터와 클로저로 함수형 스타일 다루기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "iterators", "closures", "book"]
+categories: ["books"]
+description: "클로저를 인자로 받아 JSON 트리의 모든 숫자를 재귀적으로 변환하는 함수와, filter_map·sum 같은 이터레이터 콤비네이터로 배열을 집계하는 함수를 실제로 실행해 서문에서 예고한 함수형 프로그래밍과의 연결을 확인하는 7장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-serialization-with-display/[6장: Display 트레잇으로 직렬화하기] · 다음: link:../08-comparing-with-cjson/[8장: cJSON과 정확성 비교하기]_
+
+'''
+
+서문에서 Rust가 함수형 프로그래밍 언어들에서 여러 개념을 빌려왔다고 했습니다 — 이 장에서 그 연결을 직접 코드로 확인합니다.
+
+== 클로저를 받는 재귀 함수
+
+[source,rust]
+----
+pub fn map_numbers<F>(value: &Value, f: &F) -> Value
+where
+    F: Fn(f64) -> f64,
+{
+    match value {
+        Value::Number(n) => Value::Number(f(*n)),
+        Value::Array(items) => Value::Array(items.iter().map(|v| map_numbers(v, f)).collect()),
+        Value::Object(map) => {
+            Value::Object(map.iter().map(|(k, v)| (k.clone(), map_numbers(v, f))).collect())
+        }
+        other => other.clone(),
+    }
+}
+----
+
+`F: Fn(f64) -> f64`는 "`f64`를 받아 `f64`를 돌려주는 어떤 호출 가능한 값이든 좋다"는 제네릭 제약입니다 — 함수 포인터든, 클로저든 상관없습니다. `items.iter().map(|v| map_numbers(v, f)).collect()`가 이터레이터 체인입니다 — `.iter()`로 `Vec<Value>`를 순회 가능한 형태로 바꾸고, `.map()`으로 각 원소에 재귀 호출을 적용하고, `.collect()`로 다시 `Vec<Value>`로 모읍니다. 이 세 단계가 하나의 `for` 루프 없이, 각 단계가 "무엇을 할지"만 선언하는 방식으로 이어집니다 — 하스켈이나 다른 함수형 언어의 `map`/`fold` 체인과 정확히 같은 정신입니다.
+
+== `filter_map`과 `sum`으로 집계하기
+
+[source,rust]
+----
+pub fn sum_numbers(value: &Value) -> f64 {
+    match value {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|v| match v {
+                Value::Number(n) => Some(*n),
+                _ => None,
+            })
+            .sum(),
+        _ => 0.0,
+    }
+}
+----
+
+`filter_map`은 "걸러내면서 동시에 변환하는" 콤비네이터입니다 — `Value::Number`가 아닌 원소는 `None`을 돌려줘서 자동으로 버려지고, `Value::Number(n)`인 원소만 `Some(n)`으로 값이 남습니다. 뒤이은 `.sum()`이 이 걸러진 숫자들을 전부 더합니다 — `for` 루프와 누산 변수를 손으로 관리하는 대신, "숫자만 골라내고, 합친다"는 의도가 코드에 그대로 드러납니다.
+
+== 실행 확인
+
+[source]
+----
+$ cargo run
+원본: [1,2,3,4]
+2배:  [2,4,6,8]
+합계: 10
+----
+
+`|n| n * 2.0`이라는 클로저를 `map_numbers`에 넘겨 배열의 모든 숫자를 2배로 만들었고(`[1,2,3,4]` → `[2,4,6,8]`), `sum_numbers`로 원본 배열의 숫자 합(`1+2+3+4=10`)을 구했습니다 — 둘 다 실제로 실행한 결과입니다.
+
+== C였다면 어땠을까
+
+`cJSON`으로 같은 일을 하려면, 배열을 직접 순회하는 `for` 루프를 짜고, 각 원소의 타입을 `cJSON_IsNumber`로 확인하고, `cJSON_SetNumberValue`로 값을 바꾸는 코드를 손으로 써야 합니다 — 틀린 인덱스로 순회하거나 타입 확인을 빠뜨리는 실수가 C에서는 컴파일 타임에 걸러지지 않습니다. Rust의 이터레이터 체인이 딱히 "더 짧아서" 좋은 게 아니라, `map`/`filter_map`/`sum` 각각이 "정확히 이 일만 한다"는 게 타입으로 보장되기 때문에 순회 로직 자체의 버그 여지가 줄어드는 것입니다.
+
+== 요약
+
+* 클로저를 받는 제네릭 함수(`F: Fn(f64) -> f64`)로, JSON 트리의 모든 숫자를 재귀적으로 변환하는 `map_numbers`를 짰습니다.
+* `filter_map`과 `sum`을 이어 붙여, 배열 안의 숫자만 걸러 합산하는 `sum_numbers`를 만들었습니다.
+* 둘 다 실제로 실행해 `[1,2,3,4]` → `[2,4,6,8]`(2배), 합계 `10`이라는 결과를 확인했습니다 — 서문에서 예고한 "함수형 프로그래밍과의 연결"이 여기서 실제 코드로 확인됩니다.
+
+3부가 여기서 끝났습니다. 4부에서는 이 파서를 C의 `cJSON`과 정면으로 대조합니다.
+// end::body[]

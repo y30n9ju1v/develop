@@ -1,0 +1,111 @@
+---
+title: "RIIR: C의 JSON 파서를 Rust로 다시 쓰며 배우는 안전한 병렬 프로그래밍"
+draft: false
+---
+
+C의 대표 JSON 라이브러리 `cJSON`을 기준 삼아, 같은 기능의 JSON 파서를 Rust로 처음부터 지으며 소유권·라이프타임·트레잇·이터레이터와 클로저·안전한 병렬처리까지 Rust 언어의 핵심을 익히는 책입니다. "Rust는 병렬처리를 컴파일 타임에 안전하게 체크해서 빠르다"는 흔한 오해를 서문에서 바로잡고, C와 실제로 벤치마크한 결과 — 9장에서 C가 근소하게 더 빨랐던 것, 그리고 10장에서 `cpp23-performance-engineering` 책의 기법을 그대로 적용하니 C·C++23보다도 2배 넘게 빨라졌던 반전까지 — 를 감추지 않고 싣는 실무 지향적 입문서입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: C의 JSON 파서를 Rust로 다시 쓰며 배우기]*
+
+*1부: 기초*
+
+[start=1]
+. *link:01-modeling-json-with-enums/[1장: enum으로 JSON 값 모델링하기]*
+. *link:02-naive-parser/[2장: 첫 번째 파서 — 안전하지 않게]*
+
+*2부: 소유권, 라이프타임, 에러 처리*
+
+[start=3]
+. *link:03-lifetimes/[3장: 라이프타임 정면으로 다루기]*
+. *link:04-result-and-error-propagation/[4장: Result로 에러 전파하기]*
+. *link:05-arrays-objects-and-tests/[5장: 배열과 객체, 그리고 테스트]*
+
+*3부: 반대 방향과 함수형 스타일*
+
+[start=6]
+. *link:06-serialization-with-display/[6장: Display 트레잇으로 직렬화하기]*
+. *link:07-iterators-and-closures/[7장: 이터레이터와 클로저로 함수형 스타일 다루기]*
+
+*4부: C와 대조하며 검증*
+
+[start=8]
+. *link:08-comparing-with-cjson/[8장: cJSON과 정확성 비교하기]*
+. *link:09-benchmarking-against-c/[9장: hyperfine으로 실측 벤치마크하기]*
+. *link:10-optimizing-the-rust-parser/[10장: C++23 기법을 Rust로 다시 적용하기]*
+. *link:11-what-the-borrow-checker-caught/[11장: 빌림 체커가 실제로 잡아준 버그]*
+
+*5부: 병렬처리로 확장*
+
+[start=12]
+. *link:12-parallel-parsing-with-rayon/[12장: rayon으로 병렬 파싱하기]*
+. *link:13-data-races-that-do-not-compile/[13장: 컴파일되지 않는 데이터 경쟁]*
+
+*맺음말*
+
+[start=14]
+. *link:14-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-modeling-json-with-enums.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-naive-parser.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-lifetimes.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-result-and-error-propagation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-arrays-objects-and-tests.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-serialization-with-display.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-iterators-and-closures.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-comparing-with-cjson.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-benchmarking-against-c.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-optimizing-the-rust-parser.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-what-the-borrow-checker-caught.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-parallel-parsing-with-rayon.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-data-races-that-do-not-compile.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-afterword.adoc[tag=body,leveloffset=+1]

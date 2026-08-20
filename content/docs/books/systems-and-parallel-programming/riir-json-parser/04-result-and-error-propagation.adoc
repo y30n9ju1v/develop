@@ -1,0 +1,106 @@
+---
+title: "4장: Result로 에러 전파하기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "error-handling", "book"]
+categories: ["books"]
+description: "2장의 panic! 기반 파서를 ParseError를 돌려주는 Result 기반으로 다시 짜고, ? 연산자로 에러를 자동 전파시키며 잘린 입력이 크래시 대신 명확한 에러 메시지로 끝난다는 걸 확인하는 4장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-lifetimes/[3장: 라이프타임 정면으로 다루기] · 다음: link:../05-arrays-objects-and-tests/[5장: 배열과 객체, 그리고 테스트]_
+
+'''
+
+C의 `cJSON_Parse`는 실패하면 `NULL`을 돌려줍니다 — 호출하는 쪽이 반환값을 확인하는 걸 깜빡해도, 컴파일러는 아무 말도 하지 않습니다(그 `NULL`을 역참조하면 그제서야 크래시합니다). Rust의 `Result`는 이 문제를 타입 시스템 안으로 끌어들입니다.
+
+== 에러 타입과 `Result`
+
+[source,rust]
+----
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParseError {
+    pub message: String,
+    pub pos: usize,
+}
+
+type PResult<T> = Result<T, ParseError>;
+----
+
+== `?` 연산자로 에러 전파하기
+
+[source,rust]
+----
+impl<'a> Parser<'a> {
+    fn peek(&self) -> PResult<u8> {
+        self.bytes.get(self.pos).copied()
+            .ok_or_else(|| self.err("입력이 예상보다 일찍 끝났습니다"))
+    }
+
+    fn advance(&mut self) -> PResult<u8> {
+        let c = self.peek()?; // 실패하면 즉시 이 함수도 같은 에러로 리턴한다
+        self.pos += 1;
+        Ok(c)
+    }
+
+    fn expect(&mut self, expected: u8) -> PResult<()> {
+        let c = self.advance()?;
+        if c != expected {
+            return Err(self.err(&format!("'{}'를 기대했지만 '{}'를 만났습니다", expected as char, c as char)));
+        }
+        Ok(())
+    }
+}
+----
+
+`self.peek()?`가 핵심입니다 — `peek()`이 `Err`를 돌려주면, `?`가 그 자리에서 즉시 `advance()` 함수 전체를 같은 `Err`로 리턴시킵니다(C였다면 `if (result == NULL) return NULL;`을 호출마다 손으로 써야 했을 자리입니다). `peek()`이 `Ok(c)`를 돌려주면, `?`는 `c` 자체(감싸지 않은 값)를 꺼내 그대로 다음 줄에서 쓸 수 있게 해줍니다.
+
+== `parse_value`도 같은 패턴으로
+
+[source,rust]
+----
+fn parse_value(&mut self) -> PResult<Value> {
+    self.skip_whitespace();
+    match self.peek()? {
+        b'n' => self.parse_literal("null", Value::Null),
+        b't' => self.parse_literal("true", Value::Bool(true)),
+        b'f' => self.parse_literal("false", Value::Bool(false)),
+        b'"' => self.parse_string().map(Value::String),
+        b'[' => self.parse_array(),
+        b'{' => self.parse_object(),
+        c if c == b'-' || c.is_ascii_digit() => self.parse_number(),
+        c => Err(self.err(&format!("값을 시작할 수 없는 문자입니다: '{}'", c as char))),
+    }
+}
+----
+
+== 실행 확인: 크래시 대신 명확한 에러
+
+2장에서 프로그램 전체를 죽였던 그 입력(`"nul"`)을 다시 시도해봅니다.
+
+[source]
+----
+$ cargo run
+에러: 위치 3: 입력이 예상보다 일찍 끝났습니다
+----
+
+프로그램이 죽지 않았습니다 — `parse()` 호출부가 `Result`를 받아 `match`로 처리했을 뿐입니다. 정상적인 입력도 그대로 잘 동작합니다.
+
+[source]
+----
+[1, 2, {"a": true, "b": null}] ->
+Object({"b": Null, "a": Bool(true)})  # (일부 발췌)
+----
+
+== `Result`가 강제하는 것
+
+`peek()`의 반환 타입이 `PResult<u8>`(즉 `Result<u8, ParseError>`)인 이상, 호출하는 쪽은 `?`로 전파하거나 `match`로 직접 처리하지 않고서는 안의 `u8` 값을 꺼낼 방법이 없습니다 — "에러 처리를 깜빡하는 것" 자체가 컴파일이 안 되는 코드가 됩니다. C의 `NULL` 반환 관례와 근본적으로 다른 지점입니다 — 관례는 지키지 않아도 컴파일되지만, 타입은 어길 수 없습니다.
+
+== 요약
+
+* `ParseError`와 `Result<T, ParseError>`(줄여서 `PResult<T>`)로, 2장의 `panic!` 기반 실패 처리를 값으로 바꿨습니다.
+* `?` 연산자가 실패를 즉시 호출자에게 전파시켜, 매번 손으로 `if err { return err }`를 쓰는 C 스타일 코드를 없앤다는 걸 확인했습니다.
+* 크래시로 끝났던 잘린 입력이, 이제 프로그램을 죽이지 않고 `위치 3: 입력이 예상보다 일찍 끝났습니다`라는 명확한 에러로 끝난다는 걸 재현했습니다.
+
+다음 장에서는 배열과 객체 파싱을 완성하고, `cargo test`로 이 파서가 정말 정확한지 검증합니다.
+// end::body[]

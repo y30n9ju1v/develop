@@ -1,0 +1,74 @@
+---
+title: "6장: Display 트레잇으로 직렬화하기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "traits", "book"]
+categories: ["books"]
+description: "Value에 표준 라이브러리의 Display 트레잇을 구현해 파싱의 반대 방향(직렬화)을 완성하고, 파싱한 뒤 다시 직렬화해서 재파싱한 결과가 원본과 같다는 걸 실제 round-trip으로 검증하는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-arrays-objects-and-tests/[5장: 배열과 객체, 그리고 테스트] · 다음: link:../07-iterators-and-closures/[7장: 이터레이터와 클로저로 함수형 스타일 다루기]_
+
+'''
+
+지금까지는 JSON 문자열을 `Value`로 바꾸는 방향(파싱)만 있었습니다. 이 장은 반대 방향 — `Value`를 다시 JSON 문자열로 만드는 직렬화 — 를 다루면서, 처음으로 트레잇을 직접 구현합니다.
+
+== 표준 라이브러리의 `Display` 트레잇
+
+Rust는 `println!("{}", x)`처럼 `{}`로 값을 출력하는 모든 타입이 `std::fmt::Display` 트레잇을 구현하도록 요구합니다. `String`, `i32` 같은 기본 타입은 이미 구현되어 있지만, 우리가 만든 `Value`는 우리가 직접 구현해야 합니다.
+
+[source,rust]
+----
+use std::fmt;
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Null => write!(f, "null"),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::Number(n) => write!(f, "{}", n),
+            Value::String(s) => write!(f, "\"{}\"", s.replace('"', "\\\"")),
+            Value::Array(items) => {
+                write!(f, "[")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 { write!(f, ",")?; }
+                    write!(f, "{}", item)?; // 재귀 -- Value 안의 Value도 그냥 {}로 출력된다
+                }
+                write!(f, "]")
+            }
+            Value::Object(map) => {
+                write!(f, "{{")?;
+                for (i, (key, val)) in map.iter().enumerate() {
+                    if i > 0 { write!(f, ",")?; }
+                    write!(f, "\"{}\":{}", key, val)?;
+                }
+                write!(f, "}}")
+            }
+        }
+    }
+}
+----
+
+`impl fmt::Display for Value`는 "`Value`는 `Display`라는 계약을 만족한다"는 선언입니다 — 이 구현이 끝나면 `value.to_string()`이나 `println!("{}", value)`가 자동으로 이 `fmt` 함수를 호출합니다. `Value::Array`의 `write!(f, "{}", item)?`가 `item`(역시 `Value`)에 대해 다시 `Display`를 호출하는 재귀 구조라는 게 핵심입니다 — 트레잇 구현 하나로 임의로 깊이 중첩된 JSON 전체를 처리합니다.
+
+== 실행 확인: 파싱 → 직렬화 → 재파싱
+
+[source]
+----
+$ cargo run
+원본:      [1,2,{"a":true,"b":null}]
+파싱->직렬화: [1,2,{"a":true,"b":null}]
+재파싱 결과 == 최초 파싱 결과: true
+----
+
+원본 JSON을 파싱해서 `Value`로 만든 뒤, 그 `Value`를 다시 문자열로 직렬화하니 원본과 똑같은 문자열이 나왔습니다. 그리고 그 직렬화된 문자열을 다시 파싱한 결과가, 최초 파싱 결과와 (5장의 `PartialEq` 덕분에) `==`로 정확히 같다는 것까지 확인했습니다 — 파싱과 직렬화가 서로의 역함수처럼 동작한다는 걸 실제로 왕복시켜 검증한 것입니다.
+
+== 요약
+
+* `std::fmt::Display` 트레잇을 `Value`에 구현해, `println!("{}", value)`와 `.to_string()`이 동작하는 직렬화를 완성했습니다.
+* 트레잇 구현이 재귀적으로 자기 자신을 호출해, 임의로 중첩된 JSON 구조 전체를 하나의 `impl` 블록으로 처리한다는 걸 봤습니다.
+* 파싱 → 직렬화 → 재파싱한 결과가 원본과 정확히 같다는 걸 실제로 왕복 실행해 검증했습니다.
+
+다음 장에서는 이터레이터와 클로저로, `Value` 트리를 함수형 스타일로 변환하는 법을 다룹니다.
+// end::body[]

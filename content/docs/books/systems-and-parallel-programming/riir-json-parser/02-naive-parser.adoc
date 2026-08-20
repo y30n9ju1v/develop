@@ -1,0 +1,89 @@
+---
+title: "2장: 첫 번째 파서 — 안전하지 않게"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "book"]
+categories: ["books"]
+description: "panic!과 배열 인덱싱으로 짠 가장 단순한 재귀 하강 파서가 잘못된 입력에서 실제로 크래시한다는 걸 재현하며, 왜 4장에서 Result가 필요한지 체감하는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-modeling-json-with-enums/[1장: enum으로 JSON 값 모델링하기] · 다음: link:../03-lifetimes/[3장: 라이프타임 정면으로 다루기]_
+
+'''
+
+이 장은 일부러 안전하지 않게 짭니다 — Rust라고 해서 자동으로 견고한 코드가 나오는 게 아니라는 걸 먼저 확인하기 위해서입니다.
+
+== 문자 배열을 인덱스로 훑는 파서
+
+[source,rust]
+----
+pub struct Parser<'a> {
+    chars: Vec<char>,
+    pos: usize,
+    _input: &'a str,
+}
+
+impl<'a> Parser<'a> {
+    pub fn new(input: &'a str) -> Self {
+        Parser { chars: input.chars().collect(), pos: 0, _input: input }
+    }
+
+    fn peek(&self) -> char {
+        self.chars[self.pos] // 범위를 벗어나면 그대로 패닉
+    }
+
+    fn advance(&mut self) -> char {
+        let c = self.chars[self.pos];
+        self.pos += 1;
+        c
+    }
+
+    pub fn parse_value(&mut self) -> Value {
+        match self.peek() {
+            'n' => self.parse_null(),
+            't' | 'f' => self.parse_bool(),
+            '"' => self.parse_string(),
+            c if c == '-' || c.is_ascii_digit() => self.parse_number(),
+            _ => panic!("예상치 못한 문자: {}", self.peek()),
+        }
+    }
+
+    fn parse_null(&mut self) -> Value {
+        for expected in "null".chars() {
+            assert_eq!(self.advance(), expected);
+        }
+        Value::Null
+    }
+    // parse_bool, parse_string, parse_number도 같은 스타일 -- 전부 생략
+}
+----
+
+`peek`과 `advance`가 `self.chars[self.pos]`로 그냥 인덱싱합니다 — `pos`가 배열 범위를 벗어나면 어떻게 될지 타입에 전혀 나타나지 않습니다. `parse_null`의 `assert_eq!`도 마찬가지입니다 — 기대한 문자가 아니면 그냥 패닉합니다.
+
+== 실행 확인: 잘린 입력이 그대로 크래시로 이어진다
+
+`"null"`을 다 쓰지 않고 `"nul"`만 준 경우를 시도해봤습니다.
+
+[source]
+----
+$ cargo run
+thread 'main' panicked at src/naive.rs:19:27:
+index out of bounds: the len is 3 but the index is 3
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+----
+
+`n`, `u`, `l`까지는 정상적으로 읽었지만, 마지막 `l`을 확인하려고 `advance()`를 한 번 더 호출하는 순간 `self.chars[3]`이 존재하지 않는 인덱스(길이가 3인 배열)라서 그 자리에서 프로그램 전체가 죽습니다. 이건 컴파일 에러가 아니라 **런타임 크래시**입니다 — `rustc`는 이 코드가 잘못됐다고 전혀 경고하지 않았습니다. 배열 인덱싱과 `panic!`으로 짠 코드는 컴파일은 통과하지만, 잘못된 입력 앞에서는 C의 세그멘테이션 폴트만큼이나 무자비합니다.
+
+== 이 장이 남긴 질문
+
+Rust가 메모리 안전을 보장하는 것과, 이 프로그램이 견고한 것은 별개의 문제입니다 — `self.chars[self.pos]`는 범위를 벗어나는 순간 **버퍼 오버런을 읽는 대신 즉시 패닉**하도록 보장할 뿐(이건 C 대비 확실한 개선입니다, 조용히 다른 메모리를 읽어버리는 대신 크래시로 끝납니다), "이 함수가 실패할 수도 있다"는 걸 타입 시스템에 드러내지는 않습니다. 4장에서 이 문제를 `Result`로 정면으로 풉니다. 그 전에 3장에서는 이 파서가 입력 문자열을 매번 `Vec<char>`로 복사하고 있다는 또 다른 문제(성능 문제이자, 라이프타임을 배우는 좋은 계기)를 먼저 다룹니다.
+
+== 요약
+
+* 배열 인덱싱과 `panic!`으로 짠 파서는 컴파일은 통과하지만, 잘린 입력에서 실제로 `index out of bounds` 크래시가 난다는 걸 재현했습니다.
+* Rust의 메모리 안전(버퍼 오버런 대신 패닉)과 프로그램의 견고함(실패를 우아하게 처리하는 것)은 서로 다른 층위의 문제라는 걸 확인했습니다.
+* 이 파서가 입력을 `Vec<char>`로 매번 복사한다는 점도 다음 장의 출발점이 됩니다.
+
+다음 장에서는 이 복사 문제를 없애면서, 그 과정에서 라이프타임을 명시적으로 다뤄야 하는 지점을 정면으로 마주합니다.
+// end::body[]

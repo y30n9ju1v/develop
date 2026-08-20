@@ -1,0 +1,87 @@
+---
+title: "11장: 빌림 체커가 실제로 잡아준 버그"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "borrow-checker", "book"]
+categories: ["books"]
+description: "불변 참조를 들고 있는 동안 같은 데이터를 가변으로 빌리려는 코드가 실제 E0502 컴파일 에러로 거부되는 것을 재현하고, C였다면 이 코드가 조용히 컴파일돼 미정의 동작으로 이어졌을 상황과 대조하는 11장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-optimizing-the-rust-parser/[10장: C++23 기법을 Rust로 다시 적용하기] · 다음: link:../12-parallel-parsing-with-rayon/[12장: rayon으로 병렬 파싱하기]_
+
+'''
+
+빌림 체커(borrow checker)는 "같은 데이터를 가변으로 빌리는 참조와 불변으로 빌리는 참조가 동시에 존재할 수 없다"는 규칙을 컴파일 타임에 강제하는 Rust 컴파일러의 부분입니다. 실제로 이 규칙에 걸리는 코드를 짜봅니다.
+
+== 문제가 되는 코드
+
+[source,rust]
+----
+struct Buf {
+    data: Vec<i32>,
+}
+
+impl Buf {
+    fn first(&self) -> &i32 {
+        &self.data[0]
+    }
+
+    fn push_copy_of_first(&mut self) {
+        let f = self.first();      // 불변 참조를 변수에 담아 계속 들고 있는다
+        self.data.push(*f);        // f가 아직 살아있는데 가변 빌림을 시도
+        println!("{}", f);         // f를 여기서도 쓰므로, f는 이 시점까지 살아있어야 한다
+    }
+}
+----
+
+== 실제 컴파일 에러
+
+[source]
+----
+$ rustc --edition 2024 borrow_demo.rs
+error[E0502]: cannot borrow `self.data` as mutable because it is also borrowed as immutable
+  --> borrow_demo.rs:12:9
+   |
+11 |         let f = self.first(); // 불변 참조를 변수에 담아 계속 들고 있는다
+   |                 ---- immutable borrow occurs here
+12 |         self.data.push(*f);   // f가 아직 살아있는 상태에서 가변 빌림을 시도
+   |         ^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+13 |         println!("{}", f);    // f를 여기서도 쓰므로, f는 이 시점까지 살아있어야 한다
+   |                        - immutable borrow later used here
+----
+
+컴파일러가 정확히 짚어줍니다 — 11행에서 `f`가 `self.data`를 불변으로 빌렸는데, 13행에서 `f`를 다시 쓰니 `f`는 그 시점까지 살아있어야 합니다. 그런데 그 사이 12행에서 `self.data.push(...)`가 같은 데이터를 가변으로 빌리려 합니다 — 시점이 겹칩니다.
+
+== 왜 이게 안전 문제인가
+
+`Vec::push`는 내부 배열이 가득 차 있으면 **더 큰 메모리 블록을 새로 할당하고, 기존 원소들을 복사한 뒤, 원래 메모리를 해제**할 수 있습니다. 만약 `f`가 그 원래 메모리를 가리키고 있었다면, `push` 직후 `f`는 이미 해제된 메모리를 가리키는 댕글링 참조가 됩니다 — 이후 `println!("{}", f)`는 **이미 해제된 메모리를 읽는** 것입니다. C에서 `realloc`이 메모리를 옮긴 뒤에도 예전 포인터를 계속 쓰는 것과 정확히 같은 종류의 버그입니다 — 대부분의 경우 눈에 띄는 문제 없이 넘어가다가, 어느 날 갑자기 이상한 값을 읽거나 크래시합니다. Rust는 이 가능성 자체를 실행하기 전에, 컴파일 타임에 차단합니다.
+
+== 고치기
+
+[source,rust]
+----
+fn push_copy_of_first(&mut self) {
+    let f = *self.first(); // 참조가 아니라 값을 복사해서 가진다 (i32는 Copy)
+    self.data.push(f);
+    println!("{}", f);
+}
+----
+
+[source]
+----
+$ rustc --edition 2024 borrow_demo_fixed.rs && ./borrow_demo_fixed
+1
+[1, 2, 3, 1]
+----
+
+`*self.first()`로 참조가 아니라 **값 자체**(`i32`는 복사 비용이 거의 없는 `Copy` 타입입니다)를 꺼내 `f`에 담으면, `f`는 더 이상 `self.data`를 참조하지 않습니다 — `self.data.push(f)`가 내부 메모리를 재할당해도 `f`는 영향받지 않습니다. 실행해보면 `1`(빌려온 첫 원소 값)과 `[1, 2, 3, 1]`(추가된 뒤의 배열)이 정확히 나옵니다.
+
+== 요약
+
+* 불변 참조가 살아있는 동안 같은 데이터를 가변으로 빌리려는 코드가 실제 `E0502` 에러로 거부되는 걸 재현했습니다.
+* 이 규칙이 막는 건 추상적인 문제가 아니라, `Vec`의 재할당이 기존 참조를 댕글링 참조로 만들 수 있다는 구체적인 메모리 안전 문제라는 걸 설명했습니다 — C의 `realloc` 이후 예전 포인터를 계속 쓰는 버그와 같은 종류입니다.
+* 참조 대신 값을 복사하는(`Copy` 타입이므로 저렴한) 방식으로 고쳐, 실제로 컴파일되고 올바르게 동작한다는 걸 확인했습니다.
+
+4부가 여기서 끝났습니다. 5부에서는 이 안전성을 병렬처리로 확장합니다 — 여러 스레드가 동시에 파싱하도록 만들면서, 데이터 경쟁이 왜 컴파일조차 안 되는지 봅니다.
+// end::body[]
