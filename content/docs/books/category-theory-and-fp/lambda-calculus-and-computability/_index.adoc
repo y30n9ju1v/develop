@@ -1,0 +1,101 @@
+---
+title: "람다 계산법과 계산 가능성"
+draft: false
+---
+
+함수를 만드는 것과 함수에 넣어보는 것, 이 두 가지 규칙만으로 숫자·참거짓·재귀까지 전부 만들어낼 수 있다는 람다 계산법을, 수식 없이 비유와 논증으로 풀어가는 책입니다. 왜 "계산이란 무엇인가"라는 질문이 생겼는지(힐베르트의 결정 문제)에서 시작해, 튜링 기계라는 완전히 다른 계산 모델과 나란히 놓고 둘이 같은 힘을 가진다는 것(처치-튜링 명제)과, 그럼에도 어떤 방법으로도 풀 수 없는 문제(정지 문제)가 존재한다는 것까지 다룹니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 계산이란 무엇인가]*
+
+*1부: 계산이란 무엇인가*
+
+[start=1]
+. *link:01-hilberts-challenge/[1장: 힐베르트의 도전]*
+. *link:02-the-two-rules-of-lambda-calculus/[2장: 람다 계산법의 두 가지 규칙]*
+
+*2부: 아무것도 없는 데서 모든 것 만들기*
+
+[start=3]
+. *link:03-numbers-as-functions/[3장: 숫자를 함수로 표현하기]*
+. *link:04-booleans-and-conditionals-as-functions/[4장: 참/거짓과 조건문을 함수로]*
+. *link:05-recursion-without-a-name/[5장: 이름 없이 재귀하기]*
+
+*3부: 계산 가능성의 경계*
+
+[start=6]
+. *link:06-turing-machines/[6장: 튜링 기계]*
+. *link:07-church-turing-thesis/[7장: 처치-튜링 명제]*
+. *link:08-the-halting-problem/[8장: 정지 문제]*
+
+*4부: 이 이론이 남긴 것*
+
+[start=9]
+. *link:09-functional-programming-is-lambda-calculus/[9장: 함수형 프로그래밍은 람다 계산법이다]*
+. *link:10-the-connection-to-godel/[10장: 괴델과의 접점]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+*부록*
+
+[start=12]
+. *link:12-appendix-python/[부록: 파이썬으로 직접 실행해보기]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-hilberts-challenge.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-the-two-rules-of-lambda-calculus.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-numbers-as-functions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-booleans-and-conditionals-as-functions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-recursion-without-a-name.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-turing-machines.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-church-turing-thesis.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-the-halting-problem.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-functional-programming-is-lambda-calculus.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-the-connection-to-godel.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-appendix-python.adoc[tag=body,leveloffset=+1]
