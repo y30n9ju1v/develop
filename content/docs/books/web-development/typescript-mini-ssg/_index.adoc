@@ -1,0 +1,93 @@
+---
+title: "미니 정적 사이트 생성기로 배우는 TypeScript"
+draft: false
+---
+
+Markdown 파일을 HTML로 바꾸는 미니 정적 사이트 생성기(SSG)를 TypeScript로 처음부터 지으며, `unknown`과 타입 가드·판별 유니온과 완전성 검사·제네릭과 제약·구조적 타이핑·유틸리티 타입·비동기 처리·Result 타입·클래스·템플릿 리터럴 타입까지 TypeScript의 핵심을 실전 코드와 실제 컴파일 에러로 익히는 책입니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 미니 정적 사이트 생성기로 배우는 TypeScript]*
+
+*1부: 기초*
+
+[start=1]
+. *link:01-project-setup-and-strict-mode/[1장: 프로젝트 셋업과 strict 모드]*
+. *link:02-first-build-without-types/[2장: 첫 번째 빌드 — 타입 없이]*
+
+*2부: 타입 시스템으로 콘텐츠 모델링하기*
+
+[start=3]
+. *link:03-unknown-and-type-guards/[3장: 프런트매터는 원래 unknown이다]*
+. *link:04-discriminated-unions/[4장: 판별 유니온으로 글과 페이지 구분하기]*
+. *link:05-generics-and-structural-typing/[5장: 제네릭, 제약, 구조적 타이핑]*
+
+*3부: 실전 기능 확장*
+
+[start=6]
+. *link:06-utility-types/[6장: 유틸리티 타입과 그 아래]*
+. *link:07-async-file-traversal/[7장: 파일 시스템 순회와 비동기 처리]*
+. *link:08-result-types/[8장: 에러를 값으로 다루기]*
+. *link:09-classes-and-plugins/[9장: 클래스 기반 플러그인 시스템]*
+. *link:10-template-literal-types/[10장: 템플릿 리터럴 타입으로 슬러그 표현하기]*
+
+*4부: 마무리*
+
+[start=11]
+. *link:11-putting-it-together/[11장: 종합 실전 — 사이트 빌드하기]*
+. *link:12-afterword/[맺음말]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-project-setup-and-strict-mode.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-first-build-without-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-unknown-and-type-guards.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-discriminated-unions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-generics-and-structural-typing.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-utility-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-async-file-traversal.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-result-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-classes-and-plugins.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-template-literal-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-putting-it-together.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-afterword.adoc[tag=body,leveloffset=+1]

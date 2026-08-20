@@ -1,0 +1,73 @@
+---
+title: "10장: 템플릿 리터럴 타입으로 슬러그 표현하기"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "template-literal-types", "book"]
+categories: ["books"]
+description: "슬러그가 항상 슬래시로 시작해야 한다는 규칙을 문자열 타입 대신 템플릿 리터럴 타입으로 표현하고, 규칙을 어긴 문자열이 실제로 컴파일 타임에 거부된다는 것과 출력 경로 변환이 실제로 동작한다는 걸 확인하는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-classes-and-plugins/[9장: 클래스 기반 플러그인 시스템] · 다음: link:../11-putting-it-together/[11장: 종합 실전 — 사이트 빌드하기]_
+
+'''
+
+이 SSG의 모든 콘텐츠는 ``slug``(URL 경로)를 갖습니다 — ``/posts/hello-world``, ``/about``처럼 항상 ``/``로 시작해야 합니다. 지금까지는 ``slug: string``이라고만 선언했는데, 이러면 ``"posts/hello-world"``(슬래시 없이)처럼 규칙을 어긴 문자열도 그냥 통과합니다.
+
+== 템플릿 리터럴 타입
+
+[source,typescript]
+----
+// src/types.ts
+export type Slug = `/${string}`;
+----
+
+이건 "``/``로 시작하고, 그 뒤에 아무 문자열이나 오는 문자열"이라는 타입입니다. JavaScript의 템플릿 리터럴 문법(pass:[`/${string}`])을 타입 자리에 그대로 쓴 것입니다 — TypeScript만의 독특한 기능으로, 다른 정적 타입 언어에는 이런 문법이 거의 없습니다.
+
+== 규칙을 어기면 실제로 막힌다
+
+[source,typescript]
+----
+type Slug = `/${string}`;
+const bad: Slug = "about"; // 슬래시로 시작하지 않음
+----
+
+[source]
+----
+$ npx tsc --strict --noEmit spike_template_literal.ts
+spike_template_literal.ts(2,7): error TS2322: Type '"about"' is not assignable to type '`/${string}`'.
+----
+
+단순히 ``string``이었다면 ``"about"``도 아무 문제 없이 통과했을 것입니다. pass:[`/${string}`] 타입 덕분에, 이 SSG 어디에서 슬러그를 만들든 슬래시를 빠뜨리면 **그 자리에서 바로** 컴파일 에러가 납니다 — 런타임에 URL이 깨진 걸 브라우저에서 발견하는 대신입니다.
+
+== 실전에서 쓰기: 슬러그를 파일 경로로
+
+[source,typescript]
+----
+// src/build.ts
+function outputPathFor(content: Content, outDir: string): string {
+  const relative = content.slug.slice(1); // 맨 앞 "/"를 뗀다
+  return path.join(outDir, relative, "index.html");
+}
+----
+
+[source]
+----
+$ node dist-js/slug_demo.js
+dist/posts/hello-world/index.html
+----
+
+``/posts/hello-world``라는 슬러그가 ``dist/posts/hello-world/index.html``이라는 실제 파일 경로로 정확히 바뀝니다. ``slug.slice(1)``이 안전한 이유도 ``Slug`` 타입 덕분입니다 — ``Slug``는 항상 ``/``로 시작한다고 타입이 보장하므로, 맨 앞 글자를 떼는 이 연산이 항상 올바르게 동작한다는 걸 (적어도 타입 수준에서는) 믿고 쓸 수 있습니다.
+
+== 이 타입이 완벽하지는 않다
+
+정직하게 짚어야 할 한계가 있습니다 — pass:[`/${string}`]은 "슬래시로 시작한다"만 보장하지, ``"//double-slash"``나 ``"/posts/../etc"``처럼 다른 방식으로 잘못된 문자열까지 걸러주지는 못합니다. 템플릿 리터럴 타입은 정규식만큼 정교한 검증을 하지 못합니다 — 이런 세부 규칙까지 강제하려면 3장에서 배운 런타임 검증(타입 가드)이 여전히 필요합니다. 템플릿 리터럴 타입은 "가장 흔한 실수(슬래시를 빠뜨리는 것)를 컴파일 타임에 막아주는 저렴한 안전장치"로 보는 게 정확합니다.
+
+== 요약
+
+* pass:[`/${string}`]이라는 템플릿 리터럴 타입으로 "슬래시로 시작해야 한다"는 규칙을 타입 시스템에 새겼습니다.
+* 규칙을 어긴 문자열(``"about"``)이 실제로 ``TS2322`` 에러로 거부된다는 걸 확인했습니다.
+* 이 타입을 이용해 슬러그를 실제 파일 경로로 안전하게 변환하는 함수가 정확히 동작한다는 것도 실행으로 확인했습니다 — 다만 슬래시 여부 이상의 정교한 검증은 여전히 런타임 타입 가드의 몫입니다.
+
+4부에서는 지금까지 지은 모든 조각을 이어 실제로 사이트를 빌드합니다.
+// end::body[]

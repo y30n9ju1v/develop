@@ -1,0 +1,106 @@
+---
+title: "4장: 판별 유니온으로 글과 페이지 구분하기"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "discriminated-union", "book"]
+categories: ["books"]
+description: "kind 필드로 PostContent와 PageContent를 구분하는 판별 유니온을 만들고, never를 이용한 switch의 완전성 검사가 새 종류를 빠뜨렸을 때 실제로 컴파일 에러를 낸다는 걸 확인하는 4장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../03-unknown-and-type-guards/[3장: 프런트매터는 원래 unknown이다] · 다음: link:../05-generics-and-structural-typing/[5장: 제네릭, 제약, 구조적 타이핑]_
+
+'''
+
+이 SSG는 "글"(`posts/`)과 "페이지"(`pages/`)를 다르게 렌더링해야 합니다 — 글은 제목을 `<article><h1>`로 감싸고, 페이지는 그냥 `<section>`으로 감쌉니다. 이 차이를 타입으로 표현합니다.
+
+== 타입: `kind`라는 판별자
+
+[source,typescript]
+----
+// src/types.ts
+export interface PostContent {
+  kind: "post";
+  slug: Slug;
+  frontmatter: Frontmatter;
+  body: string;
+}
+
+export interface PageContent {
+  kind: "page";
+  slug: Slug;
+  frontmatter: Frontmatter;
+  body: string;
+}
+
+export type Content = PostContent | PageContent;
+----
+
+`kind`는 그냥 `string`이 아니라 `"post"`/`"page"`라는 **리터럴 타입**입니다. `Content`는 이 둘의 합집합(유니온)이고, `kind` 필드가 "지금 손에 든 게 어느 쪽인지" 알려주는 판별자(discriminant) 역할을 합니다.
+
+== `switch`로 좁히기
+
+[source,typescript]
+----
+// src/content.ts
+export function renderContent(content: Content): string {
+  switch (content.kind) {
+    case "post":
+      return `<article><h1>${content.frontmatter.title}</h1>${content.body}</article>`;
+    case "page":
+      return `<section>${content.body}</section>`;
+    default: {
+      const exhaustiveCheck: never = content;
+      throw new Error(`처리하지 않은 kind: ${JSON.stringify(exhaustiveCheck)}`);
+    }
+  }
+}
+----
+
+`case "post":` 블록 안에서는 `content`의 타입이 자동으로 `PostContent`로 좁혀집니다 — `content.frontmatter.title`처럼 `PostContent`에만 있는 필드에 접근해도 안전합니다(사실 두 타입 다 같은 필드를 갖고 있지만, 콘텐츠 종류가 늘어나면 이 좁혀짐이 진가를 발휘합니다). `default` 분기의 `const exhaustiveCheck: never = content;`가 이 장의 핵심 트릭입니다.
+
+== 완전성 검사: 새 종류를 빠뜨리면 컴파일이 막는다
+
+`Content`에 `"redirect"`라는 세 번째 종류를 추가했는데, `renderContent`를 안 고쳤다고 해봅시다.
+
+[source,typescript]
+----
+type Content =
+  | { kind: "post"; title: string }
+  | { kind: "page"; title: string }
+  | { kind: "redirect"; to: string }; // 새로 추가
+
+function renderContent(content: Content): string {
+  switch (content.kind) {
+    case "post":
+      return `post: ${content.title}`;
+    case "page":
+      return `page: ${content.title}`;
+    default: {
+      const exhaustiveCheck: never = content; // redirect를 안 다뤘다
+      throw new Error(String(exhaustiveCheck));
+    }
+  }
+}
+----
+
+[source]
+----
+$ npx tsc --strict --noEmit spike_exhaustive.ts
+spike_exhaustive.ts(13,13): error TS2322: Type '{ kind: "redirect"; to: string; }' is not assignable to type 'never'.
+----
+
+`post`와 `page`를 `case`로 다 처리하고 나면, `switch`에 들어온 값이 `never`(어떤 값도 될 수 없는 타입)로 좁혀져야 정상입니다. 그런데 `redirect`를 안 다뤘으니 `default` 분기에 `redirect`가 그대로 남아있고, 그걸 `never` 타입 변수에 대입하려 하니 타입 에러가 납니다 — **런타임에 이 코드가 실행되기 전에**, 컴파일 시점에 "새 종류를 빠뜨렸다"는 걸 알려줍니다. 테스트를 안 짜도, 코드 리뷰에서 놓쳐도, 이 한 줄이 대신 잡아줍니다.
+
+== 왜 `enum` 대신 문자열 리터럴 유니온인가
+
+`kind: "post" | "page"`처럼 문자열 리터럴로 판별자를 만드는 대신, `enum Kind { Post, Page }`를 쓸 수도 있습니다. 이 책이 `enum`을 쓰지 않은 이유가 있습니다 — 문자열 리터럴 유니온은 별도의 런타임 표현이 없어서(컴파일하면 그냥 문자열입니다) `JSON.stringify(content)`의 결과가 사람이 읽기 좋고, 파일에서 읽은 문자열(`"post"`)과 직접 비교하기도 쉽습니다. `enum`은 별도의 런타임 객체를 만들어내고, 숫자 enum의 경우 특히 디버깅 중 "이 3이 무슨 뜻이지"라는 혼란을 줄 수 있습니다. TypeScript 커뮤니티에서도 리터럴 유니온을 더 권장하는 편입니다.
+
+== 요약
+
+* `kind: "post" | "page"`라는 리터럴 판별자로 `Content` 유니온을 만들고, `switch (content.kind)`의 각 `case` 안에서 타입이 자동으로 좁혀진다는 걸 확인했습니다.
+* `default` 분기에서 `never`에 대입하는 완전성 검사 패턴이, 새 콘텐츠 종류를 빠뜨렸을 때 실제로 컴파일 에러(`TS2322`)를 낸다는 걸 재현했습니다.
+* `enum` 대신 문자열 리터럴 유니온을 쓰면 런타임 표현이 단순해지고 디버깅이 쉬워집니다.
+
+다음 장에서는 "post든 page든 slug만 있으면 되는" 함수를 제네릭으로 짜면서, 제약과 구조적 타이핑을 다룹니다.
+// end::body[]

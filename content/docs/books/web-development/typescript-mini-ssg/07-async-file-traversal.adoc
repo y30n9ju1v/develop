@@ -1,0 +1,83 @@
+---
+title: "7장: 파일 시스템 순회와 비동기 처리"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "async", "book"]
+categories: ["books"]
+description: "여러 Markdown 파일을 순차로 읽는 대신 Promise.all로 동시에 읽도록 바꾸고, TypeScript가 Promise<Content>[]에서 Promise<Content[]>로 타입을 정확히 추론해준다는 것과 실측 속도 차이를 함께 확인하는 7장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-utility-types/[6장: 유틸리티 타입과 그 아래] · 다음: link:../08-result-types/[8장: 에러를 값으로 다루기]_
+
+'''
+
+`content/posts/`, `content/pages/` 디렉토리 안의 모든 `.md` 파일을 읽어야 합니다. 파일이 여러 개니, 하나씩 순서대로 기다릴지 동시에 읽을지가 성능에 영향을 줍니다.
+
+== 디렉토리 순회
+
+[source,typescript]
+----
+// src/build.ts
+import { readdir } from "node:fs/promises";
+import path from "node:path";
+import { readContentFile } from "./content.js";
+import type { Content } from "./types.js";
+
+async function readAllContent(dir: string, kind: Content["kind"]): Promise<Content[]> {
+  const files = await readdir(dir);
+  const mdFiles = files.filter((f) => f.endsWith(".md"));
+  return Promise.all(mdFiles.map((f) => readContentFile(path.join(dir, f), kind)));
+}
+----
+
+`Content["kind"]`라는 표기가 낯설 수 있습니다 — 4장에서 정의한 `Content` 유니온에서 `kind` 필드의 타입(`"post" | "page"`)만 뽑아낸 것입니다. 함수 시그니처에 `"post" | "page"`라고 다시 쓰는 대신, 원래 타입 정의를 그대로 참조하게 만들어서 나중에 `Content`의 `kind`가 바뀌어도 이 함수는 자동으로 맞춰집니다.
+
+== `Promise.all`이 타입을 어떻게 바꾸는가
+
+`mdFiles.map((f) => readContentFile(...))`의 결과 타입은 `Promise<Content>[]`(각 원소가 개별 프라미스인 배열)입니다. 이걸 `Promise.all`에 넘기면 `Promise<Content[]>`(모든 프라미스가 끝난 뒤의 배열 하나를 담은 프라미스 하나)로 바뀝니다 — TypeScript가 이 변환을 정확히 추론해주기 때문에, `readAllContent`의 반환 타입을 `Promise<Content[]>`라고 따로 손으로 맞춰줄 필요가 없습니다.
+
+== 순차 vs 동시: 실측
+
+이 차이가 실제로 얼마나 중요한지, 파일 읽기를 흉내 낸 지연 함수로 확인해봅니다.
+
+[source,typescript]
+----
+function delayedRead(name: string, ms: number): Promise<string> {
+  return new Promise((resolve) => setTimeout(() => resolve(`content of ${name}`), ms));
+}
+
+async function sequential(names: string[]): Promise<string[]> {
+  const results: string[] = [];
+  for (const name of names) {
+    results.push(await delayedRead(name, 100)); // 하나씩 기다린다
+  }
+  return results;
+}
+
+async function parallel(names: string[]): Promise<string[]> {
+  return Promise.all(names.map((name) => delayedRead(name, 100))); // 동시에 시작
+}
+----
+
+[source]
+----
+$ node dist-js/async_demo.js
+sequential: 307ms
+parallel: 103ms
+----
+
+파일 3개, 각각 100ms가 걸린다고 하면 순차로는 300ms 이상, 동시에 읽으면 100ms 조금 넘게 걸립니다 — 실측으로 3배 가까운 차이가 났습니다. `for...of` 안에서 `await`를 쓰면(순차 버전) 매번 이전 파일이 끝나길 기다린 뒤 다음 파일을 시작합니다. `Array.map`으로 프라미스를 전부 먼저 만들고(이 시점에 모든 `setTimeout`이 이미 걸립니다) `Promise.all`로 한꺼번에 기다리면, 실제로 동시에 진행됩니다.
+
+== 언제 순차가 필요한가
+
+모든 상황에서 `Promise.all`이 답은 아닙니다 — 이 SSG처럼 파일들이 서로 독립적일 때만 안전합니다. 만약 "이전 글의 결과가 다음 글 처리에 필요하다"처럼 순서나 이전 결과에 의존하는 작업이라면, 순차 처리(또는 `for await...of`)를 써야 합니다. "이 작업들이 서로를 필요로 하는가"를 먼저 따지는 게, 무조건 `Promise.all`을 쓰는 것보다 중요합니다.
+
+== 요약
+
+* `Promise.all(items.map(...))` 패턴으로 `Promise<T>[]`를 `Promise<T[]>`로 바꾸는 걸 TypeScript가 정확히 추론해준다는 걸 확인했습니다.
+* 지연을 흉내 낸 함수로, 순차 처리(307ms)와 동시 처리(103ms)의 실측 차이를 직접 쟀습니다.
+* `Promise.all`은 작업들이 서로 독립적일 때만 안전합니다 — 순서나 이전 결과에 의존한다면 순차 처리가 맞습니다.
+
+다음 장에서는 파일을 읽다가 실패할 수 있는 상황을, 예외 대신 값으로 다루는 Result 타입 패턴을 다룹니다.
+// end::body[]

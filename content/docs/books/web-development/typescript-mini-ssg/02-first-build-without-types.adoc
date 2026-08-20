@@ -1,0 +1,65 @@
+---
+title: "2장: 첫 번째 빌드 — 타입 없이"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "book"]
+categories: ["books"]
+description: "any로 프런트매터를 다루는 가장 단순한 버전을 먼저 짜고, 오타 하나가 컴파일러의 도움 없이 조용히 undefined로 새어나가는 걸 실제로 재현하며 왜 타입이 필요한지 체감하는 2장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-project-setup-and-strict-mode/[1장: 프로젝트 셋업과 strict 모드] · 다음: link:../03-unknown-and-type-guards/[3장: 프런트매터는 원래 unknown이다]_
+
+'''
+
+이 장은 일부러 `any`를 씁니다 — 왜 3장부터 타입을 제대로 다뤄야 하는지, 몸으로 겪어보기 위해서입니다.
+
+== 가장 단순한 버전
+
+[source,typescript]
+----
+import { readFile } from "node:fs/promises";
+
+function parseNaive(raw: string): any {
+  const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(raw);
+  const fmBlock = match![1]!;
+  const body = match![2]!;
+  const fm: any = {};
+  for (const line of fmBlock.split("\n")) {
+    const [key, ...rest] = line.split(":");
+    fm[key!.trim()] = rest.join(":").trim();
+  }
+  return { frontmatter: fm, body };
+}
+
+const raw = await readFile("content/posts/hello-world.md", "utf-8");
+const { frontmatter, body } = parseNaive(raw);
+console.log(`<h1>${frontmatter.titel}</h1>`); // 오타: title이 아니라 titel
+console.log(body.slice(0, 30));
+----
+
+`parseNaive`의 반환 타입이 `any`이므로, `frontmatter`도 `any`입니다 — `frontmatter.titel`처럼 존재하지 않는 속성에 접근해도 컴파일러가 아무 말도 하지 않습니다.
+
+== 실행 확인: 오타가 조용히 새어나간다
+
+[source]
+----
+$ npx tsc && node dist-js/naive.js
+<h1>undefined</h1>
+# 안녕하세요
+
+이건 **타입스크립트**로 만든 미니
+----
+
+`title`이 아니라 `titel`이라고 오타를 냈는데, 컴파일도 통과했고 실행도 에러 없이 끝났습니다 — 다만 결과 HTML의 제목이 `undefined`로 나옵니다. `any`는 "이 값에 대해 아무것도 확인하지 마세요"라는 뜻이라, `.titel`이든 `.tiiitle`이든 컴파일러 입장에선 전부 똑같이 유효합니다. 이런 버그는 테스트를 돌리거나(테스트도 안 짜면 못 잡습니다), 사람이 결과물을 직접 눈으로 봐야만 발견됩니다.
+
+== 이 장이 남긴 질문
+
+`any`를 쓰면 빨리 짤 수는 있지만, 정확히 이 지점 — **외부에서 들어온 데이터의 모양을 컴파일러가 전혀 확인해주지 않는 지점** — 에서 문제가 생깁니다. Markdown 파일의 프런트매터는 정확히 이런 "외부에서 들어온, 모양을 보장할 수 없는 데이터"입니다. 3장에서 이 문제를 `any`가 아니라 `unknown`과 타입 가드로 정면으로 풉니다.
+
+== 요약
+
+* `any`로 짠 프런트매터 파서는 빠르게 동작하는 것처럼 보이지만, 오타(`titel`)를 컴파일러가 전혀 잡아주지 않습니다.
+* 실행 결과 HTML에 `undefined`가 새어나가는 걸 실제로 재현해 확인했습니다 — 이런 버그는 사람이 결과물을 눈으로 확인해야만 발견됩니다.
+* 이 문제의 근본 원인은 "외부 데이터의 모양을 컴파일러가 확인할 수단이 없다"는 것이고, 3장에서 `unknown`과 타입 가드로 이 구멍을 막습니다.
+// end::body[]

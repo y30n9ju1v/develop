@@ -1,0 +1,116 @@
+---
+title: "9장: 클래스 기반 플러그인 시스템"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "classes", "book"]
+categories: ["books"]
+description: "인터페이스를 implements하는 추상 클래스로 플러그인 시스템을 만들고, private 필드가 실제로 클래스 밖에서의 접근을 막아준다는 것과 완성된 플러그인이 실제로 HTML을 바꾼다는 것을 함께 확인하는 9장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-result-types/[8장: 에러를 값으로 다루기] · 다음: link:../10-template-literal-types/[10장: 템플릿 리터럴 타입으로 슬러그 표현하기]_
+
+'''
+
+지금까지는 전부 함수와 인터페이스만으로 짰습니다. 이 SSG에 "빌드된 HTML을 후처리하는 플러그인"을 붙이려 하는데, 여러 플러그인을 등록하고 순서대로 적용하는 데는 상태를 가진 객체 — 클래스 — 가 자연스럽습니다.
+
+== 인터페이스와 추상 클래스
+
+[source,typescript]
+----
+// src/plugins.ts
+export interface Plugin {
+  readonly name: string;
+  transform(html: string): string;
+}
+
+export abstract class BasePlugin implements Plugin {
+  abstract readonly name: string;
+  abstract transformImpl(html: string): string;
+
+  transform(html: string): string {
+    const result = this.transformImpl(html);
+    return result;
+  }
+}
+----
+
+`Plugin`은 "이런 모양이어야 한다"는 계약(인터페이스)입니다. `BasePlugin`은 `implements Plugin`으로 그 계약을 지키겠다고 명시적으로 선언한 **추상 클래스**입니다 — `abstract`가 붙은 `name`과 `transformImpl`은 이 클래스 자체로는 구현이 없고, 상속하는 쪽이 반드시 채워야 합니다. `transform`은 공통 로직(지금은 단순하지만, 나중에 로깅이나 에러 처리를 여기 한 곳에 추가할 수 있습니다)을 미리 구현해뒀습니다.
+
+`readonly`가 붙은 `name`은 생성 이후 재할당할 수 없습니다 — 플러그인 이름이 실행 중에 바뀌는 건 어떤 상황에서도 원하는 동작이 아니므로, 컴파일러가 그걸 아예 막아줍니다.
+
+== 실제 플러그인 만들기
+
+[source,typescript]
+----
+export class UppercaseHeadingsPlugin extends BasePlugin {
+  readonly name = "uppercase-headings";
+  transformImpl(html: string): string {
+    return html.replace(/<h1>(.*?)<\/h1>/g, (_match, inner: string) => `<h1>${inner.toUpperCase()}</h1>`);
+  }
+}
+----
+
+`extends BasePlugin`으로 `abstract` 필드들을 채웁니다 — `name`과 `transformImpl`을 빠뜨리면 컴파일 에러가 납니다(4장의 완전성 검사와 비슷한 정신입니다, "계약을 다 지켰는가"를 컴파일 타임에 확인합니다).
+
+== `private`로 내부 상태 감추기
+
+[source,typescript]
+----
+export class PluginManager {
+  private plugins: Plugin[] = [];
+
+  register(plugin: Plugin): void {
+    this.plugins.push(plugin);
+  }
+
+  runAll(html: string): string {
+    return this.plugins.reduce((acc, plugin) => plugin.transform(acc), html);
+  }
+
+  get registeredNames(): string[] {
+    return this.plugins.map((p) => p.name);
+  }
+}
+----
+
+`plugins` 배열을 `private`로 선언했습니다 — 클래스 밖에서 직접 건드릴 수 없게 막는 것입니다. 실제로 시도해보면 막힙니다.
+
+[source,typescript]
+----
+class PluginManager {
+  private plugins: string[] = [];
+  register(name: string): void { this.plugins.push(name); }
+}
+
+const pm = new PluginManager();
+console.log(pm.plugins);
+----
+
+[source]
+----
+$ npx tsc --strict --noEmit spike_private.ts
+spike_private.ts(9,16): error TS2341: Property 'plugins' is private and only accessible within class 'PluginManager'.
+----
+
+`register()`라는 정해진 통로로만 플러그인을 추가할 수 있고, 목록을 읽고 싶으면 `registeredNames`라는 getter로만 가능합니다 — 내부 배열을 직접 노출하지 않으므로, 나중에 내부 구현(배열이 아니라 `Map`으로 바꾸는 등)을 바꿔도 밖에서 쓰는 코드는 전혀 영향받지 않습니다.
+
+== 실행 확인
+
+[source]
+----
+$ node dist-js/plugin_names_demo.js
+registered: [ 'uppercase-headings' ]
+<article><h1>HELLO WORLD</h1><p>body</p></article>
+----
+
+`registeredNames`로 등록된 플러그인 이름을 확인했고, `runAll`이 실제로 `<h1>` 안의 텍스트를 대문자로 바꿨습니다 — `hello world`가 `HELLO WORLD`로 바뀐 게 실제 출력에서 확인됩니다.
+
+== 요약
+
+* `implements`로 계약을 명시한 추상 클래스(`BasePlugin`)를 만들고, `abstract` 필드를 서브클래스가 반드시 채우게 강제했습니다.
+* `readonly`로 재할당을 막고, `private`로 내부 상태를 감춰서 정해진 통로(`register`, `registeredNames`)로만 접근하게 만들었습니다 — 실제로 `private` 필드에 접근을 시도해 `TS2341` 에러를 재현했습니다.
+* 완성된 플러그인이 실제로 HTML을 바꾼다는 걸(`hello world` → `HELLO WORLD`) 실행 결과로 확인했습니다.
+
+다음 장에서는 URL 슬러그의 모양 자체를 타입으로 표현하는 템플릿 리터럴 타입을 다룹니다.
+// end::body[]

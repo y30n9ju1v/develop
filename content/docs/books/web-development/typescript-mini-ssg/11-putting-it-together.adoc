@@ -1,0 +1,94 @@
+---
+title: "11장: 종합 실전 — 사이트 빌드하기"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "book"]
+categories: ["books"]
+description: "3~10장에서 지은 모든 조각(unknown 검증, 판별 유니온, 제네릭, 비동기 순회, Result 타입, 클래스 플러그인, 템플릿 리터럴 타입)을 하나의 build 함수로 이어, 실제 Markdown 글 두 편과 페이지 한 장을 진짜 HTML 사이트로 빌드하는 11장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-template-literal-types/[10장: 템플릿 리터럴 타입으로 슬러그 표현하기] · 다음: link:../12-afterword/[맺음말]_
+
+'''
+
+지금까지 조각조각 만든 걸 하나로 잇습니다 — 재구성 없이, 이미 검증한 함수들을 그대로 조립합니다.
+
+== 전체 빌드 함수
+
+[source,typescript]
+----
+// src/build.ts
+export async function build(contentDir: string, outDir: string): Promise<void> {
+  const posts = await readAllContent(path.join(contentDir, "posts"), "post");   // 7장
+  const pages = await readAllContent(path.join(contentDir, "pages"), "page");   // 7장
+  const all: Content[] = [...posts, ...pages];                                  // 4장의 Content 유니온
+
+  const plugins = new PluginManager();                                          // 9장
+  plugins.register(new UppercaseHeadingsPlugin());
+
+  for (const content of all) {
+    const html = plugins.runAll(renderContent(content));                       // 4장의 exhaustive switch
+    const outPath = outputPathFor(content, outDir);                            // 10장의 Slug 변환
+    await mkdir(path.dirname(outPath), { recursive: true });
+    await writeFile(outPath, html, "utf-8");
+    console.log(`written: ${outPath}`);
+  }
+
+  const indexHtml = renderList(posts, (p) => p.frontmatter.title);             // 5장의 제네릭
+  await mkdir(outDir, { recursive: true });
+  await writeFile(path.join(outDir, "index.html"), indexHtml, "utf-8");
+  console.log(`written: ${path.join(outDir, "index.html")}`);
+  console.log(`registered plugins: ${plugins.registeredNames.join(", ")}`);
+}
+----
+
+`readAllContent`(내부에서 3장의 `parseFrontmatter`, 즉 `unknown` + 타입 가드를 씁니다)가 파일을 읽고, `renderContent`가 4장의 판별 유니온으로 글/페이지를 구분해 렌더링하고, `plugins.runAll`이 9장의 클래스 기반 플러그인을 적용하고, `outputPathFor`가 10장의 `Slug` 타입을 실제 파일 경로로 바꾸고, `renderList`가 5장의 제네릭 함수로 목록 페이지를 만듭니다 — 8개 장에서 각각 검증한 조각들이 재작성 없이 그대로 맞물립니다.
+
+== 실행 확인
+
+Markdown 파일 세 개(글 두 편, 페이지 한 장)를 넣고 빌드했습니다.
+
+[source]
+----
+$ npx tsc && node dist-js/main.js
+written: dist/posts/hello-world/index.html
+written: dist/posts/second-post/index.html
+written: dist/about/index.html
+written: dist/index.html
+registered plugins: uppercase-headings
+----
+
+실제로 생성된 파일들을 열어봅니다.
+
+[source,html]
+----
+<!-- dist/index.html -->
+<ul><li><a href="/posts/hello-world">첫 번째 글</a></li><li><a href="/posts/second-post">두 번째 글</a></li></ul>
+----
+
+[source,html]
+----
+<!-- dist/posts/hello-world/index.html -->
+<article><h1>첫 번째 글</h1><h1>안녕하세요</h1>
+<p>이건 <strong>타입스크립트</strong>로 만든 미니 SSG의 <em>첫 번째</em> 글입니다.</p>
+<p><a href="/about">프로젝트 소개</a>를 확인해보세요.</p></article>
+----
+
+[source,html]
+----
+<!-- dist/about/index.html -->
+<section><h1>이 사이트에 대하여</h1>
+<p>TypeScript로 만든 미니 정적 사이트 생성기입니다.</p></section>
+----
+
+목록 페이지가 글 두 편을 정확히 링크했고, `hello-world` 글은 `<article>`로, `about` 페이지는 `<section>`으로 다르게 감싸졌습니다(4장) — 글 제목이 `<h1>`로 두 번 나온 건, 4장의 `renderContent`가 프런트매터 제목을 감싸는 `<h1>`을 붙이고 Markdown 본문의 `# 안녕하세요`도 별도로 `<h1>`이 되기 때문입니다. 실제 서비스라면 둘 중 하나만 남기도록 다듬어야겠지만, 이 책은 "타입 시스템이 어떻게 안전하게 조립을 도왔는가"에 집중하느라 이 세부 다듬기는 의도적으로 남겨둡니다.
+
+== 요약
+
+* 3~10장에서 따로 검증한 함수들(프런트매터 검증, 판별 유니온 렌더링, 제네릭 목록, 비동기 순회, 클래스 플러그인, 슬러그 변환)을 재작성 없이 그대로 이어 하나의 `build` 함수를 완성했습니다.
+* 실제 Markdown 글 두 편과 페이지 한 장을 진짜 HTML 파일로 빌드했고, 생성된 파일 내용을 직접 열어 확인했습니다.
+* 글 제목이 두 번 나오는 것처럼 다듬을 여지가 남아있다는 것도 감추지 않았습니다 — 이 책의 목표는 완성된 제품이 아니라, 타입 시스템이 조립 과정에서 실제로 한 일을 보여주는 것이었습니다.
+
+맺음말에서 이 책이 확인한 것과 다루지 않은 것을 정리합니다.
+// end::body[]

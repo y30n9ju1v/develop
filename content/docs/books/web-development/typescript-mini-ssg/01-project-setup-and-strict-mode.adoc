@@ -1,0 +1,89 @@
+---
+title: "1장: 프로젝트 셋업과 strict 모드"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "nodejs", "book"]
+categories: ["books"]
+description: "tsconfig.json의 strict 옵션이 undefined 버그를 실제로 컴파일 타임에 잡아준다는 것과, Node + TypeScript에서 ESM 모듈 시스템을 제대로 맞추는 법을 실제 컴파일 에러로 확인하는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-first-build-without-types/[2장: 첫 번째 빌드 — 타입 없이]_
+
+'''
+
+== 프로젝트 뼈대
+
+[source,bash]
+----
+mkdir tinyssg && cd tinyssg
+npm init -y
+npm install -D typescript @types/node
+----
+
+`package.json`에 `"type": "module"`을 추가합니다 — Node가 이 프로젝트의 `.js` 출력을 ESM(ECMAScript Modules)으로 해석하게 만듭니다. `tsconfig.json`은 이렇게 시작합니다.
+
+[source,json]
+----
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "outDir": "dist-js",
+    "rootDir": "src",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}
+----
+
+== 모듈 시스템: `NodeNext`와 `.js` 확장자
+
+TypeScript로 프로젝트를 처음 셋업할 때 가장 먼저 부딪히는 벽이 이겁니다 — `module`/`moduleResolution`을 `"NodeNext"`로 맞추면, Node의 ESM 규칙을 그대로 따라야 합니다. 그중 제일 낯선 규칙: **소스 파일이 `.ts`여도, `import` 구문에는 `.js` 확장자를 씁니다.**
+
+[source,typescript]
+----
+// src/build.ts
+import { readContentFile } from "./content.js"; // .ts가 아니라 .js
+----
+
+이상하게 보이지만 이유가 있습니다 — TypeScript는 컴파일 후에도 `import` 경로를 바꿔주지 않으므로, 실행 시점(Node가 `dist-js/build.js`를 읽을 때)에 실제로 존재할 파일명을 미리 적어두는 것입니다. `.ts`라고 적으면 컴파일은 되지만, `node dist-js/main.js`를 실행하는 순간 `Cannot find module './content.ts'` 에러가 납니다.
+
+`import type { Frontmatter } from "./types.js";`처럼 **타입만** 가져올 때는 `import type`을 씁니다 — 이건 컴파일 후 완전히 사라지는 import라서(런타임에 타입은 존재하지 않으니까요), 번들 크기에 전혀 영향을 주지 않고, "이 import는 값이 아니라 타입"이라는 걸 다른 개발자와 컴파일러 모두에게 명확히 알려줍니다.
+
+== `strict`가 실제로 잡아주는 것
+
+`strict: true`가 뭘 막아주는지 실제 코드로 확인해봅니다.
+
+[source,typescript]
+----
+function firstTag(tags?: string[]): string {
+  return tags[0];
+}
+----
+
+[source]
+----
+$ npx tsc --strict --noEmit spike_strict.ts
+spike_strict.ts(2,10): error TS18048: 'tags' is possibly 'undefined'.
+
+$ npx tsc --strict false --noEmit spike_strict.ts
+(에러 없음 — 컴파일 통과)
+----
+
+`strict`(정확히는 그 안에 포함된 `strictNullChecks`)가 없으면, `tags`가 `undefined`일 수 있는데도 `tags[0]`을 그냥 통과시킵니다 — 런타임에 `tags`가 안 넘어오면 `Cannot read properties of undefined`로 터집니다. `strict`를 켜면 컴파일 타임에 바로 잡힙니다 — "이 값이 없을 수도 있다는 걸 알고 코드를 짰는가"를 컴파일러가 대신 확인해주는 것입니다. 이 책은 처음부터 끝까지 `strict: true`를 전제로 씁니다.
+
+== 요약
+
+* `"type": "module"` + `tsconfig.json`의 `NodeNext` 설정으로 이 프로젝트는 ESM으로 동작합니다 — `import` 경로에 `.js` 확장자를 쓰고, 타입만 가져올 땐 `import type`을 씁니다.
+* `strict: true`가 없으면 통과됐을 `undefined` 버그가, `strict`를 켜면 컴파일 타임에 `TS18048` 에러로 실제로 잡힌다는 걸 확인했습니다.
+* 이 책의 나머지 모든 장은 이 `tsconfig.json`을 그대로 전제로 합니다.
+
+다음 장에서는 이 설정 위에서, 타입을 거의 안 쓰고 가장 단순한 버전의 빌드 스크립트부터 만들어봅니다.
+// end::body[]

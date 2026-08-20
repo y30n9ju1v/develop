@@ -1,0 +1,99 @@
+---
+title: "5장: 제네릭, 제약, 구조적 타이핑"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "generics", "structural-typing", "book"]
+categories: ["books"]
+description: "slug를 가진 것이라면 무엇이든 목록으로 만들어주는 제네릭 함수를 제약(extends)과 함께 짜고, TypeScript가 이름이 아니라 모양으로 타입을 판단하는 구조적 타이핑을 실제 컴파일 결과로 확인하는 5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../04-discriminated-unions/[4장: 판별 유니온으로 글과 페이지 구분하기] · 다음: link:../06-utility-types/[6장: 유틸리티 타입과 그 아래]_
+
+'''
+
+메인 페이지에는 글 목록이, 나중에는 태그 목록도 같은 모양(`<ul><li><a>...`)으로 렌더링해야 할 수 있습니다. "무엇을 넘기든 목록으로 만들어주는" 함수를 제네릭으로 짭니다.
+
+== 제약 없는 제네릭의 한계
+
+[source,typescript]
+----
+function renderList<T>(items: T[], renderItem: (item: T) => string): string {
+  return `<ul>${items.map((item) => `<li><a href="${item.slug}">...`).join("")}</ul>`;
+  //                                            ^^^^^^^^^^^ 컴파일 에러
+}
+----
+
+`T`가 뭐가 될지 전혀 모르는 상태에선, `item.slug`에 접근할 수 없습니다 — `T`는 문자열일 수도, 숫자일 수도 있으니까요. 제네릭만으로는 부족하고, "적어도 이런 모양은 갖춰야 한다"는 제약이 필요합니다.
+
+== 제약: `extends`
+
+[source,typescript]
+----
+// src/types.ts
+export interface HasSlug {
+  slug: Slug;
+}
+
+// src/template.ts
+export function renderList<T extends HasSlug>(items: T[], renderItem: (item: T) => string): string {
+  return `<ul>${items.map((item) => `<li><a href="${item.slug}">${renderItem(item)}</a></li>`).join("")}</ul>`;
+}
+----
+
+`<T extends HasSlug>`는 "`T`는 아무 타입이나 되지만, 최소한 `HasSlug`가 요구하는 `slug` 필드는 갖고 있어야 한다"는 뜻입니다. 이러면 함수 본문에서 `item.slug`에 안전하게 접근할 수 있으면서도, `T`가 정확히 `PostContent`인지 `PageContent`인지, 혹은 전혀 다른 타입인지는 신경 쓰지 않는 재사용 가능한 함수가 됩니다.
+
+`slug`가 없는 객체를 넘기면 실제로 막힙니다.
+
+[source,typescript]
+----
+interface HasSlug { slug: string }
+
+function renderList<T extends HasSlug>(items: T[]): string {
+  return items.map((i) => i.slug).join(",");
+}
+
+renderList([{ name: "no slug here" }]);
+----
+
+[source]
+----
+$ npx tsc --strict --noEmit spike_generic.ts
+spike_generic.ts(7,15): error TS2353: Object literal may only specify known properties, and 'name' does not exist in type 'HasSlug'.
+----
+
+== 구조적 타이핑: 이름이 아니라 모양
+
+여기서 TypeScript가 Java나 C# 같은 언어와 근본적으로 다른 지점이 드러납니다. `HasSlug`를 명시적으로 `implements`하지 않아도, **모양만 같으면** 그 타입으로 취급됩니다.
+
+[source,typescript]
+----
+interface HasSlug { slug: string }
+interface RoutableItem { slug: string } // 이름은 다르지만 모양은 완전히 같다
+
+function renderList(items: HasSlug[]): string {
+  return items.map((i) => i.slug).join(",");
+}
+
+const routable: RoutableItem[] = [{ slug: "/a" }, { slug: "/b" }];
+console.log(renderList(routable)); // RoutableItem을 HasSlug 자리에 그냥 넘긴다
+----
+
+[source]
+----
+$ npx tsc --strict --noEmit spike_structural.ts
+(에러 없음 — 컴파일 통과)
+----
+
+`RoutableItem`은 `HasSlug`와 아무 상속 관계도, `implements` 선언도 없습니다. 그런데도 `renderList(routable)`이 그냥 통과합니다 — TypeScript는 "이 값이 `HasSlug`라고 선언됐는가"가 아니라 "이 값이 `HasSlug`가 요구하는 필드를 실제로 갖고 있는가"만 봅니다. 이걸 **구조적 타이핑(structural typing)**이라고 부릅니다(반대는 명목적 타이핑, nominal typing — Java의 `implements`가 이쪽입니다).
+
+이게 왜 중요할까요 — 이 SSG의 `PostContent`, `PageContent`, 그리고 앞으로 추가될지 모르는 다른 콘텐츠 타입까지, `slug` 필드만 있으면 전부 `renderList`에 그대로 넘길 수 있습니다. 명시적으로 "나는 `HasSlug`를 구현합니다"라고 선언할 필요가 없습니다 — 이게 TypeScript에서 "덕 타이핑스러운" 코드가 자연스럽게 나오는 이유입니다. 다만 대가도 있습니다 — 의도치 않게 모양만 같은 전혀 다른 개념의 두 타입이 서로 호환돼버릴 수도 있다는 것입니다. `HasSlug`처럼 필드가 하나뿐인 좁은 인터페이스일수록 이 위험이 커집니다.
+
+== 요약
+
+* 제약 없는 제네릭(`<T>`)은 `T`의 속성에 안전하게 접근할 수 없습니다 — `<T extends HasSlug>`처럼 최소 요구 조건을 제약으로 명시해야 합니다.
+* 제약을 어기는 객체를 넘기면 실제로 `TS2353` 컴파일 에러가 난다는 걸 확인했습니다.
+* TypeScript는 구조적 타이핑을 씁니다 — `implements` 선언 없이도 모양만 같으면 호환됩니다. 이게 재사용성을 높여주지만, 의도치 않은 호환도 만들 수 있다는 걸 함께 기억해둘 만합니다.
+
+다음 장에서는 유틸리티 타입으로 설정 객체를 다루면서, 그 유틸리티 타입들이 실제로 어떻게 만들어지는지 들여다봅니다.
+// end::body[]

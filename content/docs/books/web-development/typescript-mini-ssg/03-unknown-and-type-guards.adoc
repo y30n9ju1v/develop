@@ -1,0 +1,114 @@
+---
+title: "3장: 프런트매터는 원래 unknown이다"
+date: 2026-08-19T00:00:00+09:00
+draft: false
+tags: ["typescript", "unknown", "type-guards", "book"]
+categories: ["books"]
+description: "any 대신 unknown으로 파서의 반환 타입을 정직하게 선언하고, 커스텀 타입 가드로 검증을 통과한 값만 Frontmatter로 좁히는 패턴을 실제 검증 실패 에러로 확인하며 2부를 여는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-first-build-without-types/[2장: 첫 번째 빌드 — 타입 없이] · 다음: link:../04-discriminated-unions/[4장: 판별 유니온으로 글과 페이지 구분하기]_
+
+'''
+
+2장의 문제는 `any`가 "이 값에 대해 아무것도 확인하지 마세요"라고 컴파일러에게 말해버린 것이었습니다. `unknown`은 정반대입니다 — "이 값이 뭔지 나도 모른다, 그러니 확인하기 전엔 아무것도 못 하게 막아라"라는 뜻입니다.
+
+== 타입
+
+먼저 프런트매터가 어떤 모양이어야 하는지 인터페이스로 선언합니다.
+
+[source,typescript]
+----
+// src/types.ts
+export interface Frontmatter {
+  title: string;
+  date: string;
+  tags?: string[];
+}
+----
+
+== 파서의 반환 타입을 `unknown`으로 못박기
+
+[source,typescript]
+----
+// src/frontmatter.ts
+export function parseFrontmatterBlock(raw: string): unknown {
+  const result: Record<string, unknown> = {};
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const idx = trimmed.indexOf(":");
+    if (idx === -1) continue;
+    const key = trimmed.slice(0, idx).trim();
+    const value = trimmed.slice(idx + 1).trim();
+    if (key === "tags") {
+      result[key] = value.split(",").map((t) => t.trim()).filter(Boolean);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+----
+
+`Record<string, unknown>`으로 만든 객체를 `unknown`으로 반환합니다 — 실제로는 이미 어느 정도 구조화된 객체지만, "이게 `Frontmatter` 모양이라고 아직 아무도 확인하지 않았다"는 사실을 타입에 정직하게 반영한 것입니다. 이 함수의 반환값을 `frontmatter.title`처럼 바로 쓰려고 하면, TypeScript가 막습니다 — `unknown`에는 어떤 속성 접근도 허용되지 않기 때문입니다.
+
+== 커스텀 타입 가드로 좁히기
+
+`unknown`을 실제로 쓸 수 있게 만드는 유일한 합법적 경로가 타입 가드입니다.
+
+[source,typescript]
+----
+export function isFrontmatter(x: unknown): x is Frontmatter {
+  if (typeof x !== "object" || x === null) return false;
+  const obj = x as Record<string, unknown>;
+  if (typeof obj.title !== "string") return false;
+  if (typeof obj.date !== "string") return false;
+  if (obj.tags !== undefined) {
+    if (!Array.isArray(obj.tags)) return false;
+    if (!obj.tags.every((t) => typeof t === "string")) return false;
+  }
+  return true;
+}
+
+export function parseFrontmatter(raw: string): Frontmatter {
+  const parsed = parseFrontmatterBlock(raw);
+  if (!isFrontmatter(parsed)) {
+    throw new Error(`유효하지 않은 프런트매터: ${JSON.stringify(parsed)}`);
+  }
+  return parsed; // 여기서는 이미 Frontmatter로 좁혀져 있다
+}
+----
+
+`x is Frontmatter`라는 반환 타입이 핵심입니다 — 이 함수가 `true`를 반환하면, 호출한 쪽에서는 그 이후 코드에서 `x`(정확히는 `parsed`)가 `Frontmatter`라고 컴파일러가 실제로 믿어줍니다. `isFrontmatter`가 `title`·`date`가 문자열인지, `tags`가 있다면 문자열 배열인지 전부 런타임에 확인한 뒤에만 이 믿음이 성립합니다 — 컴파일러는 이 함수 안의 로직이 정확하다고 **가정**할 뿐, 검증하지는 않습니다. 그래서 타입 가드 함수 자체는 특별히 꼼꼼하게 짜야 합니다.
+
+== 실행 확인: 검증에 실패하면 명확하게 터진다
+
+`title`만 있고 `date`가 없는 파일을 만들어 시도해봤습니다.
+
+[source]
+----
+---
+title: 제목만 있음
+---
+# 본문
+----
+
+[source]
+----
+$ node dist-js/main.js
+Error: 유효하지 않은 프런트매터: {"title":"제목만 있음"}
+    ...
+----
+
+2장의 `any` 버전은 이런 파일을 조용히 통과시키고 `undefined`를 흘렸습니다. `unknown` + 타입 가드 버전은 **명확한 에러 메시지와 함께 즉시 멈춥니다** — 잘못된 데이터가 뒤쪽 코드까지 흘러가지 않습니다.
+
+== 요약
+
+* 외부에서 들어온 데이터(이 경우 파일에서 파싱한 프런트매터)의 반환 타입은 `any`가 아니라 `unknown`으로 정직하게 선언해야 합니다.
+* `unknown`은 타입 가드(`x is T`)로 검증을 통과시키기 전까지 아무 속성 접근도 허용하지 않습니다 — 이게 "확인하기 전엔 못 쓴다"는 안전장치입니다.
+* 검증 실패를 실제로 재현해, 잘못된 프런트매터가 조용히 `undefined`로 새지 않고 명확한 에러로 멈춘다는 걸 확인했습니다.
+
+다음 장에서는 이렇게 검증된 콘텐츠를 "글"과 "페이지"라는 서로 다른 종류로 나누는 판별 유니온을 다룹니다.
+// end::body[]
