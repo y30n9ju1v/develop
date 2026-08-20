@@ -1,0 +1,68 @@
+---
+title: "3장: Result를 파이썬 예외로"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "pyo3", "error-handling", "book"]
+categories: ["books"]
+description: "riir-json-parser의 ParseError를 PyValueError로 매핑해, 잘못된 JSON을 파싱했을 때 파이썬에서 실제로 ValueError를 던지고 잡아내는 것까지 확인하는 3장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../02-converting-value-to-pyobject/[2장: Value를 파이썬 객체로 바꾸기] · 다음: link:../04-correctness-against-stdlib-json/[4장: 파이썬 표준 json과 정확성 비교하기]_
+
+'''
+
+`riir-json-parser` 4장에서 `Result<T, ParseError>`로 크래시 대신 값으로 실패를 전파했습니다. 파이썬에서는 실패를 값이 아니라 **예외**로 다루는 게 관례입니다 — `PyResult`가 이 두 세계를 잇습니다.
+
+== `PyResult`는 이미 익숙한 그 `Result`다
+
+[source,rust]
+----
+pub type PyResult<T> = Result<T, PyErr>;
+----
+
+`PyResult<T>`는 그냥 `Result<T, PyErr>`의 별명입니다 — `riir-json-parser` 4장에서 쓴 `?` 연산자가 여기서도 그대로 동작합니다. 우리 파서가 이미 `Result<Value, ParseError>`를 돌려주니, `ParseError`를 `PyErr`로 바꾸기만 하면 됩니다.
+
+[source,rust]
+----
+#[pyfunction]
+fn parse_json(py: Python<'_>, text: &str) -> PyResult<Py<PyAny>> {
+    match parser::parse(text) {
+        Ok(v) => value_to_py(py, &v),
+        Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "위치 {}: {}", e.pos, e.message
+        ))),
+    }
+}
+----
+
+`pyo3::exceptions::PyValueError::new_err(...)`가 파이썬의 `ValueError`에 해당하는 `PyErr`를 만듭니다 — `KeyError`, `TypeError`, `RuntimeError` 등 파이썬 표준 예외 대부분에 이런 타입이 있습니다. `parse_json`이 `Err(...)`를 돌려주면, PyO3가 이걸 자동으로 실제 파이썬 예외로 변환해서 던집니다 — Rust 쪽에서 `panic!`하거나 세그폴트를 내는 게 아니라, 파이썬이 이해하는 정상적인 예외 처리 흐름으로 이어집니다.
+
+== 실행 확인
+
+[source]
+----
+$ python -c "
+import riirjson
+try:
+    riirjson.parse_json('nul')
+except ValueError as e:
+    print('caught ValueError:', e)
+"
+caught ValueError: 위치 3: 입력이 예상보다 일찍 끝났습니다
+----
+
+파이썬의 평범한 `try`/`except ValueError`로 Rust 쪽 파싱 실패를 잡아냈습니다 — 에러 메시지(`위치 3: 입력이 예상보다 일찍 끝났습니다`)까지 `riir-json-parser` 4장에서 만든 그대로 전달됩니다. 파이썬을 쓰는 사람 입장에서는, 이 함수가 안에서 Rust로 구현됐다는 걸 전혀 몰라도 됩니다 — 다른 파이썬 함수가 `ValueError`를 던지는 것과 완전히 똑같이 다루면 됩니다.
+
+== 왜 이게 중요한가
+
+만약 Rust 쪽에서 에러를 파이썬 예외로 바꾸지 않고 그냥 `panic!`했다면 어떻게 될까요 — PyO3는 기본적으로 Rust의 패닉을 잡아서 파이썬 `PanicException`으로 바꿔주긴 하지만, 이건 "무슨 일이 있었는지" 정보가 훨씬 부실하고, 호출하는 파이썬 코드 입장에서는 구분하기 어려운 예외입니다. `Result`를 처음부터 끝까지 놓지 않고 `PyValueError`로 명시적으로 매핑한 덕분에, 파이썬 사용자는 이 라이브러리가 "잘못된 JSON을 주면 `ValueError`를 던진다"는 명확한 계약을 갖게 됩니다 — 파이썬 표준 `json.JSONDecodeError`(사실 `ValueError`의 서브클래스입니다)와도 자연스럽게 호환됩니다.
+
+== 요약
+
+* `PyResult<T>`가 사실 `Result<T, PyErr>`일 뿐이라, `riir-json-parser`에서 쓴 `?` 전파 패턴이 그대로 이어진다는 걸 확인했습니다.
+* `PyValueError::new_err(...)`로 Rust의 `ParseError`를 파이썬 `ValueError`로 명시적으로 매핑했습니다.
+* 파이썬의 평범한 `try`/`except ValueError`로 실제 예외를 잡아, 에러 메시지까지 그대로 전달된다는 걸 실행으로 확인했습니다.
+
+다음 장에서는 이 파서가 실제로 파이썬 표준 `json` 모듈과 같은 결과를 내는지 검증합니다.
+// end::body[]

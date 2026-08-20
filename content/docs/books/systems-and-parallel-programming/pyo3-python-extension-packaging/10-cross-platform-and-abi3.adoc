@@ -1,0 +1,65 @@
+---
+title: "10장: 여러 플랫폼과 abi3"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "python", "abi3", "packaging", "book"]
+categories: ["books"]
+description: "abi3-py39 기능을 켜서 CPython 버전마다 따로 빌드해야 했던 wheel을 파이썬 3.9 이상 전부가 함께 쓰는 wheel 하나로 줄이고 실제로 설치·실행까지 검증한 뒤, 운영체제/아키텍처별 빌드는 이 세션에서 검증하지 못했다는 것까지 정직하게 남기는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-installing-into-a-fresh-venv/[9장: 완전히 새로운 환경에 설치해보기] · 다음: link:../11-afterword/[맺음말]_
+
+'''
+
+8장에서 만든 wheel 파일 이름(`cp314-cp314-macosx_11_0_arm64`)은 CPython 3.14 하나에만 묶여 있었습니다 — 사용자가 3.12를 쓴다면 이 wheel은 설치조차 안 됩니다. 이 장에서 이 제약을 줄이는 법 하나(`abi3`)를 실제로 확인하고, 나머지(운영체제·아키텍처 조합)는 정직하게 범위 밖으로 남깁니다.
+
+== 왜 파이썬 버전마다 다시 빌드해야 하는가
+
+PyO3 확장 모듈은 기본적으로 각 CPython 버전의 내부 C API(`Python.h`)에 직접 맞춰 컴파일됩니다 — CPython 3.13과 3.14는 이 내부 API가 미묘하게 다를 수 있어서, 한쪽에서 빌드한 `.so`가 다른 쪽에서 안전하게 동작한다는 보장이 없습니다. 그래서 보통 지원하려는 파이썬 버전 개수만큼 wheel을 따로 빌드해야 합니다.
+
+== `abi3`: 안정된 부분집합 API만 쓰기
+
+CPython은 **Stable ABI**(`abi3`)라는, 여러 버전에 걸쳐 호환이 보장되는 C API의 부분집합을 제공합니다. PyO3도 이 부분집합만 쓰도록 컴파일하는 기능 플래그가 있습니다.
+
+[source,toml]
+----
+[dependencies]
+pyo3 = { version = "0.29.0", features = ["abi3-py39"] }
+----
+
+`abi3-py39`는 "파이썬 3.9의 Stable ABI를 최소 기준으로 쓰겠다"는 뜻입니다 — 이렇게 컴파일한 wheel 하나가 3.9 이상의 **모든** CPython 버전에서 동작합니다.
+
+== 실제로 다시 빌드해서 확인하기
+
+[source]
+----
+$ maturin build --release
+🔗 Found pyo3 bindings with abi3-py3.9 support
+📦 Built wheel for abi3 Python ≥ 3.9 to target/wheels/riirjson-0.1.0-cp39-abi3-macosx_11_0_arm64.whl
+----
+
+파일 이름이 `cp314-cp314-...`에서 **`cp39-abi3-...`**로 바뀌었습니다 — "CPython 3.9 이상, ABI3 호환"이라는 뜻입니다. 이 wheel을 새 가상환경(파이썬 3.14)에 다시 설치해봅니다.
+
+[source]
+----
+$ python3 -m venv abi3_venv
+$ abi3_venv/bin/pip install target/wheels/riirjson-0.1.0-cp39-abi3-macosx_11_0_arm64.whl
+$ abi3_venv/bin/python -c "import riirjson; print(riirjson.parse_json('[1,2,3]'))"
+[1.0, 2.0, 3.0]
+----
+
+3.14용으로 특정해서 빌드하지 않았는데도 정상 동작합니다 — 이 하나의 wheel이 3.9, 3.10, 3.11, ..., 3.14를 전부 커버합니다(이 세션에서는 3.14에서만 실제로 검증했지만, `abi3`의 계약 자체가 "이 범위의 모든 버전에서 동작을 보장한다"는 것입니다). 파이썬 버전 개수만큼 빌드하던 걸 하나로 줄인 셈입니다.
+
+== 이 장이 검증하지 못한 것
+
+`abi3`가 줄여준 건 "파이썬 버전"이라는 한 축뿐입니다 — 운영체제(Linux/macOS/Windows)와 CPU 아키텍처(x86_64/arm64)는 여전히 각각 따로 빌드해야 합니다(파일 이름의 `macosx_11_0_arm64` 부분이 그 조합입니다). 이 세션은 macOS/arm64 환경 하나에서만 실행되고 있어서, 다른 운영체제나 아키텍처용 wheel을 실제로 빌드·검증하지 못했습니다 — 실전에서는 이 조합의 수만큼 wheel을 만들어야 하고, 이걸 자동화하는 게 보통 GitHub Actions의 다중 플랫폼 매트릭스 빌드(`maturin-action` 같은 공식 도구가 있습니다)입니다. 이 책은 그 자동화까지는 다루지 않습니다.
+
+== 요약
+
+* PyO3 확장 모듈이 기본적으로 파이썬 버전마다 따로 빌드해야 하는 이유(내부 C API가 버전마다 다를 수 있음)를 짚었습니다.
+* `abi3-py39` 기능으로 다시 빌드해서 wheel 파일명이 `cp314-cp314`에서 `cp39-abi3`로 바뀌는 걸 실제로 확인했고, 그 wheel이 실제로 설치·실행된다는 것도 검증했습니다.
+* 운영체제·아키텍처별 빌드는 이 세션(macOS/arm64 하나)에서 검증할 수 없었다는 것을 정직하게 남기고, 실전에서는 CI의 다중 플랫폼 매트릭스 빌드가 필요하다는 것만 짚고 넘어갑니다.
+
+4부가 여기서 끝났습니다. 맺음말에서 이 책 전체가 확인한 것을 정리합니다.
+// end::body[]

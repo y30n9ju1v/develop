@@ -1,0 +1,116 @@
+---
+title: "1장: PyO3와 maturin 첫걸음"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "pyo3", "maturin", "book"]
+categories: ["books"]
+description: "maturin new로 PyO3 확장 모듈 프로젝트를 만들고, maturin develop으로 가상환경에 설치한 뒤 파이썬에서 실제로 import해서 Rust 함수를 호출하는 것까지 처음부터 끝까지 확인하는 1장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-converting-value-to-pyobject/[2장: Value를 파이썬 객체로 바꾸기]_
+
+'''
+
+== 프로젝트 만들기
+
+[source,bash]
+----
+python3 -m venv venv
+venv/bin/pip install maturin
+venv/bin/maturin new --bindings pyo3 riirjson
+----
+
+`maturin new`가 뼈대를 만들어줍니다.
+
+[source,toml]
+----
+# Cargo.toml
+[package]
+name = "riirjson"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "riirjson"
+crate-type = ["cdylib"]   # 파이썬이 로드할 수 있는 동적 라이브러리
+
+[dependencies]
+pyo3 = "0.29.0"
+----
+
+[source,toml]
+----
+# pyproject.toml
+[build-system]
+requires = ["maturin>=1.14,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "riirjson"
+requires-python = ">=3.8"
+dynamic = ["version"]
+----
+
+`crate-type = ["cdylib"]`가 핵심입니다 — 일반 Rust 라이브러리(`rlib`)가 아니라, C 언어 호출 규약을 따르는 동적 라이브러리(`.so`/`.dylib`/`.pyd`)로 컴파일하라는 뜻입니다. 파이썬 인터프리터가 이 파일을 직접 로드해서 그 안의 함수를 호출합니다.
+
+== 첫 함수 노출하기
+
+[source,rust]
+----
+// src/lib.rs
+use pyo3::prelude::*;
+
+#[pyfunction]
+fn sum_as_string(a: usize, b: usize) -> PyResult<String> {
+    Ok((a + b).to_string())
+}
+
+#[pymodule]
+fn riirjson(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
+    Ok(())
+}
+----
+
+`#[pyfunction]`이 이 함수를 파이썬에서 호출 가능하게 만드는 매크로이고, `#[pymodule]`이 이 함수들을 묶어 파이썬의 `import riirjson`이 실제로 찾을 모듈을 정의합니다.
+
+== 빌드하고 설치하기
+
+[source,bash]
+----
+$ source venv/bin/activate
+$ maturin develop
+----
+
+[source]
+----
+🐍 Found CPython 3.14 at venv/bin/python
+🔗 Found pyo3 bindings
+   Compiling riirjson v0.1.0 (...)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.36s
+📦 Built wheel for CPython 3.14 to /var/folders/.../riirjson-0.1.0-cp314-cp314-macosx_11_0_arm64.whl
+✏️ Setting installed package as editable
+🛠 Installed riirjson-0.1.0
+----
+
+`maturin develop`이 Rust 코드를 컴파일하고, 그 결과를 지금 활성화된 가상환경에 바로 설치합니다 — `pip install -e .`의 Rust 확장 모듈 버전이라고 생각하면 됩니다.
+
+== 실행 확인
+
+[source]
+----
+$ python -c "import riirjson; print(riirjson.sum_as_string(2, 3))"
+5
+----
+
+파이썬 프로세스가 실제로 Rust로 컴파일된 함수를 호출해서 `5`를 돌려받았습니다. 여기서 눈여겨볼 것 — 파이썬 쪽에서 넘긴 `2`, `3`(파이썬 `int`)이 Rust의 `usize`로, Rust가 돌려준 `String`이 파이썬 `str`로 각각 자동 변환됐습니다. 이 자동 변환이 어떻게 일어나는지, 그리고 우리 파서의 결과처럼 복잡한 중첩 구조에서는 어떻게 되는지가 다음 장의 주제입니다.
+
+== 요약
+
+* `crate-type = ["cdylib"]`로 파이썬이 로드 가능한 동적 라이브러리를 만들고, `#[pyfunction]`/`#[pymodule]`로 Rust 함수를 파이썬에 노출했습니다.
+* `maturin develop`으로 빌드와 가상환경 설치를 한 번에 끝내고, 파이썬에서 실제로 `import`해서 호출하는 것까지 확인했습니다.
+* 파이썬 `int`/`str`과 Rust `usize`/`String` 사이의 자동 변환이 이미 일어나고 있다는 것도 짚었습니다 — 다음 장에서 이 변환을 우리 파서의 복잡한 타입에 직접 적용합니다.
+
+다음 장에서는 `riir-json-parser`의 `Value` enum을 파이썬 `dict`/`list`로 바꾸는 변환기를 짭니다.
+// end::body[]

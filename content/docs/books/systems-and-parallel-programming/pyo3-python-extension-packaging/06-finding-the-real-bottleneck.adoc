@@ -1,0 +1,69 @@
+---
+title: "6장: 진짜 병목 찾기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "pyo3", "profiling", "book"]
+categories: ["books"]
+description: "파이썬 객체를 전혀 만들지 않고 개수만 세는 함수를 하나 더 만들어 파싱 단계와 변환 단계를 실측으로 분리하고, riir-json-parser 10장이 파일 읽기에서 그랬던 것처럼 이번 병목도 파싱이 아니라 다른 곳(PyObject 생성)에 있다는 걸 찾아내는 6장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../05-the-first-benchmark/[5장: 첫 벤치마크] · 다음: link:../07-the-gil/[7장: GIL을 실제로 다루기]_
+
+'''
+
+`riir-json-parser` 10장에서 C++23이 느렸던 진짜 이유가 파서가 아니라 파일 읽기였던 것처럼, 이번에도 추측 대신 프로그램을 쪼개서 잽니다.
+
+== 파이썬 객체를 안 만드는 버전
+
+`parse_json`은 두 단계로 이루어집니다 — Rust 안에서 `Value` 트리를 만드는 "파싱"과, 그 트리를 파이썬 `dict`/`list`로 바꾸는 "변환"(2장의 `value_to_py`). 변환 단계를 건너뛰고 배열 길이만 세는 함수를 하나 더 만들었습니다.
+
+[source,rust]
+----
+#[pyfunction]
+fn parse_only_count(text: &str) -> PyResult<usize> {
+    match parser::parse(text) {
+        Ok(Value::Array(items)) => Ok(items.len()),  // PyObject를 하나도 안 만든다
+        Ok(_) => Ok(0),
+        Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!("위치 {}: {}", e.pos, e.message))),
+    }
+}
+----
+
+`parse_only_count`는 `Value` 트리를 만들긴 하지만, 그걸 파이썬 `dict`/`list`로 바꾸는 `value_to_py`를 아예 호출하지 않습니다 — 돌려주는 건 정수 하나(`usize`)뿐입니다.
+
+== 세 갈래로 나눠 재기
+
+[source,python]
+----
+py_time = timeit.timeit(lambda: json.loads(text), number=n) / n * 1000
+rust_full = timeit.timeit(lambda: riirjson.parse_json(text), number=n) / n * 1000
+rust_parse_only = timeit.timeit(lambda: riirjson.parse_only_count(text), number=n) / n * 1000
+----
+
+[source]
+----
+$ python bench2.py
+python json.loads (파싱+객체변환): 20.022ms
+riirjson.parse_json (파싱+PyObject변환): 23.817ms
+riirjson.parse_only_count (Rust 파싱만, PyObject 변환 없음): 9.884ms
+----
+
+**Rust 파싱만 떼어놓고 보면 9.9ms — 파이썬 `json.loads`(20.0ms)의 절반도 안 됩니다.** `riir-json-parser`가 보여준 Rust의 파싱 속도가 파이썬 경계를 넘어와서도 그대로 살아있었다는 뜻입니다. 그런데 `value_to_py`로 파이썬 객체까지 만들면 23.8ms로 뛰어오릅니다 — **변환 단계 혼자서만 약 14ms(23.8 - 9.9)**를 씁니다. 5장에서 본 "패배"의 정체가 바로 이 변환 비용이었습니다.
+
+== 왜 객체 변환이 이렇게 비쌀까
+
+5만 개의 객체, 각 객체마다 필드 4~5개 — `value_to_py`는 이 각각에 대해 `PyDict::new`, `set_item`, 숫자/문자열 하나하나의 `into_pyobject` 호출을 전부 거칩니다. 이 호출 하나하나가 파이썬 객체 하나를 힙에 새로 할당하고, 참조 카운트를 초기화하고, GIL이 걸린 상태에서 파이썬 인터프리터의 내부 자료구조에 등록되는 과정입니다 — Rust 쪽에서 `Vec`에 값을 채워 넣는 것과는 비교가 안 되게 무겁습니다. 반면 파이썬 표준 `json`의 C 가속 모듈은 CPython 인터프리터 내부 API에 훨씬 가깝게 최적화되어 있어서, 이 객체 생성 비용 자체가 우리보다 낮을 가능성이 높습니다 — 이건 이 책이 명령어 수준까지 확정하지는 않은, 그럴듯한 설명으로 남겨둡니다.
+
+== 이 장이 남긴 교훈
+
+`riir-json-parser`가 가르친 "파일 읽기처럼 의심하지 않은 곳에 병목이 있을 수 있다"는 교훈이, 언어 경계를 넘는 순간 새로운 얼굴로 다시 나타났습니다 — 이번엔 **"파싱 로직 자체가 아니라, 그 결과를 다른 언어의 객체로 옮기는 비용"**이었습니다. PyO3나 다른 FFI 바인딩으로 무언가를 감쌀 때, "빠른 코어 언어로 짰으니 빠를 것이다"라는 가정은 **변환 비용을 포함하지 않은** 가정입니다 — 코어 로직의 속도와, 그걸 호출하는 언어까지 포함한 전체 파이프라인의 속도는 별개로 측정해야 합니다.
+
+== 요약
+
+* `value_to_py`를 건너뛰고 개수만 세는 `parse_only_count`를 만들어, 파싱(9.9ms)과 파이썬 객체 변환(약 14ms)의 비용을 실측으로 분리했습니다.
+* 5장에서 본 "파이썬 표준 json에게 졌다"는 결과가, 사실은 파싱이 아니라 파이썬 객체를 만드는 비용 때문이었다는 걸 확인했습니다.
+* "코어 로직이 빠르다"와 "그걸 호출하는 전체 파이프라인이 빠르다"는 다른 주장이라는 게, 이 책이 실측으로 확인한 핵심 교훈입니다.
+
+다음 장에서는 이 변환 단계에서 GIL이 실제로 어떻게 관여하는지, 그리고 파싱 단계만이라도 GIL을 놓아 병렬성을 얻을 수 있는지 확인합니다.
+// end::body[]

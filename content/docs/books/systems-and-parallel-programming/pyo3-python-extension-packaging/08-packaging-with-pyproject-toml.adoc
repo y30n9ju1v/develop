@@ -1,0 +1,88 @@
+---
+title: "8장: pyproject.toml로 패키징 준비하기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "python", "packaging", "maturin", "book"]
+categories: ["books"]
+description: "지금까지 maturin develop으로만 로컬 가상환경에 설치했던 확장 모듈을, maturin build --release로 실제 배포 가능한 wheel 파일로 빌드하는 8장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../07-the-gil/[7장: GIL을 실제로 다루기] · 다음: link:../09-installing-into-a-fresh-venv/[9장: 완전히 새로운 환경에 설치해보기]_
+
+'''
+
+지금까지 `maturin develop`으로 코드를 고칠 때마다 지금 활성화된 가상환경에 바로 설치했습니다 — 개발할 때는 편하지만, 이건 "배포"가 아닙니다. 이 장에서는 다른 컴퓨터(또는 다른 가상환경)에 그냥 옮겨 설치할 수 있는 **wheel** 파일을 만듭니다.
+
+== `pyproject.toml` 다듬기
+
+1장에서 `maturin new`가 만들어준 `pyproject.toml`은 최소한이었습니다. 배포를 염두에 둔다면 몇 가지를 채우는 게 좋습니다.
+
+[source,toml]
+----
+[build-system]
+requires = ["maturin>=1.14,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "riirjson"
+version = "0.1.0"
+description = "cJSON을 기준 삼아 지은 Rust JSON 파서의 파이썬 바인딩"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[tool.maturin]
+module-name = "riirjson"
+----
+
+`[project]`의 `name`, `version`, `description`이 파이썬 패키지 색인(`pip list`, `pip show` 등)에 그대로 나타납니다. `dynamic = ["version"]`(1장의 기본값)은 `Cargo.toml`의 버전을 그대로 읽어오게 하는 옵션인데, 여기서는 명시적으로 `version = "0.1.0"`을 적어 두 파일이 서로 다른 버전을 가리키는 실수를 줄였습니다.
+
+== `maturin build`로 wheel 만들기
+
+[source,bash]
+----
+$ maturin build --release
+----
+
+[source]
+----
+🐍 Found CPython 3.14 at venv/bin/python
+🔗 Found pyo3 bindings
+💻 Using `MACOSX_DEPLOYMENT_TARGET=11.0` for aarch64-apple-darwin by default
+    Finished `release` profile [optimized] target(s) in 0.00s
+📦 Built wheel for CPython 3.14 to target/wheels/riirjson-0.1.0-cp314-cp314-macosx_11_0_arm64.whl
+----
+
+`maturin develop`과 다르게, `maturin build`는 지금 환경에 설치하지 않고 **`.whl` 파일 하나를 결과물로 남깁니다** — 이 파일 하나가 이제 "배포 가능한 산출물"입니다.
+
+== 파일 이름이 알려주는 것
+
+`riirjson-0.1.0-cp314-cp314-macosx_11_0_arm64.whl`이라는 이름 자체가 이 wheel이 어떤 환경에서 동작하는지 정확히 담고 있습니다.
+
+[cols="1,2"]
+|===
+|조각 |의미
+
+|`riirjson-0.1.0`
+|패키지 이름과 버전
+
+|`cp314-cp314`
+|CPython 3.14용으로 빌드됨(ABI 태그까지 CPython 3.14 전용)
+
+|`macosx_11_0_arm64`
+|macOS 11.0 이상, Apple Silicon(`arm64`) 전용
+|===
+
+이 wheel은 **이 조합(CPython 3.14 + macOS + arm64)이 아닌 환경에는 설치되지 않습니다** — `pip`이 설치 시점에 현재 환경과 wheel 파일명의 태그를 비교해서 맞지 않으면 거부합니다. 10장에서 이 제약을 넓히는 법(`abi3`, 여러 플랫폼 빌드)을 다룹니다.
+
+== 요약
+
+* `pyproject.toml`에 `name`/`version`/`description`을 명시해, `maturin develop`(개발용 즉시 설치)과 구분되는 `maturin build`(배포용 산출물 생성)의 결과물을 준비했습니다.
+* `maturin build --release`로 실제 `.whl` 파일을 만들었습니다 — 지금 환경에 설치하는 대신, 파일 하나로 결과물이 남는다는 게 `develop`과의 차이입니다.
+* wheel 파일 이름(`cp314-cp314-macosx_11_0_arm64`)이 이 파일이 정확히 어떤 파이썬 버전·운영체제·아키텍처에서만 동작하는지 스스로 밝히고 있다는 것도 확인했습니다.
+
+다음 장에서는 이 wheel 파일이 정말로 독립적으로 동작하는지, 지금까지 한 번도 Rust 코드를 컴파일하지 않은 완전히 새로운 환경에 설치해서 확인합니다.
+// end::body[]

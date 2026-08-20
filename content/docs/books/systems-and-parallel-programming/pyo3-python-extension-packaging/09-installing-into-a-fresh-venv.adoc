@@ -1,0 +1,62 @@
+---
+title: "9장: 완전히 새로운 환경에 설치해보기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "python", "packaging", "book"]
+categories: ["books"]
+description: "8장에서 만든 wheel 파일을, Rust 컴파일러도 cargo도 전혀 없는 완전히 새로운 가상환경에 pip install로 설치해서 진짜 독립적으로 동작하는지 실제로 검증하는 9장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../08-packaging-with-pyproject-toml/[8장: pyproject.toml로 패키징 준비하기] · 다음: link:../10-cross-platform-and-abi3/[10장: 여러 플랫폼과 abi3]_
+
+'''
+
+지금까지 모든 검증은 Rust 컴파일러와 `cargo`가 이미 깔린 환경에서 이뤄졌습니다 — `maturin develop`도 결국 그 자리에서 컴파일했습니다. 진짜 "패키징이 됐다"고 말하려면, **컴파일 도구가 하나도 없는 환경**에서도 설치되고 동작해야 합니다.
+
+== 새 가상환경 만들기
+
+[source,bash]
+----
+$ python3 -m venv fresh_venv
+$ fresh_venv/bin/pip install target/wheels/riirjson-0.1.0-cp314-cp314-macosx_11_0_arm64.whl
+----
+
+[source]
+----
+Processing ./target/wheels/riirjson-0.1.0-cp314-cp314-macosx_11_0_arm64.whl
+Installing collected packages: riirjson
+Successfully installed riirjson-0.1.0
+----
+
+`pip install`이 몇 초 만에 끝납니다 — `Cargo.toml`도, `src/`도, `cargo`도 이 새 가상환경엔 전혀 없습니다. `.whl` 안에는 이미 컴파일된 `.so`(또는 macOS의 `.dylib`) 파일과 파이썬이 이해하는 메타데이터만 들어있습니다.
+
+== 실행 확인
+
+[source]
+----
+$ fresh_venv/bin/python -c "
+import riirjson
+print(riirjson.parse_json('{\"hello\": \"world\", \"n\": 42}'))
+"
+{'hello': 'world', 'n': 42.0}
+----
+
+Rust 소스 코드가 전혀 없는 환경에서, `import riirjson`이 성공하고 실제로 JSON을 파싱했습니다 — 이 wheel 파일 하나가 이 프로젝트의 완전한 배포 단위라는 게 실제로 증명된 것입니다. 이 파이썬 프로세스 입장에서는 `riirjson`이 Rust로 만들어졌다는 사실 자체를 알 방법이 없습니다 — `numpy`나 다른 어떤 순수 파이썬 라이브러리를 쓰는 것과 똑같은 경험입니다.
+
+== 이 wheel을 실제로 배포하려면
+
+로컬 파일 경로 대신 실제로 다른 사람이 설치하게 하려면 몇 가지 선택지가 있습니다.
+
+* **사내/팀 배포**: 이 `.whl` 파일 자체를 공유하거나, 사설 패키지 저장소(예: 사내 PyPI 미러)에 올립니다.
+* **PyPI 공개 배포**: `twine upload target/wheels/*.whl`(또는 `maturin publish`)로 공개 PyPI에 올릴 수 있습니다 — 다만 이건 되돌리기 어려운 공개 행위이므로, 실제로 공개 배포하기 전에는 신중하게 확인해야 합니다. 이 책은 로컬 검증까지만 다루고, 실제 업로드는 다루지 않습니다.
+* **CI에서 자동 빌드**: GitHub Actions 같은 CI에서 여러 플랫폼용 wheel을 자동으로 빌드하는 게 실전에서는 훨씬 흔합니다 — 10장에서 왜 "여러 플랫폼용"이 필요한지 다룹니다.
+
+== 요약
+
+* 8장에서 만든 wheel 파일을, Rust 컴파일러가 전혀 없는 새 가상환경에 `pip install`로 설치했습니다.
+* 그 환경에서 실제로 `import riirjson`이 동작하고 JSON을 정확히 파싱한다는 걸 확인했습니다 — wheel 파일 하나가 완전한 배포 단위라는 게 실제로 증명됐습니다.
+* 실제 공개 배포(PyPI 업로드)는 되돌리기 어려운 행위라 이 책은 로컬 검증까지만 다루고, 그 이상은 각자의 판단에 맡깁니다.
+
+다음 장에서는 이 wheel이 macOS·arm64·CPython 3.14라는 좁은 조합에만 묶여 있다는 8장의 관찰을 넓혀서, 여러 플랫폼을 어떻게 지원하는지 다룹니다.
+// end::body[]

@@ -1,0 +1,89 @@
+---
+title: "7장: GIL을 실제로 다루기"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "pyo3", "gil", "concurrency", "book"]
+categories: ["books"]
+description: "Python::detach로 순수 Rust 파싱 구간에서만 GIL을 놓아, 여러 파이썬 스레드가 진짜로 동시에 파싱을 돌릴 수 있게 만들고 4스레드 실측으로 0.99배(GIL 유지)와 3.14배(GIL 해제)의 극명한 차이를 확인하는 7장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-finding-the-real-bottleneck/[6장: 진짜 병목 찾기] · 다음: link:../08-packaging-with-pyproject-toml/[8장: pyproject.toml로 패키징 준비하기]_
+
+'''
+
+`riir-json-parser` 12장에서 `rayon`으로 여러 Rust 스레드를 안전하게 병렬로 돌렸습니다. 그런데 파이썬 쪽에서 이 함수를 여러 스레드로 동시에 호출하면 어떻게 될까요 — 파이썬에는 **GIL(Global Interpreter Lock)**이라는, 이 책이 아직 다루지 않은 변수가 있습니다.
+
+== GIL: 한 번에 파이썬 바이트코드는 하나만
+
+CPython 인터프리터는 한 프로세스 안에 스레드가 몇 개든, **한 번에 하나의 스레드만 파이썬 바이트코드를 실행**하도록 강제합니다 — 이게 GIL입니다. PyO3로 만든 함수도 기본적으로 호출되는 동안 이 GIL을 계속 쥐고 있습니다 — 즉 우리 `parse_only_count`가 파이썬에서 불려도, 다른 파이썬 스레드는 그 함수가 끝날 때까지 기다려야 합니다. 여러 스레드로 나눠 불러도 실제로는 여전히 순차 실행인 것입니다.
+
+== `Python::detach`로 GIL 놓기
+
+Rust 쪽 코드가 파이썬 객체를 전혀 건드리지 않는 구간이라면, 그 구간만이라도 GIL을 놓아줄 수 있습니다.
+
+[source,rust]
+----
+#[pyfunction]
+fn parse_only_count_gil_released(py: Python<'_>, text: String) -> PyResult<usize> {
+    py.detach(move || {
+        // 이 클로저 안에서는 GIL이 없다 -- 그래서 파이썬 객체를 절대 건드릴 수 없다.
+        // 우리 파서는 순수 Rust 데이터(Value)만 다루니 안전하다.
+        match parser::parse(&text) {
+            Ok(Value::Array(items)) => Ok(items.len()),
+            Ok(_) => Ok(0),
+            Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!("위치 {}: {}", e.pos, e.message))),
+        }
+    })
+}
+----
+
+`py.detach(...)`가 클로저를 실행하는 동안 GIL을 놓습니다 — 그 사이 다른 파이썬 스레드가 진짜로 동시에 실행될 수 있습니다. 대신 이 클로저 안에서는 파이썬 객체(`Py<PyAny>`, `&Bound<'_, PyAny>` 등)를 다룰 수 없습니다 — 컴파일러가 강제합니다. 그래서 인자로 `&str` 대신 `String`(소유한 값, 파이썬 객체에 대한 참조가 아닌)을 받았습니다 — 클로저가 GIL 없이도 안전하게 쓸 수 있는 데이터만 갖고 있어야 하기 때문입니다.
+
+== 실측: 4개의 파이썬 스레드로
+
+같은 파일을 200번 파싱하는 작업을, 스레드 1개가 전부 처리하는 경우와 스레드 4개가 나눠 동시에 처리하는 경우로 비교했습니다.
+
+[source,python]
+----
+import threading, time, riirjson
+
+def run(fn, n_threads, calls_per_thread):
+    def worker():
+        for _ in range(calls_per_thread):
+            fn(text)
+    threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+    t0 = time.perf_counter()
+    for t in threads: t.start()
+    for t in threads: t.join()
+    return time.perf_counter() - t0
+
+calls = 200
+for name, fn in [("GIL 유지", riirjson.parse_only_count),
+                  ("GIL 놓음", riirjson.parse_only_count_gil_released)]:
+    t1 = run(fn, 1, calls)
+    t4 = run(fn, 4, calls // 4)
+    print(f"{name}: 스레드1개={t1*1000:.1f}ms, 스레드4개={t4*1000:.1f}ms (배율 {t1/t4:.2f}x)")
+----
+
+[source]
+----
+$ python gil_bench.py
+GIL 유지: 총 200회를 스레드1개=1958.1ms, 스레드4개(동시분담)=1973.8ms  (배율 0.99x)
+GIL 놓음: 총 200회를 스레드1개=2029.7ms, 스레드4개(동시분담)=645.5ms  (배율 3.14x)
+----
+
+**GIL을 쥔 채로는 스레드를 4개로 늘려도 전혀 빨라지지 않았습니다**(0.99배 — 오차 범위 안에서 그대로입니다). GIL이 스레드들을 사실상 한 줄로 세워버리기 때문입니다. **GIL을 놓은 버전은 4개 스레드로 3.14배** 빨라졌습니다 — 4코어를 완벽히 다 쓰지는 못했지만(이상적으로는 4배), 실제 병렬 실행이 일어났다는 게 명확합니다.
+
+== 이 장이 riir-json-parser와 이어지는 지점
+
+`riir-json-parser` 서문은 "Rust의 속도는 GC 없는 메모리 안전 때문이고, Fearless Concurrency는 별도의 이점"이라고 했습니다. 이 장은 그 "별도의 이점"이 **파이썬에서 Rust를 호출하는 상황에서도 그대로 살아있다**는 걸 보여줍니다 — 다만 공짜는 아닙니다. GIL을 놓으려면 그 구간이 파이썬 객체를 전혀 건드리지 않는다는 걸 사람이(그리고 컴파일러가 타입으로) 보장해야 합니다. 6장에서 본 "변환 비용"이 비싼 이유도 정확히 여기 있습니다 — `value_to_py`는 파이썬 객체를 만드는 함수라서, GIL을 놓을 수 없는 구간입니다.
+
+== 요약
+
+* CPython의 GIL이 여러 스레드로 나눠 호출해도 기본적으로는 순차 실행을 강제한다는 걸, 4스레드가 1스레드와 거의 같은 시간이 걸린 것(0.99배)으로 확인했습니다.
+* `Python::detach`로 순수 Rust 계산 구간의 GIL을 놓으면, 같은 4스레드가 실제로 3.14배 빨라진다는 걸 확인했습니다.
+* GIL을 놓을 수 있는 구간(파이썬 객체를 안 건드리는 순수 계산)과 놓을 수 없는 구간(6장의 `value_to_py`처럼 파이썬 객체를 만드는 곳)이 나뉜다는 것도 짚었습니다.
+
+3부가 여기서 끝났습니다. 4부에서는 이 확장 모듈을 실제로 pip 설치 가능한 패키지로 만듭니다.
+// end::body[]
