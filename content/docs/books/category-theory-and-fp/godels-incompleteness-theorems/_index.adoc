@@ -1,0 +1,101 @@
+---
+title: "괴델의 불완전성 정리"
+draft: false
+---
+
+수학 전체를 몇 개의 공리와 규칙만으로 완벽하게 정리하려던 힐베르트의 꿈이, 왜 그리고 어떻게 무너졌는지를 수식 없이 비유와 논증으로 풀어가는 책입니다. 형식 체계와 완전성·무모순성이라는 개념(1부)에서 시작해, 우편번호처럼 수학 문장 자체를 숫자로 부호화하는 괴델 수 매기기(2부), 대각선 보조정리로 "나는 증명될 수 없다"는 문장을 실제로 지어내 제1불완전성 정리를 증명하는 과정(3부), 그리고 체계가 자기 자신의 무모순성조차 증명할 수 없다는 제2불완전성 정리와 튜링의 정지 문제와의 접점(4부)까지 다룹니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 참이지만 증명할 수 없는 문장]*
+
+*1부: 형식 체계란 무엇인가*
+
+[start=1]
+. *link:01-formal-systems/[1장: 공리와 추론 규칙 - 힐베르트의 꿈]*
+. *link:02-completeness-and-consistency/[2장: 완전성과 무모순성이란 무엇인가]*
+
+*2부: 문장을 숫자로 바꾸기*
+
+[start=3]
+. *link:03-godel-numbering/[3장: 괴델 수 매기기]*
+. *link:04-arithmetic-can-talk-about-itself/[4장: 산술로 말할 수 있는 것]*
+
+*3부: 자기 지시적 문장 만들기*
+
+[start=5]
+. *link:05-diagonalization-revisited/[5장: 대각선 논법 재방문]*
+. *link:06-the-godel-sentence/[6장: 괴델 문장 G]*
+. *link:07-first-incompleteness-theorem/[7장: 제1불완전성 정리]*
+
+*4부: 더 깊은 함의*
+
+[start=8]
+. *link:08-second-incompleteness-theorem/[8장: 제2불완전성 정리]*
+. *link:09-collapse-of-hilberts-program/[9장: 힐베르트 프로그램의 붕괴]*
+. *link:10-godel-and-turing/[10장: 괴델과 튜링]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+*부록*
+
+[start=12]
+. *link:12-appendix-python/[부록: 파이썬으로 자기 지시 확인하기]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-formal-systems.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-completeness-and-consistency.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-godel-numbering.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-arithmetic-can-talk-about-itself.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-diagonalization-revisited.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-the-godel-sentence.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-first-incompleteness-theorem.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-second-incompleteness-theorem.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-collapse-of-hilberts-program.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-godel-and-turing.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-appendix-python.adoc[tag=body,leveloffset=+1]
