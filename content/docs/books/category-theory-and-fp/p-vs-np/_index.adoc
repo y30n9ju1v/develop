@@ -1,0 +1,101 @@
+---
+title: "P vs NP"
+draft: false
+---
+
+스도쿠는 풀기는 어려운데 답이 맞는지 확인하는 건 순식간이라는 사소한 관찰에서 출발해, 컴퓨터 과학에서 가장 유명한 미해결 문제인 P vs NP를 수식 없이 비유와 논증으로 풀어가는 책입니다. 다항 시간과 지수 시간이 왜 완전히 다른 세계인지(체스판의 쌀알)에서 시작해, NP-완전이라는 개념이 어떻게 수천 개의 서로 다른 문제를 하나로 묶어내는지, 그리고 이 문제가 왜 반세기 넘게 증명도 반증도 되지 않았는지까지 다룹니다.
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 풀기와 확인하기는 왜 다른가]*
+
+*1부: 문제와 시간*
+
+[start=1]
+. *link:01-measuring-speed/[1장: 속도를 재는 법]*
+. *link:02-what-is-p/[2장: P - 효율적으로 풀 수 있는 문제들]*
+
+*2부: 확인은 쉬운데 풀기는 어려운*
+
+[start=3]
+. *link:03-what-is-np/[3장: NP - 답을 확인하는 건 쉬운 문제들]*
+. *link:04-p-vs-np-question/[4장: P가 정말 NP의 전부일까]*
+
+*3부: NP-완전이라는 핵심*
+
+[start=5]
+. *link:05-reductions/[5장: 환원 - 문제를 다른 문제로 바꾸기]*
+. *link:06-np-completeness/[6장: NP-완전 - 가장 어려운 문제들의 연결망]*
+. *link:07-why-unsolved/[7장: 왜 아직 아무도 증명하지 못했나]*
+
+*4부: 실전에서의 의미*
+
+[start=8]
+. *link:08-why-it-matters/[8장: 암호학·최적화에서의 의미]*
+. *link:09-if-p-equals-np/[9장: 만약 P=NP라면]*
+. *link:10-known-and-unknown/[10장: 알려진 것과 모르는 것의 경계]*
+
+*맺음말*
+
+[start=11]
+. *link:11-afterword/[맺음말]*
+
+*부록*
+
+[start=12]
+. *link:12-appendix-python/[부록: 파이썬으로 지수 폭발 직접 재보기]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-measuring-speed.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-what-is-p.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-what-is-np.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-p-vs-np-question.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-reductions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-np-completeness.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-why-unsolved.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-why-it-matters.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-if-p-equals-np.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-known-and-unknown.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-afterword.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-appendix-python.adoc[tag=body,leveloffset=+1]
