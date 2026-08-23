@@ -355,14 +355,14 @@ link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 �
 
 이제 우리가 배운 모든 개념이 어떻게 연결되는지 전체 그림을 그려봅시다. 이 책을 통해 우리는 여러 추상화 계층을 올라왔습니다. 각 계층은 이전 계층 위에 구축되고, 더 높은 수준의 개념을 표현할 수 있게 해줍니다.
 
-*계층 1: Continuation* (link:../12-toward-the-future/[12장])
+*계층 1: Continuation* (*12장*)
 
 - 제어 흐름 자체를 값으로 만듦
 - "프로그램의 나머지"를 포착하고 조작
 - *우리가 배운 것*: async/await는 Continuation을 자동으로 관리하는 syntactic sugar
 
 
-*계층 2: Functor와 Monad* (3-link:../04-monad/[4장])
+*계층 2: Functor와 Monad* (link:../03-functor/[3장]-link:../04-monad/[4장])
 
 - 컨텍스트를 다루는 패턴
 - map: 컨텍스트를 유지하면서 값 변환
@@ -376,7 +376,7 @@ link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 �
 - *우리가 배운 것*: ``asyncio.gather``는 Applicative의 "독립적인 컨텍스트들의 결합"
 
 
-*계층 4: Effect System* (link:../12-toward-the-future/[12장])
+*계층 4: Effect System* (*12장*)
 
 - 모든 종류의 부수 효과를 통합된 방식으로 다룸
 - 프로그램은 effect를 기술하고, 핸들러가 실행

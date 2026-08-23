@@ -51,7 +51,7 @@ _link:../[전체 목차] · 이전: link:../05-error-handling-as-types/[에러 �
 - *Railway-Oriented Programming*: 에러도 flatMap으로 우아하게 전파
 
 
-*link:../06-concurrency-and-parallelism/[6장]: 동시성과 병렬성 - 독립적 작업의 병렬 합성*
+*6장: 동시성과 병렬성 - 독립적 작업의 병렬 합성*
 
 link:../04-monad/[4장]의 flatMap은 **순차 합성**이었습니다. "A가 끝나면 B 시작"의 패턴이죠. 하지만 A와 B가 서로 독립적이라면? 동시에 실행하면 더 빠를 것입니다. 이 장에서는 *병렬 합성* - 여러 독립적인 작업을 동시에 실행하고 결과를 조합하는 방법을 배웁니다. 이것이 바로 **Applicative Functor**의 핵심입니다.
 
@@ -1372,7 +1372,7 @@ class PriorityCrawler:
 |*link:../03-functor/[3장]* |Functor (map) |독립적 변환의 합성 |비동기
 |*link:../04-monad/[4장]* |Monad (flatMap) |의존적 작업의 순차 합성 |비동기 순차
 |*link:../05-error-handling-as-types/[5장]* |Result |**실패 가능성**을 합성 가능하게 |비동기 순차
-|*link:../06-concurrency-and-parallelism/[6장]* |Applicative (gather) |**독립적 작업**의 병렬 합성 |*비동기 병렬*
+|*6장* |Applicative (gather) |**독립적 작업**의 병렬 합성 |*비동기 병렬*
 |===
 
 우리는 이제 순차와 병렬, 성공과 실패를 자유자재로 다룰 수 있게 되었습니다. 하지만 지금까지 우리는 '단일 값'(Future)이나 '단일 리스트'를 다뤘습니다. 만약 데이터가 시간에 따라 끊임없이 흐른다면 어떨까요?

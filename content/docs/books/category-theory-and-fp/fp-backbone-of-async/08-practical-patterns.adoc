@@ -14,7 +14,7 @@ _link:../[전체 목차] · 이전: link:../07-reactive-programming/[Reactive Pr
 
 == 1-7장 복습: 여기까지의 여정
 
-link:../08-practical-patterns/[8장]을 시작하기 전에, 지금까지 배운 핵심 개념들을 정리해봅시다. 우리는 link:../01-functional-thinking/[1장]부터 link:../07-reactive-programming/[7장]까지 함수형 프로그래밍의 이론적 토대를 닦았습니다. ``map``, ``flatMap``, ``Result``, ``Applicative``, 그리고 ``Observable``까지.
+*8장*을 시작하기 전에, 지금까지 배운 핵심 개념들을 정리해봅시다. 우리는 link:../01-functional-thinking/[1장]부터 link:../07-reactive-programming/[7장]까지 함수형 프로그래밍의 이론적 토대를 닦았습니다. ``map``, ``flatMap``, ``Result``, ``Applicative``, 그리고 ``Observable``까지.
 
 이제 이 모든 개념들이 어떻게 **실제 시스템 아키텍처**로 통합되는지 확인할 차례입니다. "이론은 알겠는데, 실제로는 어떻게 쓰나요?"라는 질문에 대한 답이 이 장에 있습니다. 의존성 주입부터 트랜잭션 관리까지, 우리가 배운 작은 블록들이 어떻게 거대한 시스템을 지탱하는지 살펴봅시다.
 
@@ -1331,7 +1331,7 @@ async with tx2:
 
 === 3. 불변성 vs 부수 효과: 철학적 정리 🤔
 
-link:../08-practical-patterns/[8장]의 ``Transaction``, ``Request.context``는 **가변 상태**를 가집니다. 이것이 FP 원칙과 충돌하는 것처럼 보일 수 있습니다.
+이 장의 ``Transaction``, ``Request.context``는 **가변 상태**를 가집니다. 이것이 FP 원칙과 충돌하는 것처럼 보일 수 있습니다.
 
 *순수 FP (Haskell의 ST Monad)*:
 

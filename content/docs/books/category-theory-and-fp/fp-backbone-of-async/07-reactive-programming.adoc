@@ -14,7 +14,7 @@ _link:../[전체 목차] · 이전: link:../06-concurrency-and-parallelism/[동�
 
 == 1-6장 복습: 여기까지의 여정
 
-link:../07-reactive-programming/[7장]을 시작하기 전에, 지금까지 배운 개념들을 정리해봅시다.
+*7장*을 시작하기 전에, 지금까지 배운 개념들을 정리해봅시다.
 
 *link:../01-functional-thinking/[1장]: 함수형 프로그래밍의 핵심 원칙*
 
@@ -1046,7 +1046,7 @@ class StockMonitor:
 |*link:../04-monad/[4장]* |Monad |순차 의존성 |flatMap
 |*link:../05-error-handling-as-types/[5장]* |Result |성공/실패 값 |map, check
 |*link:../06-concurrency-and-parallelism/[6장]* |Applicative |병렬 독립 작업 |gather
-|*link:../07-reactive-programming/[7장]* |Observable |시간에 걸친 값들 |map, flatMap, 시간 연산자
+|*7장* |Observable |시간에 걸친 값들 |map, flatMap, 시간 연산자
 |===
 
 지금까지 우리는 비동기 프로그래밍의 핵심 '도구'들을 모두 배웠습니다. 이제 이 도구들을 가지고 집을 지어볼 차례입니다.

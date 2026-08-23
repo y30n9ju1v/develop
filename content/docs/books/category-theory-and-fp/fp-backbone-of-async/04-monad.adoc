@@ -41,7 +41,7 @@ link:../03-functor/[3장]에서 우리는 ``Functor``와 ``map``을 통해 컨�
 - *Future {plus} map*: 독립적인 비동기 작업의 변환 가능
 
 
-*link:../04-monad/[4장]: Monad - 의존적 합성의 해결*
+*4장: Monad - 의존적 합성의 해결*
 
 link:../03-functor/[3장]의 map은 **독립적인 변환**만 다룰 수 있었습니다. 하지만 실제로는 *의존적인 작업* - 첫 번째 결과에 따라 두 번째 작업이 결정되는 경우가 흔합니다. 사용자를 조회한 결과로 그 사용자의 주문을 조회하는 것처럼 말이죠. 이 장에서는 flatMap이 어떻게 이 의존적 합성 문제를 해결하는지, 그리고 그것이 어떻게 async/await의 본질이 되는지 배웁니다.
 
@@ -561,7 +561,7 @@ fetch_user_callback(
 )
 ----
 
-*link:../04-monad/[4장] Future.flatMap 버전: 선형적이고 읽기 쉬움*
+*Future.flatMap 버전: 선형적이고 읽기 쉬움*
 
 [source,python]
 ----
@@ -579,7 +579,7 @@ result_future.on_complete(lambda count: print(f"댓글 수: {count}"))
 
 [width="100%",cols="14%,33%,53%",options="header",]
 |===
-|측면 |link:../02-why-async/[2장] 콜백 버전 |link:../04-monad/[4장] Future.flatMap 버전
+|측면 |link:../02-why-async/[2장] 콜백 버전 |*4장* Future.flatMap 버전
 |*코드 구조* |깊게 중첩된 피라미드 형태 |선형적인 체인 형태
 |*가독성* |오른쪽으로 계속 깊어짐전체 흐름 파악 어려움 |위에서 아래로 자연스럽게 읽힘각 단계가 명확히 분리됨
 |*에러 처리* |각 콜백마다 on++_++error 중복에러 처리 로직이 흩어짐 |한 곳에서 일괄 처리 가능(Future에 에러 처리 내장)
@@ -722,6 +722,18 @@ print(next(gen))  # 12
 ----
 
 제너레이터는 단순히 값을 생성하는 것이 아니라, 값을 주고받을 수 있습니다. send 메서드로 값을 보내면, 그 값이 yield 표현식의 결과가 됩니다. 이것은 제너레이터와 호출자 사이의 양방향 통신을 가능하게 합니다.
+
+....
+[호출자 (Caller / Event Loop)]               [제너레이터 (Coroutine)]
+        │                                              │
+        │ ── 1. next(gen) / gen.send(None) ──────────▶ │  (실행 시작)
+        │                                              │
+        │ ◀─ 2. yield count (값 0 반환 및 일시 정지) ── │  (상태 보존 후 정지)
+        │                                              │
+        │ ── 3. gen.send(10) (값 10 주입) ───────────▶ │  (received = 10 으로 재개)
+        │                                              │
+        │ ◀─ 4. yield count (값 10 반환 및 일시 정지) ── │  (다음 yield에서 정지)
+....
 
 == yield from: 제너레이터의 위임
 
@@ -965,7 +977,7 @@ ____
 * ``await ...``
 
 
-이 셋은 본질적으로 같습니다. 모두 "비동기 작업이 완료될 때까지 기다렸다가, 그 결과로 다음 작업을 이어가라"는 의미입니다. 우리가 link:../04-monad/[4장]에서 배운 ``flatMap``의 원리가 현대 비동기 프로그래밍의 핵심 뼈대입니다.
+이 셋은 본질적으로 같습니다. 모두 "비동기 작업이 완료될 때까지 기다렸다가, 그 결과로 다음 작업을 이어가라"는 의미입니다. 우리가 이 장에서 배운 ``flatMap``의 원리가 현대 비동기 프로그래밍의 핵심 뼈대입니다.
 ____
 
 == 모든 것의 통합: 1장부터 4장까지의 여정
@@ -1070,19 +1082,19 @@ async def get_comment_count(user_id):
 |*link:../01-functional-thinking/[1장]* |합성 (compose) |``g(f(x))`` |함수를 조합 가능 |독립적 함수만 가능
 |*link:../02-why-async/[2장]* |콜백 지옥 |``callback(...)`` |- |합성 불가능, 중첩만 가능
 |*link:../03-functor/[3장]* |map |``future.map(f)`` |독립적 변환 합성 |의존적 작업은 중첩 발생
-|*link:../04-monad/[4장]* |flatMap |``future.flatMap(f)`` |의존적 합성 해결 |람다 중첩 (읽기 어려움)
-|*link:../04-monad/[4장]* |yield from |``yield from gen()`` |제너레이터 합성 |비동기 전용 아님
-|*link:../04-monad/[4장]* |await |``await coro()`` |*완벽한 해결* |-
+|*4장* |flatMap |``future.flatMap(f)`` |의존적 합성 해결 |람다 중첩 (읽기 어려움)
+|*4장* |yield from |``yield from gen()`` |제너레이터 합성 |비동기 전용 아님
+|*4장* |await |``await coro()`` |*완벽한 해결* |-
 |===
 
 *핵심 통찰*:
 
 - *link:../01-functional-thinking/[1장] 합성* → "작은 것을 조합해서 큰 것 만들기"의 철학
-- *link:../04-monad/[4장] flatMap* → 합성을 "컨텍스트가 있는 세계"로 확장
-- *link:../04-monad/[4장] await* → flatMap을 "동기 코드처럼 읽히는 문법"으로 표현
+- *4장 flatMap* → 합성을 "컨텍스트가 있는 세계"로 확장
+- *4장 await* → flatMap을 "동기 코드처럼 읽히는 문법"으로 표현
 
 
-``await``는 마법이 아닙니다. 이것은 **link:../01-functional-thinking/[1장]에서 시작한 합성의 여정이 link:../04-monad/[4장]에서 완성된 형태**입니다.
+``await``는 마법이 아닙니다. 이것은 **link:../01-functional-thinking/[1장]에서 시작한 합성의 여정이 이 장(4장)에서 완성된 형태**입니다.
 
 == 역사적 계보: 제너레이터에서 async/await까지
 
@@ -1528,15 +1540,14 @@ def sequential_futures(future_funcs: list[Callable[[T], Future[T]]]) -> Future[T
 * *link:../01-functional-thinking/[1장]*: 합성의 철학 (순수 함수 ``compose``)
 * *link:../02-why-async/[2장]*: 비동기의 좌절 (콜백 지옥, 합성 불가)
 * *link:../03-functor/[3장]*: *Functor* (``map``) - 독립적 변환 가능
-* *link:../04-monad/[4장]*: *Monad* (``flatMap/await``) - 의존적 합성 완성
+* *4장*: *Monad* (``flatMap/await``) - 의존적 합성 완성
 
 
-우리는 이제 "어떻게 하면 비동기 코드를 동기 코드처럼 우아하게 작성할 수 있을까?"라는 질문에 대한 답을 찾았습니다. link:../01-functional-thinking/[1장]의 함수형 철학이 link:../04-monad/[4장]의 ``async/await``로 꽃피운 것입니다.
+우리는 이제 "어떻게 하면 비동기 코드를 동기 코드처럼 우아하게 작성할 수 있을까?"라는 질문에 대한 답을 찾았습니다. link:../01-functional-thinking/[1장]의 함수형 철학이 이 장의 ``async/await``로 꽃피운 것입니다.
 
-=== 남은 과제: 병렬성 (Concurrency)
+=== 다음 단계: 실패를 다루는 법과 병렬성
 
-하지만 아직 한 가지 문제가 남았습니다. ``flatMap``과 ``await``는 본질적으로 **순차 실행**입니다.
-``fetch++_++user``가 끝나야 ``fetch++_++posts``가 시작됩니다. 만약 두 작업이 서로 상관없다면? 동시에 실행하는 것이 훨씬 빠를 것입니다.
-
-**다음 link:../05-error-handling-as-types/[5장]**에서는 이 문제를 해결하는 **Applicative Functor**를 만납니다. ``asyncio.gather``의 원리가 바로 여기에 있습니다. 순차 합성을 넘어, 병렬 합성의 세계로 나아갑시다.
+하지만 비동기 프로그래밍에는 아직 두 가지 중요한 과제가 남아있습니다.
+첫째, 비동기 작업은 언제나 실패할 수 있습니다. **다음 link:../05-error-handling-as-types/[5장]**에서는 예외를 던지는 대신 에러를 값으로 다루는 **Result Monad**와 Railway-Oriented Programming을 배웁니다.
+둘째, ``await``는 순차 실행이므로 독립적인 작업들을 동시에 실행하려면 병렬 합성이 필요합니다. 이는 **link:../06-concurrency-and-parallelism/[6장]**의 **Applicative Functor**와 ``asyncio.gather``에서 다룹니다.
 // end::body[]

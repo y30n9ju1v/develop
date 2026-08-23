@@ -48,7 +48,7 @@ link:../04-monad/[4장]에서 우리는 ``flatMap``을 통해 비동기 작업�
 - *결론*: ``await``는 flatMap의 문법적 설탕
 
 
-*link:../05-error-handling-as-types/[5장]: 에러 처리 - 실패를 합성 가능하게*
+*5장: 에러 처리 - 실패를 합성 가능하게*
 
 link:../04-monad/[4장]에서 우리는 flatMap으로 비동기 작업을 순차적으로 합성하는 방법을 배웠습니다. 하지만 실제 프로그램은 성공만 하지 않습니다. 네트워크 요청이 실패하고, 파일이 없고, 데이터가 유효하지 않습니다. 이 장에서는 **실패 가능성을 타입으로 표현**하고, *에러도 합성 가능하게* 만드는 방법을 배웁니다. Result 타입은 Maybe와 마찬가지로 Monad이며, flatMap으로 에러를 우아하게 전파할 수 있습니다.
 
@@ -1394,7 +1394,7 @@ assert m.flatmap(f).flatmap(g).unwrap() == m.flatmap(lambda x: f(x).flatmap(g)).
 * *link:../02-why-async/[2장]*: 비동기의 좌절 (콜백 지옥)
 * *link:../03-functor/[3장]*: *Functor* (``map``) - 독립적 변환
 * *link:../04-monad/[4장]*: *Monad* (``flatMap/await``) - 의존적 합성 (순차)
-* *link:../05-error-handling-as-types/[5장]*: *Result* - 실패 가능성의 합성
+* *5장*: *Result* - 실패 가능성의 합성
 
 
 우리는 이제 성공과 실패를 모두 값으로 다룰 수 있게 되었습니다. 하지만 지금까지의 모든 합성은 **순차적**이었습니다.
@@ -1402,7 +1402,7 @@ assert m.flatmap(f).flatmap(g).unwrap() == m.flatmap(lambda x: f(x).flatmap(g)).
 
 === 5장과 6장의 연결: 순차에서 병렬로
 
-link:../05-error-handling-as-types/[5장]에서 우리는 Result와 Railway-Oriented Programming을 통해 **에러를 값으로 다루며 순차적으로 합성**하는 방법을 배웠습니다. ``read++_++file → parse++_++json → validate → save`` 파이프라인은 각 단계가 **의존적**이었습니다. 이전 단계의 결과가 있어야 다음 단계를 시작할 수 있었죠.
+이 장에서 우리는 Result와 Railway-Oriented Programming을 통해 **에러를 값으로 다루며 순차적으로 합성**하는 방법을 배웠습니다. ``read++_++file → parse++_++json → validate → save`` 파이프라인은 각 단계가 **의존적**이었습니다. 이전 단계의 결과가 있어야 다음 단계를 시작할 수 있었죠.
 
 [source,python]
 ----
