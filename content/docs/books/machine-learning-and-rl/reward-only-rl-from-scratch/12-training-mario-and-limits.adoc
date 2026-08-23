@@ -14,7 +14,7 @@ _link:../[전체 목차] · 이전: link:../11-mario-environment/[11장: 마리�
 
 == 컨볼루션 정책망: nand2npu 3권과 같은 모양
 
-link:../../nand2npu-series/nand2npu-vision/07-mario-policy-inference.adoc[nand2npu 3권 7장]이 기대하는 정책망 구조는 "컨볼루션 → 풀링 → matmul"입니다. NumPy만으로 순전파와 역전파(im2col 기반 컨볼루션, 맥스풀링의 argmax 역추적)를 손으로 짭니다.
+link:../../nand2npu-series/nand2npu-vision/07-mario-policy-inference/[nand2npu 3권 7장]이 기대하는 정책망 구조는 "컨볼루션 → 풀링 → matmul"입니다. NumPy만으로 순전파와 역전파(im2col 기반 컨볼루션, 맥스풀링의 argmax 역추적)를 손으로 짭니다.
 
 [source,python]
 ----

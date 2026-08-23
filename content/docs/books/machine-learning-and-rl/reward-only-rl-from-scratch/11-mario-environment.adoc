@@ -62,7 +62,7 @@ env.close()
 
 == nand2npu 3권 7장의 인터페이스에 맞추기
 
-link:../../nand2npu-series/nand2npu-vision/07-mario-policy-inference.adoc[nand2npu 3권 7장]이 기대하는 정책망 입력은 `84×84` 흑백 프레임, 출력은 "왼쪽/오른쪽/점프/대기" 4개 행동 점수입니다. 실제 에뮬레이터의 원본 출력은 `240×256×3` RGB이고, `SIMPLE_MOVEMENT`(7가지 행동)처럼 조합이 더 세밀합니다 — 이 둘을 정확히 맞춰주는 래퍼를 만듭니다.
+link:../../nand2npu-series/nand2npu-vision/07-mario-policy-inference/[nand2npu 3권 7장]이 기대하는 정책망 입력은 `84×84` 흑백 프레임, 출력은 "왼쪽/오른쪽/점프/대기" 4개 행동 점수입니다. 실제 에뮬레이터의 원본 출력은 `240×256×3` RGB이고, `SIMPLE_MOVEMENT`(7가지 행동)처럼 조합이 더 세밀합니다 — 이 둘을 정확히 맞춰주는 래퍼를 만듭니다.
 
 [source,python]
 ----
