@@ -435,6 +435,25 @@ class Profunctor p where
 
 세 함수 모두 기본 구현과 함께 제공됩니다. ``Bifunctor``와 마찬가지로, ``Profunctor`` 인스턴스를 선언할 때 ``dimap``을 구현하고 ``lmap``과 ``rmap``의 기본값을 받거나, ``lmap``과 ``rmap``을 모두 구현하고 ``dimap``의 기본값을 받는 선택을 할 수 있습니다.
 
+[source,text]
+----
+  [ 프로함자 (Profunctor) dimap 가환 다이어그램 ]
+
+                 p b c (입력 프로함자 값)
+               /       \
+      lmap f  /         \  rmap g
+             v           v
+           p a c       p b d
+             \           /
+      rmap g  \         /  lmap f
+               v       v
+                 p a d (최종 프로함자 값)
+
+    * dimap f g = lmap f ∘ rmap g = rmap g ∘ lmap f
+    * 함수 (->) 프로함자: dimap ab cd bc = cd ∘ bc ∘ ab
+      (a ──ab──> b ──bc──> c ──cd──> d)
+----
+
 image::https://bartoszmilewski.files.wordpress.com/2015/01/dimap.png[dimap]
 
 이제 함수 화살표 연산자가 ``Profunctor``의 인스턴스임을 주장할 수 있습니다.
@@ -469,6 +488,18 @@ g ∘ h ∘ f
 ----
 
 이것은 C(a', b')의 원소입니다.
+
+[source,text]
+----
+  [ Hom-함수 C(-, =) 의 사상 매핑 다이어그램 ]
+
+       a' ───── f ─────> a ───── h ─────> b ───── g ─────> b'
+       (C^op 사상:      (C(a, b) 원소)                 (C 사상:
+        a -> a' 반전)                                    b -> b')
+
+       * 결과 사상: g ∘ h ∘ f ∈ C(a', b')
+       * C(f, g) h = g ∘ h ∘ f
+----
 
 보시다시피, hom-함자는 프로함자의 특수한 경우입니다.
 

@@ -101,6 +101,40 @@ fmap _ Nothing = Nothing
 fmap f (Just x) = Just (f x)
 ----
 
+[source,text]
+----
+  [ 함자 (Functor)의 객체 매핑과 모피즘 리프팅 ]
+
+    카테고리 C                            카테고리 D (또는 엔도함자의 경우 C)
+    ──────────                            ──────────────────────────────────
+        a                                                F a
+        │                                                 │
+        │ f                                               │ F f (fmap f)
+        ▼                                                 ▼
+        b                                                F b
+
+    * 객체 매핑:   a  ───F───> F a
+    * 모피즘 매핑: f  ───F───> F f  (하스켈: fmap f)
+
+    [ 함자 공리 (Functor Laws) 가환 다이어그램 ]
+
+    1. 항등 사상 보존:                 2. 사상 합성 보존:
+          F(id_a) = id_{F a}               F(g ∘ f) = F g ∘ F f
+
+           id_a                                  f           g
+        a ↺ ───F───> F a ↺ id_{F a}         a ──────> b ──────> c
+                                             \                 /
+                                              \───── g ∘ f ───/
+                                                      │
+                                                      │ F (함자 매핑)
+                                                      ▼
+                                                     F f         F g
+                                            F a ──────> F b ──────> F c
+                                             \                     /
+                                              \──── F(g ∘ f) ─────/
+                                                (= F g ∘ F f)
+----
+
 타입 생성자 ``Maybe``와 함수 ``fmap``이 함자를 이루려면, ``fmap``이 항등원과 합성을 보존함을 증명해야 합니다. 이를 "함자 법칙(Functor laws)"이라고 부르지만, 이는 단순히 카테고리의 구조가 보존됨을 보장하는 장치일 뿐입니다.
 
 === 등식적 추론 (Equational Reasoning)

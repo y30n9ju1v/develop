@@ -106,6 +106,37 @@ p id_a f ∘ α_a = p f id_b ∘ α_b
 dimap id f . alpha = dimap f id . alpha
 ----
 
+[source,text]
+----
+  [ 쐐기 조건 (Wedge Condition) 과 엔드 (End) 보편 다이어그램 ]
+
+  1. 쐐기 (Wedge) 가환 조건:
+                     apex
+                    /    \
+               α_a /      \ α_b
+                  v        v
+                p a a    p b b
+                  │        │
+      p id_a f    │        │ p f id_b
+      (dimap id f)│        │ (dimap f id)
+                  v        v
+                    p a b
+      * 가환 조건: dimap id f ∘ α_a = dimap f id ∘ α_b
+
+  2. 보편 엔드 (Universal End, ∫_c p c c):
+                     apex
+                    / │  \
+               α_a /  │   \ α_b
+                  /   │h   \
+                 v    v     v
+               p a a <─ ∫_c p c c ─> p b b
+                       (π_a, π_b)
+
+  3. 닌자 요네다 보조정리 (Ninja Yoneda Lemma):
+       • End 형태:   F a ≅ ∫_c (Set(a, c) -> F c)   (Haskell: forall c. (a -> c) -> F c ≅ F a)
+       • Coend 형태: F a ≅ ∫^c (Set(c, a) × F c)    (Haskell: exists c. (c -> a, F c) ≅ F a)
+----
+
 이제 보편적 구성(universal construction)을 통해 ``p``의 *엔드*를 보편적인 쐐기로 정의할 수 있습니다. 즉, 어떤 집합 ``e``와 함수족 ``π``가 존재하여, 임의의 다른 쐐기(꼭짓점 ``a``, 함수족 ``α``)에 대해 모든 삼각형을 가환하게 만드는 유일한 함수 ``h \:: a -> e``가 존재하는 경우입니다.
 
 [source,haskell]

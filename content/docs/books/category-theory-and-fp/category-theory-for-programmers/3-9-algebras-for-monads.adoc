@@ -42,6 +42,27 @@ alg ∘ ηa = ida
 alg ∘ μa = alg ∘ m alg
 ----
 
+[source,text]
+----
+  [ T-대수 (T-Algebra, (a, alg)) 의 코히어런스 가환 다이어그램 ]
+
+  1. 단위 법칙 (Unit Law):
+          a ════════ id_a ════════> a
+          │                         ^
+     η_a  │                         │ alg
+          v                         │
+         T a ───────────────────────╯
+         (alg ∘ η_a = id_a)
+
+  2. 결합 법칙 (Associativity):
+         T (T a) ────── T alg ──────> T a
+            │                          │
+        μ_a │                          │ alg
+            v                          v
+           T a ───────── alg ─────────> a
+         (alg ∘ μ_a = alg ∘ T alg)
+----
+
 여기서 ``m alg``는 함자 ``m``을 사용하여 ``alg``를 리프팅한 결과인 모피즘입니다. 다음 가환 다이어그램(commuting diagram)은 이 두 조건을 설명합니다(이후의 내용을 고려하여 ``m``을 ``T``로 바꿨습니다).
 
 이 조건들을 하스켈로 표현하면 다음과 같습니다.

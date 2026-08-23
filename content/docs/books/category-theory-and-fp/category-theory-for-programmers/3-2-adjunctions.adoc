@@ -120,6 +120,31 @@ R = ID ∘ R -> R ∘ L ∘ R -> R ∘ IC = R
 R ε c ∘ η R c = id R c
 ----
 
+[source,text]
+----
+  [ 수반 L ⊣ R 의 단위(η) / 코단위(ε) 와 삼각형 항등식 ]
+
+  1. 단위 (Unit, η) 와 코단위 (Counit, ε):
+        η : I_D ───> R ∘ L    (D의 대상 d -> R(L d))
+        ε : L ∘ R ───> I_C    (C의 대상 L(R c) -> c)
+
+  2. 삼각형 항등식 (Triangular Identities):
+           L η                         η R
+      L ────────> L ∘ R ∘ L       R ────────> R ∘ L ∘ R
+       \           │               \           │
+        \          │ ε L            \          │ R ε
+     id_L\         │              id_R\        │
+          v        v                   v       v
+              L                            R
+
+      * (ε ∘ L) ∘ (L ∘ η) = id_L   (ε_{L d} ∘ L η_d = id_{L d})
+      * (R ∘ ε) ∘ (η ∘ R) = id_R   (R ε_c ∘ η_{R c} = id_{R c})
+
+  3. Hom-집합 자연 동형:
+         C(L d, c) ≅ D(d, R c)
+         (f : L d -> c) <──> (φ f = R f ∘ η_d : d -> R c)
+----
+
 우리는 하스켈에서 단위와 코단위를 다른 이름으로 자주 만납니다. 단위는 ``return``(또는 ``Applicative`` 정의의 ``pure``)으로 잘 알려져 있습니다.
 
 [source,haskell]

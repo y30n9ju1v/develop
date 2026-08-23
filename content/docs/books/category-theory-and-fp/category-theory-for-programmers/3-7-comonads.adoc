@@ -444,6 +444,25 @@ set :: a -> s -> a
 get :: a -> s
 ----
 
+[source,text]
+----
+  [ 코모나드 (Comonad) 법칙과 Store 코모나드 / Lens 대응 ]
+
+  1. 코모나드 카테고리 법칙:
+       • 코결합 법칙: (δ ∘ W) ∘ δ = (W ∘ δ) ∘ δ
+         (duplicate . duplicate = fmap duplicate . duplicate)
+       • 코단위 법칙: (ε ∘ W) ∘ δ = id_W = (W ∘ ε) ∘ δ
+         (extract . duplicate = id = fmap extract . duplicate)
+
+  2. Store s a 코모나드와 렌즈 (Lens) 의 3대 법칙 일치성:
+       Store s a = Store (s -> a) s  (Setter 클로저 + Getter 포커스)
+       (a -> Store s a) ≅ (a -> s, a -> s -> a) ≅ (get, set)
+
+       • Get-Set:   set a (get a) = a           <==> (extract ∘ coalg = id)
+       • Set-Get:   get (set a s) = s           <==> (coalg ∘ set a = ...)
+       • Set-Set:   set (set a s) s' = set a s' <==> (duplicate 일치성)
+----
+
 만약 ``a``가 곱 타입이라면, ``set``은 ``a`` 내부의 ``s`` 타입 필드를 설정하면서 수정된 버전의 ``a``를 반환하도록 구현할 수 있습니다. 비슷하게, ``get``은 ``a``로부터 ``s`` 필드의 값을 읽도록 구현할 수 있습니다. 다음 섹션에서 이러한 아이디어들을 더 탐구하겠습니다.
 
 == 도전 과제

@@ -129,6 +129,22 @@ fmapG f . alphaa = alphab . fmapF f
 fmap f . alpha = alpha . fmap f
 ----
 
+[source,text]
+----
+  [ 자연 변환 (Natural Transformation)의 자연성 사각형 (Naturality Square) ]
+
+    카테고리 C에서:                      카테고리 D로 F, G가 각각 대응:
+        a                                       F a ──── α_a ────> G a
+        │                                        │                  │
+        │ f                                  F f │                  │ G f (fmap_G f)
+        v                                        v                  v
+        b                                       F b ──── α_b ────> G b
+
+    * 자연성 조건 (Naturality Condition):
+        G f ∘ α_a = α_b ∘ F f
+        (fmap_G f ∘ alpha_a = alpha_b ∘ fmap_F f)
+----
+
 이것은 여전히 실제 하스켈은 아닙니다. 함수 동등성은 코드에서 표현될 수 없지만, 프로그래머가 등식적 추론에서 사용하거나 컴파일러가 최적화를 구현하는 데 사용할 수 있는 항등식입니다.
 
 하스켈에서 자연성 조건이 자동으로 보장되는 이유는 "공짜 정리(Theorems for free)"와 깊은 관련이 있습니다. 하스켈에서 자연 변환을 정의하는 데 사용되는 매개변수적 다형성은 구현 방식에 매우 강력한 제약을 부여합니다. 즉, 모든 타입에 대해 단 하나의 공식만 작동해야 한다는 것입니다. 이러한 제약은 해당 함수들에 대한 등식적 정리(equational theorems)로 변환됩니다. 함자를 변환하는 함수의 경우, 이 '자유 정리(free theorem)'가 바로 자연성 조건이 됩니다. [자유 정리에 대한 자세한 내용은 제 블로그 포스트 "매개변수성: 공짜 돈과 공짜 정리(Parametricity: Money for Nothing and Theorems for Free)"를 참조하세요.]
@@ -494,6 +510,33 @@ G' αa ∘ βF a
 [source,haskell]
 ----
 (β' ⋅ α') ∘ (β ⋅ α) = (β' ∘ β) ⋅ (α' ∘ α)
+----
+
+[source,text]
+----
+  [ 2-카테고리 Cat에서의 수직 합성 vs 수평 합성 ]
+
+  1. 수직 합성 (Vertical Composition, β ⋅ α):
+       동일한 두 카테고리 C, D 사이의 세 함자 F, G, H와 두 자연 변환 α, β
+                  F
+            ╭───────────╮
+            │     α     ▼
+          C ├─────────> G ┤ D       ==>    (β ⋅ α)_a = β_a ∘ α_a  (F -> H)
+            │     β     ▲
+            ╰───────────╯
+                  H
+
+  2. 수평 합성 (Horizontal Composition, β ∘ α):
+       세 카테고리 C, D, E와 각 함자 쌍 사이의 자연 변환 α, β
+             F           G
+         ╭───────╮   ╭───────╮
+         │   α   ▼   │   β   ▼
+       C ┴───────> D ┴───────> E    ==>    (β ∘ α)_a = β_{F' a} ∘ G α_a
+             F'          G'                           = G' α_a ∘ β_{F a}
+                                           (G ∘ F -> G' ∘ F')
+
+  3. 상호교환 법칙 (Interchange Law):
+       (β' ⋅ β) ∘ (α' ⋅ α) = (β' ∘ α') ⋅ (β ∘ α)
 ----
 
 여기서 Saunders Mac Lane을 인용하겠습니다. "독자라면 이 사실을 증명하는 데 필요한 자명한 다이어그램들을 직접 작성해보는 즐거움을 누릴 수 있을 것이다."

@@ -349,6 +349,34 @@ bimap :: (a -> b) -> (c -> d) -> (a ⊗ c -> b ⊗ d)
 
 뿐만 아니라, 여기 모노이드 법칙이 있습니다.
 
+[source,text]
+----
+  [ 모노이드로서의 모나드 (Monad Laws in [C, C]) ]
+
+  1. 결합 법칙 (Associativity):
+            μ ∘ T
+       T³ ─────────> T²
+       │             │
+   T ∘ μ             │ μ
+       v             v
+       T² ─────────> T
+             μ
+       (μ ∘ (μ ∘ T) = μ ∘ (T ∘ μ))
+       (join . fmap join = join . join)
+
+  2. 좌우 단위 법칙 (Left & Right Unit Laws):
+            η ∘ T               T ∘ η
+       T <────────── T² ──────────> T
+        \            ^             /
+         \           │            /
+      id_T\          │ μ         / id_T
+           \         │          /
+            v        │         v
+                     T
+       (μ ∘ (η ∘ T) = id_T = μ ∘ (T ∘ η))
+       (join . return = id = join . fmap return)
+----
+
 이것들은 정확히 우리가 전에 본 모나드 법칙입니다. 이제 샌더스 맥 레인의 유명한 인용구를 이해합니다.
 
 [quote]

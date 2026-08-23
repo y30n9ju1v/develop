@@ -236,6 +236,25 @@ instance Representable Stream where
     index (Cons b bs) n = if n == 0 then b else index bs (n - 1)
 ----
 
+[source,text]
+----
+  [ 표현 가능 함자 (Representable Functor)의 이중성: 함수 vs 컨테이너 ]
+
+    함수 관점: (Rep f -> x)                    컨테이너 관점: f x
+    (계산/로직 표현)                           (메모이제이션/데이터 표현)
+    ───────────────────────────             ──────────────────────────
+           (Integer -> x)                         Stream x
+               │                                      │
+               │ ─── tabulate (함수를 데이터로 변환) ──>│
+               │                                      │
+               │<─── index (데이터를 함수로 조회) ──── │
+               v                                      v
+           f 0, f 1, f 2...                  Cons (f 0) (Cons (f 1) ...)
+
+    * 자연 동형 (Natural Isomorphism): C(a, -) ≅ F (-)
+    * tabulate ∘ index = id,  index ∘ tabulate = id
+----
+
 하나의 메모이제이션 체계만으로 임의의 반환 타입을 가진 함수들 전체를 아우를 수 있다는 점이 매우 흥미롭습니다.
 
 반변 함자의 표현 가능성도 비슷하게 정의됩니다. 다만 이때는 ``C(-, a)``의 두 번째 인자를 고정합니다. 또는 ``Cop(a, -)``가 ``C(-, a)``와 같다는 점을 이용해 ``Cop``에서 ``Set``으로 가는 함자로 생각할 수도 있습니다.

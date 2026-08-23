@@ -251,6 +251,20 @@ F m :: F a -> F b
 g ∘ F m = m ∘ f
 ----
 
+[source,text]
+----
+  [ F-대수 준동형 모피즘 (F-Algebra Homomorphism) ]
+
+           F a ───────── F m ─────────> F b
+            │                            │
+          f │                            │ g
+            v                            v
+            a ─────────── m ───────────> b
+
+    * 준동형 사상 m : (a, f) -> (b, g)
+    * 가환 조건: g ∘ F m = m ∘ f
+----
+
 이것이 실제로 카테고리라는 것을 쉽게 확신할 수 있을 것입니다. (힌트: stem:[C]의 항등 모피즘은 잘 작동하며, 준동형 모피즘의 합성 역시 준동형 모피즘입니다.)
 
 F-대수 카테고리의 초기 객체(initial object)가 존재한다면 이를 *초기 대수(initial algebra)*라고 부릅니다. 이 초기 대수의 운반자를 stem:[i], 평가 함수를 stem:[j \:: F i \to i]라고 합시다. stem:[j], 즉 초기 대수의 평가 함수는 동형 모피즘(isomorphism)임이 밝혀집니다. 이 결과는 *램벡의 정리(Lambek's theorem)*로 알려져 있습니다. 증명은 초기 객체의 정의에 기초하며, 초기 객체에서 다른 임의의 F-대수로 가는 유일한 준동형 모피즘 stem:[m]이 존재해야 한다는 조건을 요구합니다. stem:[m]이 준동형 모피즘이므로 다음 다이어그램이 가환(commute)해야 합니다.
@@ -264,7 +278,30 @@ F j :: F (F i) -> F i
 
 stem:[(i, j)]가 초기 대수이므로, 그로부터 stem:[(F i, F j)]로 가는 유일한 준동형 모피즘 stem:[m]이 반드시 존재해야 합니다. 따라서 다음 다이어그램이 가환해야 합니다.
 
-하지만 다음과 같이 자명하게 가환하는 다이어그램도 존재합니다. (두 경로가 같습니다!)
+[source,text]
+----
+  [ 람베크의 정리 (Lambek's Theorem) 동형 증명 가환 다이어그램 ]
+
+  1. 초기 대수 (i, j) 에서 대수 (F i, F j) 로의 유일한 준동형 m:
+         F i ───────── F m ─────────> F (F i)
+          │                            │
+        j │                            │ F j
+          v                            v
+          i ─────────── m ───────────> F i     (F j ∘ F m = m ∘ j)
+
+  2. 두 다이어그램 결합:
+         F i ─── F m ───> F(F i) ─── F j ───> F i
+          │                 │                  │
+        j │                 │ F j            j │
+          v                 v                  v
+          i ────── m ─────> F i ───── j ─────> i
+
+      * j ∘ m : (i, j) -> (i, j) 는 초기 대수의 엔도사상이므로 유일하게 id_i !
+      * 따라서 j ∘ m = id_i 이고 m ∘ j = id_{F i}
+      * 결론: j : F i ≅ i  (초기 대수의 운반자 i는 F의 최소 고정점 Fix F!)
+----
+
+하지만 다음과 같이 자명하게 가환하는 다이어그램도 존재합니다. (두 경로가 같습니다)
 
 이는 stem:[j]가 stem:[(F i, F j)]에서 stem:[(i, j)]로 가는 대수의 준동형 모피즘임을 보여주는 것으로 해석할 수 있습니다. 이제 이 두 다이어그램을 하나로 합쳐 봅시다.
 
@@ -337,6 +374,29 @@ m = alg . fmap m . unFix
 ----
 cata :: Functor f => (f a -> a) -> Fix f -> a
 cata alg = alg . fmap (cata alg) . unFix
+----
+
+[source,text]
+----
+  [ 카타모피즘 (cata) 과 아나모피즘 (ana) 가환 다이어그램 ]
+
+  1. 카타모피즘 (Catamorphism - 접기/평가):
+        Fix f ───────── cata alg ─────────> a
+          │                                 ▲
+    unFix │ (Fix ≅ Fix^{-1})                │ alg (평가 함수)
+          v                                 │
+        f (Fix f) ─── fmap (cata alg) ────> f a
+
+        * 재귀 방정식: cata alg = alg ∘ fmap (cata alg) ∘ unFix
+
+  2. 아나모피즘 (Anamorphism - 펼치기/공평가):
+        Fix f <───────── ana coalg ──────── a
+          ▲                                 │
+      Fix │                                 │ coalg (공평가 함수)
+          │                                 v
+        f (Fix f) <─── fmap (ana coalg) ─── f a
+
+        * 재귀 방정식: ana coalg = Fix ∘ fmap (ana coalg) ∘ coalg
 ----
 
 그 예시를 살펴보겠습니다. 자연수를 정의하는 함자를 취합니다.

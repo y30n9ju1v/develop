@@ -281,6 +281,23 @@ factorizer :: (c -> a) -> (c -> b) -> (c -> (a, b))
 factorizer p q = \x -> (p x, q x)
 ----
 
+[source,text]
+----
+  [ 곱 (Product)의 보편 구성 가환 다이어그램 ]
+
+                 c' (임의의 후보 객체)
+                /│\
+               / │ \
+           p' /  │  \ q'
+             /   │m  \
+            v    v    v
+            a <─ a × b ─> b
+              fst     snd
+
+    * 보편 방정식: p' = fst ∘ m,  q' = snd ∘ m
+    * 유일한 인수분해 사상: m = factorizer p' q' = \x -> (p' x, q' x)
+----
+
 == 여곱 (Coproduct)
 
 카테고리 이론의 모든 구성이 그렇듯, 곱 역시 쌍대(dual)를 가지며 이를 *여곱(coproduct)*이라 부릅니다. 곱 패턴에서 화살표 방향을 뒤집으면, 두 개의 *주입(injection)* stem:[i, j]를 갖춘 객체 stem:[c]가 됩니다. 이들은 stem:[a, b]에서 stem:[c]로 가는 모피즘입니다.
@@ -305,6 +322,22 @@ j' = m . j
 ____
 두 객체 stem:[a]와 stem:[b]의 *여곱(Coproduct)*은 두 개의 주입을 갖춘 객체 stem:[c]로서, 두 개의 주입을 갖춘 임의의 다른 객체 stem:[c']에 대해 stem:[c]에서 stem:[c']로 가며 주입들을 인수분해하는 유일한 모피즘 stem:[m]이 존재하는 객체입니다.
 ____
+
+[source,text]
+----
+  [ 여곱 (Coproduct)의 보편 구성 가환 다이어그램 ]
+
+            a ─> a + b <─ b
+             \   Left   Right /
+              \    │    /
+            i' \   │m  / j'
+                \  v  /
+                 \>c'<
+              (임의의 후보 객체)
+
+    * 보편 방정식: i' = m ∘ Left,  j' = m ∘ Right
+    * 유일한 인수분해 사상: m = factorizer i' j' = \case Left x -> i' x; Right y -> j' y
+----
 
 집합 카테고리에서 여곱은 두 집합의 *서로소 합집합(disjoint union)*입니다. stem:[a, b]의 서로소 합집합의 원소는 stem:[a]의 원소이거나 stem:[b]의 원소입니다. 만약 두 집합이 겹친다면, 서로소 합집합은 공통된 부분의 복사본을 각각 하나씩 총 두 개 가지게 됩니다. 서로소 합집합의 원소는 그 출처가 어디인지 나타내는 식별자가 태그된 상태라고 생각하면 쉽습니다.
 
