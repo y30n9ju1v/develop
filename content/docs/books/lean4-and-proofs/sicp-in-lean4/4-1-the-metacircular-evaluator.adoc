@@ -20,6 +20,26 @@ _link:../[전체 목차] · 이전: link:../3-5-streams/[3.5. 스트림] · 다�
 
 모든 표현식은 몇 안 되는 구문 범주 중 하나에 속하고, 복합 표현식을 평가하는 것은 재귀적으로 그 조각들을 평가하고 어느 범주에 속하는지에 따라 결과를 결합하는 것으로 환원됩니다. SICP는 모든 표현식을 타입 없는 리스트로 표현하고, 각 범주마다 술어(``self-evaluating?``, ``quoted?``, ``assignment?``, …)와 몇 개의 선택자를 작성해서, ``eval``의 ``cond``가 표현식의 모양이 실제로 어떻게 저장되어 있는지에 매이지 않고 그 모양에 따라 분기할 수 있게 합니다.
 
+[source,text]
+----
+ [eval과 apply의 메타순환(Metacircular) 상호 재귀]
+
+                 표현식(Expr) + 환경(Env)
+                           │
+                           ▼
+                  ┌─────────────────┐
+                  │    eval(e, env) │◄──────────────────────┐
+                  └────────┬────────┘                       │
+                           │                                │
+            (함수 적용 .app f args 분기)                    │
+                           │                                │
+                           ▼                                │ (본문 body 평가)
+                  ┌─────────────────┐                       │
+                  │ apply(proc, args) ──────────────────────┘
+                  └─────────────────┘
+                    (인자 확장 환경 생성)
+----
+
 Lean은 범주와 디스패치 메커니즘을 하나의 선언으로 줍니다. 구문 형식마다 생성자 하나씩을 가진 ``inductive Expr``가 곧 SICP의 추상 구문입니다 — 각 생성자는 동시에 술어(어느 생성자가 쓰였는지)이자 선택자(그 필드들)이고, Lean의 ``match`` 전수성 검사가 Scheme에서 ``else (error "Unknown expression type: EVAL" exp)``가 하는 역할을 대신합니다. 다만 프로그램이 실행되기 전에 강제된다는 점이 다릅니다.
 
 [source,lean]
@@ -61,6 +81,19 @@ abbrev Frame := List (String × Value)
 structure EvalCtx where
   frames : IO.Ref (Std.HashMap Nat Frame)
   nextId : IO.Ref Nat
+----
+
+[source,text]
+----
+ [아레나 기반 환경(Env)과 프레임(Frame) 참조 구조]
+
+   Env: [fid 2, fid 0]  (내부 스코프 ──► 전역 스코프)
+           │        │
+           ▼        ▼
+   EvalCtx.frames (아레나: Std.HashMap Nat Frame)
+     fid 2: [("n", Value.num 5)]                   (확장된 매개변수 프레임)
+     fid 1: [("make-counter", Value.closure ...)]
+     fid 0: [("+", Value.primitive "+"), ...]      (전역 프레임)
 ----
 
 ``EvalCtx``는 모든 프레임이 실제로 사는 곳입니다 — 아레나 하나와, 새 프레임에 매길 다음 id를 기억하는 카운터입니다. ``Env``는 그 아레나를 어떤 순서로 훑을지 말해주는 지도일 뿐, 값을 직접 담지 않습니다. SICP의 프레임 사슬이 ``IO.Ref`` 하나짜리 링크드 리스트로 존재하는 대신, 여기서는 아레나 하나와 그 위의 인덱스 리스트로 나뉘어 존재합니다 — 링크드 리스트를 Lean의 커널이 받아들이는 방식으로 다시 지은 것뿐, SICP가 그리는 그림 자체는 바뀌지 않습니다.

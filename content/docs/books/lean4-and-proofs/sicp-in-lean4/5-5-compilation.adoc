@@ -52,6 +52,21 @@ structure InstSeq where
 
 ``InstSeq``는 SICP의 세 부분짜리 부기 — 필요한 레지스터, 변경되는 레지스터, 명령어 자체 — 를 의도적으로 유지하는데, 이것이 정확히 ``preserving``이 ``save``/``restore`` 쌍이 필요한지를 결정하는 데 필요한 정보이고, (결합된 시퀀스를 다시 훑는 대신) 조각마다 한 번씩 계산하는 것이 SICP가 이를 명시적으로 추적하는 이유로 드는 효율성 논증 그 자체이기 때문입니다.
 
+[source,text]
+----
+ [컴파일러 파이프라인: SExp ──► InstSeq]
+
+  소스 AST (SExp)
+       │
+       ▼ compile(target, linkage, n)
+  ┌───────────────────────────────────────────────────────────┐
+  │ InstSeq                                                   │
+  │   - needs:    ["env", "proc", ...] (필요한 레지스터 집합)  │
+  │   - modifies: ["val", "argl", ...] (수정될 레지스터 집합)  │
+  │   - instrs:   ["assign val ...", "goto ..."] (명령어 목록)│
+  └───────────────────────────────────────────────────────────┘
+----
+
 '''
 
 == 5.5.2. 표현식 컴파일하기
@@ -126,6 +141,15 @@ partial def compileM (exp : SExp) (target : Target) (linkage : Linkage) : StateM
 
 ``preserving``은 SICP가 자랑스러워하는 실제 최적화 작업을 수행하는 절차입니다 — 각 조각에 붙은 ``needs``/``modifies`` 집합으로부터, 레지스터를 하위 계산 주위에서 정말로 저장해야 하는지를 결정합니다.
 
+[source,text]
+----
+ [preserving의 레지스터 충돌 검사 논리]
+
+  조건: 레지스터 r이 seq1.modifies에 속하고, 동시에 seq2.needs에 속하는가?
+    ├── YES: seq1 앞뒤로 [save r] ... [restore r] 자동 삽입!
+    └── NO : 보존 불필요! (불필요한 스택 연산 완벽 제거)
+----
+
 [source,lean]
 ----
 def preserving (regs : List String) (seq1 seq2 : InstSeq) : InstSeq :=
@@ -147,6 +171,19 @@ def preserving (regs : List String) (seq1 seq2 : InstSeq) : InstSeq :=
 == 5.5.3. 조합 컴파일하기 — 그리고 꼬리 호출
 
 이 절에서 가장 날카로운 아이디어이자 Lean이 깊이 신경 쓰는 무언가와 가장 직접적으로 연결되는 것은, ``compile-proc-appl``이 ``return`` 연결(linkage)을 다루는 방식입니다 — 절차 호출이 컴파일된 절차 본문이 하는 정말 마지막 일일 때는 ``continue`` 레지스터를 전혀 저장할 필요가 없는데, 피호출자 자신의 최종적인 ``(goto (reg continue))``가 이미 호출자가 가고 싶어 했던 바로 그곳으로 착지하기 때문입니다. SICP의 요점은 정확하고 중요합니다 — 이 세부사항을 잘못하면, 자기 호출로 작성된 "루프"의 모든 재귀 호출이 저장된 프레임을 쌓아서, 머신 수준에서 반복적 프로세스를 재귀적 프로세스로 바꿔버립니다. 이는 정확히 이 시리즈의 첫 글이 ``factorial``과 ``factIter`` 사이에서 그었던 구분입니다.
+
+[source,text]
+----
+ [컴파일러 링키지(Linkage) 분기 구조]
+
+ 1. 꼬리 호출 (.val, .ret):
+    - continue 레지스터 보존 불필요!
+    - goto (reg val) ──► 호출된 함수가 직접 원래 continue로 복귀!
+
+ 2. 비-꼬리 호출 (.val, .next):
+    - assign continue (label after-call) ──► 복귀 지점 명시적 설정
+    - goto (reg val)
+----
 
 [source,lean]
 ----

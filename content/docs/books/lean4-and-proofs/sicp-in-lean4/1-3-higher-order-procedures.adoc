@@ -22,6 +22,22 @@ link:../1-2-procedures-and-processes/[이전 글]은 프로세스가 실행되�
 
 우리도 절차적으로 똑같이 할 수 있습니다 — 공유된 뼈대에서 달라지는 부분을 형식 매개변수로 바꾸면 됩니다. ``term``과 ``next``가 다른 숫자 인자와 마찬가지로 평범한 인자가 됩니다.
 
+[source,text]
+----
+                       [sum 고차 함수 파이프라인]
+
+      시작점 a ───(term a 계산)───► [항 값] ──┐
+         │                                    │ (+)
+         ▼ (next a 전진)                      ▼
+       next a ───(term (next a))─► [항 값] ──► 누적합 (결과)
+         │                                    ▲
+        ...                                   │
+         │                                    │
+       끝점 b ───(term b 계산)───► [항 값] ──┘
+         │
+         ▼ (a > b 이면 0 반환 후 재귀 종료)
+----
+
 [source,lean]
 ----
 partial def sum (term : Float → Float) (a : Float) (next : Float → Float) (b : Float) : Float :=
@@ -186,6 +202,23 @@ def halfIntervalMethod (f : Float → Float) (a b : Float) : Option Float :=
 === 고정점 탐색
 
 stem:[f(x) = x]를 만족하면 stem:[x]는 stem:[f]의 _고정점(fixed point)_입니다. 많은 함수에 대해, 시작 추측값에 stem:[f]를 반복 적용하면 그런 점으로 수렴합니다. 이는 고정점을 찾을 함수와 시작 추측값으로 매개변수화된 두 번째 범용 탐색 절차를 줍니다.
+
+[source,text]
+----
+  [고정점 수렴 궤적: x_{n+1} = f(x_n)]
+
+   y = f(x)
+       ▲             / (y = x 대각선)
+       │            /
+       │           /     ┌─── (x₂, f(x₂))
+       │          /  ┌───┘
+       │         /┌──┘       <-- 수렴점 (고정점 x*)
+       │        ┌─┘
+       │       ┌┘
+       │      ┌┘
+       │     (x₀, f(x₀))
+       └────────────────────────► x
+----
 
 [source,lean]
 ----

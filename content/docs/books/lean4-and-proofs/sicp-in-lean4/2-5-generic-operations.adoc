@@ -22,6 +22,17 @@ Scheme의 접근은 모든 값에 태그(``scheme-number``, ``rational``, ``comp
 
 Lean에서는 태그가 곧 ``inductive`` 타입의 생성자이고, 조회 테이블은 곧 패턴 매칭입니다 — 둘 중 어느 것도 손으로 만들 필요가 없습니다.
 
+[source,text]
+----
+ [2차원 연산-타입 디스패치 매트릭스]
+
+       인자 1 ＼ 인자 2 │    Int       │    Rat       │   Complex
+   ─────────────────────┼──────────────┼──────────────┼──────────────
+        Int             │  int + int   │ (raise int)  │ (raise int)
+        Rat             │ (raise int)  │  rat + rat   │ (raise rat)
+        Complex         │ (raise int)  │ (raise rat)  │ comp + comp
+----
+
 [source,lean]
 ----
 inductive Num where
@@ -84,6 +95,19 @@ def isZeroNum : Num → Bool
 ``addNum``이 위에서 했던 것처럼 태그의 모든 쌍별 조합을 손으로 처리하는 것은 확장되지 않습니다 — 네 번째 숫자 타입을 추가하면 ``add`` 하나만을 위해서도 (최소) 일곱 개의 경우를 더 써야 하고, ``sub``, ``mul``, ``div``에도 똑같이 반복해야 합니다. SICP의 해법은 _강제 변환(coercion)_입니다 — 타입 쌍마다 한 표현을 다른 표현으로 바꾸는 절차를 하나씩 작성하고, 수정된 ``apply-generic``이 포기하기 전에 강제 변환을 시도하게 합니다.
 
 우리의 세 숫자 타입은 마침 자연스러운 _탑(tower)_을 이룹니다 — 정수는 유리수의 특수한 경우이고, 유리수는 복소수(허수부가 0인)의 특수한 경우입니다. 이를 값을 탑에서 한 단계 위로 들어올리는 ``raise`` 함수로 곧바로 표현할 수 있습니다.
+
+[source,text]
+----
+ [타입의 탑 (Tower of Types) 및 승격(raise) 경로]
+
+      ▲  [Rank 2] Complex (re, im)
+      │      ▲
+      │      │ raise (허수부 0으로 확장: n/d + 0i)
+      │  [Rank 1] Rat (n / d)
+      │      ▲
+      │      │ raise (분모 1로 확장: n / 1)
+      │  [Rank 0] Int (n)
+----
 
 [source,lean]
 ----
