@@ -24,46 +24,46 @@ draft: false
 *1부: 상미분방정식*
 
 [start=1]
-. *link:01-why-odes/[공학자는 왜 상미분방정식을 배우는가]*
-. *link:02-first-order-linear-odes/[1계 선형 ODE, 수치해와 해석해]*
-. *link:03-second-order-odes-and-vibration/[2계 선형 ODE와 감쇠 진동]*
+. *link:01-why-odes/[1장: 공학자는 왜 상미분방정식을 배우는가]*
+. *link:02-first-order-linear-odes/[2장: 1계 선형 ODE, 수치해와 해석해]*
+. *link:03-second-order-odes-and-vibration/[3장: 2계 선형 ODE와 감쇠 진동]*
 
 *2부: 라플라스 변환*
 
 [start=4]
-. *link:04-why-laplace/[라플라스 변환이 왜 문제를 쉽게 만드는가]*
-. *link:05-laplace-for-circuits/[라플라스 변환으로 RLC 회로 풀기]*
+. *link:04-why-laplace/[4장: 라플라스 변환이 왜 문제를 쉽게 만드는가]*
+. *link:05-laplace-for-circuits/[5장: 라플라스 변환으로 RLC 회로 풀기]*
 
 *3부: 선형연립방정식*
 
 [start=6]
-. *link:06-solving-linear-systems/[선형연립방정식을 행렬로 풀기]*
-. *link:07-rank-and-solvability/[랭크와 해의 개수]*
+. *link:06-solving-linear-systems/[6장: 선형연립방정식을 행렬로 풀기]*
+. *link:07-rank-and-solvability/[7장: 랭크와 해의 개수]*
 
 *4부: 고유값과 대각화*
 
 [start=8]
-. *link:08-eigenvalues-and-physical-meaning/[고유값·고유벡터의 물리적 의미]*
-. *link:09-coupled-vibration-and-diagonalization/[대각화와 연성 진동계의 정상 모드]*
+. *link:08-eigenvalues-and-physical-meaning/[8장: 고유값·고유벡터의 물리적 의미]*
+. *link:09-coupled-vibration-and-diagonalization/[9장: 대각화와 연성 진동계의 정상 모드]*
 
 *5부: 벡터 미적분*
 
 [start=10]
-. *link:10-gradient-divergence-curl/[gradient·divergence·curl]*
-. *link:11-fluid-and-em-applications/[유체와 전자기장에 적용하기]*
+. *link:10-gradient-divergence-curl/[10장: gradient·divergence·curl]*
+. *link:11-fluid-and-em-applications/[11장: 유체와 전자기장에 적용하기]*
 
 *6부: 푸리에 해석과 편미분방정식*
 
 [start=12]
-. *link:12-fourier-series-and-fft/[푸리에 급수와 FFT]*
-. *link:13-heat-equation/[열방정식]*
-. *link:14-wave-equation/[파동방정식]*
+. *link:12-fourier-series-and-fft/[12장: 푸리에 급수와 FFT]*
+. *link:13-heat-equation/[13장: 열방정식]*
+. *link:14-wave-equation/[14장: 파동방정식]*
 
 *7부: 복소해석*
 
 [start=15]
-. *link:15-complex-functions-and-cauchy-riemann/[복소함수와 코시-리만 방정식]*
-. *link:16-contour-integration-and-residues/[등각사상과 유수 정리로 적분 계산하기]*
+. *link:15-complex-functions-and-cauchy-riemann/[15장: 복소함수와 코시-리만 방정식]*
+. *link:16-contour-integration-and-residues/[16장: 유수 정리로 복소적분 계산하기]*
 
 *맺음말*
 

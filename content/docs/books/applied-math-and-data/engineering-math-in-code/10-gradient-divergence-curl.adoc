@@ -12,16 +12,39 @@ _link:../[전체 목차] · 이전: link:../09-coupled-vibration-and-diagonaliza
 
 '''
 
-지금까지는 유한 개의 미지수(전압 하나, 위치 하나, 질량 두 개의 변위)만 다뤘습니다. 5부에서는 **공간 전체에 퍼져 있는 양**을 다룹니다 — 방 안 모든 점마다 온도가 다르거나(스칼라장), 파이프 안 모든 점마다 유속과 방향이 다른(벡터장) 경우입니다. 이 장에서는 이런 장(field)을 다루는 세 가지 기본 연산자 — gradient, divergence, curl — 을 각각 유한차분으로 직접 계산해서 확인합니다.
+5부가 시작됩니다.
 
-== Gradient: 어느 방향으로 가장 빨리 커지는가
+지금까지는 몇 개의 고립된 미지수(전압, 변위)만 다뤘습니다. 이 장부터는 **공간 전체(3차원)에 가득 퍼져 있는 양** — 방 안 모든 지점의 온도(스칼라장)나 파이프 안 유체의 흐름 속도와 방향(벡터장) — 을 다룹니다.
 
-스칼라장 `f(x,y,z)`가 있을 때, gradient $\nabla f$는 "그 점에서 함숫값이 가장 빨리 증가하는 방향과 그 증가율"을 가리키는 벡터입니다 — 각 좌표에 대한 편미분을 모은 것입니다.
+이 장에서는 공간 미적분의 3대 핵심 연산자인 **gradient, divergence, curl**의 본질을 수치 미분으로 파헤칩니다.
+
+== 세 연산자가 답하는 서로 다른 3가지 질문
+
+....
+                   [ 공간 미적분 3대 연산자의 물리적 직관 ]
+
+   【 1. Gradient (∇f) 】        【 2. Divergence (∇·F) 】      【 3. Curl (∇×F) 】
+     "가장 가파른 경사 방향"        "원천에서 뿜어 나오는 양"       "바람개비가 회전하는 세기"
+            ▲                             ▲                             ▲
+            │ ∇f (가장 가파름)             │ 밖으로 퍼져나감               │   /
+           /│                            ┌─┴─┐                         │  / 
+          / │ 산 정상                     │ • │ ◄── 솟아남 (div > 0)    │ ┌───┐ ◄── 회전
+         /  │                           └─┬─┘                           │ │ ↻ │    (curl)
+        /   │                             │                             │ └───┘
+       /────┴─────────►                  ▼                             └───────►
+       [ 스칼라 ──► 벡터 ]              [ 벡터 ──► 스칼라 ]            [ 벡터 ──► 벡터 ]
+....
+
+== 1. Gradient ($\nabla f$): 어느 방향으로 가장 빨리 커지는가
+
+스칼라장 $f(x,y,z)$가 주어졌을 때, gradient는 **"그 점에서 함숫값이 가장 가파르게 증가하는 방향과 그 경사도"**를 가리키는 벡터입니다:
 
 [stem]
 ++++
-\nabla f = \left( \frac{\partial f}{\partial x}, \frac{\partial f}{\partial y}, \frac{\partial f}{\partial z} \right)
+\nabla f = \left( \frac{\partial f}{\partial x},\ \frac{\partial f}{\partial y},\ \frac{\partial f}{\partial z} \right)
 ++++
+
+중심차분(Central Difference)으로 수치 미분을 계산해 봅시다:
 
 [source,python]
 ----
@@ -40,21 +63,19 @@ def grad_f_numeric(x, y, z, h=1e-6):
     return np.array([dfdx, dfdy, dfdz])
 
 p = (1.0, 2.0, 3.0)
-print("gradient numeric:   ", grad_f_numeric(*p))
-print("gradient analytical:", grad_f_analytical(*p))
+print("gradient 수치계산:", grad_f_numeric(*p))
+print("gradient 해석적 참값:", grad_f_analytical(*p))
 ----
 
 [source]
 ----
-gradient numeric:    [ 4. 10. 12.]
-gradient analytical: [ 4. 10. 12.]
+gradient 수치계산:    [ 4. 10. 12.]
+gradient 해석적 참값: [ 4. 10. 12.]
 ----
 
-`grad_f_numeric`는 미분의 정의(`(f(x+h)-f(x-h))/(2h)`, 중심차분)를 그대로 코드로 옮긴 것뿐인데, 손으로 편미분해서 얻은 `grad_f_analytical`과 소수점 여러 자리까지 일치합니다 — 편미분 세 개를 각각 계산해서 묶은 것이 gradient라는 걸 코드로 직접 확인했습니다.
+== 2. Divergence ($\nabla \cdot F$): 이 점에서 얼마나 뿜어져 나오는가
 
-== Divergence: 이 점에서 얼마나 뿜어져 나오는가
-
-벡터장 `F(x,y,z) = (Fx, Fy, Fz)`가 있을 때, divergence $\nabla \cdot F$는 "이 점 주변의 아주 작은 상자에서, 얼마나 순수하게 밖으로 흘러나가는가"를 나타내는 **스칼라**입니다.
+벡터장 $F = (F_x, F_y, F_z)$가 주어졌을 때, divergence는 **"이 점을 둘러싼 작은 미소 상자에서 유체가 순수하게 밖으로 분출되는가(발산, 원천) 아니면 빨려 들어가는가(흡입구)"**를 나타내는 스칼라입니다:
 
 [stem]
 ++++
@@ -70,23 +91,21 @@ def divergence_numeric(F, x, y, z, h=1e-6):
     dFxdx = (F(x+h,y,z)[0]-F(x-h,y,z)[0])/(2*h)
     dFydy = (F(x,y+h,z)[1]-F(x,y-h,z)[1])/(2*h)
     dFzdz = (F(x,y,z+h)[2]-F(x,y,z-h)[2])/(2*h)
-    return dFxdx+dFydy+dFzdz
+    return dFxdx + dFydy + dFzdz
 
 div_num = divergence_numeric(F, *p)
-div_ana = p[1]+p[2]+p[0]  # d(xy)/dx + d(yz)/dy + d(zx)/dz = y + z + x
-print("divergence numeric:", div_num, " analytical:", div_ana)
+div_ana = p[1] + p[2] + p[0]   # y + z + x = 2 + 3 + 1 = 6
+print("divergence 수치계산:", div_num, " 해석적 참값:", div_ana)
 ----
 
 [source]
 ----
-divergence numeric: 6.000000000061512  analytical: 6.0
+divergence 수치계산: 6.000000000061512  해석적 참값: 6.0
 ----
 
-각 성분을 "자기 방향으로만" 미분해서 더한 것뿐인데(`Fx`를 `x`로, `Fy`를 `y`로, `Fz`를 `z`로), 이게 "이 점에서 얼마나 뿜어져 나오는가"라는 물리적 의미를 갖습니다 — 다음 장에서 이 의미를 유체 흐름으로 직접 확인합니다.
+== 3. Curl ($\nabla \times F$): 이 점 주변이 얼마나 회전하는가
 
-== Curl: 이 점 주변이 얼마나 회전하는가
-
-curl $\nabla \times F$는 "이 점 주변에 작은 바람개비를 놓으면 얼마나 세게, 어느 축으로 돌아가는가"를 나타내는 **벡터**입니다.
+curl은 **"이 점에 가상의 미소 바람개비를 놓았을 때, 유체의 소용돌이에 의해 바람개비가 어느 회전축으로 얼마나 세게 회전하는가"**를 나타내는 벡터입니다:
 
 [stem]
 ++++
@@ -97,7 +116,7 @@ curl $\nabla \times F$는 "이 점 주변에 작은 바람개비를 놓으면 �
 ----
 def curl_numeric(F, x, y, z, h=1e-6):
     dFzdy = (F(x,y+h,z)[2]-F(x,y-h,z)[2])/(2*h)
-    dFydz = (F(x,y,z+h)[1]-F(x,y,z-h)[1])/(2*h)
+    dFydz = (F(x,y,z+h)[1]-F(x,y-z)[1]) if False else (F(x,y,z+h)[1]-F(x,y,z-h)[1])/(2*h)
     dFxdz = (F(x,y,z+h)[0]-F(x,y,z-h)[0])/(2*h)
     dFzdx = (F(x+h,y,z)[2]-F(x-h,y,z)[2])/(2*h)
     dFydx = (F(x+h,y,z)[1]-F(x-h,y,z)[1])/(2*h)
@@ -105,42 +124,39 @@ def curl_numeric(F, x, y, z, h=1e-6):
     return np.array([dFzdy-dFydz, dFxdz-dFzdx, dFydx-dFxdy])
 
 curl_num = curl_numeric(F, *p)
-curl_ana = np.array([-p[1], -p[2], -p[0]])  # 손으로 유도: (0-y, 0-z, 0-x)
-print("curl numeric:", curl_num, " analytical:", curl_ana)
+curl_ana = np.array([-p[1], -p[2], -p[0]])  # [-2, -3, -1]
+print("curl 수치계산:", curl_num, " 해석적 참값:", curl_ana)
 ----
 
 [source]
 ----
-curl numeric: [-2. -3. -1.]  analytical: [-2. -3. -1.]
+curl 수치계산: [-2. -3. -1.]  해석적 참값: [-2. -3. -1.]
 ----
 
-식이 훨씬 복잡해 보이지만 하는 일은 단순합니다 — "$F_z$가 $y$ 방향으로 변하는 정도"와 "$F_y$가 $z$ 방향으로 변하는 정도"의 **차이**를 계산합니다. 두 방향의 변화율이 다르면, 그 불균형이 바람개비를 돌리는 힘이 됩니다.
+[NOTE]
+====
+**기호 $\nabla$(나블라)의 정체**  
+$\nabla = \left( \frac{\partial}{\partial x}, \frac{\partial}{\partial y}, \frac{\partial}{\partial z} \right)$라는 가상의 벡터 미분 연산자입니다.  
+* 스칼라 $f$에 그냥 곱하면 $\to$ **Gradient ($\nabla f$)**
+* 벡터 $F$와 내적($\cdot$)하면 $\to$ **Divergence ($\nabla \cdot F$)**
+* 벡터 $F$와 외적($\times$)하면 $\to$ **Curl ($\nabla \times F$)**
+====
 
-== 세 연산자, 세 가지 다른 질문
+== 직접 해보기: 항등식 $\text{div}(\text{curl } F) = 0$ 검증
 
-세 연산자를 나란히 놓으면 각자 답하는 질문이 다르다는 게 분명해집니다.
-
-* **gradient**: 스칼라장에 적용, 벡터를 돌려준다 — "어느 방향이 가장 가파른가?"
-* **divergence**: 벡터장에 적용, 스칼라를 돌려준다 — "여기서 얼마나 뿜어져 나오는가?"
-* **curl**: 벡터장에 적용, 벡터를 돌려준다 — "여기서 얼마나, 어느 축으로 회전하는가?"
-
-세 연산자 모두 편미분을 특정한 방식으로 조합한 것뿐이고, 유한차분(`(f(x+h)-f(x-h))/(2h)`)으로 그 조합을 그대로 계산하면 손으로 유도한 해석적 결과와 일치한다는 걸 이번 장에서 확인했습니다.
-
-== 직접 해보기
-
-* 다음 장에서 다룰 `curl(grad f) = 0`과 짝을 이루는 또 다른 항등식이 있습니다 — **`div(curl F) = 0`** (어떤 벡터장의 curl을 취한 결과는 항상 divergence가 0입니다). 이 장의 `F(x,y,z)=(xy,yz,zx)`로 먼저 확인해보세요.
+어떤 벡터장의 회전(curl)을 구한 뒤 그 divergence를 취하면, 항상 수학적으로 $0$이 된다는 유명한 항등식을 코드로 검증해 보세요.
 
 .해답 보기
 [%collapsible]
 ====
 [source,python]
 ----
-def curl_F(x, y, z, h=1e-3):
-    return curl_numeric(F, x, y, z, h)
+def curl_F_wrap(x, y, z):
+    return curl_numeric(F, x, y, z, h=1e-4)
 
-for p in [(1,2,3), (0.5,-1,2)]:
-    d = divergence_numeric(curl_F, *p, h=1e-3)
-    print("point", p, "div(curl F):", d)
+for pt in [(1,2,3), (0.5,-1,2)]:
+    d = divergence_numeric(curl_F_wrap, *pt, h=1e-3)
+    print("point", pt, "div(curl F):", d)
 ----
 
 [source]
@@ -149,14 +165,13 @@ point (1, 2, 3) div(curl F): 0.0
 point (0.5, -1, 2) div(curl F): 0.0
 ----
 
-이번엔 근사 오차조차 없이 정확히 `0.0`이 나옵니다. `curl F`가 "이 점 주변에 회전이 얼마나 있는가"를 나타내는 벡터장이라면, `div(curl F)=0`은 "그 회전이라는 양 자체는 어디선가 새로 생기거나 사라지지 않는다"는 뜻입니다 — 다음 장에서 다룰 `curl(grad f)=0`이라는 짝지어진 항등식과 함께, "임의의 벡터장이 다른 벡터장의 curl로 표현 가능한가"를 판단할 때(그러려면 최소한 divergence가 0이어야 하므로) 실전에서 바로 쓰이는 필요조건입니다.
+회전 운동 자체는 그 어떤 새로운 원천도 만들어내지 않으므로 항상 divergence가 0입니다.
 ====
 
-== 요약
+[TIP]
+====
+**확인 질문**: 일기예보에서 태풍(저기압 소용돌이)의 중심은 curl과 divergence가 각각 어떤 부호를 가질까요? (반시계 회전으로 curl > 0이며, 주변 공기를 빨아들여 상승기류를 만드므로 2차원 수렴 div < 0입니다)
+====
 
-* gradient를 유한차분으로 계산해 스칼라장이 가장 빨리 증가하는 방향과 손으로 유도한 해석적 gradient가 일치한다는 걸 확인했습니다.
-* divergence와 curl도 각각 유한차분으로 계산해 손으로 유도한 값과 일치한다는 걸 확인하면서, 두 연산자가 벡터장을 다른 방식으로 조합한 편미분이라는 걸 코드로 직접 봤습니다.
-* 세 연산자가 "가장 가파른 방향", "얼마나 뿜어져 나오는가", "얼마나 회전하는가"라는 서로 다른 물리적 질문에 답한다는 걸 정리했습니다.
-
-다음 장에서는 이 세 연산자를 실제 물리 문제(비압축성 유체 흐름, 정전기장)에 적용해서, divergence가 0이라는 것과 curl이 0이라는 것이 각각 무슨 물리적 의미인지 시뮬레이션으로 확인합니다.
+다음 장에서는 이 연산자들을 **유체역학과 맥스웰 전자기학**에 적용하여 실제 물리 법칙의 아름다움을 만납니다.
 // end::body[]
