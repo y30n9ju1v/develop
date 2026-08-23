@@ -1,6 +1,6 @@
 ---
 title: "13장: 이 모든 것이 람다 계산법과 어떻게 이어지는가"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "lambda-calculus", "y-combinator", "book"]
 categories: ["books"]

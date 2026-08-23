@@ -1,6 +1,6 @@
 ---
 title: "8장: 메모이제이션 — 재귀에 기억을 더하기"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "dynamic-programming", "memoization", "book"]
 categories: ["books"]

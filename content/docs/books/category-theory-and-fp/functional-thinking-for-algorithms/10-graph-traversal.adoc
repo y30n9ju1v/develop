@@ -1,6 +1,6 @@
 ---
 title: "10장: DFS/BFS — 재귀와 명시적 스택/큐"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "graphs", "dfs", "bfs", "book"]
 categories: ["books"]

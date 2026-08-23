@@ -1,6 +1,6 @@
 ---
 title: "2장: 왜 항상 맞는가 — 구조적 귀납"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "induction", "proof", "book"]
 categories: ["books"]

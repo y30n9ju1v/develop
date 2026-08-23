@@ -1,6 +1,6 @@
 ---
 title: "3장: 재귀 관계와 실행 시간"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "recurrence-relations", "complexity", "book"]
 categories: ["books"]

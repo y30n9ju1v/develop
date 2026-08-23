@@ -1,6 +1,6 @@
 ---
 title: "9장: 타뷸레이션 — 귀납의 방향을 뒤집기"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "dynamic-programming", "tabulation", "book"]
 categories: ["books"]

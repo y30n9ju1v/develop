@@ -1,6 +1,6 @@
 ---
 title: "12장: 꼬리 재귀와 반복 — 재귀에서 반복으로"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "tail-recursion", "iteration", "book"]
 categories: ["books"]

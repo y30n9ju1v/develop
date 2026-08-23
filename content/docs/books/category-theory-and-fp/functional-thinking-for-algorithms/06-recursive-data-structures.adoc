@@ -1,6 +1,6 @@
 ---
 title: "6장: 리스트와 트리를 귀납적으로 정의하기"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "trees", "recursive-data-structures", "induction", "book"]
 categories: ["books"]

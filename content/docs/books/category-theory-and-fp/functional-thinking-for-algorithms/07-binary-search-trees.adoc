@@ -1,6 +1,6 @@
 ---
 title: "7장: 이진 탐색 트리와 균형"
-date: 2026-08-24T00:00:00+09:00
+date: 2026-08-23T00:00:00+09:00
 draft: false
 tags: ["algorithms", "binary-search-tree", "balance", "book"]
 categories: ["books"]
