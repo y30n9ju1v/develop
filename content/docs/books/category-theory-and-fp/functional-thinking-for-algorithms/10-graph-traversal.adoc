@@ -1,0 +1,189 @@
+---
+title: "10장: DFS/BFS — 재귀와 명시적 스택/큐"
+date: 2026-08-24T00:00:00+09:00
+draft: false
+tags: ["algorithms", "graphs", "dfs", "bfs", "book"]
+categories: ["books"]
+description: "그래프에는 순환(cycle)이 있어서 1장의 '재귀가 항상 더 작은 문제로 향한다'는 보장이 깨지고, 대신 방문 기록이 그 역할을 대신 한다는 걸 확인하며 DFS를 재귀와 명시적 스택으로 각각 짜보고, 스택을 큐로 바꾸면 BFS가 된다는 걸 보는 10장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../09-tabulation/[9장: 타뷸레이션 — 귀납의 방향을 뒤집기] · 다음: link:../11-greedy-and-induction/[11장: 그리디와 귀납 — 다익스트라, 최소 신장 트리]_
+
+'''
+
+== 트리에서 그래프로: 무엇이 달라지는가
+
+6~7장에서 다룬 트리는 재귀 호출을 아무리 따라가도 **절대 자기 자신으로 되돌아오지 않는다**는 성질이 있었습니다(부모에서 자식으로만 내려가니까요). 그래프는 다릅니다 — 노드끼리 임의로 연결될 수 있고, `A → B → D → A`처럼 **순환(cycle)**이 생길 수 있습니다.
+
+이건 1장에서 강조했던 조건 — "재귀 사례는 항상 기저 사례에 더 가까운, 더 작은 문제로 향해야 한다" — 이 그래프에서는 저절로 지켜지지 않는다는 뜻입니다. 이웃 노드로 이동하는 게 "더 작은 문제"라는 보장이 없으니까요. 그렇다면 그래프를 재귀로 순회하려면 뭔가 다른 안전장치가 필요합니다.
+
+== 방문 기록이 기저 사례를 대신한다
+
+그 안전장치가 바로 **방문한 노드를 기록해두는 것**입니다. 다음 그래프로 확인해봅시다.
+
+....
+[ 예제 그래프 ]
+
+    A --- B
+    |     |
+    C --- D --- E
+....
+
+[source,python]
+----
+graph = {
+    "A": ["B", "C"],
+    "B": ["A", "D"],
+    "C": ["A", "D"],
+    "D": ["B", "C", "E"],
+    "E": ["D"],
+}
+----
+
+깊이 우선 탐색(depth-first search, DFS)을 재귀로 짜봅시다.
+
+[source,python]
+----
+def dfs_recursive(graph, start, visited=None):
+    if visited is None:
+        visited = []
+    if start in visited:
+        return visited          # 기저 사례: 이미 가본 곳이면 멈춘다
+    visited.append(start)
+    for neighbor in graph[start]:
+        dfs_recursive(graph, neighbor, visited)   # 재귀 사례: 안 가본 이웃마다 재귀
+    return visited
+----
+
+[source]
+----
+dfs_recursive(graph, "A") -> ['A', 'B', 'D', 'C', 'E']
+----
+
+`if start in visited: return visited`가 바로 이 재귀의 기저 사례입니다. `A → B → D → C`까지 갔다가 `C`의 이웃인 `A`로 다시 오려는 순간, `A`가 이미 `visited`에 있으므로 그 자리에서 멈춥니다. **"더 작은 문제로 향한다"는 1장의 조건을, "아직 안 가본 곳으로만 향한다"는 조건이 대신하고 있는 것**입니다. 방문 기록이 없다면 `A → B → A → B → ...`처럼 영원히 순환할 수도 있었을 겁니다.
+
+[NOTE]
+====
+**리스트/트리와 그래프의 근본적인 차이**
+1~9장에서 다룬 재귀는 전부 "문제를 쪼개면 반드시 작아진다"는 게 정의 자체에 보장되어 있었습니다(리스트의 꼬리는 항상 더 짧고, 트리의 부분 트리는 항상 더 작습니다). 그래프는 그런 보장이 구조적으로 없기 때문에, **알고리즘이 직접 나서서 "이미 처리한 것"을 추적**해야 종료가 보장됩니다. 이건 8장의 메모이제이션 캐시와 비슷한 역할처럼 보이지만 목적이 다릅니다 — 메모이제이션의 캐시는 속도를 위한 최적화였지만, 그래프 탐색의 방문 기록은 **없으면 아예 끝나지 않을 수도 있는, 정확성을 위한 필수 장치**입니다.
+====
+
+== 재귀는 사실 스택을 쓰고 있었다
+
+이제 DFS를 재귀 없이, **명시적인 스택**으로 짜봅시다.
+
+[source,python]
+----
+def dfs_iterative(graph, start):
+    visited = []
+    stack = [start]
+    while stack:
+        node = stack.pop()              # 스택 맨 위(가장 최근에 넣은 것)를 꺼낸다
+        if node in visited:
+            continue
+        visited.append(node)
+        for neighbor in reversed(graph[node]):
+            if neighbor not in visited:
+                stack.append(neighbor)
+    return visited
+----
+
+[source]
+----
+dfs_iterative(graph, "A") -> ['A', 'B', 'D', 'C', 'E']
+----
+
+재귀 버전과 순서가 정확히 같습니다. 이건 우연이 아닙니다 — **함수를 재귀 호출할 때, 파이썬(그리고 대부분의 언어)은 "지금 여기까지 했고, 돌아오면 이어서 할 일"을 내부적으로 스택에 쌓아둡니다.** `dfs_recursive`가 재귀 호출로 암묵적으로 쓰던 그 스택을, `dfs_iterative`는 `stack`이라는 이름의 리스트로 **눈에 보이게** 꺼내놓은 것뿐입니다. 재귀와 "명시적 스택 + 반복문"은 같은 메커니즘을 다른 자리에 놓고 부르는 것입니다.
+
+== 스택을 큐로 바꾸면: 너비 우선 탐색
+
+DFS는 한 방향으로 갈 수 있는 데까지 깊이 파고든 다음에야 다른 방향을 봅니다(그래서 "깊이 우선"). 이번엔 **가까운 곳부터 한 겹씩** 넓혀가며 살펴보는 너비 우선 탐색(breadth-first search, BFS)을 봅시다. 코드는 `dfs_iterative`와 거의 같은데, 딱 하나 — 스택(`pop()`, 마지막에 넣은 걸 먼저 꺼냄) 대신 **큐**(`popleft()`, 먼저 넣은 걸 먼저 꺼냄)를 씁니다.
+
+[source,python]
+----
+from collections import deque
+
+def bfs(graph, start):
+    visited = [start]
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                visited.append(neighbor)
+                queue.append(neighbor)
+    return visited
+----
+
+[source]
+----
+bfs(graph, "A") -> ['A', 'B', 'C', 'D', 'E']
+----
+
+DFS는 `['A', 'B', 'D', 'C', 'E']`(B 방향으로 깊이 파고든 뒤 C로), BFS는 `['A', 'B', 'C', 'D', 'E']`(A와 바로 이웃한 B, C를 먼저 다 본 다음 D, 그다음 E)로 순서가 다릅니다.
+
+....
+[ DFS vs BFS가 A에서 출발해 살펴보는 순서 ]
+
+  DFS: A 에서 한 방향(B)으로 끝까지 파고든 뒤 되돌아와 다른 방향(C) 탐색
+       A → B → D → (D의 이웃 중 안 가본 곳: E) → 되돌아와 C
+
+  BFS: A 에서 가까운 순서대로 겹겹이 넓혀감
+       1겹: A
+       2겹: B, C   (A의 이웃)
+       3겹: D      (B, C의 이웃 중 새로운 곳)
+       4겹: E      (D의 이웃 중 새로운 곳)
+....
+
+스택은 "가장 최근에 발견한 곳"을 먼저 파고들게 만들어서 깊이 우선이 되고, 큐는 "가장 먼저 발견한 곳"부터 처리하게 만들어서 가까운 곳부터 겹겹이 퍼지는 너비 우선이 됩니다. **자료구조 하나만 바꿨을 뿐인데 탐색의 성격 전체가 뒤바뀐다**는 게 이 장에서 가장 눈여겨볼 지점입니다.
+
+[TIP]
+====
+BFS는 왜 재귀로 잘 안 쓸까요? DFS는 "한 이웃으로 들어가서 끝까지 처리하고 돌아온다"는 흐름이 함수 호출 하나에 자연스럽게 대응됩니다. 하지만 BFS는 "여러 노드를 동시에 한 겹씩" 처리해야 하는데, 이건 재귀 호출 하나가 표현하는 "하나의 흐름이 끝까지 갔다가 돌아온다"는 모양과 잘 맞지 않습니다. 그래서 BFS는 거의 항상 큐를 직접 다루는 반복문으로 짜여집니다 — 모든 재귀가 반복문으로 자연스럽게 바뀌는 게 아니듯, 모든 반복 알고리즘이 재귀로 자연스럽게 바뀌는 것도 아닙니다.
+====
+
+== 직접 해보기
+
+BFS를 응용해서, `start`에서 `target`까지 **최단 거리**(몇 개의 간선을 거쳐야 하는지)를 구하는 `bfs_shortest_path` 함수를 짜보세요. 힌트: 방문 기록을 `list` 대신 `{노드: 발견까지 걸린 거리}` 형태의 딕셔너리로 바꾸면, 이웃을 새로 발견할 때마다 "지금 노드까지의 거리 + 1"을 자연스럽게 기록할 수 있습니다.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+from collections import deque
+
+def bfs_shortest_path(graph, start, target):
+    visited = {start: 0}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        if node == target:
+            return visited[node]
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                visited[neighbor] = visited[node] + 1
+                queue.append(neighbor)
+    return -1
+----
+
+[source]
+----
+bfs_shortest_path(graph, "A", "A")  -> 0
+bfs_shortest_path(graph, "A", "C")  -> 1
+bfs_shortest_path(graph, "A", "D")  -> 2
+bfs_shortest_path(graph, "A", "E")  -> 3
+----
+
+BFS가 가까운 노드부터 겹겹이 순서대로 방문한다는 성질 덕분에, **어떤 노드를 처음 발견하는 순간의 거리가 곧 최단 거리**라는 게 보장됩니다(더 짧은 경로가 있었다면 더 일찍 발견됐을 것이기 때문입니다). 이 성질은 DFS에는 없습니다 — DFS는 한 방향으로 깊이 파고드는 탓에, 처음 도달한 경로가 최단 경로라는 보장이 없습니다.
+====
+
+== 요약
+
+* 그래프에는 순환이 있을 수 있어서, 1장의 "재귀 사례는 항상 더 작은 문제로 향한다"는 보장이 저절로 성립하지 않습니다. 대신 **방문 기록**이 그 역할을 맡아, 이미 처리한 곳으로는 다시 향하지 않게 만듭니다.
+* DFS를 재귀로 짠 것과 명시적 스택으로 짠 것은 순서가 완전히 같습니다 — 재귀 호출은 애초에 콜 스택이라는 암묵적인 스택을 쓰고 있었고, 명시적 스택 버전은 그걸 눈에 보이게 꺼내놓은 것뿐입니다.
+* 스택을 큐로 바꾸면 DFS가 BFS로 바뀝니다. 스택은 가장 최근 발견한 곳을 먼저 파고들게(깊이 우선), 큐는 가장 먼저 발견한 곳부터 겹겹이 넓히게(너비 우선) 만듭니다.
+
+다음 장에서는 그래프 위에서 **최적의** 경로나 연결을 찾는 문제(최단 경로, 최소 신장 트리)를 봅니다. 매 순간 눈앞의 가장 좋아 보이는 선택만 하는 **그리디(greedy)** 알고리즘이 왜 전체 최적해로 이어지는지, 다시 한번 귀납으로 확인합니다.
+// end::body[]
