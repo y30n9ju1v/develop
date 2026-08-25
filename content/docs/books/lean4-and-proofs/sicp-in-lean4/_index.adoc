@@ -24,6 +24,9 @@ title: "SICP in Lean 4"
  ───────────────────────────┼─────────────────────────────────┼──────────────────────────────────
   5부: 레지스터 머신 계산   │ "명시적 스택과 하드웨어에서     │ "Instr 배열, 상태 기계 step/resume,
        (5.1 ~ 5.5)          │  컴파일러는 어떻게 작동하는가?" │  Perceus RC, 꼬리 호출 최적화"
+ ───────────────────────────┼─────────────────────────────────┼──────────────────────────────────
+  6부: 보너스               │ "SICP가 산문·직관으로만        │ "타입 안전성(intrinsic typing),
+       (6.1 ~ 6.3)          │  넘어간 주장, 정말 맞는가?"     │  귀납적 불변식, 치환↔환경 정리"
 ----
 
 이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 절별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
@@ -86,6 +89,12 @@ title: "SICP in Lean 4"
 * *link:5-3-storage-allocation-and-garbage-collection/[5.3. 저장소 할당과 가비지 컬렉션]*
 * *link:5-4-the-explicit-control-evaluator/[5.4. 명시적 제어 평가기]*
 * *link:5-5-compilation/[5.5. 컴파일]*
+
+*6부: 보너스 — SICP가 증명하지 않고 넘어간 것*
+
+* *link:6-1-adding-static-types/[6.1. (보너스) 정적 타입을 더하기]*
+* *link:6-2-provable-mutual-exclusion/[6.2. (보너스) 증명 가능한 상호 배제]*
+* *link:6-3-substitution-vs-environment/[6.3. (보너스) 치환 모델과 환경 모델은 정말 같은가]*
 
 '''
 
@@ -265,3 +274,29 @@ include::5-4-the-explicit-control-evaluator.adoc[tag=body,leveloffset=+1]
 == 5.5. 컴파일
 
 include::5-5-compilation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#part-6]
+== 제6부 (보너스)
+
+'''
+
+[#chapter-6-1-adding-static-types]
+== 6.1. (보너스) 정적 타입을 더하기
+
+include::6-1-adding-static-types.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-6-2-provable-mutual-exclusion]
+== 6.2. (보너스) 증명 가능한 상호 배제
+
+include::6-2-provable-mutual-exclusion.adoc[tag=body,leveloffset=+1]
+
+'''
+
+[#chapter-6-3-substitution-vs-environment]
+== 6.3. (보너스) 치환 모델과 환경 모델은 정말 같은가
+
+include::6-3-substitution-vs-environment.adoc[tag=body,leveloffset=+1]

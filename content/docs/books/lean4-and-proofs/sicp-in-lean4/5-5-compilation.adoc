@@ -7,7 +7,7 @@ categories: ["books"]
 description: "SICP 5장 5절의 아이디어(target/linkage, 명령어 시퀀스 결합, 꼬리 재귀 컴파일)를 Lean 4의 구조적 재귀 코드 생성과 종료성 관점에서 다시 짜 봅니다."
 ---
 
-_link:../[전체 목차] · 이전: link:../5-4-the-explicit-control-evaluator/[5.4. 명시적 제어 평가기]_
+_link:../[전체 목차] · 이전: link:../5-4-the-explicit-control-evaluator/[5.4. 명시적 제어 평가기] · 다음: link:../6-1-adding-static-types/[6.1. (보너스) 정적 타입을 더하기]_
 
 '''
 

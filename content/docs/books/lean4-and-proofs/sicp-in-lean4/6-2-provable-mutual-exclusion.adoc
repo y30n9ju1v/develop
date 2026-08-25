@@ -1,0 +1,193 @@
+---
+title: "6.2. (보너스) 증명 가능한 상호 배제 — 3.4절의 경고를 정리로 만들기"
+date: 2026-08-24T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "concurrency", "mutual-exclusion", "invariant", "bonus"]
+categories: ["books"]
+description: "3.4절이 손으로만 짚었던 acquire의 비원자성 결함을, 두 프로세스를 명시적 상태 기계로 모델링해 실제로 재현하고, 원자적 버전에서는 귀납적으로 유지되는 불변식으로 상호 배제를 정식으로 증명하는 보너스 글"
+---
+
+_link:../[전체 목차] · 이전: link:../6-1-adding-static-types/[6.1. (보너스) 정적 타입을 더하기] · 다음: link:../6-3-substitution-vs-environment/[6.3. (보너스) 치환 모델과 환경 모델은 정말 같은가]_
+
+'''
+
+// tag::body[]
+link:../3-4-concurrency/[3.4절]은 손으로 그린 다이어그램과 산문으로 ``Mutex.acquire``의 결함을 지적했습니다 — ``locked``를 읽는 것과 쓰는 것이 하나의 원자적 단계가 아니라 두 개의 분리된 단계라서, 두 프로세스가 상대의 쓰기를 못 보고 동시에 "획득했다"고 믿을 수 있다는 것이었습니다. 그 글의 연습문제 3.46은 이 결함을 재현하는 구체적인 인터리빙을 _손으로_ 적어보라고 요청하며 끝났습니다. 이 글은 그 요청을 문자 그대로 받아, 두 프로세스를 명시적인 상태 기계로 만들고 Lean이 그 인터리빙을 실제로 추적하게 만듭니다 — 그리고 결함을 고친 버전에 대해서는, "이제 안전하다"는 주장 자체를 귀납적으로 유지되는 불변식으로 증명합니다.
+
+'''
+
+== 6.2.1. 두 프로세스를 상태 기계로 만들기
+
+각 프로세스가 임계 구역에 들어가려 시도하는 과정을 프로그램 카운터 하나로 요약합니다 — 아직 시도 전(``idle``), 확인은 했지만 아직 설정 전(``checked``, 원자적이지 않은 버전에서만 쓰임), 임계 구역 안(``inCS``), 다 마침(``done``). 전역 상태는 두 프로세스의 카운터와 공유된 잠금 하나입니다.
+
+[source,lean]
+----
+inductive PC where
+  | idle | checked | inCS | done
+deriving DecidableEq, Repr
+
+structure St where
+  pc1 : PC
+  pc2 : PC
+  locked : Bool
+deriving Repr
+
+def init : St := { pc1 := .idle, pc2 := .idle, locked := false }
+----
+
+== 6.2.2. 원자적이지 않은 버전을 그대로 모델링하기
+
+3.4절의 ``acquire``를 그대로 두 단계로 쪼갭니다 — ``check``(잠금을 읽는다)와 ``set``(잠금을 켜고 임계 구역에 들어간다)이 서로 다른 스텝입니다. 이게 정확히 SICP가 "``test-and-set!``이 아니면 안전하지 않다"고 경고하는 지점입니다.
+
+[source,lean]
+----
+inductive StepNA : St → St → Prop where
+  | check1   (s : St) (h : s.pc1 = .idle)    : StepNA s { s with pc1 := .checked }
+  | set1     (s : St) (h : s.pc1 = .checked) : StepNA s { s with pc1 := .inCS, locked := true }
+  | release1 (s : St) (h : s.pc1 = .inCS)    : StepNA s { s with pc1 := .done, locked := false }
+  | check2   (s : St) (h : s.pc2 = .idle)    : StepNA s { s with pc2 := .checked }
+  | set2     (s : St) (h : s.pc2 = .checked) : StepNA s { s with pc2 := .inCS, locked := true }
+  | release2 (s : St) (h : s.pc2 = .inCS)    : StepNA s { s with pc2 := .done, locked := false }
+
+inductive ReachableNA : St → Prop where
+  | refl : ReachableNA init
+  | step {s s' : St} : ReachableNA s → StepNA s s' → ReachableNA s'
+----
+
+``set1``과 ``set2``가 ``locked``의 _현재 값_을 전혀 확인하지 않는다는 점을 눈여겨보세요 — 오직 자기 프로세스가 이미 ``checked`` 상태였다는 것만 요구합니다. 이게 바로 결함입니다. 이제 연습문제 3.46이 요구한 인터리빙을 그대로 적어봅니다.
+
+....
+ [ 경쟁을 재현하는 인터리빙 ]
+
+   단계   프로세스 1        프로세스 2        locked
+   0      idle              idle              false
+   1      check1 → checked  idle              false   (P1이 false를 읽음)
+   2      checked           check2 → checked  false   (P2도 false를 읽음, P1은 아직 안 씀)
+   3      set1 → inCS       checked           true    (P1이 잠금을 켜고 진입)
+   4      inCS               set2 → inCS      true    (P2도 그냥 진입! locked를 안 봄)
+
+   ==> 4단계에서 pc1 = inCS 이고 pc2 = inCS: 상호 배제 위반
+....
+
+[source,lean]
+----
+def s1 : St := { init with pc1 := .checked }
+def s2 : St := { s1 with pc2 := .checked }
+def s3 : St := { s2 with pc1 := .inCS, locked := true }
+def s4 : St := { s3 with pc2 := .inCS, locked := true }
+
+theorem race_reaches_double_cs :
+    ReachableNA s4 ∧ s4.pc1 = .inCS ∧ s4.pc2 = .inCS := by
+  refine ⟨?_, rfl, rfl⟩
+  have h0 : ReachableNA init := .refl
+  have h1 : ReachableNA s1 := h0.step (.check1 init rfl)
+  have h2 : ReachableNA s2 := h1.step (.check2 s1 rfl)
+  have h3 : ReachableNA s3 := h2.step (.set1 s2 rfl)
+  have h4 : ReachableNA s4 := h3.step (.set2 s3 rfl)
+  exact h4
+----
+
+이 정리는 "안전하지 않을 수도 있다"는 걱정이 아니라, **``s4``라는 구체적인 도달 가능한 상태가 실제로 존재하고, 그 상태에서 두 프로세스가 동시에 임계 구역 안에 있다**는 확정적인 사실입니다. ``rfl``로 증명이 끝난다는 것 자체가, 이 상태로 가는 각 단계가 ``StepNA``의 규칙을 한 치의 예외 없이 따른다는 뜻입니다 — 손으로 그린 다이어그램이 아니라, Lean의 커널이 직접 그 경로를 밟아 확인한 것입니다.
+
+== 6.2.3. 원자적 버전: 상호 배제를 정리로 만들기
+
+이제 SICP의 해법 — 확인과 설정을 하나의 원자적 단계로 융합하기 — 를 모델링합니다. ``checked`` 중간 상태 자체가 사라집니다.
+
+[source,lean]
+----
+inductive StepA : St → St → Prop where
+  | acquire1 (s : St) (h : s.pc1 = .idle) (hl : s.locked = false) :
+      StepA s { s with pc1 := .inCS, locked := true }
+  | release1 (s : St) (h : s.pc1 = .inCS) :
+      StepA s { s with pc1 := .done, locked := false }
+  | acquire2 (s : St) (h : s.pc2 = .idle) (hl : s.locked = false) :
+      StepA s { s with pc2 := .inCS, locked := true }
+  | release2 (s : St) (h : s.pc2 = .inCS) :
+      StepA s { s with pc2 := .done, locked := false }
+
+inductive ReachableA : St → Prop where
+  | refl : ReachableA init
+  | step {s s' : St} : ReachableA s → StepA s s' → ReachableA s'
+----
+
+link:../../type-driven-design/08-safety-vs-liveness/[안전성과 생동성]을 이미 다룬 자매 시리즈(*타입으로 설계하기*)의 어휘를 빌리면, "상호 배제"는 정확히 안전성 성질입니다 — "나쁜 일이 절대 일어나지 않는다"는 주장이죠. 안전성 성질은 보통 **귀납적으로 유지되는 불변식**을 하나 찾아서 증명합니다 — 그 불변식이 처음부터 참이고, 매 스텝이 참을 참으로 보존한다면, 도달 가능한 모든 상태에서 참이라는 결론이 자동으로 따라옵니다(2장에서 배운 구조적 귀납의 논리를 상태 기계의 실행 경로에 그대로 적용한 것입니다).
+
+여기서는 "둘 다 임계 구역에 있지 않다"는 것만으로는 부족합니다 — 그것만으로는 ``acquire1``이 왜 안전한지(``s.locked = false``라는 전제로부터 ``s.pc2 ≠ .inCS``를 끌어낼 방법)를 증명 중에 알 수 없습니다. 그래서 "``locked``가 잠겨있지 않다면 아무도 임계 구역에 없다"는 사실까지 함께 불변식에 담습니다.
+
+[source,lean]
+----
+def MutexInv (s : St) : Prop :=
+  (s.pc1 = .inCS → s.locked = true) ∧
+  (s.pc2 = .inCS → s.locked = true) ∧
+  ¬ (s.pc1 = .inCS ∧ s.pc2 = .inCS)
+
+theorem inv_init : MutexInv init := by
+  refine ⟨?_, ?_, ?_⟩ <;> simp [init]
+
+theorem inv_preserved {s s' : St} (hinv : MutexInv s) (hstep : StepA s s') : MutexInv s' := by
+  obtain ⟨i1, i2, i3⟩ := hinv
+  cases hstep with
+  | acquire1 h hl =>
+      refine ⟨fun _ => rfl, ?_, ?_⟩
+      · intro hpc2
+        exact absurd (i2 hpc2) (by simp [hl])
+      · intro ⟨_, hpc2⟩
+        exact absurd (i2 hpc2) (by simp [hl])
+  | release1 h =>
+      refine ⟨fun hc => absurd hc (by simp), ?_, ?_⟩
+      · intro hpc2
+        have hne : s.pc2 ≠ PC.inCS := fun heq => i3 ⟨h, heq⟩
+        exact absurd hpc2 hne
+      · intro ⟨hc, _⟩
+        exact absurd hc (by simp)
+  | acquire2 h hl =>
+      refine ⟨?_, fun _ => rfl, ?_⟩
+      · intro hpc1
+        exact absurd (i1 hpc1) (by simp [hl])
+      · intro ⟨hpc1, _⟩
+        exact absurd (i1 hpc1) (by simp [hl])
+  | release2 h =>
+      refine ⟨?_, fun hc => absurd hc (by simp), ?_⟩
+      · intro hpc1
+        have hne : s.pc1 ≠ PC.inCS := fun heq => i3 ⟨heq, h⟩
+        exact absurd hpc1 hne
+      · intro ⟨_, hc⟩
+        exact absurd hc (by simp)
+
+theorem inv_reachable {s : St} (h : ReachableA s) : MutexInv s := by
+  induction h with
+  | refl => exact inv_init
+  | step _ hstep ih => exact inv_preserved ih hstep
+
+theorem mutual_exclusion {s : St} (h : ReachableA s) :
+    ¬ (s.pc1 = .inCS ∧ s.pc2 = .inCS) :=
+  (inv_reachable h).2.2
+----
+
+``acquire1``의 보존 증명이 이 불변식이 필요했던 이유를 정확히 보여줍니다 — ``acquire1``의 전제는 ``s.locked = false``(``hl``)뿐입니다. 여기서 "그러니 ``s.pc2``는 ``inCS``가 아니다"를 끌어내려면, 불변식의 두 번째 조각(``s.pc2 = .inCS → s.locked = true``)과 ``hl``을 대우로 결합해야 합니다 — ``locked``가 거짓인데 ``pc2``가 ``inCS``라면 ``i2``에 의해 ``locked``가 참이어야 하니 모순입니다. 이 대우 논증이 6.2.2절의 ``set1``에는 존재하지 않았던 바로 그 확인입니다 — 원자적 버전은 "확인한 뒤에 남에게 새치기당할 시간"이 아예 없으므로, ``acquire1`` 하나의 전제 안에 확인과 진입이 함께 원자적으로 담겨 있습니다.
+
+``mutual_exclusion``은 ``sorry``도, 전제 조건도 없이, 도달 가능한 **모든** 상태에 대해 성립하는 정리입니다 — 6.2.2절처럼 특정 인터리빙 하나를 짚어내는 게 아니라, 어떤 인터리빙을 상상하든 상호 배제가 깨질 수 없다는 걸 못박습니다.
+
+[NOTE]
+.왜 두 불변식 조각이 함께 필요한가
+====
+언뜻 ``¬ (s.pc1 = .inCS ∧ s.pc2 = .inCS)`` 하나만 증명하면 될 것 같지만, 그것만으로는 귀납이 닫히지 않습니다 — ``inv_preserved``의 ``acquire1`` 갈래에서, ``s`` 시점에 상호 배제가 지켜지고 있었다는 사실만으로는 "그러니 ``s.pc2 ≠ inCS``"를 끌어낼 수 없습니다(``s.pc1``이 ``inCS``가 아니었으니 상호 배제는 ``s.pc2``에 대해 아무 제약도 주지 않습니다). ``locked``와 ``pc1``/``pc2``를 잇는 나머지 두 조각이 있어야, ``acquire1``의 전제(``s.locked = false``)로부터 "그러니 지금 아무도 안에 없다"를 끌어낼 다리가 생깁니다. 안전성 불변식을 찾을 때 "증명하고 싶은 결론 그 자체"보다 **한 걸음 더 강한** 명제를 귀납 가정으로 잡아야 하는 경우가 흔한데, 이게 바로 그 사례입니다.
+====
+
+== 정리
+
+[cols="1,1,1",options="header"]
+|===
+|개념 |3.4절 (산문 + 손으로 그린 다이어그램) |이 글 (형식 모델)
+|acquire의 결함 |WARNING 박스의 설명 |``StepNA``의 ``check``/``set`` 분리로 재현
+|결함이 실제로 일어남을 보이기 |연습문제 3.46: 손으로 표를 그려보기 |``race_reaches_double_cs``: Lean이 상태 전이를 직접 검증
+|고친 버전이 안전하다는 주장 |"test-and-set이 원자적이면 안전하다"(산문) |``mutual_exclusion``: 도달 가능한 모든 상태에 대한 정리
+|증명 기법 |(없음, 직관에 의존) |귀납적으로 유지되는 불변식(``MutexInv``)
+|===
+
+다음 보너스 글에서는 이 시리즈의 첫 부분으로 돌아갑니다 — 1장의 치환 모델과 3.2절의 환경 모델이 "같은 것을 두 가지 방식으로 설명한 것"이라는 SICP의 주장을, 실제로 같은 결과를 내는지 증명해서 확인합니다.
+
+=== 직접 해보기
+
+``StepA``에 세 번째 프로세스를 추가해보세요(``pc3``, ``acquire3``, ``release3``). ``MutexInv``에 필요한 조각들을 어떻게 확장해야 ``inv_preserved``의 증명이 다시 닫히는지 생각해보고, 프로세스 수가 늘어날 때마다 불변식의 조각 수가 어떻게 늘어나는지(그리고 그게 실전에서 왜 번거로운 확장 방식인지) 적어보세요.
+// end::body[]

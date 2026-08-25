@@ -1,0 +1,302 @@
+---
+title: "6.3. (보너스) 치환 모델과 환경 모델은 정말 같은가"
+date: 2026-08-24T00:00:00+09:00
+draft: false
+tags: ["sicp", "lean", "lean4", "substitution-model", "environment-model", "termination", "bonus"]
+categories: ["books"]
+description: "1장의 치환 모델과 3.2절의 환경 모델이 같은 것을 설명하는 두 방식이라는 SICP의 주장을, 두 평가기를 나란히 짓고 모든 입력에 대해 같은 값을 낸다는 걸 실제로 증명해서 확인하는 보너스 글"
+---
+
+_link:../[전체 목차] · 이전: link:../6-2-provable-mutual-exclusion/[6.2. (보너스) 증명 가능한 상호 배제]_
+
+'''
+
+// tag::body[]
+link:../1-1-elements-of-programming/[1.1절]은 절차 적용을 손으로 추적하며 _치환 모델(substitution model)_을 소개했습니다 — 절차를 부르면, 본문 안의 매개변수 이름을 실제로 넘어온 값으로 그 자리에서 바꿔치기한다는 그림이었습니다. link:../3-2-environment-model-of-evaluation/[3.2절]은 이 그림을 뒤집었습니다 — 아무것도 바꿔치기하지 않고, 대신 이름과 값을 매핑하는 _환경(environment)_ 하나를 새로 만들어 절차 본문과 함께 들고 다닌다는 것이었습니다. SICP는 둘이 "같은 것을 설명하는 두 가지 방식"이라고 말하고 넘어가지만, 그 동치를 실제로 증명하지는 않습니다. 이 글은 그 동치를 작은 언어 위에서 실제로 증명합니다.
+
+'''
+
+== 6.3.1. 아주 작은 언어
+
+이름 있는 변수, 리터럴, 덧셈, 그리고 ``let``만 가진 언어를 씁니다. 클로저(1급 함수)는 일부러 뺐습니다 — 클로저가 자기 환경을 통째로 담고 다니는 문제까지 다루면 증명이 훨씬 복잡해지는데, 그 복잡함은 "치환과 환경이 같은가"라는 이 글의 질문과는 별개입니다.
+
+[source,lean]
+----
+abbrev Name := Nat
+
+inductive Expr where
+  | lit (n : Nat)
+  | var (x : Name)
+  | add (a b : Expr)
+  | letIn (x : Name) (e1 body : Expr)
+deriving Repr, DecidableEq
+----
+
+== 6.3.2. 치환 평가기, 그리고 뜻밖의 종료성 문제
+
+치환은 1.1절의 그림 그대로입니다 — 자유 변수가 나오는 모든 자리를 리터럴 값으로 바꿔치기합니다.
+
+[source,lean]
+----
+def subst (x : Name) (v : Nat) : Expr → Expr
+  | .lit n => .lit n
+  | .var y => if y = x then .lit v else .var y
+  | .add a b => .add (subst x v a) (subst x v b)
+  | .letIn y e1 body =>
+      .letIn y (subst x v e1) (if y = x then body else subst x v body)
+----
+
+``letIn``의 마지막 줄을 눈여겨보세요 — ``y = x``이면(``let``이 방금 같은 이름을 다시 묶으면) ``body``는 건드리지 않습니다. 바깥의 ``x``는 안쪽에서 가려집니다(이 시리즈에서 몇 번이고 반복된 렉시컬 스코프 규칙입니다).
+
+이제 평가기를 짜려는데, link:../1-2-procedures-and-processes/[1.2절]에서부터 이 시리즈를 관통해온 질문이 다시 등장합니다 — 이게 구조적으로 종료하는가? 자연스럽게 짜보면 이렇게 됩니다(이 조각은 컴파일되지 _않습니다_ — 왜 안 되는지가 요점이라 일부러 실행 코드가 아닌 텍스트로 보여드립니다).
+
+[source,text]
+----
+def evalSubstNaive : Expr → Nat
+  | .lit n => n
+  | .var _ => 0
+  | .add a b => evalSubstNaive a + evalSubstNaive b
+  | .letIn x e1 body => evalSubstNaive (subst x (evalSubstNaive e1) body)
+-- 오류: failed to infer structural recursion —
+-- subst x (evalSubstNaive e1) body가 body보다 작다는 걸 Lean이 자동으로 못 알아봅니다.
+----
+
+Lean은 이 정의를 거부합니다 — ``subst x v body``가 ``body``보다 구조적으로 더 작다는 걸 자동으로 못 알아봅니다. 이유는 미묘합니다 — Lean이 기본으로 유도하는 ``sizeOf``가 생성자 안에 박힌 ``Name``(``Nat``) 필드값까지 크기에 얹어버려서, ``.var y``를 ``.lit v``로 바꾸는 게 "크기가 그대로"라는 사실을 가려버립니다. link:../5-5-compilation/[5.5절]이 ``compile``을 구조적 재귀로 확립하려고 그랬듯, 여기서도 트리 _모양_만 세고 안에 박힌 값은 무시하는 우리만의 척도를 정의하면 됩니다.
+
+[source,lean]
+----
+def size : Expr → Nat
+  | .lit _ => 1
+  | .var _ => 1
+  | .add a b => 1 + size a + size b
+  | .letIn _ e1 body => 1 + size e1 + size body
+
+theorem size_subst (x : Name) (v : Nat) (e : Expr) : size (subst x v e) = size e := by
+  induction e with
+  | lit n => rfl
+  | var y => by_cases h : y = x <;> simp [subst, size, h]
+  | add a b iha ihb => simp [subst, size, iha, ihb]
+  | letIn y e1 body ih1 ihb =>
+      by_cases h : y = x <;> simp [subst, size, h, ih1, ihb]
+
+def evalSubst : Expr → Nat
+  | .lit n => n
+  | .var _ => 0
+  | .add a b => evalSubst a + evalSubst b
+  | .letIn x e1 body => evalSubst (subst x (evalSubst e1) body)
+termination_by e => size e
+decreasing_by
+  all_goals simp_wf
+  all_goals first
+    | (simp only [size]; omega)
+    | (rw [size_subst]; simp only [size]; omega)
+----
+
+``size_subst``(치환은 트리 모양을 안 바꾼다)가 있으면, ``letIn`` 갈래의 재귀 호출 인자 ``subst x (evalSubst e1) body``는 정확히 ``size body``만큼의 크기를 갖고, 이는 ``size (.letIn x e1 body) = 1 + size e1 + size body``보다 항상 작습니다. ``partial``이 필요 없습니다 — 언어에 재귀나 클로저가 없으니, 모든 프로그램이 유한한 단계 안에 끝난다는 걸 커널이 직접 확인해줍니다.
+
+== 6.3.3. 환경 평가기
+
+환경 쪽은 3.2절 그대로, 훨씬 단순합니다.
+
+[source,lean]
+----
+abbrev Env := List (Name × Nat)
+
+def envLookup : Env → Name → Nat
+  | [], _ => 0
+  | (y, v) :: rest, x => if y = x then v else envLookup rest x
+
+def evalEnv : Expr → Env → Nat
+  | .lit n, _ => n
+  | .var x, env => envLookup env x
+  | .add a b, env => evalEnv a env + evalEnv b env
+  | .letIn x e1 body, env => evalEnv body ((x, evalEnv e1 env) :: env)
+----
+
+``letIn``을 볼 때 아무것도 바꿔치기하지 않고, ``(x, 값)``을 환경 맨 앞에 덧붙이기만 합니다. ``envLookup``이 리스트를 앞에서부터 훑으므로, 가장 최근에 덧붙인 바인딩이 자동으로 먼저 발견됩니다 — 셰도잉이 공짜로 옵니다.
+
+== 6.3.4. 환경 전체를 치환으로 "펼치기"
+
+두 평가기를 이을 다리가 필요합니다 — 환경 하나를 받아서, 그 안의 모든 바인딩을 순서대로 치환해버리는 함수입니다.
+
+[source,lean]
+----
+def substAll : Env → Expr → Expr
+  | [], e => e
+  | (x, v) :: rest, e => substAll rest (subst x v e)
+----
+
+이 다리 위에서 증명하고 싶은 것은 ``evalEnv e env = evalSubst (substAll env e)``, 즉 "환경으로 계산한 값"과 "환경을 전부 치환으로 펼친 다음 치환 평가기로 계산한 값"이 같다는 것입니다. 구조적 귀납(2장, ``functional-thinking-for-algorithms`` 시리즈였다면 그 언어로)으로 ``e``를 쪼개 들어가면, 세 경우(``lit``, ``var``, ``add``)는 각각 ``substAll``이 그 생성자를 그대로 통과한다는 보조정리 하나씩으로 바로 풀립니다.
+
+[source,lean]
+----
+theorem substAll_add (env : Env) (a b : Expr) :
+    substAll env (.add a b) = .add (substAll env a) (substAll env b) := by
+  induction env generalizing a b with
+  | nil => rfl
+  | cons hd rest ih =>
+      obtain ⟨x, v⟩ := hd
+      simp only [substAll, subst]
+      exact ih (subst x v a) (subst x v b)
+
+theorem substAll_lit (env : Env) (n : Nat) : substAll env (.lit n) = .lit n := by
+  induction env with
+  | nil => rfl
+  | cons hd rest ih => obtain ⟨x, v⟩ := hd; simpa [substAll, subst] using ih
+
+theorem substAll_var (env : Env) (x : Name) (hx : x ∈ env.map Prod.fst) :
+    substAll env (.var x) = .lit (envLookup env x) := by
+  induction env with
+  | nil => simp at hx
+  | cons hd rest ih =>
+      obtain ⟨y, v⟩ := hd
+      by_cases h : y = x
+      · subst h
+        simp [substAll, subst, envLookup, substAll_lit]
+      · have hx' : x ∈ rest.map Prod.fst := by
+          simp [List.mem_map] at hx
+          rcases hx with ⟨y', v', hmem, heq⟩ <;> simp_all
+        simp only [substAll, subst, envLookup, h, ite_false, if_neg (Ne.symm h)]
+        exact ih hx'
+----
+
+``substAll_var``가 흥미로운 지점을 하나 드러냅니다 — ``x``가 ``env`` 안에 실제로 있어야만(``hx``) 성립합니다. 환경에 없는 변수를 치환하면 그냥 ``.var x``로 남지, ``.lit 0``이 되지 않습니다 — 그러니 이 다리는 오직 _닫힌_(모든 자유 변수가 환경에 있는) 표현식에서만 놓입니다.
+
+== 6.3.5. 진짜 어려운 경우: ``letIn``
+
+``lit``/``var``/``add``는 ``substAll``이 그 모양을 그대로 통과시키기만 하면 끝났습니다. ``letIn``은 다릅니다 — ``substAll env (.letIn x e1 body)``가 ``.letIn x (substAll env e1) (substAll env body)``와 같다고 말하고 싶지만, 이게 성립하려면 **``env``의 어떤 바인딩도 이름 ``x``를 다시 묶지 않는다**는 게 필요합니다(``x``가 새로 도입하는 이름과 겹치면, ``subst``의 셰도잉 규칙이 ``body``의 치환을 건너뛰어 버립니다). 그래서 "셰도잉이 아예 없다"는 전제를 명시적인 귀납 타입으로 박아 넣습니다.
+
+[source,lean]
+----
+inductive WellScoped : List Name → Expr → Prop where
+  | lit {ds n} : WellScoped ds (.lit n)
+  | var {ds x} (h : x ∈ ds) : WellScoped ds (.var x)
+  | add {ds a b} : WellScoped ds a → WellScoped ds b → WellScoped ds (.add a b)
+  | letIn {ds x e1 body} (hfresh : x ∉ ds) :
+      WellScoped ds e1 → WellScoped (x :: ds) body → WellScoped ds (.letIn x e1 body)
+----
+
+이 전제 위에서, ``letIn``이 도입하는 이름 ``x``가 ``env``에 이미 없다는 사실(``hfresh``)을 손에 쥐고 다음 두 보조정리를 증명합니다.
+
+[source,lean]
+----
+theorem substAll_letIn_fresh (env : Env) (x : Name) (e1 body : Expr)
+    (hfresh : x ∉ env.map Prod.fst) :
+    substAll env (.letIn x e1 body)
+      = .letIn x (substAll env e1) (substAll env body) := by
+  induction env generalizing e1 body with
+  | nil => rfl
+  | cons hd rest ih =>
+      obtain ⟨y, v⟩ := hd
+      simp only [List.map_cons, List.mem_cons, not_or] at hfresh
+      obtain ⟨hxy, hrest⟩ := hfresh
+      show substAll rest (subst y v (Expr.letIn x e1 body))
+             = Expr.letIn x (substAll rest (subst y v e1)) (substAll rest (subst y v body))
+      simp only [subst, if_neg hxy]
+      exact ih (subst y v e1) (subst y v body) hrest
+----
+
+또 하나 필요한 게 있습니다 — ``letIn``의 값(``evalEnv e1 env``)을 ``body``에 치환하는 것과, ``env``를 ``body``에 펼치는 것, 이 두 치환이 순서를 바꿔도 상관없다는 사실입니다. 이게 성립하는 이유는 놀랍도록 단순합니다 — **치환되는 값은 전부 변수 없는 리터럴**이라서, 서로 다른 두 이름을 치환하는 순서는 절대 뒤바뀔 일이 없습니다(캡처될 자유 변수 자체가 없으니까요).
+
+[source,lean]
+----
+theorem subst_comm (x y : Name) (vx vy : Nat) (hxy : x ≠ y) (e : Expr) :
+    subst x vx (subst y vy e) = subst y vy (subst x vx e) := by
+  induction e with
+  | lit n => rfl
+  | var z => by_cases hzx : z = x <;> by_cases hzy : z = y <;> simp_all [subst]
+  | add a b iha ihb => simp [subst, iha, ihb]
+  | letIn z e1 body ih1 ihb =>
+      by_cases hzx : z = x <;> by_cases hzy : z = y <;> simp_all [subst]
+
+theorem substAll_comm_subst (env : Env) (x : Name) (v : Nat) (e : Expr)
+    (hfresh : x ∉ env.map Prod.fst) :
+    subst x v (substAll env e) = substAll env (subst x v e) := by
+  induction env generalizing e with
+  | nil => rfl
+  | cons hd rest ih =>
+      obtain ⟨y, w⟩ := hd
+      simp only [List.map_cons, List.mem_cons, not_or] at hfresh
+      obtain ⟨hxy, hrest⟩ := hfresh
+      show subst x v (substAll rest (subst y w e)) = substAll rest (subst y w (subst x v e))
+      rw [ih (subst y w e) hrest, subst_comm x y v w hxy e]
+----
+
+== 6.3.6. 동치 정리
+
+이제 모든 조각이 갖춰졌습니다.
+
+[source,lean]
+----
+theorem eval_equiv (e : Expr) : ∀ (env : Env), WellScoped (env.map Prod.fst) e →
+    evalEnv e env = evalSubst (substAll env e) := by
+  induction e with
+  | lit n => intro env _; simp [evalEnv, substAll_lit, evalSubst]
+  | var x =>
+      intro env hws
+      cases hws with
+      | var hx => simp only [evalEnv, substAll_var env x hx, evalSubst]
+  | add a b iha ihb =>
+      intro env hws
+      cases hws with
+      | add hwa hwb =>
+        simp only [evalEnv, substAll_add, evalSubst]
+        rw [iha env hwa, ihb env hwb]
+  | letIn x e1 body ih1 ihb =>
+      intro env hws
+      cases hws with
+      | letIn hfresh hw1 hwb =>
+        have hv : evalEnv e1 env = evalSubst (substAll env e1) := ih1 env hw1
+        have hwb' : WellScoped (((x, evalEnv e1 env) :: env).map Prod.fst) body := by
+          simpa using hwb
+        have hbody := ihb ((x, evalEnv e1 env) :: env) hwb'
+        show evalEnv body ((x, evalEnv e1 env) :: env) = evalSubst (substAll env (.letIn x e1 body))
+        rw [hbody, substAll_letIn_fresh env x e1 body hfresh]
+        simp only [substAll, evalSubst]
+        rw [← hv, substAll_comm_subst env x (evalEnv e1 env) body hfresh]
+----
+
+``letIn`` 경우의 흐름을 따라가 보면: ``evalEnv``의 정의를 펼쳐 ``body``를 확장된 환경 ``(x, v) :: env``에서 재귀적으로 계산한 값으로 바꾸고(``hbody``), ``substAll``이 ``letIn`` 전체를 어떻게 통과하는지(``substAll_letIn_fresh``)를 적용하면, 남은 건 딱 하나 — "``env``를 ``x``에 치환하기 _전에_ 펼치나, _후에_ 펼치나 같다"는 것뿐이고, 그게 바로 ``substAll_comm_subst``입니다. 이 정리는 ``sorry`` 없이, 즉 어떤 가정도 몰래 빌리지 않고 완전히 닫힙니다.
+
+== 6.3.7. 직접 돌려보기
+
+두 이름을 얽어보는 중첩된 예제로 확인해봅니다 — ``let x = 10 in x + (let y = x + 1 in y)``.
+
+[source,lean]
+----
+def demo : Expr :=
+  .letIn 0 (.lit 10) (.add (.var 0) (.letIn 1 (.add (.var 0) (.lit 1)) (.var 1)))
+
+#eval evalEnv demo []
+#eval evalSubst (substAll [] demo)
+----
+
+[source]
+----
+21
+21
+----
+
+바깥 ``let``이 ``x``를 ``10``에 묶고, 안쪽 ``let``이 ``x + 1``(``11``)을 ``y``에 묶은 뒤 ``x + y = 10 + 11 = 21``을 돌려줍니다. 환경 모델은 조회 테이블을 두 겹 쌓아 이 값을 계산했고, 치환 모델은 ``10``과 ``11``을 실제로 식 안에 박아 넣어 계산했습니다 — 계산 _경로_는 완전히 다른데, ``eval_equiv``가 보장하는 대로 결과는 정확히 일치합니다.
+
+[NOTE]
+.이 증명이 다루지 않은 것
+====
+이 언어에는 함수(따라서 클로저)가 없습니다 — link:../3-2-environment-model-of-evaluation/[3.2절]의 진짜 논증은 클로저가 자신을 만든 환경을 통째로 들고 다닌다는 데서 힘을 얻습니다. 클로저까지 포함하려면 ``Value``에 ``.closure (body : Expr) (env : Env)``를 추가하고, 치환 쪽에서는 그 클로저를 "닫힌 람다 표현식"으로 바꾸는 조작(그 클로저의 환경 전체를 본문에 미리 치환해 넣는 것)이 필요합니다 — 정확히 link:../6-1-adding-static-types/[6.1절]의 ``Term.eval``이 환경을 인자로 들고 다니면서 피했던 바로 그 복잡함입니다. 또한 ``WellScoped``는 셰도잉을 아예 금지했는데, 실제 SICP는 셰도잉을 허용합니다 — 셰도잉까지 다루려면 ``subst``가 이름이 아니라 드 브루인 색인(de Bruijn index)으로 변수를 가리키게 다시 지어야 하고, 그러면 치환마다 이진자를 밀고 당기는(shift) 조작이 새로 필요해집니다. 이 글은 SICP가 "같다"고 말하고 넘어간 주장의 핵심(치환과 환경이 정말 같은 값을 낸다는 것)을 가장 작은 언어에서 증명하는 데 집중했고, 그 핵심 위에 클로저와 셰도잉을 얹는 건 각각 독립적으로 파고들 만한 확장입니다.
+====
+
+== 정리
+
+[cols="1,1,1",options="header"]
+|===
+|개념 |1.1~1.2절 (치환 모델) |3.2절 (환경 모델)
+|절차를 부른다는 것 |본문 안 이름을 값으로 바꿔치기 |이름→값 매핑을 새 프레임에 기록
+|변수를 안다는 것 |더 이상 그 이름이 안 나옴(이미 지워짐) |조회 테이블을 훑음
+|셰도잉 |안쪽 ``let``이 바깥 치환을 막음(``subst``의 ``if y = x`` 분기) |안쪽 프레임이 먼저 발견됨(``envLookup``의 순서)
+|이 글의 다리 |``substAll``: 환경을 치환으로 펼침 |(대칭 없음 — 환경이 원래 형태)
+|동치의 핵심 보조정리 |``subst_comm``: 리터럴 치환은 순서 무관 |—
+|"같다"는 주장의 증명 |``eval_equiv`` (``WellScoped``, 셰도잉 없음 가정) |``eval_equiv``
+|===
+
+이것으로 이 시리즈의 보너스 세 편을 마칩니다 — 6.1절은 SICP가 끝까지 동적 타입으로 남겨둔 지점에 정적 타입을 얹어 "스턱 상태가 아예 표현되지 않는다"는 걸 확인했고, 6.2절은 3.4절이 손으로 짚었던 뮤텍스의 결함과 해법을 상태 기계로 만들어 각각 재현·증명했으며, 이 글은 1장과 3장이 "같다"고만 말했던 두 평가 모델을 실제로 같은 값을 낸다는 정리로 마무리했습니다. 세 편 모두 SICP 자신은 산문과 직관에 맡겼던 주장을, Lean의 타입과 증명으로 끝까지 밀어붙인 것입니다 — 이 시리즈 전체가 처음부터 물어온 질문("SICP의 Scheme이 암묵에 맡기는 것을 Lean의 타입 시스템은 무엇으로 드러내게 만드는가")에 대한 가장 직접적인 답이기도 합니다.
+// end::body[]
