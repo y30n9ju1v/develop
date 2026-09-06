@@ -1,18 +1,18 @@
 ---
-title: "2장: Value를 파이썬 객체로 바꾸기"
+title: "16장: Value를 파이썬 객체로 바꾸기"
 date: 2026-08-20T00:00:00+09:00
 draft: false
 tags: ["rust", "pyo3", "cow", "book"]
 categories: ["books"]
-description: "riir-json-parser의 파서를 그대로 가져오되 이스케이프 문자열을 Cow<str>로 다시 표현해 정직하게 처리하고, 재귀 함수로 Value enum 전체를 파이썬 dict/list/str로 변환해 실제로 중첩 JSON을 파싱해 보는 2장"
+description: "이 책에서 만든 파서를 바탕으로 이스케이프 문자열을 Cow<str>로 정직하게 처리하고, 재귀 함수로 Value enum 전체를 파이썬 dict/list/str로 변환해 실제로 중첩 JSON을 파싱해 보는 16장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../01-hello-pyo3/[1장: PyO3와 maturin 첫걸음] · 다음: link:../03-errors-as-python-exceptions/[3장: Result를 파이썬 예외로]_
+_link:../[전체 목차] · 이전: link:../15-hello-pyo3/[15장: PyO3와 maturin 첫걸음] · 다음: link:../17-errors-as-python-exceptions/[17장: Result를 파이썬 예외로]_
 
 '''
 
-`riir-json-parser` 10장의 최적화 버전은 이스케이프 문자열 처리를 아예 생략했습니다(공정한 C++23 비교를 위한 축소였습니다). 파이썬 사용자에게 내놓을 라이브러리는 실전 JSON을 그대로 받아야 하므로, 여기서는 정직하게 이스케이프까지 처리합니다 — 다만 이스케이프가 **없는** 대다수의 문자열은 여전히 복사 없이 빌려오고 싶습니다.
+10장의 최적화 버전은 이스케이프 문자열 처리를 아예 생략했습니다(공정한 C++23 비교를 위한 축소였습니다). 파이썬 사용자에게 내놓을 라이브러리는 실전 JSON을 그대로 받아야 하므로, 여기서는 정직하게 이스케이프까지 처리합니다 — 다만 이스케이프가 **없는** 대다수의 문자열은 여전히 복사 없이 빌려오고 싶습니다.
 
 == `Cow<str>`: 빌릴지 소유할지 그때그때 정하기
 
@@ -52,7 +52,7 @@ fn parse_string_cow(&mut self) -> PResult<Cow<'a, str>> {
 }
 ----
 
-`Cow<'a, str>`(Clone-on-Write)는 "빌린 참조일 수도, 직접 소유한 값일 수도 있는" 타입입니다 — 대부분의 JSON 문자열(이스케이프가 없는 이름, 값)은 `Cow::Borrowed`로 원본을 그대로 가리키고, `\n`이나 `\"` 같은 이스케이프가 있는 드문 경우에만 `Cow::Owned`로 새 `String`을 만듭니다. 3장에서 본 라이프타임(`riir-json-parser` 3장)과 8장에서 본 Result 패턴이, 여기서는 "대부분은 빠른 길, 가끔만 느린 길"이라는 하나의 타입으로 합쳐집니다.
+`Cow<'a, str>`(Clone-on-Write)는 "빌린 참조일 수도, 직접 소유한 값일 수도 있는" 타입입니다 — 대부분의 JSON 문자열(이스케이프가 없는 이름, 값)은 `Cow::Borrowed`로 원본을 그대로 가리키고, `\n`이나 `\"` 같은 이스케이프가 있는 드문 경우에만 `Cow::Owned`로 새 `String`을 만듭니다. 3장에서 본 라이프타임과 4장에서 본 `Result` 패턴이, 여기서는 "대부분은 빠른 길, 가끔만 느린 길"이라는 하나의 타입으로 합쳐집니다.
 
 == 재귀 변환기
 
@@ -95,7 +95,7 @@ fn parse_json(py: Python<'_>, text: &str) -> PyResult<Py<PyAny>> {
 }
 ----
 
-`Value::Array`/`Object` 분기가 `value_to_py`를 재귀 호출합니다 — `riir-json-parser` 6장에서 `Display` 트레잇을 재귀로 구현했던 것과 같은 모양입니다. `Python<'_>` 토큰(`py`)은 PyO3에서 "지금 GIL(파이썬 전역 락)을 쥐고 있다"는 증거로 쓰이는 값입니다 — 파이썬 객체를 만들거나 건드리는 모든 연산은 이 토큰을 요구합니다. 이 GIL 이야기는 7장에서 정면으로 다룹니다.
+`Value::Array`/`Object` 분기가 `value_to_py`를 재귀 호출합니다 — 6장에서 `Display` 트레잇을 재귀로 구현했던 것과 같은 모양입니다. `Python<'_>` 토큰(`py`)은 PyO3에서 "지금 GIL(파이썬 전역 락)을 쥐고 있다"는 증거로 쓰이는 값입니다 — 파이썬 객체를 만들거나 건드리는 모든 연산은 이 토큰을 요구합니다. 이 GIL 이야기는 21장에서 정면으로 다룹니다.
 
 == 실행 확인
 
@@ -114,7 +114,7 @@ print(riirjson.parse_json('[1, 2, {\"a\": true, \"b\": null, \"c\": \"hello\\\\n
 
 * `&str` 대신 `Cow<'a, str>`를 써서, 이스케이프 없는 문자열은 복사 없이 빌리고 이스케이프가 있을 때만 새로 할당하는 파서로 다시 짰습니다.
 * `Value` 트리를 재귀적으로 순회하며 파이썬 `dict`/`list`/`bool`/`None`/`str`로 변환하는 `value_to_py`를 짰고, 실제로 중첩된 JSON을 파싱해 정확한 파이썬 객체가 나오는 걸 확인했습니다.
-* `Python<'_>` 토큰이 GIL을 쥐고 있다는 증거로 쓰인다는 것도 짚었습니다 — 7장에서 이 GIL을 실제로 다룹니다.
+* `Python<'_>` 토큰이 GIL을 쥐고 있다는 증거로 쓰인다는 것도 짚었습니다 — 21장에서 이 GIL을 실제로 다룹니다.
 
 다음 장에서는 파싱이 실패했을 때 Rust의 `Result`가 파이썬 예외로 어떻게 이어지는지 확인합니다.
 // end::body[]

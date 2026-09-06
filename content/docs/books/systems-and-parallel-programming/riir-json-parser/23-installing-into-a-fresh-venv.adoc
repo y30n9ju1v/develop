@@ -1,14 +1,14 @@
 ---
-title: "9장: 완전히 새로운 환경에 설치해보기"
+title: "23장: 완전히 새로운 환경에 설치해보기"
 date: 2026-08-20T00:00:00+09:00
 draft: false
 tags: ["rust", "python", "packaging", "book"]
 categories: ["books"]
-description: "8장에서 만든 wheel 파일을, Rust 컴파일러도 cargo도 전혀 없는 완전히 새로운 가상환경에 pip install로 설치해서 진짜 독립적으로 동작하는지 실제로 검증하는 9장"
+description: "22장에서 만든 wheel 파일을, Rust 컴파일러도 cargo도 전혀 없는 완전히 새로운 가상환경에 pip install로 설치해서 진짜 독립적으로 동작하는지 실제로 검증하는 23장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../08-packaging-with-pyproject-toml/[8장: pyproject.toml로 패키징 준비하기] · 다음: link:../10-cross-platform-and-abi3/[10장: 여러 플랫폼과 abi3]_
+_link:../[전체 목차] · 이전: link:../22-packaging-with-pyproject-toml/[22장: pyproject.toml로 패키징 준비하기] · 다음: link:../24-cross-platform-and-abi3/[24장: 여러 플랫폼과 abi3]_
 
 '''
 
@@ -50,13 +50,13 @@ Rust 소스 코드가 전혀 없는 환경에서, `import riirjson`이 성공하
 
 * **사내/팀 배포**: 이 `.whl` 파일 자체를 공유하거나, 사설 패키지 저장소(예: 사내 PyPI 미러)에 올립니다.
 * **PyPI 공개 배포**: `twine upload target/wheels/*.whl`(또는 `maturin publish`)로 공개 PyPI에 올릴 수 있습니다 — 다만 이건 되돌리기 어려운 공개 행위이므로, 실제로 공개 배포하기 전에는 신중하게 확인해야 합니다. 이 책은 로컬 검증까지만 다루고, 실제 업로드는 다루지 않습니다.
-* **CI에서 자동 빌드**: GitHub Actions 같은 CI에서 여러 플랫폼용 wheel을 자동으로 빌드하는 게 실전에서는 훨씬 흔합니다 — 10장에서 왜 "여러 플랫폼용"이 필요한지 다룹니다.
+* **CI에서 자동 빌드**: GitHub Actions 같은 CI에서 여러 플랫폼용 wheel을 자동으로 빌드하는 게 실전에서는 훨씬 흔합니다 — 24장에서 왜 "여러 플랫폼용"이 필요한지 다룹니다.
 
 == 요약
 
-* 8장에서 만든 wheel 파일을, Rust 컴파일러가 전혀 없는 새 가상환경에 `pip install`로 설치했습니다.
+* 22장에서 만든 wheel 파일을, Rust 컴파일러가 전혀 없는 새 가상환경에 `pip install`로 설치했습니다.
 * 그 환경에서 실제로 `import riirjson`이 동작하고 JSON을 정확히 파싱한다는 걸 확인했습니다 — wheel 파일 하나가 완전한 배포 단위라는 게 실제로 증명됐습니다.
 * 실제 공개 배포(PyPI 업로드)는 되돌리기 어려운 행위라 이 책은 로컬 검증까지만 다루고, 그 이상은 각자의 판단에 맡깁니다.
 
-다음 장에서는 이 wheel이 macOS·arm64·CPython 3.14라는 좁은 조합에만 묶여 있다는 8장의 관찰을 넓혀서, 여러 플랫폼을 어떻게 지원하는지 다룹니다.
+다음 장에서는 이 wheel이 macOS·arm64·CPython 3.14라는 좁은 조합에만 묶여 있다는 22장의 관찰을 넓혀서, 여러 플랫폼을 어떻게 지원하는지 다룹니다.
 // end::body[]

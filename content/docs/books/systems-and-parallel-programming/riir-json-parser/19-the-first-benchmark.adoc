@@ -1,0 +1,68 @@
+---
+title: "19장: 첫 벤치마크"
+date: 2026-08-20T00:00:00+09:00
+draft: false
+tags: ["rust", "python", "benchmark", "book"]
+categories: ["books"]
+description: "release 빌드한 확장 모듈을 파이썬 표준 json과 timeit으로 실제로 재보니, 10장에서 C·C++23을 앞섰던 Rust 파서가 파이썬에서는 오히려 표준 json보다 느리게 나온 반전을 그대로 싣는 19장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../18-correctness-against-stdlib-json/[18장: 파이썬 표준 json과 정확성 비교하기] · 다음: link:../20-finding-the-real-bottleneck/[20장: 진짜 병목 찾기]_
+
+'''
+
+10장에서 이 파서는 C의 `cJSON`보다도, 같은 기법을 적용한 C++23 버전보다도 빨랐습니다. 파이썬에서 불러 써도 그 우위가 이어질지 실제로 재봤습니다.
+
+== 반드시 `--release`로
+
+[source,bash]
+----
+$ maturin develop --release
+----
+
+`maturin develop`을 인자 없이 쓰면 15장처럼 디버그 빌드(`unoptimized + debuginfo`)가 설치됩니다 — 벤치마크에는 부적합합니다. `--release`를 반드시 붙여야 최적화 빌드가 들어갑니다.
+
+== `timeit`으로 실측
+
+[source,python]
+----
+import json, timeit, riirjson
+
+with open("big.json") as f:
+    text = f.read()
+
+n = 20
+py_time = timeit.timeit(lambda: json.loads(text), number=n) / n * 1000
+rust_time = timeit.timeit(lambda: riirjson.parse_json(text), number=n) / n * 1000
+print(f"python json.loads: {py_time:.3f}ms")
+print(f"riirjson.parse_json: {rust_time:.3f}ms")
+print(f"speedup: {py_time/rust_time:.2f}x")
+----
+
+[source]
+----
+$ python bench.py
+python json.loads: 20.022ms
+riirjson.parse_json: 23.817ms
+speedup: 0.84x
+----
+
+**파이썬 표준 `json.loads`가 이 책의 Rust 확장 모듈보다 오히려 19% 더 빨랐습니다.** 10장에서 C와 C++23을 이겼던 바로 그 파서인데, 파이썬으로 감싸는 순간 결과가 뒤집혔습니다.
+
+== 이게 놀라운 이유
+
+파이썬 표준 `json` 모듈은 사실 대부분 순수 파이썬이 아니라, `_json`이라는 C로 짠 가속 모듈로 동작합니다 — 즉 이 비교는 "파이썬 vs Rust"가 아니라 사실상 "C vs Rust"에 더 가깝습니다. 앞부분에서 우리 Rust 파서는 C(`cJSON`)를 이겼는데, 여기서는 졌습니다. 파서 코드 자체는 거의 그대로 가져왔는데(16장), 뭔가 다른 게 이 결과를 만들고 있다는 뜻입니다.
+
+== 이 결과로 끝내지 않는다
+
+9~10장에서 그랬던 것처럼, "졌다"는 결과를 진단 없이 남기지 않습니다. 다음 장에서 프로그램을 단계별로 쪼개, 진짜 원인이 어디 있는지 찾습니다.
+
+== 요약
+
+* `maturin develop --release`로 최적화 빌드를 설치하고, `timeit`으로 파이썬 표준 `json.loads`와 실제로 재봤습니다.
+* Rust 확장 모듈이 오히려 19% 더 느렸다는 결과를 그대로 실었습니다 — 10장에서 C·C++23을 앞섰던 것과 정반대입니다.
+* 파이썬 `json`도 사실 C 가속 모듈이라는 걸 짚어, 이 비교가 "느린 파이썬 vs 빠른 Rust"가 아니라는 것도 명확히 했습니다.
+
+다음 장에서는 파싱과 파이썬 객체 변환을 분리해서, 진짜 병목이 어디인지 찾아냅니다.
+// end::body[]

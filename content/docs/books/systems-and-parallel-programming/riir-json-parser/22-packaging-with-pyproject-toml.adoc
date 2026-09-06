@@ -1,14 +1,14 @@
 ---
-title: "8장: pyproject.toml로 패키징 준비하기"
+title: "22장: pyproject.toml로 패키징 준비하기"
 date: 2026-08-20T00:00:00+09:00
 draft: false
 tags: ["rust", "python", "packaging", "maturin", "book"]
 categories: ["books"]
-description: "지금까지 maturin develop으로만 로컬 가상환경에 설치했던 확장 모듈을, maturin build --release로 실제 배포 가능한 wheel 파일로 빌드하는 8장"
+description: "지금까지 maturin develop으로만 로컬 가상환경에 설치했던 확장 모듈을, maturin build --release로 실제 배포 가능한 wheel 파일로 빌드하는 22장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../07-the-gil/[7장: GIL을 실제로 다루기] · 다음: link:../09-installing-into-a-fresh-venv/[9장: 완전히 새로운 환경에 설치해보기]_
+_link:../[전체 목차] · 이전: link:../21-the-gil/[21장: GIL을 실제로 다루기] · 다음: link:../23-installing-into-a-fresh-venv/[23장: 완전히 새로운 환경에 설치해보기]_
 
 '''
 
@@ -16,7 +16,7 @@ _link:../[전체 목차] · 이전: link:../07-the-gil/[7장: GIL을 실제로 �
 
 == `pyproject.toml` 다듬기
 
-1장에서 `maturin new`가 만들어준 `pyproject.toml`은 최소한이었습니다. 배포를 염두에 둔다면 몇 가지를 채우는 게 좋습니다.
+15장에서 `maturin new`가 만들어준 `pyproject.toml`은 최소한이었습니다. 배포를 염두에 둔다면 몇 가지를 채우는 게 좋습니다.
 
 [source,toml]
 ----
@@ -38,7 +38,7 @@ classifiers = [
 module-name = "riirjson"
 ----
 
-`[project]`의 `name`, `version`, `description`이 파이썬 패키지 색인(`pip list`, `pip show` 등)에 그대로 나타납니다. `dynamic = ["version"]`(1장의 기본값)은 `Cargo.toml`의 버전을 그대로 읽어오게 하는 옵션인데, 여기서는 명시적으로 `version = "0.1.0"`을 적어 두 파일이 서로 다른 버전을 가리키는 실수를 줄였습니다.
+`[project]`의 `name`, `version`, `description`이 파이썬 패키지 색인(`pip list`, `pip show` 등)에 그대로 나타납니다. `dynamic = ["version"]`(15장의 기본값)은 `Cargo.toml`의 버전을 그대로 읽어오게 하는 옵션인데, 여기서는 명시적으로 `version = "0.1.0"`을 적어 두 파일이 서로 다른 버전을 가리키는 실수를 줄였습니다.
 
 == `maturin build`로 wheel 만들기
 
@@ -76,7 +76,7 @@ $ maturin build --release
 |macOS 11.0 이상, Apple Silicon(`arm64`) 전용
 |===
 
-이 wheel은 **이 조합(CPython 3.14 + macOS + arm64)이 아닌 환경에는 설치되지 않습니다** — `pip`이 설치 시점에 현재 환경과 wheel 파일명의 태그를 비교해서 맞지 않으면 거부합니다. 10장에서 이 제약을 넓히는 법(`abi3`, 여러 플랫폼 빌드)을 다룹니다.
+이 wheel은 **이 조합(CPython 3.14 + macOS + arm64)이 아닌 환경에는 설치되지 않습니다** — `pip`이 설치 시점에 현재 환경과 wheel 파일명의 태그를 비교해서 맞지 않으면 거부합니다. 24장에서 이 제약을 넓히는 법(`abi3`, 여러 플랫폼 빌드)을 다룹니다.
 
 == 요약
 

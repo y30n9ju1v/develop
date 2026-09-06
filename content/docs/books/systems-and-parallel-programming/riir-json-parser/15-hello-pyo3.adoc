@@ -1,14 +1,14 @@
 ---
-title: "1장: PyO3와 maturin 첫걸음"
+title: "15장: PyO3와 maturin 첫걸음"
 date: 2026-08-20T00:00:00+09:00
 draft: false
 tags: ["rust", "pyo3", "maturin", "book"]
 categories: ["books"]
-description: "maturin new로 PyO3 확장 모듈 프로젝트를 만들고, maturin develop으로 가상환경에 설치한 뒤 파이썬에서 실제로 import해서 Rust 함수를 호출하는 것까지 처음부터 끝까지 확인하는 1장"
+description: "maturin new로 PyO3 확장 모듈 프로젝트를 만들고, maturin develop으로 가상환경에 설치한 뒤 파이썬에서 실제로 import해서 Rust 함수를 호출하는 것까지 처음부터 끝까지 확인하는 15장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-converting-value-to-pyobject/[2장: Value를 파이썬 객체로 바꾸기]_
+_link:../[전체 목차] · 이전: link:../13-data-races-that-do-not-compile/[13장: 컴파일되지 않는 데이터 경쟁] · 다음: link:../16-converting-value-to-pyobject/[16장: Value를 파이썬 객체로 바꾸기]_
 
 '''
 
@@ -112,5 +112,5 @@ $ python -c "import riirjson; print(riirjson.sum_as_string(2, 3))"
 * `maturin develop`으로 빌드와 가상환경 설치를 한 번에 끝내고, 파이썬에서 실제로 `import`해서 호출하는 것까지 확인했습니다.
 * 파이썬 `int`/`str`과 Rust `usize`/`String` 사이의 자동 변환이 이미 일어나고 있다는 것도 짚었습니다 — 다음 장에서 이 변환을 우리 파서의 복잡한 타입에 직접 적용합니다.
 
-다음 장에서는 `riir-json-parser`의 `Value` enum을 파이썬 `dict`/`list`로 바꾸는 변환기를 짭니다.
+다음 장에서는 이 책에서 만든 `Value` enum을 파이썬 `dict`/`list`로 바꾸는 변환기를 짭니다.
 // end::body[]

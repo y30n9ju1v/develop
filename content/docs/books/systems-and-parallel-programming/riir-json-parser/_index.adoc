@@ -1,16 +1,16 @@
 ---
-title: "RIIR: C의 JSON 파서를 Rust로 다시 쓰며 배우는 안전한 병렬 프로그래밍"
+title: "RIIR: C의 JSON 파서를 Rust로 다시 쓰고 Python에 배포하기"
 draft: false
 ---
 
-C의 대표 JSON 라이브러리 `cJSON`을 기준 삼아, 같은 기능의 JSON 파서를 Rust로 처음부터 지으며 소유권·라이프타임·트레잇·이터레이터와 클로저·안전한 병렬처리까지 Rust 언어의 핵심을 익히는 책입니다. "Rust는 병렬처리를 컴파일 타임에 안전하게 체크해서 빠르다"는 흔한 오해를 서문에서 바로잡고, C와 실제로 벤치마크한 결과 — 9장에서 C가 근소하게 더 빨랐던 것, 10장에서 `cpp23-performance-engineering` 책의 기법을 그대로 적용하니 C·C++23보다도 2배 넘게 빨라졌던 반전, 그리고 그 반전의 진짜 원인이 파서가 아니라 C++ 쪽의 느린 파일 읽기 방식이었다는 걸 끝까지 추적해 밝혀낸 것까지 — 를 감추지 않고 싣는 실무 지향적 입문서입니다.
+C의 대표 JSON 라이브러리 `cJSON`을 기준 삼아 JSON 파서를 Rust로 처음부터 짓고, PyO3와 `maturin`으로 Python 패키지까지 배포하는 책입니다. 소유권·라이프타임·트레잇·안전한 병렬처리(1~5부)를 실제 컴파일 에러와 C 비교로 익힌 뒤, 같은 파서를 Python 확장 모듈로 감싸 Result를 예외로 바꾸고(6~7부), PyObject 변환 비용과 GIL을 실측으로 분석하며(8부), 새 가상환경에 설치 가능한 wheel로 패키징합니다(9부). 벤치마크의 좋은 결과와 나쁜 결과를 모두 원인까지 추적하는 실무 지향적 입문서입니다.
 
 이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
 
 == 목차
 
 [start=0]
-. *link:00-preface/[서문: C의 JSON 파서를 Rust로 다시 쓰며 배우기]*
+. *link:00-preface/[서문: C의 JSON 파서를 Rust로 다시 쓰고 Python에 배포하기]*
 
 *1부: 기초*
 
@@ -45,10 +45,36 @@ C의 대표 JSON 라이브러리 `cJSON`을 기준 삼아, 같은 기능의 JSON
 . *link:12-parallel-parsing-with-rayon/[12장: rayon으로 병렬 파싱하기]*
 . *link:13-data-races-that-do-not-compile/[13장: 컴파일되지 않는 데이터 경쟁]*
 
+*6부: Python 확장 모듈의 첫걸음*
+
+[start=15]
+. *link:15-hello-pyo3/[15장: PyO3와 maturin 첫걸음]*
+. *link:16-converting-value-to-pyobject/[16장: Value를 Python 객체로 바꾸기]*
+
+*7부: Python API의 정확성*
+
+[start=17]
+. *link:17-errors-as-python-exceptions/[17장: Result를 Python 예외로]*
+. *link:18-correctness-against-stdlib-json/[18장: Python 표준 json과 정확성 비교하기]*
+
+*8부: 언어 경계의 성능*
+
+[start=19]
+. *link:19-the-first-benchmark/[19장: 첫 벤치마크]*
+. *link:20-finding-the-real-bottleneck/[20장: 진짜 병목 찾기]*
+. *link:21-the-gil/[21장: GIL을 실제로 다루기]*
+
+*9부: 패키지로 배포하기*
+
+[start=22]
+. *link:22-packaging-with-pyproject-toml/[22장: pyproject.toml로 패키징 준비하기]*
+. *link:23-installing-into-a-fresh-venv/[23장: 완전히 새로운 환경에 설치해보기]*
+. *link:24-cross-platform-and-abi3/[24장: 여러 플랫폼과 abi3]*
+
 *맺음말*
 
-[start=14]
-. *link:14-afterword/[맺음말]*
+[start=25]
+. *link:25-afterword/[맺음말]*
 
 '''
 
@@ -108,4 +134,44 @@ include::13-data-races-that-do-not-compile.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::14-afterword.adoc[tag=body,leveloffset=+1]
+include::15-hello-pyo3.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::16-converting-value-to-pyobject.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::17-errors-as-python-exceptions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::18-correctness-against-stdlib-json.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::19-the-first-benchmark.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::20-finding-the-real-bottleneck.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::21-the-gil.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::22-packaging-with-pyproject-toml.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::23-installing-into-a-fresh-venv.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::24-cross-platform-and-abi3.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::25-afterword.adoc[tag=body,leveloffset=+1]
