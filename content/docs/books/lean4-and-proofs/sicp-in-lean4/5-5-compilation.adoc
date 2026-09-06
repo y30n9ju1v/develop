@@ -73,7 +73,7 @@ structure InstSeq where
 
 ``compile``은 ``SExp``의 구조에 대해 재귀합니다 — ``ifExp``의 가지들, ``lam``의 본문, ``app``의 연산자와 피연산자들은 모두 건네받은 표현식의 엄격한 하위 항입니다 — 그래서 기호 데이터 글에서 ``AExp``를 순회하던 ``deriv``와 마찬가지로 재귀 자체는 구조적입니다. 다만 아래 코드에는 여전히 ``partial`` 표시가 붙어 있습니다 — 이는 모순이라기보다, 구조적으로 재귀하는 함수도 재귀가 무한해서가 아닌 다른 이유로 ``partial``이 필요할 수 있다는 다음 문단의 요지를 미리 보여주는 것입니다.
 
-[source,lean]
+[source,text]
 ----
 def freshLabel (base : String) (n : Nat) : String := s!"{base}{n}"
 
@@ -116,7 +116,7 @@ partial def compile (exp : SExp) (target : Target) (linkage : Linkage) (n : Nat)
 
 가장 간단한 경우(``.lit``, ``.var``)만으로 그 형태를 가늠해보면 이렇습니다 — 카운터 ``n``이 반환값이 아니라 상태로 흐르는 것만 다를 뿐, 계산 자체는 위 ``compile``과 똑같습니다.
 
-[source,lean]
+[source,text]
 ----
 def freshLabelM (base : String) : StateM Nat String := do
   let n ← get
@@ -225,7 +225,7 @@ def factNotTail : Nat → Nat
 
 *연습문제 5.31 (Lean 버전):* 원문은 절차 호출의 각 부분에서 ``env``, ``argl``, ``proc``을 저장/복원하는 것 중 어느 것이 불필요한지 판별해 보라고 합니다. 아래 네 가지 ``SExp`` 조합에 대해, 위에서 정의한 ``compile``의 ``preserving`` 호출들이 실제로 ``save``/``restore`` 쌍을 만들어낼지 만들어내지 않을지를 직접 짚어 봅시다. 요점은 ``preserving``이 ``needs``/``modifies`` 집합만 보고 결정하므로, 연산자가 ``.var "f"``처럼 ``env``를 건드리지 않는 표현식이면 ``save env``/``restore env``가 아예 생성되지 않는다는 것입니다.
 
-[source,lean]
+[source,text]
 ----
 -- (f 'x 'y): f는 var이므로 env를 변경하지 않는다 → env를 위한 save/restore가 생략된다
 -- ((g) 'x 'y): 연산자 자체가 조합(app)이므로 env를 변경할 수 있다 → env가 보존되어야 한다

@@ -352,7 +352,7 @@ def runExpt (base n : Int) : IO Unit := do
 
 *연습문제 5.2 (Lean 버전).* SICP는 GCD 머신과 팩토리얼 머신을 손으로 시뮬레이션하며 각 레지스터의 값을 표로 그려보라고 합니다. ``run``을 그대로 쓰는 대신, 매 단계마다 ``Machine``의 스냅샷을 리스트에 쌓는 계측용 버전 ``runTraced``를 직접 만들어 그 표를 코드로 재현해 보세요. 아래는 완성 코드가 아니라 시그니처와 방향만 제시하는 스켈레톤입니다 — 본문의 ``run``을 복사한 뒤, 모든 재귀 호출 지점에서 ``trace``에 현재 ``m``을 덧붙이도록 각 분기를 고치면 됩니다.
 
-[source,lean]
+[source,text]
 ----
 -- 스켈레톤: 본문 run의 각 분기를 이 시그니처에 맞게 옮겨 적으며
 -- 재귀 호출 `run labels instrs m'`을 `runTraced labels instrs m' (trace ++ [m])`으로 바꾸세요.
