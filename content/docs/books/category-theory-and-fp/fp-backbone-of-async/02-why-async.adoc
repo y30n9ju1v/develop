@@ -608,24 +608,36 @@ def process_user_data(user_id):
 [source,python]
 ----
 def get_user_first_post_comments_async(user_id, callback):
-    """콜백 버전은 결과를 반환할 수 없습니다"""
-    fetch_user_async(user_id, lambda err, user:
-        # ... 중첩된 콜백들 ...
-        callback(err, comments)
-    )
-
-# 이것을 다른 함수와 조합하려면?
-def process_user_data_async(user_id, callback):
-    get_user_first_post_comments_async(user_id, lambda err, comments:
+    """콜백으로 결과를 전달하는 버전"""
+    def on_user(err, user):
         if err:
             callback(err, None)
             return
-        # analyze_sentiment도 비동기라면?
+        fetch_posts_async(user["id"], on_posts)
+
+    def on_posts(err, posts):
+        if err:
+            callback(err, None)
+            return
+        if not posts:
+            callback(None, [])
+            return
+        fetch_comments_async(posts[0]["id"], callback)
+
+    fetch_user_async(user_id, on_user)
+
+# 이것을 다른 함수와 조합하려면?
+def process_user_data_async(user_id, callback):
+    def on_comments(err, comments):
+        if err:
+            callback(err, None)
+            return
         analyze_sentiment_async(comments, callback)
-    )
+
+    get_user_first_post_comments_async(user_id, on_comments)
 ----
 
-각 함수가 콜백을 받아야 하고, 결과를 반환하는 대신 콜백에 전달해야 합니다. 함수 합성은 불가능하고, 코드는 계속 중첩됩니다. 이것이 콜백 지옥의 본질입니다. 단순히 코드가 들여쓰기가 많아서 보기 싫다는 문제가 아니라, 함수형 프로그래밍의 핵심 원칙인 합성이 불가능해진다는 것입니다.
+콜백도 이렇게 이름 붙인 함수로 조합할 수 있습니다. 문제는 합성 자체가 불가능하다는 것이 아니라, 각 단계가 콜백 규약과 에러 전달 방식을 다시 받아야 하며, 반환 타입으로 흐름을 드러내기 어렵다는 데 있습니다. 작업이 길어질수록 제어 흐름이 비즈니스 로직에서 분리되고, 취소·타임아웃·자원 정리까지 일관되게 전달하기 어려워집니다. 이것이 콜백 지옥의 본질입니다.
 
 === 1장의 해답: 계산을 값으로 만들기
 
@@ -639,10 +651,10 @@ link:../01-functional-thinking/[1장]에서 배운 "값으로서의 계산"을 �
 ----
 # 상상해봅시다 (다음 장에서 구현합니다)
 user_future = fetch_user(123)          # Future[User] 반환 - 값입니다!
-posts_future = user_future.map(        # map으로 변환 - 합성 가능!
+posts_future = user_future.flat_map(   # 의존적 작업 연결 - 합성 가능!
     lambda user: fetch_posts(user.id)
 )
-comments_future = posts_future.flat_map(  # flat_map으로 연결 - 계속 합성!
+comments_future = posts_future.flat_map(  # 계속 합성!
     lambda posts: fetch_comments(posts[0].id)
 )
 
@@ -656,11 +668,11 @@ result = pipeline(
 
 Future는 "나중에 완료될 계산"을 나타내는 **값**입니다. 값이므로 변수에 저장할 수 있고, 함수에 전달할 수 있고, 다른 Future와 조합할 수 있습니다. 이것이 바로 다음 장에서 배울 Functor와 Monad의 핵심입니다.
 
-콜백은 link:../01-functional-thinking/[1장]의 원칙을 모두 위반합니다:
+콜백 스타일은 link:../01-functional-thinking/[1장]의 합성 원칙을 적용하기 어렵게 만듭니다:
 
-- ❌ 합성 불가능 (중첩만 가능)
-- ❌ 값이 아님 (결과를 반환하지 않음)
-- ❌ 참조 투명하지 않음 (콜백이 언제 호출될지 모름)
+- ⚠️ 합성은 가능하지만, 콜백 규약과 에러 전달이 모든 단계에 퍼짐
+- ⚠️ 비동기 결과가 반환값이 아니라 제어 흐름으로 전달됨
+- ⚠️ 실행 시점·스레드·취소 규약이 함수 시그니처에 드러나지 않음
 
 
 우리에게 필요한 것은 비동기 계산을 *값으로 다룰 수 있는 타입*, 그리고 그 값들을 **조합할 수 있는 연산자**들입니다.
@@ -694,27 +706,27 @@ def extract_links(html, base_url):
 def crawl_page(url):
     """한 페이지를 크롤링합니다 (콜백 방식)"""
     print(f"크롤링 시작: {url}")
-    
-    fetch_page_async(url, lambda err, html:
+    def on_page(err, html):
         if err:
             print(f"에러 발생: {err}")
             return
-        
+
         print(f"페이지 가져옴: {url}")
         links = extract_links(html, url)
         print(f"링크 {len(links)}개 발견")
-        
+
         # 각 링크도 크롤링하려면? 콜백이 또 중첩됩니다
         for link in links:
-            fetch_page_async(link, lambda err, html:
+            def on_link(err, html, link=link):
                 if err:
                     print(f"링크 크롤링 실패: {err}")
                     return
                 print(f"링크 페이지 가져옴: {link}")
                 # 여기서 또 링크를 추출하고 크롤링하려면?
                 # 콜백이 끝없이 중첩됩니다...
-            )
-    )
+            fetch_page_async(link, on_link)
+
+    fetch_page_async(url, on_page)
 
 crawl_page("https://example.com")
 time.sleep(3)

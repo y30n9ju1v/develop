@@ -40,7 +40,7 @@ _link:../[전체 목차] · 이전: link:../07-reactive-programming/[Reactive Pr
 *link:../04-monad/[4장]: Monad - 순차적 의존성의 합성*
 
 - flatMap: 이전 결과에 의존하는 연산들을 연결
-- async/await는 flatMap의 문법적 설탕
+- 의존적인 async/await 흐름은 flatMap/bind와 대응
 
 
 *link:../05-error-handling-as-types/[5장]: Result - 에러를 값으로 다루기*
@@ -49,7 +49,7 @@ _link:../[전체 목차] · 이전: link:../07-reactive-programming/[Reactive Pr
 - Railway-Oriented Programming
 
 
-*link:../06-concurrency-and-parallelism/[6장]: Applicative Functor - 병렬 합성*
+*link:../06-concurrency-and-parallelism/[6장]: Applicative Functor - 독립 작업의 동시성 결합*
 
 - 독립적인 작업들을 병렬로 실행
 - asyncio.gather

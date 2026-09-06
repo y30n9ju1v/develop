@@ -47,9 +47,9 @@ _link:../[전체 목차] · 이전: link:../06-concurrency-and-parallelism/[동�
 - Railway-Oriented Programming: 성공/실패 두 트랙
 
 
-*link:../06-concurrency-and-parallelism/[6장]: Applicative Functor - 병렬 합성*
+*link:../06-concurrency-and-parallelism/[6장]: Applicative Functor - 독립 작업의 동시성 결합*
 
-- 독립적인 작업들을 병렬로 실행
+- 독립적인 작업들을 동시성으로 실행
 - asyncio.gather, asyncio.as++_++completed
 
 
@@ -57,7 +57,7 @@ _link:../[전체 목차] · 이전: link:../06-concurrency-and-parallelism/[동�
 
 '''''
 
-link:../06-concurrency-and-parallelism/[6장]에서는 ``Applicative Functor``(``asyncio.gather``)를 통해 *독립적인* 비동기 작업들을 **병렬**로 실행하여 시간을 단축했습니다. 하지만 우리가 다룬 것은 여전히 "미래에 도착할 *하나의 값*"(``Future``)이었습니다.
+link:../06-concurrency-and-parallelism/[6장]에서는 ``Applicative`` 관점(``asyncio.gather``)으로 *독립적인* 비동기 작업을 **동시성**으로 실행하여 I/O 대기를 겹쳤습니다. 하지만 우리가 다룬 것은 여전히 "미래에 도착할 *하나의 값*"(``Future``)이었습니다.
 
 만약 값이 하나가 아니라 *계속해서* 도착한다면 어떨까요? 클릭 이벤트, 채팅 메시지, 주식 가격 변동처럼 말이죠. 이 장에서는 스트림을 함수형으로 다루는 방법을 배울 것입니다.
 

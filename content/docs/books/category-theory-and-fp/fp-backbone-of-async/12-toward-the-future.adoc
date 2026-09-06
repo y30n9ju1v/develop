@@ -97,7 +97,7 @@ print(result)  # 30
 
 이런 변환을 **Continuation-Passing Style (CPS)**이라고 부릅니다. 일반적인 프로그래밍에서는 함수가 값을 반환하지만, CPS에서는 함수가 Continuation에 값을 전달합니다. 이것은 제어 흐름을 완전히 명시적으로 만듭니다.
 
-*왜 이것이 중요할까요?* async와 await가 정확히 이것을 하기 때문입니다. 컴파일러는 async 함수를 자동으로 CPS로 변환합니다. await를 만나면 함수를 멈추고, 현재 상태와 Continuation을 저장합니다. 비동기 작업이 완료되면 Continuation이 호출되어 정확히 멈춘 지점부터 다시 시작합니다.
+*왜 이것이 중요할까요?* async와 await는 CPS와 같은 "이후에 할 일"이라는 관점으로 이해할 수 있기 때문입니다. 다만 CPython이 async 함수를 문자 그대로 CPS 함수로 변환하는 것은 아닙니다. 네이티브 코루틴 프레임과 awaitable 프로토콜, 이벤트 루프의 콜백을 통해 중단 지점과 재개를 관리합니다. awaitable이 완료되면 이벤트 루프가 해당 Task를 다시 실행 가능하게 만들고, 코루틴은 멈춘 지점부터 계속됩니다.
 
 === async/await는 제너레이터 위에 구축되었습니다
 
@@ -341,15 +341,15 @@ class TestEffectHandler(EffectHandler):
 # test_result = test_handler.run(example_program())
 ----
 
-=== contextvars는 이미 Effect System입니다
+=== contextvars는 Reader 효과와 닮은 실용적 도구입니다
 
-link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 실행 문맥을 암묵적으로 전달하는 방법을 실용적인 관점에서 다뤘습니다. 이제 그 메커니즘을 이론적으로 한 단계 확장해봅시다 — ``contextvars``가 **왜** Reader Effect의 실제 사례인지, 그리고 그게 왜 지금 이야기하는 Algebraic Effects라는 더 큰 그림의 한 조각인지입니다.
+link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 실행 문맥을 암묵적으로 전달하는 방법을 실용적인 관점에서 다뤘습니다. 이를 Reader 효과의 **직관에 비춰** 볼 수는 있습니다. 읽기 전용 환경을 함수 인자 없이 조회한다는 점이 닮았기 때문입니다.
 
-8장의 ``ContextVar``를 다시 뜯어보면, 우리가 하고 있던 일은 정확히 두 단계였습니다 — **Effect 설정**(``request_id.set(...)``, "이 환경을 앞으로 쓰겠다"는 선언)과 **Effect 사용**(``request_id.get()``, "그 환경을 읽는다"는 요청). Reader Effect의 정의가 바로 이겁니다 — "읽기 전용 환경(Environment)을 제공한다"는 부수 효과 하나를 추상화한 것입니다. 즉 8장에서 우리는 이미 코드로 Effect System을 쓰고 있었는데, 그때는 "암묵적 의존성을 해결하는 실용적 도구"로만 보였을 뿐입니다.
+8장의 ``ContextVar``를 다시 뜯어보면, ``request_id.set(...)``으로 현재 실행 문맥에 값을 넣고 ``request_id.get()``으로 읽습니다. Reader 효과가 모델링하는 "환경(Environment)을 읽는다"는 관심사와 유사합니다. 특히 asyncio Task가 문맥을 복사해 보존하므로 요청 ID·추적 정보처럼 작업에 귀속되는 값을 다룰 때 유용합니다.
 
-이게 바로 Algebraic Effects의 핵심 아이디어와 정확히 만나는 지점입니다 — **어떤 부수 효과든, "이 효과를 선언한다"와 "이 효과를 실행한다"를 분리할 수 있다면, 그 효과는 Effect System의 한 인스턴스입니다.** ``contextvars``는 이 원리를 "환경 읽기"라는 딱 한 가지 효과에만 적용한 특수 사례이고, 뒤에서 볼 ``Effect``/``EffectHandler`` 패턴은 이 원리를 로깅, 상태, 예외 같은 임의의 효과로 일반화한 것입니다.
+하지만 ``contextvars`` 자체가 Algebraic Effect System은 아닙니다. 효과 연산의 대수적 인터페이스, 프로그램을 해석하는 핸들러, 효과별 처리 정책을 제공하지 않으며, 값 설정은 가변적인 동적 문맥을 바꿉니다. 따라서 여기서는 "Reader와 닮은 문맥 전달 도구"로 한정해 사용하고, 아래의 ``Program``/``EffectHandler`` 예제처럼 기술과 해석을 분리하는 모델과 구별해야 합니다.
 
-알게 모르게 우리는 8장에서부터 이미 Effect System의 혜택을 보고 있었던 것입니다.
+이 구분을 지키면, 실용적 문맥 전달과 효과를 명시적으로 모델링하는 설계를 혼동하지 않고 각각의 장점을 활용할 수 있습니다.
 
 === 추상화의 계층: 1-12장의 전체 그림
 
@@ -359,7 +359,7 @@ link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 �
 
 - 제어 흐름 자체를 값으로 만듦
 - "프로그램의 나머지"를 포착하고 조작
-- *우리가 배운 것*: async/await는 Continuation을 자동으로 관리하는 syntactic sugar
+- *우리가 배운 것*: async/await의 중단·재개를 Continuation 관점으로 해석할 수 있음
 
 
 *계층 2: Functor와 Monad* (link:../03-functor/[3장]-link:../04-monad/[4장])
@@ -373,14 +373,14 @@ link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 �
 *계층 3: Applicative* (link:../06-concurrency-and-parallelism/[6장])
 
 - 여러 독립적인 계산을 조합
-- *우리가 배운 것*: ``asyncio.gather``는 Applicative의 "독립적인 컨텍스트들의 결합"
+- *우리가 배운 것*: ``asyncio.gather``는 독립 작업의 결합을 Applicative 관점으로 읽게 해 줌
 
 
 *계층 4: Effect System* (*12장*)
 
 - 모든 종류의 부수 효과를 통합된 방식으로 다룸
 - 프로그램은 effect를 기술하고, 핸들러가 실행
-- *우리가 배운 것*: contextvars(Reader Effect), Program {plus} EffectHandler
+- *우리가 배운 것*: Program {plus} EffectHandler는 기술과 해석을 분리하는 교육용 모델; contextvars는 Reader와 닮은 문맥 전달 도구
 
 
 *계층 5: Domain-Specific Language (DSL)*
@@ -389,7 +389,7 @@ link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 �
 - 비즈니스 로직을 순수한 언어로 표현
 
 
-이 계층 구조는 역사적 발전 순서이기도 합니다. Continuation은 1960년대에 발견되었고, Monad는 1990년대에 프로그래밍에 도입되었으며, Algebraic Effects는 2000년대에 연구되기 시작했고, 지금도 활발히 발전하고 있습니다. 각 계층은 이전 계층의 문제를 해결하려는 시도에서 나왔습니다.
+이 그림은 학습을 위한 연결 지도이지, 엄격한 역사적·의존성 계층은 아닙니다. Continuation, Monad, Applicative, Algebraic Effects는 서로 다른 문제를 다루며 연구사에서도 독립적으로 발전하고 영향을 주고받았습니다.
 
 중요한 것은 이것들이 모두 **합성(composition)**이라는 하나의 원칙으로 연결되어 있다는 것입니다. 작은 것들을 조합해서 큰 것을 만들고, 각 부분은 독립적으로 이해하고 테스트할 수 있습니다. 이것이 함수형 프로그래밍의 본질입니다.
 
@@ -397,11 +397,11 @@ link:../08-practical-patterns/[8장]에서 ``contextvars``로 요청 ID 같은 �
 
 == 2부: 실전 구현 - 파이썬에서 지금 사용하기
 
-=== dry-python/returns: 실전 Effect System
+=== dry-python/returns: 실전 함수형 컨테이너
 
-Algebraic Effects는 Haskell의 IO Monad, Scala의 ZIO, OCaml의 Effects 같은 시스템에서 이미 사용되고 있습니다. 파이썬에서는 아직 이런 시스템이 주류가 아니지만, 이미 이 방향으로 발전하고 있는 라이브러리들이 있습니다.
+Algebraic Effects와 IO Monad, ZIO 같은 효과 모델은 서로 구분해야 합니다. 파이썬 표준 라이브러리에는 Algebraic Effect System이 없지만, Result와 Maybe처럼 실패·부재를 명시하는 함수형 컨테이너를 제공하는 라이브러리는 있습니다.
 
-**대표적으로 ``dry-python/returns`` 라이브러리**는 Result, Maybe, IO 같은 함수형 타입들과 함께 Effect 패턴을 제공합니다.
+**``dry-python/returns`` 라이브러리**는 Result, Maybe, IO 같은 함수형 타입을 제공합니다. 이를 Algebraic Effect System으로 부르기보다는, 파이썬 코드에서 명시적인 결과 타입과 합성 패턴을 연습할 수 있는 도구로 보는 편이 정확합니다.
 
 [source,python]
 ----
@@ -409,17 +409,15 @@ Algebraic Effects는 Haskell의 IO Monad, Scala의 ZIO, OCaml의 Effects 같은 
 # pip install returns
 
 from returns.result import Result, Success, Failure, safe
-from returns.io import IO, impure
 from returns.pipeline import flow
 import json
 
-# IO Effect: 부수 효과가 있는 작업을 표시
-@impure
+# 외부 I/O의 예외를 Result로 변환
 @safe
-def read_config(file_path: str) -> Result[dict, Exception]:
-    """설정 파일 읽기 - IO Effect + Result"""
+def read_config(file_path: str) -> dict:
+    """설정 파일을 읽고, 예외는 Failure로 바꿉니다"""
     with open(file_path) as f:
-        return Success(json.load(f))
+        return json.load(f)
 
 # 순수 함수: 부수 효과 없음
 def validate_config(config: dict) -> Result[dict, str]:
@@ -437,7 +435,7 @@ def load_api_key(file_path: str) -> Result[str, str | Exception]:
     """설정 파일에서 API 키 로드하는 전체 파이프라인"""
     return flow(
         file_path,
-        read_config,  # IO[Result[dict, Exception]]
+        read_config,  # Result[dict, Exception]
         lambda result: result.bind(validate_config),  # Result[dict, str]
         lambda result: result.map(extract_api_key),  # Result[str, str]
     )
@@ -455,7 +453,7 @@ def load_api_key(file_path: str) -> Result[str, str | Exception]:
 
 1. *타입 안전성*: Result++[++T, E++]++로 성공/실패 명시
 2. *합성 가능*: ``bind``, ``map``, ``flow``로 파이프라인 구축
-3. *테스트 용이*: IO를 분리하여 순수 함수 테스트 간단
+3. *테스트 용이*: 경계의 ``read_config``와 순수한 검증 함수를 분리하여 테스트가 간단
 
 [WARNING]
 .실무 주의보: 파이썬에는 꼬리 재귀 최적화(TCO)가 없습니다
@@ -567,8 +565,8 @@ main = do
 
 1. *1단계*: Result 타입으로 에러 처리 개선 (가장 쉬움)
 2. *2단계*: 핵심 비즈니스 로직에 순수 함수 도입
-3. *3단계*: dry-python/returns로 파이프라인 구축
-4. *4단계*: 복잡한 도메인에 Effect System 적용
+3. *3단계*: 필요할 때 dry-python/returns 같은 컨테이너로 파이프라인 구축
+4. *4단계*: 효과의 기술·해석 분리가 실제로 이득인 복잡한 도메인만 별도 모델 검토
 
 
 *팀 컨센서스*:
@@ -588,7 +586,7 @@ main = do
 
 - Scala의 ZIO, Haskell의 Polysemy, OCaml의 Effects, Koka 언어 전체가 effect 기반
 - 비동기, 에러 처리, 상태 관리, 로깅 같은 횡단 관심사를 통합
-- *파이썬과의 연관*: ``dry-python/returns`` 같은 라이브러리의 성숙, 타입 힌팅 고도화
+- *파이썬과의 연관*: 표준 효과 시스템이 아니라, ``dry-python/returns`` 같은 라이브러리와 타입 힌팅으로 일부 패턴을 명시적으로 적용 가능
 
 
 *2. Gradual Typing의 발전*
@@ -618,9 +616,9 @@ main = do
 *핵심 내용 3줄 요약:*
 
 [arabic]
-. *Continuation*: ``async/await``의 마법 뒤에는 "멈춘 지점부터 다시 시작하는 능력"이 있습니다. 파이썬은 제너레이터로 이를 구현합니다.
-. *Algebraic Effects*: 부수 효과(Effect)를 값으로 다루면, 프로그램의 의미(What)와 실행(How)을 완전히 분리할 수 있습니다. ``contextvars``는 이미 우리가 쓰고 있는 Reader Effect입니다.
-. *실전*: ``dry-python/returns``로 파이썬에서 지금 당장 Effect 패턴을 사용할 수 있습니다. 점진적으로 도입하세요.
+. *Continuation*: ``async/await``의 중단·재개는 Continuation 관점으로 이해할 수 있습니다. 네이티브 코루틴은 제너레이터와 관련된 별도 객체입니다.
+. *Algebraic Effects*: 효과를 기술하고 핸들러가 해석하는 모델은 프로그램의 의미(What)와 실행(How)을 분리합니다. ``contextvars``는 Reader와 닮은 문맥 전달 도구이지 그 자체가 효과 시스템은 아닙니다.
+. *실전*: ``dry-python/returns``는 명시적인 Result/Maybe/IO 컨테이너를 연습할 도구입니다. 팀의 필요가 확인된 작은 경계부터 도입하세요.
 
 사실 지금까지는 async/await를 줄곧 **대수**(Functor, Monad, Applicative)로 읽어왔습니다. 그런데 방금 위에서 본 Continuation은 사실 정반대 방향의 렌즈 — **상태 기계** — 를 살짝 보여준 것이었습니다. 같은 현상을 이 두 번째 렌즈로 완전히 다시 읽으면 무엇이 보일까요? 이 책의 진짜 마지막 장, link:../13-algebra-and-automaton/[13장]에서 그 질문에 답하고, 지금까지의 전체 여정도 그곳에서 되돌아봅니다.
 // end::body[]

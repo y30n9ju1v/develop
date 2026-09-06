@@ -954,7 +954,7 @@ user_future.map(fetch_latest_post)
 
 [source,python]
 ----
-def get_user_latest_post_title(user_id: int) -> ???:
+def get_user_latest_post_title(user_id: int) -> None:
     """사용자의 최신 게시글 제목을 가져옵니다"""
     user_future = fetch_user(user_id)
 
@@ -981,9 +981,9 @@ def get_user_latest_post_title(user_id: int) -> ???:
 ----
 # ✅ 이렇게 작동했으면 좋겠다
 user_future: Future[User] = fetch_user(123)
-post_future: Future[Post] = user_future.??? (fetch_latest_post)
-#                                       ^^^
-#                                       중첩을 자동으로 풀어주는 연산자!
+post_future: Future[Post] = user_future.flat_map(fetch_latest_post)
+#                                      ^^^^^^^^
+#                                      중첩을 자동으로 풀어주는 연산자!
 
 title_future: Future[str] = post_future.map(lambda post: post.title)
 # Future[str] - 깔끔!
@@ -999,7 +999,7 @@ title_future: Future[str] = post_future.map(lambda post: post.title)
 
 - flatMap: 중첩을 자동으로 펼치는 연산
 - Monad: Functor {plus} flatMap
-- async/await: 사실은 Monad의 do-notation
+- async/await: 의존적인 비동기 단계를 선형적으로 적는 문법 (Monad의 ``bind``/do-notation과의 대응)
 - 실제 JavaScript Promise, Python asyncio의 내부 원리
 
 

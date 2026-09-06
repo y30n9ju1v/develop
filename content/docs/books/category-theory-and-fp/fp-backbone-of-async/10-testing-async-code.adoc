@@ -260,11 +260,6 @@ Hypothesis는 이 코드를 실행할 때 우리가 상상하기 힘든 숫자�
 @given(st.text())
 def test_validate_email_properties(email):
     """모든 문자열 입력에 대해 패닉(예외)이 발생하지 않아야 함"""
-    # ... (이전 코드 계속)
-----
-
-[source,python]
-----
     # 순수 함수는 어떤 입력에도 안전해야 합니다
     result = validate_email(email)
     
