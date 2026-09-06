@@ -12,6 +12,16 @@ _link:../[전체 목차] · 이전: link:../13-algebra-and-automaton/[13장: 대
 
 '''
 
+[TIP]
+.초보자 이정표
+====
+*선수지식:* Python의 ``async``/``await``. TypeScript는 처음이어도 예제의 타입 표기만 읽을 수 있으면 됩니다.
+
+*이번 장의 도착점:* Python의 ``await`` 흐름과 TypeScript Promise의 ``then`` 흐름이 어디까지 비슷하고, 취소·구조적 동시성에서 어디서 달라지는지 비교합니다.
+
+*핵심 낱말:* Promise, ``then``, ``Promise.all``, 채택(adoption), 구조적 동시성. JavaScript 생태계의 모든 API를 배우는 장이 아니므로, Python 예제와 한 쌍씩만 대응시키세요.
+====
+
 == 인트로: 13장까지가 파이썬 이야기였다면
 
 이 책은 지금까지 파이썬을 중심으로 이야기했습니다. 의존적인 `await` 흐름을 Monad의 `flatMap` 관점으로 읽는 법, `asyncio.gather`를 독립 작업 결합의 Applicative 관점으로 읽는 법, `TaskGroup`의 구조적 동시성을 살폈습니다. 이 대응은 API의 완전한 동일성이 아니라 설계를 이해하는 렌즈입니다. 이 장에서는 그 렌즈가 TypeScript에서도 어디까지 유효한지 확인합니다.

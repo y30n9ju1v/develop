@@ -12,6 +12,44 @@ _link:../[전체 목차] · 이전: link:../01-functional-thinking/[함수형 �
 
 '''
 
+[TIP]
+.초보자 이정표
+====
+*선수지식:* Python 함수 호출. ``asyncio``를 써 본 적은 없어도 됩니다.
+
+*이번 장의 도착점:* ``await``가 기다리는 동안 다른 작업에 제어를 돌려주며, 독립 작업은 ``gather``로 함께 시작할 수 있음을 실행 시간으로 확인합니다.
+
+*핵심 낱말:* 블로킹(blocking), I/O-bound, 코루틴(coroutine), 동시성(concurrency), 병렬성(parallelism). 이 장의 동시 실행은 CPU를 여러 코어에서 병렬 실행한다는 뜻이 아닙니다.
+====
+
+== 먼저 10줄로 실행해 보기
+
+외부 API나 라이브러리 없이, 아래 파일 하나만 실행해 보세요. ``await``는 기다리는 동안 이벤트 루프에 제어를 돌려주고, ``gather``는 서로 독립적인 두 작업을 함께 시작합니다.
+
+[source,python]
+----
+import asyncio
+import time
+
+async def slow(label: str) -> str:
+    await asyncio.sleep(0.1)  # 네트워크 응답을 기다린다고 가정한다
+    return label
+
+async def main() -> None:
+    started = time.perf_counter()
+    first = await slow("A")
+    second = await slow("B")
+    print(f"순차: {first}, {second} ({time.perf_counter() - started:.2f}초)")
+
+    started = time.perf_counter()
+    first, second = await asyncio.gather(slow("A"), slow("B"))
+    print(f"동시: {first}, {second} ({time.perf_counter() - started:.2f}초)")
+
+asyncio.run(main())
+----
+
+대체로 ``순차``는 약 0.20초, ``동시``는 약 0.10초가 출력됩니다. 첫 번째 경우는 두 기다림을 차례로 하고, 두 번째 경우는 두 기다림의 시간이 겹칩니다. 이 차이만 이해한 뒤 아래의 웹 API 예제로 넘어가세요.
+
 컴퓨터가 기다리는 시간은 인간의 시간과는 차원이 다릅니다. CPU가 메모리에서 데이터를 읽는 데 걸리는 시간을 1초라고 한다면, 네트워크를 통해 데이터를 받는 데는 약 4년이 걸립니다. 디스크에서 데이터를 읽는 것은 약 1개월에 해당하고요. 이런 엄청난 시간 차이가 바로 비동기 프로그래밍이 필요한 근본적인 이유입니다.
 
 이 장에서는 실제로 코드를 작성하고 실행 시간을 측정하면서, 동기 방식의 한계를 직접 확인해볼 것입니다. 그리고 기존의 해결책들을 시도해보면서 각각의 장단점을 이해하고, 왜 새로운 접근이 필요했는지 깨닫게 될 것입니다.

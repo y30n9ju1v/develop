@@ -12,6 +12,16 @@ _link:../[전체 목차] · 이전: link:../07-reactive-programming/[Reactive Pr
 
 '''
 
+[TIP]
+.초보자 이정표
+====
+*선수지식:* 1장의 순수 함수, 4장의 순차 합성. 웹 프레임워크 경험은 있으면 좋지만 필수는 아닙니다.
+
+*이번 장의 도착점:* 의존성을 함수 인자로 주입하고, 미들웨어처럼 여러 단계를 조합해 I/O 경계와 비즈니스 규칙을 분리합니다.
+
+*핵심 낱말:* 의존성 주입(dependency injection), 클로저(closure), 미들웨어(middleware), 경계(boundary). 대규모 아키텍처 전체를 외우지 말고 한 요청이 어떤 함수들을 거치는지만 추적하세요.
+====
+
 == 1-7장 복습: 여기까지의 여정
 
 *8장*을 시작하기 전에, 지금까지 배운 핵심 개념들을 정리해봅시다. 우리는 link:../01-functional-thinking/[1장]부터 link:../07-reactive-programming/[7장]까지 함수형 프로그래밍의 이론적 토대를 닦았습니다. ``map``, ``flatMap``, ``Result``, ``Applicative``, 그리고 ``Observable``까지.
