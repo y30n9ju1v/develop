@@ -1,18 +1,18 @@
 ---
-title: "10장: 한 장으로는 부족하다: 분포 비교가 필요한 이유"
+title: "22장: 한 장으로는 부족하다: 분포 비교가 필요한 이유"
 date: 2026-08-10T00:00:00+09:00
 draft: false
 tags: ["image-quality", "distribution", "mode-collapse", "numpy", "book"]
 categories: ["books"]
-description: "생성된 이미지 하나하나는 실제 이미지 중 하나와 매우 가까워 보여도, 생성된 이미지 전체의 다양성이 실제보다 훨씬 떨어지는 모드 붕괴(mode collapse)를 개별 이미지 비교로는 전혀 잡아내지 못하고 집합 전체의 통계로만 드러난다는 것을 NumPy로 확인하는 10장"
+description: "생성된 이미지 하나하나는 실제 이미지 중 하나와 매우 가까워 보여도, 생성된 이미지 전체의 다양성이 실제보다 훨씬 떨어지는 모드 붕괴(mode collapse)를 개별 이미지 비교로는 전혀 잡아내지 못하고 집합 전체의 통계로만 드러난다는 것을 NumPy로 확인하는 22장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../09-toy-perceptual-metric/[9장: 간단한 특징 추출기로 지각 지표 흉내내기] · 다음: link:../11-fid-idea/[11장: FID 아이디어: 두 분포 사이의 거리]_
+_link:../[전체 목차] · 이전: link:../21-toy-perceptual-metric/[21장: 간단한 특징 추출기로 지각 지표 흉내내기] · 다음: link:../23-fid-idea/[23장: FID 아이디어: 두 분포 사이의 거리]_
 
 '''
 
-1~9장에서 다룬 모든 지표(MSE, PSNR, SSIM, LPIPS 아이디어)는 공통점이 하나 있습니다 — **정확히 짝지어진 두 이미지**(원본과 렌더링, 정답과 생성 결과)를 비교합니다. 그런데 항상 이렇게 짝을 지을 수 있는 건 아닙니다. 생성 모델이 완전히 새로운 이미지 `1000`장을 만들어냈다면, 그 각각에 대응하는 "정답 이미지"가 애초에 존재하지 않을 수 있습니다. 이 장에서는 이런 상황에서 필요한 관점 — 이미지 한 장이 아니라 **이미지 뭉치 전체**를 평가하는 것 — 이 왜 필요한지, 개별 이미지 비교로는 절대 볼 수 없는 문제를 통해 확인합니다.
+1~21장에서 다룬 모든 지표(MSE, PSNR, SSIM, LPIPS 아이디어)는 공통점이 하나 있습니다 — **정확히 짝지어진 두 이미지**(원본과 렌더링, 정답과 생성 결과)를 비교합니다. 그런데 항상 이렇게 짝을 지을 수 있는 건 아닙니다. 생성 모델이 완전히 새로운 이미지 `1000`장을 만들어냈다면, 그 각각에 대응하는 "정답 이미지"가 애초에 존재하지 않을 수 있습니다. 이 장에서는 이런 상황에서 필요한 관점 — 이미지 한 장이 아니라 **이미지 뭉치 전체**를 평가하는 것 — 이 왜 필요한지, 개별 이미지 비교로는 절대 볼 수 없는 문제를 통해 확인합니다.
 
 == 실험 설계: "실제" 사각형들과 "생성된" 사각형들
 
@@ -51,15 +51,15 @@ for _ in range(30):
     collapsed_set.append(np.clip(base_img + noise, 0, 1))
 ----
 
-`collapsed_set`의 `30`장은 사실상 다 똑같은 사각형이고, 아주 미세한 노이즈(표준편차 `0.01`, 3장에서 확인했듯 눈에 거의 안 띄는 수준)만 다릅니다.
+`collapsed_set`의 `30`장은 사실상 다 똑같은 사각형이고, 아주 미세한 노이즈(표준편차 `0.01`, 15장에서 확인했듯 눈에 거의 안 띄는 수준)만 다릅니다.
 
 == 개별 비교로는 이 문제가 보이지 않는다
 
-`collapsed_set`의 각 이미지를, `real_set` 중 **가장 가까운** 이미지와 비교해봅니다(9장의 특징 추출기로 특징 벡터를 뽑고, 유클리드 거리로 "가까움"을 잽니다).
+`collapsed_set`의 각 이미지를, `real_set` 중 **가장 가까운** 이미지와 비교해봅니다(21장의 특징 추출기로 특징 벡터를 뽑고, 유클리드 거리로 "가까움"을 잽니다).
 
 [source,python]
 ----
-real_feats = np.array([block_features(im) for im in real_set])          # 9장의 block_features 재사용
+real_feats = np.array([block_features(im) for im in real_set])          # 21장의 block_features 재사용
 collapsed_feats = np.array([block_features(im) for im in collapsed_set])
 
 nn_dists = [np.linalg.norm(real_feats - gf, axis=1).min() for gf in collapsed_feats]

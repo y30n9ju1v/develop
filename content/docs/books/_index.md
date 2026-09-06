@@ -35,16 +35,15 @@ title: "Books"
 
 ## 3DGS 기반 자율주행 E2E 검증
 
-- **[사진에서 세계로](3dgs-autonomous-driving-e2e/multiview-geometry-3d-reconstruction/)** — 3DGS 기반 자율주행 E2E 검증 시리즈의 첫 책. 카메라 모델(1부) → 두 장 사진의 기하학(2부) → Structure-from-Motion(3부) → SLAM(4부) → 3DGS를 향하여(5부)까지, 멀티뷰 기하학의 핵심 계산을 NumPy/SciPy로 직접 구현하고 검증하며 배우는 입문서
-- **[미분가능 렌더링과 3D Gaussian Splatting](3dgs-autonomous-driving-e2e/differentiable-rendering-3dgs/)** — 3DGS 기반 자율주행 E2E 검증 시리즈의 두 번째 책. 1권이 재구성한 카메라와 점군을 이어받아, 왜 미분해야 하는가(1부) → 볼륨 렌더링/NeRF(2부) → 3DGS 표현(3부) → 최적화로 학습(4부) → 품질과 다음 단계(5부)까지 PyTorch 없이 NumPy만으로 순전파·역전파를 손으로 구현하며 배우는 입문서
+- **[사진에서 세계로](3dgs-autonomous-driving-e2e/multiview-geometry-3d-reconstruction/)** — 카메라 모델(1부) → 두 장 사진의 기하학(2부) → Structure-from-Motion(3부) → 점군 기반 장면 표현과 품질 진단(4부)까지, 멀티뷰 기하학의 핵심 계산을 NumPy/SciPy로 직접 구현하고 검증하며 배우는 입문서
+- **[미분가능 렌더링과 3D Gaussian Splatting](3dgs-autonomous-driving-e2e/differentiable-rendering-3dgs/)** — 왜 미분해야 하는가(1부) → 볼륨 렌더링/NeRF(2부) → 3DGS 표현(3부) → 최적화로 학습(4부) → MSE·PSNR·SSIM·FID를 이용한 품질 평가(5부) → SfM 초기화(6부)까지, PyTorch 없이 NumPy만으로 순전파·역전파를 손으로 구현하며 배우는 입문서
 - **[센서 퓨전에서 궤적 생성까지: E2E 자율주행 모델 바닥부터 짓기](3dgs-autonomous-driving-e2e/e2e-autonomous-driving-from-scratch/)** — 3DGS 기반 자율주행 E2E 검증 시리즈의 세 번째 책. 센서와 좌표계(1부) → BEV 공간 융합(2부) → Transformer BEV 인코더(3부) → Planning Head와 궤적 생성(4부) → 종합과 평가(5부)까지, 좌표 변환·BEV 융합은 NumPy로, BEVFormer 스타일 인코더와 Planning Head는 PyTorch로 실제 학습시키며 센서에서 궤적까지 E2E 자율주행 모델을 바닥부터 구현하는 입문서
-- **[닮았다는 걸 어떻게 잴까: 3DGS와 생성 이미지의 품질 평가 입문](3dgs-autonomous-driving-e2e/image-fidelity-metrics/)** — 픽셀 기반 지표: MSE·PSNR(1부) → 구조를 보는 지표: SSIM(2부) → 사람처럼 보는 지표: 지각적 유사도/LPIPS 아이디어(3부) → 이미지 집합을 비교하는 지표: FID(4부) → 3DGS 렌더링에 적용하기(5부)까지, 이미지가 숫자 배열이라는 사실 하나에서 출발해 모든 지표를 NumPy/SciPy로 직접 구현하고, 같은 PSNR을 가진 흐림과 노이즈를 SSIM은 구별해내지만 색 채널이 뒤바뀌는 렌더링 버그는 PSNR도 SSIM도 전혀 잡지 못한다는 것을 실제 계산으로 확인하며 "어떤 지표도 혼자서는 충분하지 않다"는 것을 체감하는 독립적인 입문서
 - **[흔들리는 로그를 선명한 3DGS로: 시간 정렬과 extrinsic 재최적화](3dgs-autonomous-driving-e2e/sensor-sync-extrinsic-refinement/)** — 문제 진단: 왜 3DGS가 무너지는가(1부) → 시간 정렬: 보간·오프셋 추정·검증(2부) → extrinsic 드리프트 보정: 포즈 그래프·리그 제약·루프 클로저(3부) → 통합과 검증: 파이프라인 통합·품질 게이트·종합 실전(4부)까지, 타임싱크가 어긋나고 프레임마다 자세가 흔들리는 자율주행 센서 로그를 NumPy/SciPy로 직접 정제해 재투영 오차를 8.7배 줄이는 실무 지향적 파이프라인을 "회전은 왜 어려운가"·"모르는 곳에서 나를 찾는 법" 책의 SE(3) 최적화 도구로 완성하는 독립적인 입문서
 - **[모델이 나빠졌는지 사람이 눈으로 보지 않고 아는 법: 3DGS/E2E 회귀 테스트 파이프라인](3dgs-autonomous-driving-e2e/regression-testing-pipeline/)** — 문제 정의: "회귀"란 무엇인가(1부) → 파이프라인 아키텍처: kind 클러스터·베이스라인 데이터셋·컨테이너화·Argo Workflow DAG(2부) → 자동화·비교·시각화: 지표 계산·통계적 회귀 탐지·CI/CD 연동·Rerun 시각화(3부) → 운영과 실전: 플레이키 테스트·클라우드 스케일링·종합 실전·폐루프 주행 평가 지표(4부)까지, "닮았다는 걸 어떻게 잴까"의 이미지 품질 지표와 "흔들리는 로그를 선명한 3DGS로"의 포즈 오차 지표를 재사용해 새 체크포인트가 나올 때마다 실제로 동작하는 kind/Argo Workflows/Rerun 매니페스트로 회귀를 자동 판정하는 실무 지향적인 후속편
 
 ## SLAM과 로보틱스
 
-- **[모르는 곳에서 나를 찾는 법: 필터와 그래프로 배우는 SLAM](slam-and-robotics/slam-filters-and-graphs/)** — 1권 "사진에서 세계로"의 SLAM 개요를 깊게 판 심화편. 확률적 상태 추정 기초(1부) → EKF-SLAM(2부) → 파티클 필터와 FastSLAM(3부) → 그래프 기반 SLAM(4부) → 매핑과 통합(5부)까지, SLAM의 세 가지 주요 패러다임(필터·파티클·그래프)을 NumPy/SciPy로 직접 구현하고 시뮬레이션으로 검증하며 배우는 독립적인 입문서
+- **[모르는 곳에서 나를 찾는 법: 필터와 그래프로 배우는 SLAM](slam-and-robotics/slam-filters-and-graphs/)** — 확률적 상태 추정 기초(1부) → EKF-SLAM(2부) → 파티클 필터와 FastSLAM(3부) → 그래프 기반 SLAM(4부) → 매핑과 통합(5부)까지, SLAM의 세 가지 주요 패러다임(필터·파티클·그래프)을 NumPy/SciPy로 직접 구현하고 시뮬레이션으로 검증하며 배우는 독립적인 입문서
 - **[회전은 왜 어려운가: 리 군과 리 대수로 로봇 자세 다루기](slam-and-robotics/lie-groups-for-robotics/)** — 앞선 SLAM 책이 2D 평면에 한정하며 남겨둔 3D 회전 문제를 정면으로 다루는 심화편. 회전 표현의 문제(1부) → 리 군과 리 대수(2부) → SE(3)와 강체 운동(3부) → 접평면 위의 최적화(4부) → IMU와 3D SLAM 실전(5부)까지, SO(3)·SE(3)를 NumPy/SciPy로 직접 구현하고 검증하며 배우는 독립적인 입문서
 - **[브라우저로 확인하는 3D: Viser로 만드는 로보틱스/비전 뷰어 입문](slam-and-robotics/viser-3d-visualization-for-robotics/)** — 컴퓨터 비전과 로보틱스 파이프라인의 중간 결과(카메라 포즈·포인트클라우드·3DGS 결과·로봇 궤적)를 파이썬 몇 줄로 브라우저에 띄워 확인하는 라이브러리 Viser 입문서. 첫 장면 띄우기(1부) → 좌표 프레임·카메라 프러스텀(2부) → 메시·조명·GUI 상호작용(3부) → 대량 데이터와 3D Gaussian Splats(4부) → 시간에 따른 재생(5부) → 재구성 결과 뷰어 앱(6부)까지, 모든 예제가 실제로 `viser.ViserServer()`를 띄우고 씬 트리 배선을 `assert`로 검증하는 독립적인 입문서
 

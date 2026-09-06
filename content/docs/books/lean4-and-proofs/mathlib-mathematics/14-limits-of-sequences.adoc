@@ -1,14 +1,14 @@
 ---
-title: "16장: 수열의 극한"
+title: "14장: 수열의 극한"
 date: 2026-08-02T00:00:00+09:00
 draft: false
 tags: ["lean4", "mathlib", "analysis", "book"]
 categories: ["books"]
-description: "수열의 극한을 Tendsto라는 위상수학적 개념으로 다루는 법을 확인하고, 그 정의가 손으로 배운 엡실론-N 논법과 정확히 같다는 걸 직접 증명으로 확인하는 6부의 첫 장"
+description: "수열의 극한을 Tendsto라는 위상수학적 개념으로 다루는 법을 확인하고, 그 정의가 손으로 배운 엡실론-N 논법과 정확히 같다는 걸 직접 증명으로 확인하는 5부의 첫 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../15-linear-maps-and-matrices/[15장: 선형사상과 행렬] · 다음: link:../17-continuous-functions/[17장: 연속함수]_
+_link:../[전체 목차] · 이전: link:../13-order-structures/[13장: 순서 구조] · 다음: link:../15-continuous-functions/[15장: 연속함수]_
 
 '''
 

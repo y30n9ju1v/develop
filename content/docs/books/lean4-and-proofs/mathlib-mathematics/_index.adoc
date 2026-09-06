@@ -3,7 +3,7 @@ title: "Mathlib으로 수학하기"
 draft: false
 ---
 
-논리·집합·정수론·대수 구조·선형대수·해석학을 Lean4와 Mathlib으로 직접 증명하며 배우는 독립적인 입문서입니다. 증명 기본기(1부) → 집합과 함수(2부) → 정수론(3부) → 군과 순서 구조(4부) → 벡터공간과 선형사상(5부) → 수열의 극한과 연속함수(6부)까지, "이미 아는 수학을 Mathlib으로 어떻게 증명하는가"에 집중합니다.
+논리·집합·정수론·대수 구조·해석학을 Lean4와 Mathlib으로 직접 증명하며 배우는 독립적인 입문서입니다. 증명 기본기(1부) → 집합과 함수(2부) → 정수론(3부) → 군과 순서 구조(4부) → 수열의 극한과 연속함수(5부) 순서로, "이미 아는 수학을 Mathlib으로 어떻게 증명하는가"에 집중합니다.
 
 이 책의 모든 예제·증명·연습문제는 이 책을 위해 새로 지은 원본이며, 모든 코드는 Lean4(v4.33.0-rc1)와 Mathlib으로 실제 컴파일하고 검증했습니다.
 
@@ -43,22 +43,16 @@ draft: false
 . *link:12-subgroups-and-homomorphisms/[부분군과 준동형사상]*
 . *link:13-order-structures/[순서 구조 — 격자와 완비 순서]*
 
-*5부: 벡터공간과 선형사상*
+*5부: 해석학 맛보기*
 
 [start=14]
-. *link:14-vector-space-axioms/[벡터공간의 공리화]*
-. *link:15-linear-maps-and-matrices/[선형사상과 행렬]*
-
-*6부: 해석학 맛보기*
-
-[start=16]
-. *link:16-limits-of-sequences/[수열의 극한]*
-. *link:17-continuous-functions/[연속함수]*
+. *link:14-limits-of-sequences/[수열의 극한]*
+. *link:15-continuous-functions/[연속함수]*
 
 *맺음말*
 
-[start=18]
-. *link:18-afterword/[맺음말]*
+[start=16]
+. *link:16-afterword/[맺음말]*
 
 '''
 
@@ -118,20 +112,12 @@ include::13-order-structures.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::14-vector-space-axioms.adoc[tag=body,leveloffset=+1]
+include::14-limits-of-sequences.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::15-linear-maps-and-matrices.adoc[tag=body,leveloffset=+1]
+include::15-continuous-functions.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::16-limits-of-sequences.adoc[tag=body,leveloffset=+1]
-
-'''
-
-include::17-continuous-functions.adoc[tag=body,leveloffset=+1]
-
-'''
-
-include::18-afterword.adoc[tag=body,leveloffset=+1]
+include::16-afterword.adoc[tag=body,leveloffset=+1]

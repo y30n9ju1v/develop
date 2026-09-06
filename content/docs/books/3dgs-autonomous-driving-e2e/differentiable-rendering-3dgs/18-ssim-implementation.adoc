@@ -1,0 +1,136 @@
+---
+title: "18장: SSIM 직접 구현하고 검증하기"
+date: 2026-08-10T00:00:00+09:00
+draft: false
+tags: ["image-quality", "ssim", "numpy", "scipy", "book"]
+categories: ["books"]
+description: "슬라이딩 창으로 SSIM을 국소적으로 계산하는 windowed SSIM을 uniform_filter로 구현하고, 같은 PSNR을 가진 흐림과 노이즈에 대해 이번에는 뚜렷하게 다른 점수가 나온다는 것을 확인해 SSIM이 PSNR을 보완하는 이유를 직접 검증하는 18장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../17-ssim-idea/[17장: SSIM의 아이디어] · 다음: link:../19-ssim-limitations/[19장: SSIM의 한계]_
+
+'''
+
+17장에서 SSIM을 이미지 전체에 한 번만 적용하면 16장의 흐림/노이즈를 구별하지 못한다는 걸 확인했습니다. 이 장에서는 작은 창(window)을 이미지 위에서 슬라이딩시키며 SSIM을 **국소적으로** 계산하는 진짜 SSIM을 구현하고, 이번엔 정말로 구별이 되는지 확인합니다.
+
+== 슬라이딩 창 평균을 빠르게 구하는 법: uniform_filter
+
+각 픽셀을 중심으로 한 작은 정사각형 창(예: `7×7`) 안의 평균을 구하는 걸 모든 픽셀에 대해 반복하면 느립니다. `scipy.ndimage.uniform_filter`가 이 "슬라이딩 창 평균"을 효율적으로 계산해줍니다.
+
+[source,python]
+----
+import numpy as np
+from scipy.ndimage import uniform_filter
+
+def windowed_ssim(a, b, win=7, C1=(0.01) ** 2, C2=(0.03) ** 2):
+    mu_a = uniform_filter(a, win)
+    mu_b = uniform_filter(b, win)
+    mu_a2, mu_b2, mu_ab = mu_a * mu_a, mu_b * mu_b, mu_a * mu_b
+
+    sigma_a2 = uniform_filter(a * a, win) - mu_a2
+    sigma_b2 = uniform_filter(b * b, win) - mu_b2
+    sigma_ab = uniform_filter(a * b, win) - mu_ab
+
+    ssim_map = ((2 * mu_ab + C1) * (2 * sigma_ab + C2)) / \
+               ((mu_a2 + mu_b2 + C1) * (sigma_a2 + sigma_b2 + C2))
+    return ssim_map.mean()
+----
+
+`uniform_filter(a, win)`이 각 픽셀 위치에서 `win×win` 창 안의 평균(`μ`)을, `uniform_filter(a*a, win) - mu_a2`가 그 창 안의 분산(`σ²`, `분산 = E[X²] - E[X]²`이라는 통계 공식을 그대로 씁니다)을 구해줍니다. 17장의 `ssim_components`가 이미지 전체에 대해 딱 하나의 `μ`, `σ`를 구했다면, 이번엔 **픽셀마다** 다른 `μ`, `σ`(그 픽셀 주변 창의 통계)를 갖는 `ssim_map`이라는 배열이 만들어지고, 마지막에 그 지도 전체를 평균 내 최종 점수 하나를 얻습니다.
+
+== 검증 1: 완전히 같은 이미지는 SSIM이 1인가
+
+[source,python]
+----
+N = 32
+img = np.zeros((N, N))
+img[N // 4:3 * N // 4, N // 4:3 * N // 4] = 1.0
+
+print(windowed_ssim(img, img))
+----
+
+[source]
+----
+1.0
+----
+
+기본적인 성질부터 확인했습니다 — 완전히 같은 이미지끼리는 SSIM이 정확히 `1`입니다.
+
+== 검증 2: 흐림과 노이즈, 이번엔 구별되는가
+
+16장·17장과 똑같은 흐림·노이즈 이미지에 windowed SSIM을 적용합니다.
+
+[source,python]
+----
+from scipy.ndimage import gaussian_filter
+
+blurred = gaussian_filter(img, sigma=1.2)
+rng = np.random.default_rng(1)
+mse_blur = np.mean((img - blurred) ** 2)
+noisy = img + rng.normal(0, np.sqrt(mse_blur), img.shape)
+
+print("흐림 windowed SSIM:", windowed_ssim(img, blurred))
+print("노이즈 windowed SSIM:", windowed_ssim(img, noisy))
+----
+
+[source]
+----
+흐림 windowed SSIM: 0.7431
+노이즈 windowed SSIM: 0.3706
+----
+
+드디어 뚜렷하게 다른 점수가 나왔습니다. 흐림은 `0.74`로 "그럭저럭 구조가 남아있다"는 평가를, 노이즈는 `0.37`로 "구조가 상당히 망가졌다"는 훨씬 나쁜 평가를 받았습니다. 16장에서 PSNR이 둘 다 `18`dB대로 거의 같게 평가했던 것과 정면으로 대조됩니다.
+
+[cols="1,1,1"]
+|===
+| | PSNR | Windowed SSIM
+
+| 흐림
+| 18.16 dB
+| 0.743
+
+| 노이즈
+| 18.22 dB
+| 0.371
+|===
+
+PSNR은 두 손상을 거의 구별하지 못했지만(`18.16` vs `18.22`, 차이 `0.06dB`), SSIM은 뚜렷하게 다른 점수를 줬습니다(`0.743` vs `0.371`, 거의 두 배 차이). 사람이 "흐린 사진은 그래도 봐줄 만한데, 지글거리는 노이즈 낀 사진은 훨씬 거슬린다"고 느끼는 경향과 SSIM의 판단이 훨씬 잘 들어맞습니다.
+
+== 왜 국소적 계산이 이 차이를 만들어내는가
+
+핵심은 `sigma_ab`(국소 공분산, `s`항의 재료)입니다. 흐림은 원래 있던 구조(사각형의 경계)를 부드럽게 뭉갤 뿐, 창 안에서 원본과 흐린 버전의 밝기가 **같은 방향으로** 움직입니다(원본이 밝은 곳은 흐린 버전도 상대적으로 밝고, 어두운 곳은 상대적으로 어둡습니다) — 그래서 국소 공분산이 여전히 크고 양수입니다. 반면 노이즈는 각 픽셀에 완전히 무작위한 값을 더하므로, 창 안에서 원본과 노이즈 버전의 밝기 변화가 서로 무관해지고, 국소 공분산이 뚜렷하게 작아집니다. 이 차이가 창 하나하나에서는 미묘하더라도, 이미지 전체의 모든 창에 걸쳐 일관되게 나타나기 때문에 평균을 내면 뚜렷한 차이로 드러납니다 — 반면 17장의 전역 계산은 이미지 전체를 창 하나로 취급한 것과 같아서, 노이즈가 만드는 "국소적인 무질서"가 전체 평균/분산 계산 속에 섞여 사라져버렸던 것입니다.
+
+== 직접 해보기
+
+* 창 크기(`win`)를 `7`에서 `3`(더 작게)과 `15`(더 크게)로 바꿔가며 흐림과 노이즈의 SSIM 점수가 어떻게 달라지는지 확인하고, 창이 커질수록 17장의 "전역 SSIM"(사실상 창 크기가 이미지 전체인 경우) 결과에 가까워지는지 살펴보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,python]
+----
+for win in [3, 7, 15, 31]:
+    s_blur = windowed_ssim(img, blurred, win=win)
+    s_noise = windowed_ssim(img, noisy, win=win)
+    print(f"win={win}: 흐림={s_blur:.4f}, 노이즈={s_noise:.4f}, 차이={s_blur - s_noise:.4f}")
+----
+
+[source]
+----
+win=3: 흐림=0.7216, 노이즈=0.1505, 차이=0.5711
+win=7: 흐림=0.7431, 노이즈=0.3706, 차이=0.3726
+win=15: 흐림=0.8184, 노이즈=0.7768, 차이=0.0416
+win=31: 흐림=0.9545, 노이즈=0.9611, 차이=-0.0066
+----
+
+창이 작을수록(`win=3`) 흐림과 노이즈의 점수 차이가 오히려 더 커지고(`0.571`), 창이 이미지 크기(`32`)에 가까워질수록(`win=31`) 그 차이가 17장의 전역 SSIM 결과처럼 거의 사라지다 못해 부호까지 뒤집힙니다(`-0.007`, 오차 범위 안에서 사실상 "구별 안 됨") — 국소적으로 좁게 볼수록 노이즈의 "무질서함"을 더 예민하게 잡아내고, 넓게 뭉뚱그려 볼수록 그 무질서함이 평균 속에 묻힌다는 걸 확인할 수 있습니다. 실전에서 쓰이는 SSIM 구현(예: `scikit-image`)은 보통 `7×7` 또는 가우시안 가중치를 준 `11×11` 창을 기본값으로 씁니다 — 너무 작으면 계산이 노이즈에 지나치게 민감해지고, 너무 크면 이 장에서 확인한 대로 국소성이라는 SSIM의 장점 자체가 희석되기 때문입니다.
+====
+
+== 요약
+
+* `uniform_filter`로 슬라이딩 창 안의 평균·분산·공분산을 효율적으로 계산해, 17장의 전역 SSIM 공식을 픽셀마다 다른 `μ`, `σ`를 쓰는 지도(`ssim_map`)로 확장했습니다.
+* 이 windowed SSIM은 같은 PSNR(`18`dB대)을 가진 흐림과 노이즈에 뚜렷하게 다른 점수(`0.743` vs `0.371`)를 줘서, 국소적 계산이 왜 필요한지 직접 확인했습니다.
+* 이 차이는 국소 공분산(`s`항)이 흐림에서는 크게 유지되고 노이즈에서는 무너진다는 사실에서 나오며, 창 크기가 작을수록 이 구별 능력이 더 예민해집니다.
+* 다음 장에서는 이렇게 강력해 보이는 SSIM도 여전히 속아 넘어가는 상황(SSIM의 한계)을 확인합니다.
+// end::body[]

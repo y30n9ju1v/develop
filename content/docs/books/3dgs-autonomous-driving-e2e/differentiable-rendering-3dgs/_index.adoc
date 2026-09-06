@@ -1,11 +1,9 @@
 ---
-title: "미분가능 렌더링과 3D Gaussian Splatting"
+title: "미분가능 렌더링, 3D Gaussian Splatting과 품질 평가"
 draft: false
 ---
 
-자동미분의 기초에서 시작해서, 볼륨 렌더링과 NeRF의 수학, 3D 가우시안이라는 표현 방식, 그리고 이 모든 걸 하나로 묶는 최적화 루프까지, "렌더링을 거꾸로 돌려 사진에서 장면을 복원한다"는 역그래픽스의 원리를 코드로 직접 검증하며 배우는 독립적인 입문서입니다. PyTorch 없이 NumPy만으로 순전파와 역전파를 손으로 구현하며, 왜 미분해야 하는가(1부) → 볼륨 렌더링/NeRF(2부) → 3DGS 표현(3부) → 최적화로 학습(4부) → 품질과 다음 단계(5부) 순서로 쌓아 올립니다.
-
-이 책은 3DGS 기반 자율주행 E2E 검증에 필요한 대학 과목들을 시리즈로 다루는 계획의 두 번째 책입니다 — link:../multiview-geometry-3d-reconstruction/[1권 "사진에서 세계로"]가 재구성한 카메라 포즈와 점군을 이어받아, 그것을 실제로 학습 가능한 3D 장면으로 다듬는 과정을 담당합니다.
+자동미분의 기초에서 시작해서, 볼륨 렌더링과 NeRF의 수학, 3D 가우시안이라는 표현 방식, 그리고 이 모든 걸 하나로 묶는 최적화 루프까지, "렌더링을 거꾸로 돌려 사진에서 장면을 복원한다"는 역그래픽스의 원리를 코드로 직접 검증하며 배우는 독립적인 입문서입니다. PyTorch 없이 NumPy만으로 순전파와 역전파를 손으로 구현하고, 마지막에는 PSNR·SSIM·지각 지표·FID를 직접 만들어 3DGS 결과를 평가합니다. 왜 미분해야 하는가(1부) → 볼륨 렌더링/NeRF(2부) → 3DGS 표현(3부) → 최적화로 학습(4부) → 품질 평가(5부) → 재구성 입력과 통합(6부) 순서로 쌓아 올립니다.
 
 이 책의 모든 핵심 계산(자동미분, 알파 합성, 볼륨 렌더링, 3D 가우시안 투영, 래스터화, 역전파, 적응적 밀도 제어 등)은 이 책을 위해 새로 지은 예제이며, NumPy/SciPy로 실제 실행해 숫자로 검증했습니다.
 
@@ -44,16 +42,32 @@ draft: false
 . *link:11-backprop-through-gaussian-parameters/[가우시안 파라미터에 대한 역전파]*
 . *link:12-adaptive-density-control/[적응적 밀도 제어: 나누고 쳐내기]*
 
-*5부: 품질과 다음 단계*
+*5부: 렌더링 품질을 재는 법*
 
 [start=13]
-. *link:13-measuring-render-quality/[렌더링 품질을 재는 법]*
-. *link:14-connecting-to-book-one/[1권의 재구성이 3DGS 학습에 미치는 영향]*
+. *link:13-what-is-an-image/[이미지란 무엇인가]*
+. *link:14-mean-squared-error/[두 이미지의 차이: MSE와 그 함정]*
+. *link:15-psnr/[PSNR: MSE를 사람이 읽기 좋은 척도로]*
+. *link:16-psnr-pitfalls/[PSNR이 못 잡아내는 것]*
+. *link:17-ssim-idea/[SSIM의 아이디어: 밝기·대비·구조를 나눠서 본다]*
+. *link:18-ssim-implementation/[SSIM 직접 구현하고 검증하기]*
+. *link:19-ssim-limitations/[SSIM의 한계]*
+. *link:20-perceptual-similarity-idea/[왜 신경망 특징으로 비교하는가]*
+. *link:21-toy-perceptual-metric/[간단한 특징 추출기로 지각 지표 흉내내기]*
+. *link:22-why-compare-distributions/[한 장으로는 부족하다: 분포 비교가 필요한 이유]*
+. *link:23-fid-idea/[FID 아이디어: 두 분포 사이의 거리]*
+. *link:24-applying-to-3dgs/[3DGS 품질을 검증하는 법]*
+. *link:25-comprehensive-evaluation/[종합 실전: 여러 지표로 렌더링 품질 판정하기]*
+
+*6부: 입력 재구성과 통합*
+
+[start=26]
+. *link:26-connecting-to-book-one/[SfM 재구성이 3DGS 학습에 미치는 영향]*
 
 *맺음말*
 
-[start=15]
-. *link:15-afterword/[맺음말]*
+[start=27]
+. *link:27-afterword/[맺음말]*
 
 '''
 
@@ -109,12 +123,60 @@ include::12-adaptive-density-control.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::13-measuring-render-quality.adoc[tag=body,leveloffset=+1]
+include::13-what-is-an-image.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::14-connecting-to-book-one.adoc[tag=body,leveloffset=+1]
+include::14-mean-squared-error.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::15-afterword.adoc[tag=body,leveloffset=+1]
+include::15-psnr.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::16-psnr-pitfalls.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::17-ssim-idea.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::18-ssim-implementation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::19-ssim-limitations.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::20-perceptual-similarity-idea.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::21-toy-perceptual-metric.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::22-why-compare-distributions.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::23-fid-idea.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::24-applying-to-3dgs.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::25-comprehensive-evaluation.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::26-connecting-to-book-one.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::27-afterword.adoc[tag=body,leveloffset=+1]
