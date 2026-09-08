@@ -16,3 +16,4 @@ Lean 4 관련 공식 교재를 챕터별로 정리하고, Lean 4를 응용한 �
 - **[Metaprogramming in Lean 4](metaprogramming-in-lean4/)** — Lean 4 메타프로그래밍 교재. 매크로, Tactic, DSL 작성법
 - **[Lean4로 MLIR 만들기](lean4-mlir-codegen/)** — 안전성이 증명된 IR을 Lean4로 설계하고 MLIR/EmitC를 거쳐 C까지 뽑아내는 파이프라인을 이론적으로 정리하는 원작 시리즈
 - **[VS Code에서 Lean 4 + Mathlib4 셋업하기](lean4-vscode-mathlib-setup/)** — elan, VS Code 확장, `lake new` 템플릿으로 Mathlib4가 붙은 프로젝트를 표준 방식으로 셋업하는 가이드
+- **[Lean 4 계산을 소켓으로 viser에 띄우기](lean4-viser-socket-bridge/)** — Lean이 계산한 벡터·회전·궤적을 표준 라이브러리만으로 JSON 줄로 만들어 TCP 소켓으로 보내고, 파이썬 브리지가 viser 씬으로 옮겨 브라우저에서 확인하는 셋업
