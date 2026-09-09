@@ -23,7 +23,7 @@ AI와 함께 쓴 학습 기록입니다. 폴더 경로와 달리 이 목록은 *
 
 - **[Category Theory for Programmers](category-theory-and-fp/category-theory-for-programmers/)** — 프로그래밍의 합성과 타입을 범주론의 언어로 연결하는 한국어 번역 자료
 - **[함수형 프로그래밍으로 보는 비동기의 근간](category-theory-and-fp/fp-backbone-of-async/)** — Python async/await와 TypeScript Promise를 Functor·Applicative·Monad 관점으로 해석하는 실습서
-- **[람다 계산법과 계산 가능성](category-theory-and-fp/lambda-calculus-and-computability/)** — 람다 계산, 튜링 기계, 정지 문제를 통해 계산 가능한 것의 경계를 이해하는 입문서
+- **[람다 계산법과 계산 가능성](category-theory-and-fp/lambda-calculus-and-computability/)** — 람다 계산, 튜링 기계, 정지 문제로 계산 가능한 것의 경계를 이해하고, 커리-하워드 대응으로 프로그램과 증명이 같음을 보는 입문서
 - **[함수형 사고로 알고리즘 다시 보기](category-theory-and-fp/functional-thinking-for-algorithms/)** — 재귀·귀납·불변식으로 정렬, 자료구조, 동적 계획법, 그래프 알고리즘을 설명하는 책
 - **[P vs NP](category-theory-and-fp/p-vs-np/)** — 다항 시간, 환원, NP-완전성과 미해결 문제의 의미를 실험과 함께 다루는 입문서
 - **[정보 이론 (섀넌)](category-theory-and-fp/shannon-information-theory/)** — 엔트로피·압축·채널 용량·오류 정정을 실제 계산으로 확인하는 책

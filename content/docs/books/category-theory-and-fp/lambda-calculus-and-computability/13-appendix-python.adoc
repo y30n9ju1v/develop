@@ -8,7 +8,7 @@ description: "처치 수 2와 3을 더하면 정말 5가 되는지, 참/거짓�
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../11-afterword/[맺음말]_
+_link:../[전체 목차] · 이전: link:../12-afterword/[맺음말]_
 
 '''
 
