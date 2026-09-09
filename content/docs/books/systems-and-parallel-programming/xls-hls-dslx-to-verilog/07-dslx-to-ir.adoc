@@ -1,0 +1,138 @@
+---
+title: "7장: DSLX에서 XLS IR로 — ir_converter_main과 IR 읽는 법"
+date: 2026-09-08T00:00:00+09:00
+draft: false
+tags: ["xls", "dslx", "ir", "book"]
+categories: ["books"]
+description: "ir_converter_main으로 DSLX를 XLS IR 텍스트로 낮추고, 함수·파라미터·노드·타입·이름의 문법을 읽고, 파라메트릭이 어떻게 단일화되며 for가 어떻게 counted_for 노드가 되는지 살펴보는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../06-for-and-loops/[6장: for 표현식과 루프] · 다음: link:../08-optimization-and-eval/[8장: 최적화와 평가]_
+
+'''
+
+DSLX는 사람이 읽고 쓰기 좋은 표면입니다. 그 아래에서 최적화·스케줄링·합성이 다루는 것은 **XLS IR** — 순수 데이터플로 그래프를 텍스트로 적은 것 — 입니다. 이 장은 그 변환을 눈으로 봅니다.
+
+== 변환하기
+
+`add.x`:
+
+[source,dslx]
+----
+fn add(x: u32, y: u32) -> u32 {
+    x + y
+}
+----
+
+[source,bash]
+----
+ir_converter_main --top=add add.x > add.ir
+----
+
+`--top`은 IR의 진입점으로 삼을 함수 이름입니다. 결과 `add.ir`은 대략 이렇게 생겼습니다(형식은 버전에 따라 조금 다릅니다).
+
+[source,text]
+----
+package add
+
+fn __add__add(x: bits[32], y: bits[32]) -> bits[32] {
+  ret add.3: bits[32] = add(x, y, id=3)
+}
+----
+
+읽는 법:
+
+* `package add` — IR 파일 하나가 하나의 패키지. 여러 함수·proc를 담습니다.
+* `fn __add__add(...)` — 이름이 mangling돼 있습니다(`모듈__함수`). `--top`으로 지정한 것이 진입점.
+* `x: bits[32]` — DSLX의 `u32`가 IR에서는 `bits[32]`입니다. IR에는 부호 개념이 타입에 없고, 부호가 필요한 연산(`sdiv`, `sgt` 등)이 따로 있습니다.
+* `add.3: bits[32] = add(x, y, id=3)` — **노드** 하나. `add.3`은 이름, `bits[32]`는 결과 타입, `add(...)`는 연산, `id=3`은 고유 번호.
+* `ret ...` — 이 노드가 함수의 반환값.
+
+IR 노드는 SSA입니다 — 한 번 정의되고 다시 대입되지 않습니다. DSLX의 불변 `let`이 그대로 대응됩니다.
+
+== 조금 더 큰 예
+
+[source,dslx]
+----
+fn muladd(a: u16, b: u16, c: u32) -> u32 {
+    (a as u32) * (b as u32) + c
+}
+----
+
+IR(개념적으로):
+
+[source,text]
+----
+fn __m__muladd(a: bits[16], b: bits[16], c: bits[32]) -> bits[32] {
+  zext.4:  bits[32] = zero_ext(a, new_bit_count=32, id=4)
+  zext.5:  bits[32] = zero_ext(b, new_bit_count=32, id=5)
+  umul.6:  bits[32] = umul(zext.4, zext.5, id=6)
+  ret add.7: bits[32] = add(umul.6, c, id=7)
+}
+----
+
+DSLX의 `as u32` 캐스팅이 `zero_ext` 노드가 됐습니다. `*`는 `umul`(무부호 곱). 소스의 각 연산이 노드 하나로 또렷하게 매핑됩니다. 이 명료함이 뒤 장들의 최적화·스케줄링·형식 검증을 가능하게 합니다.
+
+== 파라메트릭은 단일화된다
+
+5장의 파라메트릭 함수는 IR에 "제네릭"으로 남지 않습니다. `--top`에서 도달 가능한 각 호출이 **구체 폭으로 특수화(monomorphize)**돼 별도 함수로 방출됩니다.
+
+[source,dslx]
+----
+fn umax<N: u32>(a: uN[N], b: uN[N]) -> uN[N] {
+    if a > b { a } else { b }
+}
+fn top(p: u8, q: u8, r: u32, s: u32) -> (u8, u32) {
+    (umax(p, q), umax(r, s))
+}
+----
+
+IR에는 `__m__umax__8`(8비트 버전)과 `__m__umax__32`(32비트 버전)가 각각 생깁니다. 제네릭 폭은 IR 이전에 전부 사라집니다.
+
+== for는 counted_for가 된다
+
+6장의 `for` 표현식은 IR에서 `counted_for` 노드가 됩니다.
+
+[source,text]
+----
+counted_for.12: bits[32] = counted_for(
+    init=literal.10, trip_count=8, stride=1, body=__m__crc32_byte_body, id=12)
+----
+
+* `trip_count=8` — 6장에서 범위가 상수여야 했던 이유. 여기 숫자가 박힙니다.
+* `body=...` — 루프 본문이 별도 함수로 방출되고, `counted_for`가 그것을 `trip_count`번 접습니다.
+* 최적화 단계에서 `counted_for`는 대개 **완전히 언롤**돼 순수 조합 그래프가 됩니다(8장).
+
+== IR을 직접 쓸 수도 있다
+
+IR은 자체 파서/포매터가 있어서, `.ir` 파일을 손으로 적거나 다른 도구가 생성할 수도 있습니다. `XLS[cc]`(C++ 프런트엔드)나 서드파티 프런트엔드가 이 IR을 타깃으로 삼습니다. 이 책은 DSLX만 프런트엔드로 쓰지만, "IR이 진짜 인터페이스"라는 점은 기억해 둘 만합니다.
+
+== 검증 벡터를 IR로 가져가기
+
+DSLX의 `#[test]`는 DSLX 인터프리터에서 돕니다. 같은 입력을 IR 수준에서 확인하려면 `eval_ir_main`을 씁니다(8장에서 자세히).
+
+[source,bash]
+----
+eval_ir_main --input='bits[32]:2; bits[32]:3' add.ir
+# 기대 출력: bits[32]:5
+----
+
+DSLX 테스트가 통과하고 이 IR 평가도 같은 값을 내면, DSLX→IR 변환이 의미를 보존했다는 첫 증거입니다.
+
+== 직접 확인하기
+
+[source,bash]
+----
+ir_converter_main --top=add add.x
+ir_converter_main --top=muladd muladd.x
+
+# 파라메트릭 파일을 변환해, 특수화된 함수가 폭별로 몇 개 생기는지 센다
+ir_converter_main --top=top umax_top.x | grep '^fn '
+
+# 6장 crc 파일을 변환해 counted_for 노드를 찾는다
+ir_converter_main --top=crc32_byte loops.x | grep counted_for
+----
+
+다음 장에서 이 IR을 `opt_main`으로 최적화하고, 인터프리터와 JIT로 평가합니다.
+// end::body[]

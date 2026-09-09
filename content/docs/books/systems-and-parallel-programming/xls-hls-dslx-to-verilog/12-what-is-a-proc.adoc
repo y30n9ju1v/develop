@@ -1,0 +1,130 @@
+---
+title: "12장: proc란 무엇인가 — 채널과 시간에 대한 귀납"
+date: 2026-09-08T00:00:00+09:00
+draft: false
+tags: ["xls", "dslx", "proc", "book"]
+categories: ["books"]
+description: "타임리스 fn으로는 못 적는 상태·스트리밍 모듈을 위해 DSLX가 주는 proc를 소개하는 장. init·config·next 세 부분, 채널 recv/send와 토큰, 그리고 next가 상태에 대한 한 걸음 귀납이라는 관점"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../11-codegen-pipelined-and-sim/[11장: 파이프라인 Verilog와 시뮬레이션] · 다음: link:../13-building-procs/[13장: proc 만들기]_
+
+'''
+
+지금까지의 `fn`은 전부 타임리스였습니다 — 입력에서 출력으로 가는 순수 관계. 그런데 "매 사이클 값을 하나 받아 지금까지의 합을 내보내는 모듈"은 이렇게 못 적습니다. 이번 출력이 **과거 입력들**에 달려 있기 때문입니다. 그런 것이 **proc**입니다.
+
+== proc의 세 부분
+
+[source,dslx]
+----
+proc Accumulator {
+    // 1) 채널 선언: 이 proc가 쓰는 포트
+    data_in: chan<u32> in;
+    sum_out: chan<u32> out;
+
+    // 2) init: 상태의 초깃값
+    init { u32:0 }
+
+    // 3) config: 채널을 연결하고, 상태를 제외한 멤버를 튜플로 반환
+    config(data_in: chan<u32> in, sum_out: chan<u32> out) {
+        (data_in, sum_out)
+    }
+
+    // 4) next: 현재 상태에서 다음 상태로 가는 한 걸음
+    next(state: u32) {
+        let (tok, x) = recv(join(), data_in);   // 입력을 하나 받는다 (블로킹)
+        let new_sum = state + x;
+        send(tok, sum_out, new_sum);             // 결과를 내보낸다
+        new_sum                                  // 다음 사이클의 state
+    }
+}
+----
+
+* **채널 선언** `data_in: chan<u32> in` — `u32`를 나르는 입력 채널. `out`이면 출력.
+* **`init`** — 상태 타입과 초깃값. 여기서는 `u32:0`.
+* **`config`** — 인스턴스를 만들 때 실행됩니다. 채널을 받아 멤버 튜플로 돌려줍니다. 하위 proc를 `spawn`하는 곳이기도 합니다(13장).
+* **`next(state)`** — 매 "틱"마다 호출됩니다. 현재 `state`를 받아, 채널을 주고받고, **다음 `state`를 반환**합니다.
+
+== next는 귀납의 한 걸음이다
+
+`next`를 수학의 귀납처럼 읽으면 정확합니다.
+
+* **기저:** `init`이 `state₀`를 준다.
+* **귀납 단계:** `next(stateₙ)` 안에서 입력 `xₙ`을 받고 `stateₙ₊₁ = stateₙ + xₙ`을 정의하고 내보낸다.
+
+전체 동작은 이 한 걸음을 시간에 대해 무한히 반복한 것입니다. `fn`이 "공간(조합 논리)"을 기술한다면 `proc`의 `next`는 "시간(상태 전이)"을 기술합니다. 이 사이트의 Lean 책들에서 다루는 귀납적 정의와 같은 구조입니다 — 다만 여기서는 그 귀납이 클럭에 맞춰 하드웨어에서 돌아갑니다.
+
+== 토큰: 순서를 강제하는 장치
+
+`recv`/`send`는 순수 데이터플로 그래프 안에서 **부수효과**입니다. "받기 전에 보내면 안 된다" 같은 순서를 데이터 의존성만으로는 표현할 수 없습니다. 그래서 XLS는 `token` 타입을 씁니다.
+
+* `join()` — 빈 토큰(의존성 없음)을 만듭니다.
+* `recv(tok, ch)` → `(new_tok, value)` — `tok` 이후에 수신하고, 새 토큰을 돌려줍니다.
+* `send(tok, ch, value)` → `new_tok` — `tok` 이후에 송신합니다.
+
+토큰을 체인으로 엮으면("`recv`의 토큰을 `send`에 넘긴다") 그 순서가 회로에서 지켜집니다. 여러 채널을 병렬로 다루고 싶으면 여러 토큰을 만들어 `join(t1, t2)`로 합칩니다.
+
+[NOTE]
+====
+`next`의 시그니처는 XLS 버전에 따라 다릅니다. 최근 형태는 `next(state: T)`이고 토큰은 `join()`으로 얻습니다. 예전에는 `next(tok: token, state: T)`처럼 토큰을 첫 인자로 받았습니다. 여러분의 XLS에서 `dslx_interpreter_main`이 뭘 받아들이는지로 확인하세요.
+====
+
+== 블로킹과 논블로킹
+
+* `recv(tok, ch)` — 값이 올 때까지 이 틱을 **막습니다**. 하드웨어로는 "입력 채널에 데이터가 유효할 때까지 이 스테이지가 진행 안 됨".
+* `recv_if(tok, ch, pred)` — `pred`가 참일 때만 수신.
+* `recv_non_blocking(tok, ch, default)` — 값이 없으면 `default`와 "안 왔음" 플래그를 돌려줍니다.
+* `send_if(tok, ch, pred, value)` — 조건부 송신.
+
+이 조건부 변형들이 흐름 제어(backpressure)를 만듭니다. 13장에서 씁니다.
+
+== proc를 테스트하기
+
+proc도 `#[test_proc]`로 테스트합니다. 테스트 proc가 대상 proc를 `spawn`하고, 채널로 자극을 넣고 결과를 검사합니다.
+
+[source,dslx]
+----
+#[test_proc]
+proc AccumulatorTest {
+    terminator: chan<bool> out;
+    to_dut: chan<u32> out;
+    from_dut: chan<u32> in;
+
+    init { () }
+
+    config(terminator: chan<bool> out) {
+        let (s_out, s_in) = chan<u32>("stim");
+        let (r_out, r_in) = chan<u32>("resp");
+        spawn Accumulator(s_in, r_out);
+        (terminator, s_out, r_in)
+    }
+
+    next(state: ()) {
+        let tok = send(join(), to_dut, u32:10);
+        let tok = send(tok, to_dut, u32:5);
+        let (tok, a) = recv(tok, from_dut);
+        let (tok, b) = recv(tok, from_dut);
+        assert_eq(a, u32:10);
+        assert_eq(b, u32:15);
+        send(tok, terminator, true);   // 테스트 종료 신호
+        state
+    }
+}
+----
+
+문법 세부(채널 생성 `chan<u32>("name")`, `terminator` 관례)는 버전에 민감하니 저장소의 `*_test.x` 예제를 참조 표준으로 삼으세요.
+
+== 직접 확인하기
+
+[source,bash]
+----
+# proc 파일의 test_proc 를 돌린다
+dslx_interpreter_main accumulator.x
+
+# next 를 IR 로 변환하면 proc, state, channel 노드가 보인다
+ir_converter_main --top=Accumulator accumulator.x | head -60
+----
+
+다음 장에서 proc를 여러 개 이어 붙이고, FIFO 깊이를 정하고, proc를 Verilog로 뽑습니다.
+// end::body[]

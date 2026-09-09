@@ -1,0 +1,213 @@
+---
+title: "15장: 종합 실전 — FIR 필터를 DSLX부터 파이프라인 Verilog까지"
+date: 2026-09-08T00:00:00+09:00
+draft: false
+tags: ["xls", "dslx", "hls", "fir", "capstone", "book"]
+categories: ["books"]
+description: "파라메트릭 FIR 필터를 DSLX로 적고 #[test]로 명세하고, IR 변환·최적화·등가 증명·조합/파이프라인 codegen·iverilog 시뮬레이션까지 이 책의 도구 전부를 한 설계에 적용하는 종합 장. 그다음 스트리밍 proc 버전으로 확장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../14-formal-verification/[14장: 형식 검증] · 다음: link:../16-afterword/[16장: 맺음말]_
+
+'''
+
+배운 것을 한 설계에 전부 적용합니다. 대상은 `TAPS`탭 FIR 필터입니다 — 입력 샘플과 최근 `TAPS-1`개 샘플에 계수를 곱해 더하는, DSP의 기본 블록.
+
+== 1. 순수 함수 버전 (DSLX)
+
+먼저 "샘플 창(window)과 계수를 받아 한 출력을 내는" 타임리스 함수로 적습니다.
+
+[source,dslx]
+----
+// fir.x
+
+// TAPS 개의 s16 샘플 창과 계수로 한 개의 출력을 계산한다.
+// window[0] 이 가장 최근 샘플.
+fn fir_step<TAPS: u32>(window: s16[TAPS], coeffs: s16[TAPS]) -> s32 {
+    for (i, acc): (u32, s32) in u32:0..TAPS {
+        acc + (window[i] as s32) * (coeffs[i] as s32)
+    }(s32:0)
+}
+
+// 편의를 위한 구체 인스턴스 (top 으로 쓰기 좋게)
+fn fir4(window: s16[4], coeffs: s16[4]) -> s32 {
+    fir_step<u32:4>(window, coeffs)
+}
+
+#[test]
+fn fir4_test() {
+    let w = s16[4]:[1, 2, 3, 4];       // 최근 샘플이 1
+    let c = s16[4]:[1, 1, 1, 1];       // 이동 평균(합)
+    assert_eq(fir4(w, c), s32:10);
+
+    let c2 = s16[4]:[2, 0, 0, 0];      // 최근 샘플만 2배
+    assert_eq(fir4(w, c2), s32:2);
+
+    let w2 = s16[4]:[-1, -2, -3, -4];
+    assert_eq(fir4(w2, c), s32:-10);
+}
+----
+
+[source,bash]
+----
+dslx_interpreter_main fir.x
+----
+
+`fir_step`은 6장의 `for` fold, 5장의 파라메트릭, 3장의 폭 넓히기 캐스팅을 한꺼번에 씁니다.
+
+== 2. IR 변환과 최적화
+
+[source,bash]
+----
+ir_converter_main --top=fir4 fir.x > fir4.ir
+opt_main fir4.ir > fir4.opt.ir
+
+# counted_for 가 언롤됐는지, 곱-합 트리가 보이는지
+grep -E 'counted_for|smul|add' fir4.opt.ir | head
+----
+
+== 3. 등가 증명
+
+[source,bash]
+----
+check_ir_equivalence_main fir4.ir fir4.opt.ir
+# "Verified equivalent" 를 기대
+----
+
+`s16[4]` 입력의 모든 조합(2^128^)에 대해 최적화가 안전함이 증명됩니다.
+
+== 4. 조합 회로
+
+[source,bash]
+----
+codegen_main --generator=combinational --top=fir4 fir4.opt.ir > fir4_comb.v
+grep -E 'input|output|always' fir4_comb.v   # always 없음(순수 조합)
+----
+
+`yosys`가 있으면 이 조합 버전을 합성해 임계경로를 봅니다 — 4탭이면 `s16*s16` 곱 4개 + 덧셈 트리라 아직 짧지만, `TAPS`를 32로 키우면 왜 파이프라인이 필요한지 숫자로 보입니다.
+
+== 5. 파이프라인 회로
+
+[source,bash]
+----
+codegen_main --generator=pipeline --delay_model=unit \
+             --pipeline_stages=3 --reset=rst \
+             --top=fir4 fir4.opt.ir > fir4_pipe.v
+grep -c 'always' fir4_pipe.v   # 단계 레지스터가 생김
+----
+
+== 6. 시뮬레이션으로 층 맞추기
+
+`eval_ir_main`으로 기대값을 먼저 확정합니다.
+
+[source,bash]
+----
+# window=[1,2,3,4], coeffs=[1,1,1,1] → 10
+eval_ir_main --input='bits[64]:0x0004_0003_0002_0001; bits[64]:0x0001_0001_0001_0001' fir4.opt.ir
+# (배열→버스 레이아웃과 엔디안은 codegen 결과의 포트 슬라이스로 맞춘다)
+----
+
+그다음 조합·파이프라인 Verilog를 iverilog로 돌려(11장의 테스트벤치 패턴, 파이프라인은 지연 3만큼 대기) `out`이 `10`인지 확인합니다. DSLX 테스트, IR 평가, JIT, 조합 시뮬, 파이프라인 시뮬, 등가 증명 — 여섯 층이 같은 값을 가리키면 이 설계는 끝난 것입니다.
+
+== 7. 스트리밍 proc 버전
+
+위 `fir_step`은 "창을 통째로 받는" 함수였습니다. 실제 스트림에서는 샘플이 하나씩 들어오고 모듈이 창을 **상태로** 들고 있어야 합니다. proc로 확장합니다.
+
+[source,dslx]
+----
+proc FirStream {
+    sample_in: chan<s16> in;
+    y_out: chan<s32> out;
+
+    // 상태: 최근 4개 샘플 창
+    init { s16[4]:[0, 0, 0, 0] }
+
+    config(sample_in: chan<s16> in, y_out: chan<s32> out) {
+        (sample_in, y_out)
+    }
+
+    next(window: s16[4]) {
+        let (tok, x) = recv(join(), sample_in);
+        // 창을 한 칸 밀고 새 샘플을 앞에 넣는다
+        let window = s16[4]:[x, window[0], window[1], window[2]];
+        let coeffs = s16[4]:[1, 1, 1, 1];
+        let y = fir_step<u32:4>(window, coeffs);
+        send(tok, y_out, y);
+        window   // 다음 사이클의 상태
+    }
+}
+
+#[test_proc]
+proc FirStreamTest {
+    terminator: chan<bool> out;
+    to_dut: chan<s16> out;
+    from_dut: chan<s32> in;
+
+    init { () }
+    config(terminator: chan<bool> out) {
+        let (s_out, s_in) = chan<s16>("stim");
+        let (r_out, r_in) = chan<s32>("resp");
+        spawn FirStream(s_in, r_out);
+        (terminator, s_out, r_in)
+    }
+    next(state: ()) {
+        let tok = send(join(), to_dut, s16:1);
+        let tok = send(tok, to_dut, s16:2);
+        let tok = send(tok, to_dut, s16:3);
+        let tok = send(tok, to_dut, s16:4);
+        let (tok, y1) = recv(tok, from_dut);   // 창 [1,0,0,0] → 1
+        let (tok, y2) = recv(tok, from_dut);   // 창 [2,1,0,0] → 3
+        let (tok, y3) = recv(tok, from_dut);   // 창 [3,2,1,0] → 6
+        let (tok, y4) = recv(tok, from_dut);   // 창 [4,3,2,1] → 10
+        assert_eq(y1, s32:1);
+        assert_eq(y2, s32:3);
+        assert_eq(y3, s32:6);
+        assert_eq(y4, s32:10);
+        send(tok, terminator, true);
+        state
+    }
+}
+----
+
+`next`가 12장의 "귀납 한 걸음"입니다 — 창 상태 `windowₙ`에서 새 샘플 `xₙ`을 받아 `windowₙ₊₁`을 만들고 출력을 내보냅니다. 같은 `fir_step` 조합 함수를 재사용한다는 점을 눈여겨보세요. 타임리스 코어(`fn`)는 그대로 두고, 시간 구조(`proc`)만 바깥에 둘렀습니다.
+
+== 8. proc를 Verilog로
+
+[source,bash]
+----
+ir_converter_main --top=FirStream fir.x > fir_stream.ir
+opt_main fir_stream.ir > fir_stream.opt.ir
+codegen_main --generator=pipeline --delay_model=unit --pipeline_stages=2 \
+             --reset=rst --top=FirStream fir_stream.opt.ir > fir_stream.v
+grep -E 'valid|ready' fir_stream.v   # sample_in / y_out 핸드셰이크
+----
+
+`sample_in`과 `y_out`이 ready/valid 포트로 나옵니다(13장). 상류가 안 주면 멈추고, 하류가 안 받으면 멈춥니다.
+
+== 무엇을 한 것인가
+
+한 알고리즘(FIR)에서 출발해:
+
+* 타임리스 `fn`으로 코어를 적고 `#[test]`로 명세했고,
+* IR로 낮춰 최적화하고 **모든 입력에 대해** 등가를 증명했고,
+* 같은 소스에서 조합 회로와 3단 파이프라인을 뽑았고,
+* 시뮬레이션으로 여섯 층의 결과를 일치시켰고,
+* `proc`로 스트리밍 버전을 만들어 ready/valid 하드웨어까지 내렸습니다.
+
+RTL을 한 줄도 손으로 쓰지 않았고, 파이프라인 단계 수는 플래그였습니다.
+
+== 직접 확인하기
+
+[source,bash]
+----
+dslx_interpreter_main fir.x
+ir_converter_main --top=fir4 fir.x | opt_main - | tee fir4.opt.ir
+check_ir_equivalence_main <(ir_converter_main --top=fir4 fir.x) fir4.opt.ir
+codegen_main --generator=pipeline --delay_model=unit --pipeline_stages=3 \
+             --reset=rst --top=fir4 fir4.opt.ir > fir4_pipe.v
+
+# 확장 과제: TAPS 를 파라메트릭으로 유지한 채 fir8, fir16 을 만들고
+#           파이프라인 단계 수를 늘려 가며 시뮬레이션 결과가 불변인지 확인
+----
+// end::body[]

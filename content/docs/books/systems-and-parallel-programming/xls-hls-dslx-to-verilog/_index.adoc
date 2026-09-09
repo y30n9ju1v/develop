@@ -1,0 +1,130 @@
+---
+title: "소프트웨어처럼 짜는 하드웨어: Google XLS로 DSLX에서 합성 가능한 Verilog까지"
+draft: false
+---
+
+https://github.com/google/xls[Google XLS]는 고수준 합성(HLS) 툴체인입니다. Rust를 닮은 함수형 하드웨어 기술 언어 **DSLX**로 기능을 적으면, XLS가 그것을 자체 중간표현(**XLS IR**)으로 바꾸고, 최적화하고, 파이프라인으로 스케줄링하고, 합성 가능한 (System)Verilog로 방출합니다. 여기에 LLVM JIT 기반의 네이티브 속도 시뮬레이션, 채널로 통신하는 동시 프로세스(**proc**), Z3를 이용한 형식 등가 검증이 함께 옵니다.
+
+이 책은 `fn` 하나를 적는 것에서 시작해 DSLX 언어 전체(1부), DSLX를 IR로 낮추고 최적화하는 과정(2부), 지연 모델과 파이프라인 스케줄링과 Verilog 생성(3부), 상태와 동시성을 다루는 proc(4부), 형식 검증과 작은 가속기 종합 실전(5부)까지 순서대로 쌓아 올립니다.
+
+이 사이트의 nand2npu 시리즈(MLIR/CIRCT로 하드웨어를 방출)와 "언어를 처음부터 끝까지"(MLIR로 소프트웨어 언어를 방출)와 나란히 서는 책입니다. 세 책 모두 "고수준 기술 → 중간표현 → 낮추기 → 실행/합성"이라는 같은 골격을 공유하되, 이 책의 목적지는 **레지스터 전송 수준의 하드웨어**입니다.
+
+[NOTE]
+====
+*이 책의 예제 검증 방식.* nand2npu·"언어를 처음부터 끝까지"는 이 세션 환경에 설치된 툴체인으로 예제를 실검증하지만, XLS는 Bazel 빌드가 필요해 이 책은 그렇게 하지 못했습니다. 예제는 XLS 공식 문서(DSLX 레퍼런스, 튜토리얼, codegen 옵션 문서)를 기준으로 작성했고, 각 장 끝에 GitHub 릴리스 바이너리(`dslx_interpreter_main`, `ir_converter_main`, `opt_main`, `codegen_main`)로 직접 재현하는 명령을 붙였습니다. 플래그 철자와 경로는 XLS 버전에 따라 다를 수 있으니 `--help`로 확인하세요.
+====
+
+이 페이지는 책 전체를 한 페이지로 이어 붙인 판입니다. 장별로 따로 읽고 싶다면 아래 목차의 링크를 눌러 개별 페이지로 이동하세요.
+
+== 목차
+
+[start=0]
+. *link:00-preface/[서문: 소프트웨어의 방법론으로 하드웨어를 만든다는 것]*
+
+*1부: DSLX 언어*
+
+[start=1]
+. *link:01-why-xls/[왜 XLS인가: HLS의 자리와 "타임리스" 데이터플로]*
+. *link:02-first-design/[첫 설계: hello_xls, 비트폭 타입, 그리고 `#[test]`]*
+. *link:03-bits-and-numbers/[비트와 수: 임의 폭 정수, 캐스팅, float32]*
+. *link:04-structs-enums-arrays/[구조체·enum·배열·match]*
+. *link:05-parametrics/[파라메트릭: 폭과 크기를 타입 파라미터로]*
+. *link:06-for-and-loops/[`for` 표현식과 루프: 재귀 없이 누적하기 (CRC32)]*
+
+*2부: IR과 최적화*
+
+[start=7]
+. *link:07-dslx-to-ir/[DSLX에서 XLS IR로: `ir_converter_main`과 IR 읽는 법]*
+. *link:08-optimization-and-eval/[최적화 파이프라인과 평가: `opt_main`, IR 인터프리터, LLVM JIT]*
+
+*3부: 스케줄링과 코드 생성*
+
+[start=9]
+. *link:09-delay-and-scheduling/[지연 모델과 파이프라인 스케줄링 (SDC)]*
+. *link:10-codegen-combinational/[조합 회로 Verilog: `codegen_main`]*
+. *link:11-codegen-pipelined-and-sim/[파이프라인 Verilog와 iverilog 시뮬레이션]*
+
+*4부: 상태와 동시성*
+
+[start=12]
+. *link:12-what-is-a-proc/[proc란 무엇인가: 채널과 "시간에 대한 귀납"]*
+. *link:13-building-procs/[proc 만들기: spawn, FIFO, proc를 Verilog로]*
+
+*5부: 검증과 종합*
+
+[start=14]
+. *link:14-formal-verification/[형식 검증: Z3 등가성과 translation validation]*
+. *link:15-capstone/[종합 실전: FIR 필터를 DSLX부터 파이프라인 Verilog까지]*
+
+*맺음말*
+
+[start=16]
+. *link:16-afterword/[맺음말: XLS[cc], NoC, 그리고 이 도구의 자리]*
+
+'''
+
+include::00-preface.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::01-why-xls.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::02-first-design.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::03-bits-and-numbers.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::04-structs-enums-arrays.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::05-parametrics.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::06-for-and-loops.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::07-dslx-to-ir.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::08-optimization-and-eval.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::09-delay-and-scheduling.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::10-codegen-combinational.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::11-codegen-pipelined-and-sim.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::12-what-is-a-proc.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::13-building-procs.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::14-formal-verification.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::15-capstone.adoc[tag=body,leveloffset=+1]
+
+'''
+
+include::16-afterword.adoc[tag=body,leveloffset=+1]

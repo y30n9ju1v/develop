@@ -1,0 +1,150 @@
+---
+title: "13장: proc 만들기 — spawn, FIFO, proc를 Verilog로"
+date: 2026-09-08T00:00:00+09:00
+draft: false
+tags: ["xls", "dslx", "proc", "codegen", "verilog", "book"]
+categories: ["books"]
+description: "여러 proc를 채널로 잇는 spawn과 채널 FIFO 깊이, 파이프라인 proc, 그리고 codegen_main이 proc를 ready/valid 핸드셰이크가 붙은 Verilog로 방출하는 과정을 다루는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../12-what-is-a-proc/[12장: proc란 무엇인가] · 다음: link:../14-formal-verification/[14장: 형식 검증]_
+
+'''
+
+한 proc는 그 자체로 작은 상태 기계입니다. 실전 설계는 이런 proc를 여러 개 채널로 이어 만듭니다 — 데이터플로 네트워크입니다.
+
+== spawn: proc를 인스턴스화하고 잇기
+
+`config` 안에서 하위 proc를 `spawn`하고, 그들의 채널을 연결합니다.
+
+[source,dslx]
+----
+// 단계 1: 각 원소에 계수를 곱한다
+proc Scale {
+    x_in: chan<s32> in;
+    y_out: chan<s32> out;
+    init { () }
+    config(x_in: chan<s32> in, y_out: chan<s32> out) { (x_in, y_out) }
+    next(state: ()) {
+        let (tok, x) = recv(join(), x_in);
+        send(tok, y_out, x * s32:3);
+        state
+    }
+}
+
+// 단계 2: 흐르는 값을 누적한다
+proc RunningSum {
+    y_in: chan<s32> in;
+    s_out: chan<s32> out;
+    init { s32:0 }
+    config(y_in: chan<s32> in, s_out: chan<s32> out) { (y_in, s_out) }
+    next(acc: s32) {
+        let (tok, y) = recv(join(), y_in);
+        let acc = acc + y;
+        send(tok, s_out, acc);
+        acc
+    }
+}
+
+// 최상위: 두 단계를 내부 채널로 잇는다
+proc ScaleThenSum {
+    x_in: chan<s32> in;
+    s_out: chan<s32> out;
+    init { () }
+    config(x_in: chan<s32> in, s_out: chan<s32> out) {
+        let (mid_out, mid_in) = chan<s32>("mid");
+        spawn Scale(x_in, mid_out);
+        spawn RunningSum(mid_in, s_out);
+        (x_in, s_out)
+    }
+    next(state: ()) { state }   // 최상위는 상태 없이 그냥 배선만
+}
+----
+
+`chan<s32>("mid")`가 내부 채널을 만들고, `Scale`의 출력과 `RunningSum`의 입력을 거기에 꽂습니다. 이 파이프라인은 `x`를 받아 `3x`를 만들고, 그 누적합을 내보냅니다.
+
+== 채널 FIFO 깊이
+
+채널은 기본적으로 깊이 0(랑데부: 송신과 수신이 같은 틱에 만나야 함)일 수도, 버퍼를 가질 수도 있습니다. codegen 시 채널마다 FIFO 깊이를 지정합니다.
+
+* 깊이 0 — 송신자와 수신자가 매 틱 손을 맞잡아야 합니다. 어느 한쪽이 느리면 다른 쪽이 막힙니다.
+* 깊이 N — 최대 N개까지 버퍼링. 생산과 소비 속도가 잠깐 어긋나도 견딥니다. 대신 레지스터 N개어치 면적.
+
+깊이는 처리율과 면적의 트레이드오프입니다. codegen 옵션(예: 채널 설정 프로토, `--fifo_config` 계열)으로 지정하며, 버전에 따라 방식이 다릅니다.
+
+== 파이프라인 proc
+
+`fn`처럼 proc의 `next`도 파이프라인으로 스케줄링할 수 있습니다. `next` 본문의 조합 논리가 깊으면, 스케줄러가 그것을 여러 단계로 자르고 처리율 1을 유지하도록 상태·채널 접근을 조율합니다. `--pipeline_stages`/`--clock_period_ps`가 여기에도 적용됩니다.
+
+== proc를 Verilog로
+
+`codegen_main`에 proc IR을 주면, 각 채널이 **ready/valid 핸드셰이크 포트 묶음**으로 나옵니다.
+
+[source,bash]
+----
+ir_converter_main --top=ScaleThenSum scale_sum.x > scale_sum.ir
+opt_main scale_sum.ir > scale_sum.opt.ir
+codegen_main --generator=pipeline --delay_model=unit \
+             --pipeline_stages=1 --reset=rst \
+             --top=ScaleThenSum scale_sum.opt.ir > scale_sum.v
+----
+
+나오는 모듈의 포트(이름 규칙은 버전마다 다름):
+
+[source,verilog]
+----
+module ScaleThenSum(
+  input  wire        clk,
+  input  wire        rst,
+  // 입력 채널 x_in
+  input  wire [31:0] x_in_data,
+  input  wire        x_in_valid,
+  output wire        x_in_ready,
+  // 출력 채널 s_out
+  output wire [31:0] s_out_data,
+  output wire        s_out_valid,
+  input  wire        s_out_ready
+);
+----
+
+* `*_valid` — 데이터가 유효함(생산자가 주장).
+* `*_ready` — 받을 준비됨(소비자가 주장).
+* `valid && ready`인 사이클에만 전송이 일어납니다. 이것이 backpressure입니다 — 하류가 안 받으면 상류가 자동으로 멈춥니다.
+
+내부 채널 `mid`는 포트로 나오지 않고 모듈 안에서 (필요하면 FIFO와 함께) 배선됩니다.
+
+== 시뮬레이션
+
+ready/valid가 붙었으니 테스트벤치가 조금 더 일합니다.
+
+[source,verilog]
+----
+// 자극: 매 사이클 x 를 하나씩 밀어 넣기
+always @(posedge clk) begin
+  if (!rst) begin
+    x_in_valid <= 1'b1;
+    x_in_data  <= next_sample;      // 1, 2, 3, ...
+    s_out_ready <= 1'b1;            // 결과는 항상 받는다
+    if (x_in_valid && x_in_ready)   // 악수 성립 시에만 다음 샘플
+      next_sample <= next_sample + 1;
+    if (s_out_valid && s_out_ready)
+      $display("running sum = %0d", s_out_data);
+  end
+end
+----
+
+기대되는 누적합 수열(`3, 9, 18, 30, ...` = 3·(1), 3·(1+2), …)을 `dslx_interpreter_main`의 `#[test_proc]` 결과와 대조하세요.
+
+== 직접 확인하기
+
+[source,bash]
+----
+dslx_interpreter_main scale_sum.x            # test_proc
+ir_converter_main --top=ScaleThenSum scale_sum.x | grep -E 'chan|proc|state'
+codegen_main --generator=pipeline --delay_model=unit --pipeline_stages=1 \
+             --reset=rst --top=ScaleThenSum scale_sum.opt.ir | grep -E 'valid|ready'
+----
+
+4부는 여기까지입니다. 다음 장에서 "최적화·합성이 정말 의미를 보존했나"를 증명으로 확인합니다.
+// end::body[]

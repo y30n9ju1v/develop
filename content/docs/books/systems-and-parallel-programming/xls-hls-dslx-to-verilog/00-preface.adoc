@@ -1,0 +1,74 @@
+---
+title: "서문: 소프트웨어의 방법론으로 하드웨어를 만든다는 것"
+date: 2026-09-08T00:00:00+09:00
+draft: false
+tags: ["xls", "dslx", "hls", "verilog", "book"]
+categories: ["books"]
+description: "RTL을 직접 쓰는 대신 고수준 함수를 적고 도구가 파이프라인과 Verilog를 만들게 하는 HLS의 발상, XLS가 그 안에서 차지하는 위치, 그리고 이 책이 예제를 어떻게 검증하는지를 밝히는 서문"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 다음: link:../01-why-xls/[1장: 왜 XLS인가]_
+
+'''
+
+하드웨어를 만드는 표준 방법은 레지스터 전송 수준(RTL)을 직접 적는 것입니다. Verilog나 VHDL로 어느 신호가 어느 클럭 에지에 어느 레지스터로 들어가는지를 손으로 배선합니다. 이 방식은 제어가 정밀한 대신, 알고리즘을 조금만 바꿔도 파이프라인 단계·핸드셰이크·타이밍을 사람이 다시 맞춰야 합니다. "3단 파이프라인으로 만들었는데 4단으로 바꿔라"는 요구가 며칠짜리 작업이 되는 이유입니다.
+
+고수준 합성(High-Level Synthesis, HLS)은 다른 계약을 제안합니다. **여러분은 기능을 적고, 도구가 마이크로아키텍처를 만든다.** 곱셈-누산을 순서대로 적으면, 도구가 목표 클럭 주파수에 맞춰 그것을 몇 단으로 자를지, 어디에 레지스터를 넣을지, 입출력에 어떤 valid 신호를 붙일지를 정합니다. 알고리즘과 마이크로아키텍처가 분리되므로, 단계 수를 바꾸는 것은 플래그 하나를 바꾸는 일이 됩니다.
+
+== XLS의 입장
+
+https://github.com/google/xls[XLS]("Accelerated HW Synthesis")는 구글이 오픈소스로 개발하는 HLS 툴체인입니다. 다른 HLS 도구가 대개 C/{cpp}의 부분집합을 입력으로 받는 것과 달리, XLS는 하드웨어를 위해 설계된 자체 언어 **DSLX**를 1급 입력으로 둡니다. DSLX는 Rust의 문법과 타입 감각을 빌려오되, 하드웨어에 맞게 다음을 강제합니다.
+
+* **모든 값은 고정 크기.** 임의 폭 정수(`u7`, `bits[33]`)는 있지만, 동적으로 커지는 자료구조는 없습니다.
+* **표현식 중심의 불변 데이터플로.** 변수 재대입이 없고, 모든 것이 값을 내는 표현식입니다. 이것이 회로의 조합 논리와 자연스럽게 대응됩니다.
+* **완전히 분석 가능한 호출 그래프.** 재귀가 없고 반복 횟수가 컴파일 타임에 정해지므로, 도구가 전체를 펼쳐 하드웨어로 만들 수 있습니다.
+
+이렇게 적은 DSLX는 다음 파이프라인을 지납니다.
+
+[source,text]
+----
+DSLX  ──►  XLS IR  ──►  최적화된 IR  ──►  스케줄링  ──►  Verilog / SystemVerilog
+ │           │              │               │                    │
+ #[test]   IR 인터프리터   opt_main       지연 모델           codegen_main
+ dslx_      / LLVM JIT                    SDC 스케줄러        (조합 / 파이프라인)
+ interpreter
+----
+
+그리고 두 갈래가 더 있습니다. 상태와 동시성이 필요하면 **proc**(채널로 통신하는 프로세스)를 쓰고, 최적화나 합성이 의미를 바꾸지 않았는지 확인하려면 **Z3 기반 형식 등가 검증**을 씁니다. 이 책은 이 전부를 한 번씩 지나갑니다.
+
+== 이 책이 다루는 것과 다루지 않는 것
+
+*다룹니다.* DSLX 언어 전체, DSLX→IR 변환, 최적화 패스가 하는 일, 지연 모델과 파이프라인 스케줄링, 조합·파이프라인 Verilog 생성, iverilog 시뮬레이션, proc와 채널, 형식 등가 검증, 그리고 이 모두를 묶은 FIR 필터 종합 실전.
+
+*다루지 않습니다.* 물리 합성(면적·전력·배치배선)은 XLS가 만든 Verilog를 받는 하류 도구(예: 오픈소스 OpenROAD, 상용 도구)의 몫입니다. `XLS[cc]`(C++ 프런트엔드)는 맺음말에서 위치만 짚습니다. SystemVerilog 검증 방법론(UVM 등)도 범위 밖입니다.
+
+== 예제를 어떻게 믿을 것인가
+
+[WARNING]
+====
+이 책의 코드는 이 세션에서 실행해 검증하지 못했습니다. XLS는 Bazel 빌드가 필요하고 이 집필 환경에는 툴체인이 없었습니다. 대신 다음을 따랐습니다.
+
+. 모든 DSLX·IR·Verilog 예제는 XLS 공식 문서와 저장소의 예제 스타일을 기준으로 작성했습니다.
+. 각 장 끝 "직접 확인하기"에, 릴리스 바이너리로 그 장의 결과를 재현하는 명령을 적었습니다.
+. 버전에 따라 달라지기 쉬운 부분(proc의 `next` 시그니처, codegen 플래그 이름)은 본문에서 그때그때 표시했습니다.
+====
+
+도구를 구하는 방법은 두 가지입니다.
+
+[source,bash]
+----
+# 방법 1: GitHub 릴리스의 미리 빌드된 바이너리 (플랫폼 tarball)
+#   https://github.com/google/xls/releases 에서 받은 뒤 PATH에 추가
+
+# 방법 2: 소스에서 Bazel로 빌드
+git clone https://github.com/google/xls.git
+cd xls
+bazel build -c opt //xls/dslx:interpreter_main //xls/tools:opt_main \
+                   //xls/tools:codegen_main //xls/dslx/ir_convert:ir_converter_main
+----
+
+이후 장에서는 도구 이름을 짧게 `dslx_interpreter_main`, `ir_converter_main`, `opt_main`, `codegen_main`으로 부릅니다. Bazel로 빌드했다면 각각 `bazel run //xls/dslx:interpreter_main --` 같은 형태로 바꿔 읽으면 됩니다.
+
+준비가 됐다면, 왜 하필 이런 언어인지부터 봅니다.
+// end::body[]

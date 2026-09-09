@@ -1,0 +1,153 @@
+---
+title: "11장: 파이프라인 Verilog와 iverilog 시뮬레이션"
+date: 2026-09-08T00:00:00+09:00
+draft: false
+tags: ["xls", "codegen", "verilog", "simulation", "book"]
+categories: ["books"]
+description: "codegen_main --generator=pipeline로 클럭·리셋·단계 레지스터가 들어간 Verilog를 뽑고, flop_inputs/outputs·reset·valid 신호 옵션을 읽고, XLS가 생성하는 테스트벤치나 손으로 쓴 테스트벤치로 iverilog 시뮬레이션해 지연(latency)을 관찰하는 장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../10-codegen-combinational/[10장: 조합 회로 Verilog] · 다음: link:../12-what-is-a-proc/[12장: proc란 무엇인가]_
+
+'''
+
+같은 `mac4.opt.ir`을 이번에는 파이프라인으로 뽑습니다. 9장의 스케줄러가 그래프를 자르고, codegen이 단계 경계마다 레지스터를 넣습니다.
+
+== 방출하기
+
+[source,bash]
+----
+codegen_main --generator=pipeline \
+             --delay_model=unit \
+             --pipeline_stages=3 \
+             --reset=rst --reset_active_low=false \
+             --top=mac4 \
+             mac4.opt.ir > mac4_pipe.v
+----
+
+나오는 Verilog의 특징(모양·이름은 버전에 따라 다름):
+
+[source,verilog]
+----
+module mac4(
+  input wire        clk,
+  input wire        rst,
+  input wire [127:0] a,
+  input wire [127:0] b,
+  output wire [31:0] out
+);
+  // 단계 1 레지스터
+  reg [31:0] p0_s1, p1_s1, p2_s1, p3_s1;
+  // 단계 2 레지스터
+  reg [31:0] s01_s2, s23_s2;
+
+  always @(posedge clk) begin
+    if (rst) begin
+      p0_s1 <= 32'd0; /* ... */
+    end else begin
+      p0_s1 <= a[31:0]  * b[31:0];
+      // ...
+      s01_s2 <= p0_s1 + p1_s1;
+      s23_s2 <= p2_s1 + p3_s1;
+    end
+  end
+
+  assign out = s01_s2 + s23_s2;   // 단계 3은 조합, 그 앞이 레지스터
+endmodule
+----
+
+* `clk`, `rst` 포트가 생겼습니다.
+* 단계 경계마다 `reg` + `always @(posedge clk)`.
+* 입력을 넣고 **3 사이클 뒤** `out`이 유효합니다 — 이게 파이프라인 지연(latency).
+* 매 사이클 새 입력을 넣을 수 있습니다 — 처리율 1.
+
+== 자주 쓰는 옵션
+
+[cols="1,3", options="header"]
+|===
+| 옵션 | 효과
+
+| `--pipeline_stages=K` / `--clock_period_ps=P`
+| 9장 참고. 스케줄 목표.
+
+| `--reset=NAME` / `--reset_active_low` / `--reset_asynchronous`
+| 리셋 포트 이름과 극성/동기 방식.
+
+| `--flop_inputs` / `--flop_outputs`
+| 입력/출력에도 레지스터를 한 단 더 붙입니다. 인터페이스 타이밍을 깔끔하게.
+
+| `--add_idle_output`
+| 유휴 상태를 나타내는 출력 추가(주로 proc).
+
+| `--use_system_verilog`
+| SystemVerilog 방출.
+
+| `--valid_control="in_valid,out_valid"` (계열)
+| 입력 valid를 파이프라인을 따라 흘려 출력 valid를 만듭니다. 데이터가 언제 유효한지 하류가 알 수 있습니다.
+|===
+
+정확한 플래그 철자는 `codegen_main --help`와 codegen 옵션 문서를 확인하세요. 버전 간 차이가 이 도구에서 가장 큽니다.
+
+== valid 신호가 필요한 이유
+
+파이프라인은 채운(fill) 뒤 비우는(drain) 구간이 있습니다. 리셋 직후 첫 `K` 사이클 동안 `out`은 쓰레기입니다. `--valid_control`로 입력 valid를 함께 넣으면, XLS가 그 비트를 단계마다 레지스터로 지연시켜 `out_valid`로 내보냅니다. 하류 모듈은 `out_valid`가 1일 때만 `out`을 읽으면 됩니다.
+
+== 시뮬레이션
+
+XLS는 테스트벤치를 생성해 주기도 합니다(옵션/버전에 따라 `--generate_testbench` 계열). 없으면 짧게 손으로 씁니다.
+
+[source,verilog]
+----
+// tb_mac4_pipe.v
+module tb;
+  reg clk = 0, rst = 1;
+  reg  [127:0] a, b;
+  wire [31:0]  out;
+
+  mac4 dut(.clk(clk), .rst(rst), .a(a), .b(b), .out(out));
+  always #5 clk = ~clk;    // 100MHz
+
+  initial begin
+    a = {32'd4,32'd3,32'd2,32'd1};
+    b = {32'd6,32'd5,32'd4,32'd3};
+    @(posedge clk); rst = 0;      // 리셋 해제
+    repeat (3) @(posedge clk);    // 파이프라인 지연 3 사이클 대기
+    #1 $display("out = %0d", out);  // eval_ir_main 이 준 기대값과 대조
+    $finish;
+  end
+endmodule
+----
+
+[source,bash]
+----
+iverilog -o sim mac4_pipe.v tb_mac4_pipe.v && vvp sim
+----
+
+`repeat (3)`이 파이프라인 지연을 기다리는 부분입니다. 조합 버전(10장)에는 이 대기가 없었습니다 — 같은 `mac4`, 같은 결과값, 다른 시간 구조.
+
+== 층을 하나 더 쌓았다
+
+이제 한 설계에 대해 일치해야 하는 참조가 넷입니다.
+
+. DSLX `#[test]`
+. IR 평가(최적화 전/후)
+. LLVM JIT
+. **Verilog 시뮬레이션 (조합 + 파이프라인, 지연만큼 대기 후)**
+
+파이프라인 K를 바꿔도, 지연만큼 기다린 뒤의 `out`은 항상 같아야 합니다. 이것이 "스케줄은 마이크로아키텍처만 바꾸고 기능은 안 바꾼다"는 1장 주장의 실측 확인입니다.
+
+== 직접 확인하기
+
+[source,bash]
+----
+for K in 2 3 5; do
+  codegen_main --generator=pipeline --delay_model=unit --pipeline_stages=$K \
+               --reset=rst --top=mac4 mac4.opt.ir > mac4_$K.v
+done
+# 각각을 (지연 K 만큼 대기하도록 고친) 테스트벤치로 시뮬레이션해, out 이 모두 같은지 확인
+# eval_ir_main --input='bits[128]:...; bits[128]:...' mac4.opt.ir 로 기대값을 먼저 확정
+----
+
+3부는 여기까지입니다. 다음 장부터는 상태와 스트리밍 — proc.
+// end::body[]

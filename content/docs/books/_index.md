@@ -43,6 +43,7 @@ AI와 함께 쓴 학습 기록입니다. 폴더 경로와 달리 이 목록은 *
 - **[TinyRT: 안전하고 빠른 CPU/GPU 추론 런타임](systems-and-parallel-programming/tinyrt-cpu-gpu-inference/)** — CPU/GPU 배치와 안전한 자원 관리를 갖춘 작은 CNN 추론 런타임을 만드는 캡스톤
 - **[MarioRL: Apple Silicon 위에서 짓는 병렬 강화학습 프레임워크](systems-and-parallel-programming/mario-rl-framework/)** — 병렬 롤아웃, MLX 학습, CPU/GPU 배치를 조합한 강화학습 실행 프레임워크 캡스톤
 - **[RIIR: C의 JSON 파서를 Rust로 다시 쓰고 Python에 배포하기](systems-and-parallel-programming/riir-json-parser/)** — Rust로 JSON 파서를 구현·측정하고 PyO3와 wheel로 Python 패키지까지 배포하는 실무 입문서
+- **[소프트웨어처럼 짜는 하드웨어: Google XLS로 DSLX에서 합성 가능한 Verilog까지](systems-and-parallel-programming/xls-hls-dslx-to-verilog/)** — DSLX로 기능을 적고 XLS IR·최적화·SDC 스케줄링·codegen을 거쳐 조합/파이프라인 Verilog와 proc, Z3 등가 검증까지 뽑는 고수준 합성(HLS) 입문서
 
 ## AI·데이터·강화학습
 
