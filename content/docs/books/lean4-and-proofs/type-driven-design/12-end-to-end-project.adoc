@@ -1,30 +1,30 @@
 ---
-title: "11장: 엔드투엔드 프로젝트 — 엘리베이터를 하나의 완결된 시스템으로"
+title: "12장: 엔드투엔드 프로젝트 — 엘리베이터를 하나의 완결된 시스템으로"
 date: 2026-07-31T00:00:00+09:00
 draft: false
 tags: ["lean4", "fsm", "temporal-logic", "elevator", "book"]
 categories: ["books"]
-description: "1~10장에서 배운 도구(sum/product, transition, coalgebra, 합성, Always/Eventually)를 전부 동원해, 점검 모드까지 포함한 엘리베이터 시스템 하나를 완결된 형태로 조립하고 안전성과 생동성을 함께 증명하는 3부의 마무리 프로젝트"
+description: "1~11장에서 배운 도구(sum/product, transition, coalgebra, 합성, Always/Eventually)를 전부 동원해, 점검 모드까지 포함한 엘리베이터 시스템 하나를 완결된 형태로 조립하고 안전성과 생동성을 함께 증명하는 3부의 마무리 프로젝트"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../10-ctl-branching-fsm/[10장: CTL 맛보기] · 다음: link:../12-afterword/[12장: 맺음말]_
+_link:../[전체 목차] · 이전: link:../11-ctl-branching-fsm/[11장: CTL 맛보기] · 다음: link:../13-afterword/[13장: 맺음말]_
 
 '''
 
 == 지금까지 만든 조각들
 
-1장부터 10장까지, 이 프로젝트는 조금씩 쌓여왔습니다.
+1장부터 11장까지, 이 프로젝트는 조금씩 쌓여왔습니다.
 
 * *1장*: `ElevatorState`(층수 + 국면)를 sum/product로 설계해 "문 열고 움직인다"는 사고를 표현조차 못 하게 만들었습니다.
-* *4장*: `transition : ElevatorState → ElevatorEvent → ElevatorState`로 실제 움직임을 순수 함수로 구현했습니다.
-* *5장*: 층수 표시와 방향 화살표를 출력으로 꺼내는 coalgebra 관점을 봤습니다.
-* *6장*: 점검 모드(`Mode`)를 coproduct로 얹어, "정상 동작 중"과 "점검 중"을 하나의 타입으로 표현했습니다.
-* *7장*: 과부하 안전장치 사례로 "성질을 증명한다"는 게 실제로 어떤 건지 굳혔습니다.
-* *8~9장*: "문 열린 채로는 층이 안 바뀐다"(안전성)와 "tick이 오면 언젠가 도착한다"(생동성)를 구분해서 증명했습니다.
-* *10장*: 여러 호출이 동시에 올 때의 비결정성을 CTL로 다뤘습니다.
+* *5장*: `transition : ElevatorState → ElevatorEvent → ElevatorState`로 실제 움직임을 순수 함수로 구현했습니다.
+* *6장*: 층수 표시와 방향 화살표를 출력으로 꺼내는 coalgebra 관점을 봤습니다.
+* *7장*: 점검 모드(`Mode`)를 coproduct로 얹어, "정상 동작 중"과 "점검 중"을 하나의 타입으로 표현했습니다.
+* *8장*: 과부하 안전장치 사례로 "성질을 증명한다"는 게 실제로 어떤 건지 굳혔습니다.
+* *9~10장*: "문 열린 채로는 층이 안 바뀐다"(안전성)와 "tick이 오면 언젠가 도착한다"(생동성)를 구분해서 증명했습니다.
+* *11장*: 여러 호출이 동시에 올 때의 비결정성을 CTL로 다뤘습니다.
 
-이 장에서는 6장의 `Mode`(점검 모드 포함)를 최종 시스템으로 삼아, 거기에 안전성과 생동성을 **함께** 증명합니다.
+이 장에서는 7장의 `Mode`(점검 모드 포함)를 최종 시스템으로 삼아, 거기에 안전성과 생동성을 **함께** 증명합니다.
 
 == 최종 시스템: 점검 모드까지 포함한 Mode
 
@@ -56,7 +56,7 @@ def Always {α} (P : α → Prop) (s : Nat → α) : Prop := ∀ n, P (s n)
 def Eventually {α} (P : α → Prop) (s : Nat → α) : Prop := ∃ n, P (s n)
 ----
 
-6장에서 만든 `Mode`와 `Mode.step`을 그대로 가져오고, 9장에서 쓴 `traceFrom`/`Always`/`Eventually`를 이번엔 `ElevatorState`가 아니라 `Mode`(점검 모드까지 포함한 더 큰 타입) 위에 다시 세웁니다.
+7장에서 만든 `Mode`와 `Mode.step`을 그대로 가져오고, 10장에서 쓴 `traceFrom`/`Always`/`Eventually`를 이번엔 `ElevatorState`가 아니라 `Mode`(점검 모드까지 포함한 더 큰 타입) 위에 다시 세웁니다.
 
 == 안전성: 점검 모드는 exitMaintenance 없이는 절대 안 풀린다
 
@@ -70,7 +70,7 @@ theorem maintenance_is_frozen (s : ElevatorState) (e : ModeEvent) (h : e ≠ .ex
   | enterMaintenance => rfl
 ----
 
-이건 6장의 `Mode.step` 정의(`.maintenance s, _ => .maintenance s`)를 다시 확인하는 정도지만, `e ≠ .exitMaintenance`라는 조건을 명시적으로 받아서 "점검 모드를 벗어나는 유일한 길은 정확히 `exitMaintenance`뿐"이라는 걸 못박아둡니다. 이 한 스텝 사실을 이제 **여러 스텝에 걸쳐** 확장합니다.
+이건 7장의 `Mode.step` 정의(`.maintenance s, _ => .maintenance s`)를 다시 확인하는 정도지만, `e ≠ .exitMaintenance`라는 조건을 명시적으로 받아서 "점검 모드를 벗어나는 유일한 길은 정확히 `exitMaintenance`뿐"이라는 걸 못박아둡니다. 이 한 스텝 사실을 이제 **여러 스텝에 걸쳐** 확장합니다.
 
 [source,lean]
 ----
@@ -89,7 +89,7 @@ theorem maintenance_persists (init : ElevatorState) (events : Nat → ModeEvent)
     exact maintenance_is_frozen init (events (start + k)) (hno (start + k) (by omega))
 ----
 
-"`start` 시점에 점검 모드로 들어갔고(`hstart`), 그 뒤로 `exitMaintenance`가 한 번도 안 온다면(`hno`), `start` 이후 **모든** 시점에서 계속 점검 모드다"라는 주장입니다. 증명은 `k`(시작 시점으로부터 몇 스텝 지났는지)에 대한 귀납법입니다 — `k=0`일 땐 가정(`hstart`) 그 자체이고, `k+1`일 땐 `k`에서 이미 점검 모드였다는 걸(`ih`) 딛고 서서 `maintenance_is_frozen`으로 한 스텝을 더 밀어붙입니다. 8~9장에서 본 "한 스텝 보존 + 귀납법"이라는 패턴이 여기서도 그대로 재사용됩니다.
+"`start` 시점에 점검 모드로 들어갔고(`hstart`), 그 뒤로 `exitMaintenance`가 한 번도 안 온다면(`hno`), `start` 이후 **모든** 시점에서 계속 점검 모드다"라는 주장입니다. 증명은 `k`(시작 시점으로부터 몇 스텝 지났는지)에 대한 귀납법입니다 — `k=0`일 땐 가정(`hstart`) 그 자체이고, `k+1`일 땐 `k`에서 이미 점검 모드였다는 걸(`ih`) 딛고 서서 `maintenance_is_frozen`으로 한 스텝을 더 밀어붙입니다. 9~10장에서 본 "한 스텝 보존 + 귀납법"이라는 패턴이 여기서도 그대로 재사용됩니다.
 
 == 생동성: 정상 모드에서는 여전히 도착이 보장된다
 
@@ -102,18 +102,18 @@ example : Eventually (· = Mode.normal (ElevatorState.mk 3 .doorsOpen))
   native_decide
 ----
 
-`Mode`로 감싼 뒤에도 9장에서 증명한 생동성이 그대로 성립합니다 — `elevEvent`로 감싼 `callFloor`와 `tick`을 정상 모드가 그대로 안쪽 엘리베이터에 전달해주기 때문입니다(`Mode.step`의 `.normal s, .elevEvent e => .normal (s.transition e)` 규칙). 점검 모드라는 새 기능을 얹었다고 해서 기존에 증명해둔 생동성이 깨지지 않는다는 걸 이 예제가 보여줍니다.
+`Mode`로 감싼 뒤에도 10장에서 증명한 생동성이 그대로 성립합니다 — `elevEvent`로 감싼 `callFloor`와 `tick`을 정상 모드가 그대로 안쪽 엘리베이터에 전달해주기 때문입니다(`Mode.step`의 `.normal s, .elevEvent e => .normal (s.transition e)` 규칙). 점검 모드라는 새 기능을 얹었다고 해서 기존에 증명해둔 생동성이 깨지지 않는다는 걸 이 예제가 보여줍니다.
 
 == 이 프로젝트가 보여주는 것
 
 이 장의 전체 흐름을 되짚어보면 이 책이 다룬 도구들이 어떻게 맞물리는지 보입니다.
 
 1. *1장(sum/product)*: "문 열고 움직인다"는 불가능한 조합을 표현조차 못 하게, `ElevatorPhase`를 sum으로 설계했습니다.
-2. *4~5장(순수 함수·coalgebra)*: `transition`이 상태 전이를, `directionArrow` 등이 관찰 가능한 출력을 각각 순수 함수로 뽑아냈습니다.
-3. *6장(합성)*: 점검 모드를 coproduct(`Mode`)로 얹어, "지금 정상인지 점검 중인지"까지 타입으로 표현했습니다.
-4. *8~9장(안전성·생동성)*: "한 스텝 보존 + 귀납법"이라는 같은 패턴으로, `ElevatorState` 수준의 성질(8~9장)과 `Mode` 수준의 성질(11장)을 둘 다 증명했습니다.
+2. *5~6장(순수 함수·coalgebra)*: `transition`이 상태 전이를, `directionArrow` 등이 관찰 가능한 출력을 각각 순수 함수로 뽑아냈습니다.
+3. *7장(합성)*: 점검 모드를 coproduct(`Mode`)로 얹어, "지금 정상인지 점검 중인지"까지 타입으로 표현했습니다.
+4. *9~10장(안전성·생동성)*: "한 스텝 보존 + 귀납법"이라는 같은 패턴으로, `ElevatorState` 수준의 성질(9~10장)과 `Mode` 수준의 성질(12장)을 둘 다 증명했습니다.
 
-한 문장으로 정리하면: **좋은 타입 설계(1장)가 안전성 증명(8장, 11장)을 쉽게 만들어주고, 기존 성질(9장의 생동성)이 새 기능(6장의 점검 모드)을 얹은 뒤에도 그대로 유지된다는 것까지 증명으로 확인할 수 있습니다.** 설계와 증명이 별개의 작업이 아니라는 게 이 책 전체의 결론입니다.
+한 문장으로 정리하면: **좋은 타입 설계(1장)가 안전성 증명(9장, 12장)을 쉽게 만들어주고, 기존 성질(10장의 생동성)이 새 기능(7장의 점검 모드)을 얹은 뒤에도 그대로 유지된다는 것까지 증명으로 확인할 수 있습니다.** 설계와 증명이 별개의 작업이 아니라는 게 이 책 전체의 결론입니다.
 
 == 직접 해보기
 
@@ -152,7 +152,7 @@ theorem normal_persists (init : ElevatorState) (events : Nat → ModeEvent) (sta
 
 == 요약
 
-* 6장에서 만든 `Mode`(점검 모드 포함)에도 8~9장과 똑같은 "한 스텝 보존 + 귀납법" 패턴으로 안전성을 증명할 수 있습니다.
+* 7장에서 만든 `Mode`(점검 모드 포함)에도 9~10장과 똑같은 "한 스텝 보존 + 귀납법" 패턴으로 안전성을 증명할 수 있습니다.
 * 새 기능(점검 모드)을 얹어도 기존에 증명해둔 성질(생동성)이 깨지지 않는다는 걸 직접 확인했습니다.
 * 결국 이 책이 다룬 모든 도구는 "타입으로 불가능한 걸 지우고, 함수로 전이를 표현하고, 그 위에 시간에 걸친 성질을 증명한다"는 하나의 흐름으로 이어집니다.
 

@@ -1,5 +1,5 @@
 ---
-title: "6장: FSM의 합성 — product는 병렬로, coproduct는 모드 전환으로"
+title: "7장: FSM의 합성 — product는 병렬로, coproduct는 모드 전환으로"
 date: 2026-07-31T00:00:00+09:00
 draft: false
 tags: ["lean4", "fsm", "composition", "elevator", "book"]
@@ -8,7 +8,7 @@ description: "1장에서 배운 product와 sum이 상태 기계를 합성할 때
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../05-coalgebra-intuition/[5장: coalgebra 직관] · 다음: link:../07-case-study-overload-safety/[7장: 실전 예제로 굳히기]_
+_link:../[전체 목차] · 이전: link:../06-coalgebra-intuition/[6장: coalgebra 직관] · 다음: link:../08-case-study-overload-safety/[8장: 실전 예제로 굳히기]_
 
 '''
 
@@ -77,7 +77,7 @@ example : ((Mode.normal ⟨0, .idle⟩).step .enterMaintenance).step (.elevEvent
 
 == 직접 해보기
 
-* 3장에서 만든 것과 비슷하게, `Mode`에 "화재 시 관제 모드"(`fireOverride`, 무조건 1층으로 이동한 뒤 문을 열고 얼어붙는)를 세 번째 생성자로 추가해보세요.
+* 4장에서 만든 것과 비슷하게, `Mode`에 "화재 시 관제 모드"(`fireOverride`, 무조건 1층으로 이동한 뒤 문을 열고 얼어붙는)를 세 번째 생성자로 추가해보세요.
 * 평상시 모드에서 화재 이벤트를 받으면 `fireOverride`로 전환되고, 그 안에서는 어떤 일반 호출도 무시된다는 걸 확인해보세요.
 
 .해답 보기

@@ -1,20 +1,20 @@
 ---
-title: "5장: coalgebra 직관 — 엘리베이터가 무엇을 보여주는가"
+title: "6장: coalgebra 직관 — 엘리베이터가 무엇을 보여주는가"
 date: 2026-07-31T00:00:00+09:00
 draft: false
 tags: ["lean4", "category-theory", "fsm", "elevator", "book"]
 categories: ["books"]
-description: "4장의 transition 함수를 출력까지 있는 일반형으로 확장해 엘리베이터의 층수 표시와 방향 화살표를 계산하고, 이 State -> Event -> (Output x State) 모양이 왜 coalgebra라고 불리는지 확인하는 장"
+description: "5장의 transition 함수를 출력까지 있는 일반형으로 확장해 엘리베이터의 층수 표시와 방향 화살표를 계산하고, 이 State -> Event -> (Output x State) 모양이 왜 coalgebra라고 불리는지 확인하는 장"
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../04-fsm-as-pure-function/[4장: 순수 함수로서의 상태 기계] · 다음: link:../06-fsm-composition/[6장: FSM의 합성]_
+_link:../[전체 목차] · 이전: link:../05-fsm-as-pure-function/[5장: 순수 함수로서의 상태 기계] · 다음: link:../07-fsm-composition/[7장: FSM의 합성]_
 
 '''
 
-== 4장의 transition에 출력을 더하기
+== 5장의 transition에 출력을 더하기
 
-4장의 `transition : State → Event → State`는 "다음 상태가 뭔지"만 알려줬습니다. 그런데 실제 엘리베이터는 상태가 바뀌는 것과 별개로 **뭔가를 보여줍니다** — 층수 표시판의 숫자, 그리고 위/아래를 가리키는 방향 화살표입니다. 이걸 반영하면 함수의 모양이 이렇게 바뀝니다.
+5장의 `transition : State → Event → State`는 "다음 상태가 뭔지"만 알려줬습니다. 그런데 실제 엘리베이터는 상태가 바뀌는 것과 별개로 **뭔가를 보여줍니다** — 층수 표시판의 숫자, 그리고 위/아래를 가리키는 방향 화살표입니다. 이걸 반영하면 함수의 모양이 이렇게 바뀝니다.
 
 [source,lean]
 ----
@@ -45,7 +45,7 @@ def ElevatorState.directionArrow (s : ElevatorState) : Option Direction :=
 
 `List.foldl`처럼 여러 값을 하나로 **모으는** 함수를 생각해봅시다 — `(Acc, Elem) → Acc`라는 모양으로, "여러 조각을 안으로 접어 들어가 하나의 결과를 만든다"는 방향입니다. 이런 "여러 개를 하나로 모으는" 구조를 범주론에서 **algebra**라고 부릅니다.
 
-방금 만든 `directionArrow`와 4장의 `transition`을 합친 모양은 정확히 **반대 방향**입니다 — `State → (Output × State)`라는 모양은 "하나의 상태에서 시작해서, 관찰 가능한 조각(출력)을 하나씩 밖으로 꺼내며 다음 상태로 나아간다"는 뜻입니다. 안으로 접어 들어가는 게 아니라 **밖으로 펼쳐나가는** 방향이라, algebra의 반대라는 뜻에서 **coalgebra**라고 부릅니다.
+방금 만든 `directionArrow`와 5장의 `transition`을 합친 모양은 정확히 **반대 방향**입니다 — `State → (Output × State)`라는 모양은 "하나의 상태에서 시작해서, 관찰 가능한 조각(출력)을 하나씩 밖으로 꺼내며 다음 상태로 나아간다"는 뜻입니다. 안으로 접어 들어가는 게 아니라 **밖으로 펼쳐나가는** 방향이라, algebra의 반대라는 뜻에서 **coalgebra**라고 부릅니다.
 
 [cols="1,2,2"]
 |===

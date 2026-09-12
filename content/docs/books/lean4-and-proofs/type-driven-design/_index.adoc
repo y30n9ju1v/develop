@@ -18,35 +18,35 @@ draft: false
 
 [start=1]
 . *link:01-algebraic-data-types/[대수적 데이터 타입: 불가능한 상태를 표현조차 못 하게 (엘리베이터 시작)]*
-. *link:01-5-curry-howard-for-design/[타입은 명세, 함수는 증명: 엘리베이터로 보는 커리-하워드 대응]*
-. *link:02-function-composition/[함수 합성: 버튼 입력을 파이프라인으로 정제하기]*
-. *link:03-monads/[모나드: 버튼 입력 파싱을 값으로 감싸 합성 가능하게]*
+. *link:02-curry-howard-for-design/[타입은 명세, 함수는 증명: 엘리베이터로 보는 커리-하워드 대응]*
+. *link:03-function-composition/[함수 합성: 버튼 입력을 파이프라인으로 정제하기]*
+. *link:04-monads/[모나드: 버튼 입력 파싱을 값으로 감싸 합성 가능하게]*
 
 *2부: 상태를 값으로 다루기 (FSM as coalgebra)*
 
-[start=4]
-. *link:04-fsm-as-pure-function/[순수 함수로서의 상태 기계: 엘리베이터를 움직이기]*
-. *link:05-coalgebra-intuition/[coalgebra 직관: 엘리베이터가 무엇을 보여주는가]*
-. *link:06-fsm-composition/[FSM의 합성: product는 병렬로, coproduct는 모드 전환으로]*
-. *link:07-case-study-overload-safety/[실전 예제로 굳히기: 3회 과부하가 감지되면 멈추는 안전장치]*
+[start=5]
+. *link:05-fsm-as-pure-function/[순수 함수로서의 상태 기계: 엘리베이터를 움직이기]*
+. *link:06-coalgebra-intuition/[coalgebra 직관: 엘리베이터가 무엇을 보여주는가]*
+. *link:07-fsm-composition/[FSM의 합성: product는 병렬로, coproduct는 모드 전환으로]*
+. *link:08-case-study-overload-safety/[실전 예제로 굳히기: 3회 과부하가 감지되면 멈추는 안전장치]*
 
 *3부: 시간에 걸친 성질 명세하기 (시제논리)*
 
-[start=8]
-. *link:08-safety-vs-liveness/[안전성 vs 생동성]*
-. *link:09-ltl-on-fsm-traces/[LTL로 FSM에 성질 달기]*
-. *link:10-ctl-branching-fsm/[CTL 맛보기: 여러 층이 동시에 부를 때]*
-. *link:11-end-to-end-project/[엔드투엔드 프로젝트: 엘리베이터를 완결된 시스템으로]*
+[start=9]
+. *link:09-safety-vs-liveness/[안전성 vs 생동성]*
+. *link:10-ltl-on-fsm-traces/[LTL로 FSM에 성질 달기]*
+. *link:11-ctl-branching-fsm/[CTL 맛보기: 여러 층이 동시에 부를 때]*
+. *link:12-end-to-end-project/[엔드투엔드 프로젝트: 엘리베이터를 완결된 시스템으로]*
 
 *맺음말*
 
-[start=12]
-. *link:12-afterword/[엘리베이터 하나로 배운 것]*
+[start=13]
+. *link:13-afterword/[엘리베이터 하나로 배운 것]*
 
 *보너스*
 
-[start=13]
-. *link:13-safe-interleaving/[안전한 병렬 처리 맛보기: 두 대의 엘리베이터가 같은 호출을 다툴 때]*
+[start=14]
+. *link:14-safe-interleaving/[안전한 병렬 처리 맛보기: 두 대의 엘리베이터가 같은 호출을 다툴 때]*
 
 '''
 
@@ -58,52 +58,52 @@ include::01-algebraic-data-types.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::01-5-curry-howard-for-design.adoc[tag=body,leveloffset=+1]
+include::02-curry-howard-for-design.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::02-function-composition.adoc[tag=body,leveloffset=+1]
+include::03-function-composition.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::03-monads.adoc[tag=body,leveloffset=+1]
+include::04-monads.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::04-fsm-as-pure-function.adoc[tag=body,leveloffset=+1]
+include::05-fsm-as-pure-function.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::05-coalgebra-intuition.adoc[tag=body,leveloffset=+1]
+include::06-coalgebra-intuition.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::06-fsm-composition.adoc[tag=body,leveloffset=+1]
+include::07-fsm-composition.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::07-case-study-overload-safety.adoc[tag=body,leveloffset=+1]
+include::08-case-study-overload-safety.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::08-safety-vs-liveness.adoc[tag=body,leveloffset=+1]
+include::09-safety-vs-liveness.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::09-ltl-on-fsm-traces.adoc[tag=body,leveloffset=+1]
+include::10-ltl-on-fsm-traces.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::10-ctl-branching-fsm.adoc[tag=body,leveloffset=+1]
+include::11-ctl-branching-fsm.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::11-end-to-end-project.adoc[tag=body,leveloffset=+1]
+include::12-end-to-end-project.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::12-afterword.adoc[tag=body,leveloffset=+1]
+include::13-afterword.adoc[tag=body,leveloffset=+1]
 
 '''
 
-include::13-safe-interleaving.adoc[tag=body,leveloffset=+1]
+include::14-safe-interleaving.adoc[tag=body,leveloffset=+1]

@@ -1,5 +1,5 @@
 ---
-title: "4장: 순수 함수로서의 상태 기계 — 엘리베이터를 움직이기"
+title: "5장: 순수 함수로서의 상태 기계 — 엘리베이터를 움직이기"
 date: 2026-07-31T00:00:00+09:00
 draft: false
 tags: ["lean4", "fsm", "elevator", "book"]
@@ -8,7 +8,7 @@ description: "1장에서 설계한 ElevatorState에 실제로 움직이는 전�
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../03-monads/[3장: 모나드] · 다음: link:../05-coalgebra-intuition/[5장: coalgebra 직관]_
+_link:../[전체 목차] · 이전: link:../04-monads/[4장: 모나드] · 다음: link:../06-coalgebra-intuition/[6장: coalgebra 직관]_
 
 '''
 
@@ -73,8 +73,8 @@ example : runEvents ⟨0, .idle⟩ [.callFloor 3, .tick, .tick, .tick, .tick]
 mutable 객체로 엘리베이터를 만들면, "지금 상태가 뭔지"는 그 객체를 실행 중에 들여다봐야만 알 수 있습니다. `transition`을 순수 함수로 뽑아내면 세 가지가 달라집니다.
 
 * *테스트가 쉬워집니다* — 엘리베이터 객체를 만들고 여러 메서드를 호출해 부작용을 확인하는 대신, `ElevatorState.transition ⟨0, .idle⟩ (.callFloor 3)`처럼 입력과 출력만으로 테스트를 짤 수 있습니다.
-* *성질을 증명할 수 있습니다* — 이후 8장에서 "문이 열린 채로는 절대 층이 바뀌지 않는다"는 안전성을, 9장에서 "언젠가는 호출한 층에 도착한다"는 생동성을 증명합니다 — 둘 다 `transition`이 mutable이 아니라 순수 함수이기 때문에 가능한 증명입니다.
-* *합성할 수 있습니다* — `transition` 자체가 값(함수)이라, 6장에서 볼 것처럼 여러 엘리베이터의 `transition` 함수를 조합해 더 큰 시스템을 만들 수 있습니다.
+* *성질을 증명할 수 있습니다* — 이후 9장에서 "문이 열린 채로는 절대 층이 바뀌지 않는다"는 안전성을, 10장에서 "언젠가는 호출한 층에 도착한다"는 생동성을 증명합니다 — 둘 다 `transition`이 mutable이 아니라 순수 함수이기 때문에 가능한 증명입니다.
+* *합성할 수 있습니다* — `transition` 자체가 값(함수)이라, 7장에서 볼 것처럼 여러 엘리베이터의 `transition` 함수를 조합해 더 큰 시스템을 만들 수 있습니다.
 
 == 직접 해보기
 

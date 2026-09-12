@@ -1,5 +1,5 @@
 ---
-title: "3장: 모나드 — 부수효과를 값으로 감싸 합성 가능하게"
+title: "4장: 모나드 — 부수효과를 값으로 감싸 합성 가능하게"
 date: 2026-07-31T00:00:00+09:00
 draft: false
 tags: ["lean4", "monad", "elevator", "book"]
@@ -8,7 +8,7 @@ description: "버튼 입력 파싱이 실패할 수 있다는 문제에서 출�
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../02-function-composition/[2장: 함수 합성] · 다음: link:../04-fsm-as-pure-function/[4장: 순수 함수로서의 상태 기계]_
+_link:../[전체 목차] · 이전: link:../03-function-composition/[3장: 함수 합성] · 다음: link:../05-fsm-as-pure-function/[5장: 순수 함수로서의 상태 기계]_
 
 '''
 
@@ -22,7 +22,7 @@ def parseFloor? (s : String) : Option Nat := s.toNat?
 def validRange? (maxFloor : Nat) (f : Nat) : Option Nat := if f ≤ maxFloor then some f else none
 ----
 
-`parseFloor?`는 버튼에서 온 문자열이 숫자가 아닐 수도 있으니 `Option Nat`(있을 수도, 없을 수도 있는 값)을 반환합니다. `validRange?`도 건물 층수를 넘으면 실패해야 하니 `Option Nat`을 반환합니다. 그런데 2장에서 쓴 `validRange? maxFloor ∘ parseFloor?`는 타입이 안 맞습니다 — `parseFloor?`의 출력은 `Option Nat`인데 `validRange?`는 `Nat`을 입력으로 기대하지, `Option Nat`을 기대하지 않기 때문입니다. `validRange?`를 부르기 전에 "혹시 `none`이면 여기서 멈추고, `some f`이면 그 `f`를 꺼내서 넘긴다"는 처리가 매번 끼어들어야 합니다.
+`parseFloor?`는 버튼에서 온 문자열이 숫자가 아닐 수도 있으니 `Option Nat`(있을 수도, 없을 수도 있는 값)을 반환합니다. `validRange?`도 건물 층수를 넘으면 실패해야 하니 `Option Nat`을 반환합니다. 그런데 3장에서 쓴 `validRange? maxFloor ∘ parseFloor?`는 타입이 안 맞습니다 — `parseFloor?`의 출력은 `Option Nat`인데 `validRange?`는 `Nat`을 입력으로 기대하지, `Option Nat`을 기대하지 않기 때문입니다. `validRange?`를 부르기 전에 "혹시 `none`이면 여기서 멈추고, `some f`이면 그 `f`를 꺼내서 넘긴다"는 처리가 매번 끼어들어야 합니다.
 
 == bind: "값을 꺼내서 다음 함수에 넘기되, 실패는 자동으로 전파"
 
@@ -82,7 +82,7 @@ def allCallScenarios (floors : List Nat) (dirs : List Direction) : List (Nat × 
 
 == 이게 왜 "합성"의 이야기인가
 
-2장에서 "합성이 실패할 때"라는 문제를 남겨뒀습니다 — 평범한 함수는 출력 타입과 다음 함수의 입력 타입이 정확히 맞아야만 이어붙일 수 있습니다. 모나드는 이 문제를 "함수의 출력을 `Option`/`List` 같은 컨테이너로 감싸고, 그 컨테이너를 벗기고 다시 감싸는 규칙(`bind`)을 표준화"하는 방식으로 풉니다. 결국 `bind`도 2장에서 본 합성과 본질적으로 같은 일을 합니다 — 다만 "출력이 그대로 다음 함수의 입력이 되는" 대신 "출력이 부수효과를 감싼 채로, 그 부수효과를 처리하면서 다음 함수에 이어지는" 것입니다.
+3장에서 "합성이 실패할 때"라는 문제를 남겨뒀습니다 — 평범한 함수는 출력 타입과 다음 함수의 입력 타입이 정확히 맞아야만 이어붙일 수 있습니다. 모나드는 이 문제를 "함수의 출력을 `Option`/`List` 같은 컨테이너로 감싸고, 그 컨테이너를 벗기고 다시 감싸는 규칙(`bind`)을 표준화"하는 방식으로 풉니다. 결국 `bind`도 3장에서 본 합성과 본질적으로 같은 일을 합니다 — 다만 "출력이 그대로 다음 함수의 입력이 되는" 대신 "출력이 부수효과를 감싼 채로, 그 부수효과를 처리하면서 다음 함수에 이어지는" 것입니다.
 
 == 직접 해보기
 
