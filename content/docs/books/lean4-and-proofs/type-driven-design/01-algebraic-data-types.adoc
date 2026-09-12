@@ -8,7 +8,7 @@ description: "이 책 전체에서 함께 만들어갈 엘리베이터 프로젝
 ---
 
 // tag::body[]
-_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../02-function-composition/[2장: 함수 합성]_
+_link:../[전체 목차] · 이전: link:../00-preface/[서문] · 다음: link:../01-5-curry-howard-for-design/[1.5장: 타입은 명세, 함수는 증명]_
 
 '''
 
@@ -93,5 +93,5 @@ example : ElevatorPhase.idle ≠ ElevatorPhase.movingTo 5 := by decide
 * sum과 product를 조합(product 안에 sum을 담는 식)하면, "불가능한 상태를 표현조차 못 하게" 만들 수 있습니다 — 런타임 검사 없이 컴파일 타임에 무효한 값을 차단합니다.
 * 이 장에서 만든 `ElevatorPhase`와 `ElevatorState`가 이 책 전체를 관통하는 엘리베이터 프로젝트의 뼈대입니다.
 
-다음 장에서는 이렇게 다듬은 타입들을 다루는 함수를 어떻게 "상태를 직접 조작"하는 대신 "작은 함수들의 합성"으로 짤 것인지 다룹니다.
+다음 장에서는 이 타입 설계가 Prop 명세와 증명으로 어떻게 이어지는지 확인합니다.
 // end::body[]

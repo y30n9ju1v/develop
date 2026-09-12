@@ -1,0 +1,163 @@
+---
+title: "1.5장: 타입은 명세, 함수는 증명 — 엘리베이터로 보는 커리-하워드 대응"
+date: 2026-09-12T00:00:00+09:00
+draft: false
+tags: ["lean4", "type-theory", "curry-howard", "elevator", "book"]
+categories: ["books"]
+description: "1장에서 ADT로 불가능한 엘리베이터 상태를 지운 다음, Prop으로 안전 명세를 쓰고 함수를 짜듯 증명 항을 만들어 타입 설계와 증명이 어떻게 이어지는지 확인하는 1.5장"
+---
+
+// tag::body[]
+_link:../[전체 목차] · 이전: link:../01-algebraic-data-types/[1장: 대수적 데이터 타입] · 다음: link:../02-function-composition/[2장: 함수 합성]_
+
+'''
+
+1장에서 우리는 문이 열린 채 움직이는 엘리베이터라는 불가능한 상태를 ADT로 지웠습니다. 이제 한 걸음 더 나아가 봅시다. "그런 값이 만들어지지 않는다"는 설계 결정을, Lean에게 어떤 문장으로 말하고 그 문장을 어떻게 확인시킬 수 있을까요?
+
+이 장의 답은 간단합니다. **상태의 모양은 타입으로 설계하고, 상태가 지켜야 할 성질은 Prop으로 적고, 그 성질의 증거는 함수처럼 작성합니다.** 이것이 설계 현장에서 쓰는 커리-하워드 대응의 모습입니다.
+
+이 장은 커리-하워드 대응의 역사나 강한 정규화를 새로 증명하지 않습니다. 여기서는 ADT가 만든 엘리베이터 상태를 명세하고 증명하는 데 필요한 만큼만 씁니다.
+
+== ADT가 먼저 막아 주는 것
+
+1장의 타입을 다시 적어 보겠습니다.
+
+[source,lean]
+----
+inductive ElevatorPhase where
+  | idle
+  | movingTo (dest : Nat)
+  | doorsOpen
+deriving DecidableEq, Repr
+
+structure ElevatorState where
+  floor : Nat
+  phase : ElevatorPhase
+deriving DecidableEq, Repr
+----
+
+이 타입에는 움직이는 중과 문이 열린 중을 동시에 담는 생성자가 없습니다. 따라서 그런 상태값을 만들 수 없습니다. 이것은 타입이 막아 주는 첫 번째 안전장치입니다.
+
+하지만 타입만으로 모든 요구사항을 적을 수 있는 것은 아닙니다. 예를 들어 다음 문장은 상태 하나를 보고 판단하는 **명세**입니다.
+
+* 움직이는 상태라면 문은 열려 있지 않다.
+* 점검 모드에서는 이동 명령을 받아도 이동하지 않는다.
+* 호출을 받은 뒤에는 언젠가 목적지에 도착한다.
+
+첫 문장은 지금의 ADT 구조에서 바로 확인할 수 있습니다. 나머지 둘은 4장 이후에 상태 전이와 시간의 흐름을 갖추면 다룹니다. 먼저 현재 상태 하나에 관한 명세부터 Prop으로 적어 봅시다.
+
+== Prop: 값이 아니라 주장에 붙이는 타입
+
+아래 두 정의는 ElevatorState를 받아 명제를 돌려줍니다. IsMoving은 지금 이동 중이라는 주장이고, DoorsClosed는 지금 문이 닫혀 있다는 주장입니다.
+
+[source,lean]
+----
+def IsMoving : ElevatorState → Prop
+  | { phase := .movingTo _, .. } => True
+  | _ => False
+
+def DoorsClosed : ElevatorState → Prop
+  | { phase := .doorsOpen, .. } => False
+  | _ => True
+----
+
+여기서 True와 False는 Bool이 아닙니다. True에는 항상 증거가 하나 있고, False에는 증거가 없습니다. 즉 IsMoving s의 증거를 갖는다는 것은 s가 movingTo 모양이라는 사실을, DoorsClosed s의 증거를 갖는다는 것은 s가 doorsOpen 모양이 아니라는 사실을 Lean이 인정했다는 뜻입니다.
+
+== 함의를 함수로 읽기
+
+이제 우리가 원하는 안전 명세를 적습니다.
+
+[source,lean]
+----
+theorem movingImpliesDoorsClosed (s : ElevatorState) :
+    IsMoving s → DoorsClosed s := by
+  cases s with
+  | mk floor phase =>
+    cases phase <;> simp [IsMoving, DoorsClosed]
+----
+
+화살표는 2장에서 쓸 평범한 함수 타입과 똑같습니다. 이 정리는 IsMoving s의 증거를 받으면 DoorsClosed s의 증거를 돌려주는 함수입니다.
+
+증명의 본문은 phase의 세 경우를 나누기만 합니다.
+
+* idle이면 IsMoving s 자체가 False입니다. 성립하지 않는 전제에서 무엇이든 따라옵니다.
+* movingTo이면 IsMoving s와 DoorsClosed s가 둘 다 True입니다.
+* doorsOpen이면 역시 IsMoving s가 False입니다.
+
+중요한 점은 이 증명이 복잡한 계산을 해서 안전을 찾아낸 것이 아니라는 것입니다. 1장에서 타입을 제대로 나눈 덕분에, 가능한 생성자를 모두 살펴보는 것만으로 명세가 나옵니다.
+
+== 불가능한 조합은 증명도 만들 수 없다
+
+두 주장 모두의 증거를 동시에 요구하면 어떻게 될까요?
+
+[source,lean]
+----
+theorem movingAndOpenImpossible (s : ElevatorState)
+    (moving : IsMoving s) (notClosed : ¬ DoorsClosed s) : False := by
+  exact notClosed (movingImpliesDoorsClosed s moving)
+----
+
+이 정리의 타입을 한국어로 읽으면 이렇습니다.
+
+> 어떤 엘리베이터 상태 s가 이동 중이라는 증거와, 문이 닫혀 있지 않다는 증거를 동시에 받으면 모순이다.
+
+몸통은 함수 호출 한 번입니다. movingImpliesDoorsClosed에 moving을 넣어 문이 닫혔다는 증거를 얻고, notClosed에 넣어 모순을 얻습니다. 논리에서 말하는 함의 제거가 프로그래밍에서는 함수 적용인 이유가 바로 이것입니다.
+
+물론 이 정리는 문이 열린 상태와 이동 상태가 섞인 값을 직접 찾아내지 않습니다. 그런 값은 ADT가 먼저 없앴습니다. 이 정리는 그 설계 사실을 Prop의 언어로 다시 말해, 이후의 다른 함수와 증명에서 재사용할 수 있게 만든 것입니다.
+
+== 타입 설계와 명세의 역할을 나누기
+
+[cols="1,2,2", options="header"]
+|===
+| 도구 | 엘리베이터에서 맡는 일 | 예
+
+| ADT
+| 표현 가능한 상태의 모양을 제한한다
+| movingTo와 doorsOpen을 한 값에 함께 담을 생성자가 없다
+
+| Prop
+| 상태나 전이가 만족해야 할 문장을 적는다
+| IsMoving s → DoorsClosed s
+
+| 증명 항
+| 그 문장을 만족하는 이유를 코드로 만든다
+| phase를 모두 나누어 보는 movingImpliesDoorsClosed
+|===
+
+이 구분은 실전에서 매우 유용합니다. ADT에 넣을 수 있는 제약은 먼저 ADT로 막습니다. 그러면 런타임 검사와 증명해야 할 경우가 함께 줄어듭니다. 여러 상태를 가로지르거나 시간에 걸친 성질처럼 ADT 하나로 담을 수 없는 요구사항은 Prop으로 명세하고, 전이 함수를 만들 때 그 명세를 보존한다는 증명을 붙입니다.
+
+4장에서 만들 transition 함수는 바로 이 다음 단계입니다. 입력 하나를 처리한 뒤에도 안전 명세가 유지된다는 함수를 쓰게 됩니다. 8~10장에서는 그 생각을 시간에 걸친 안전성·생동성 명세로 넓힙니다.
+
+== 직접 해보기
+
+* IsMoving과 같은 방식으로 IsDoorsOpen을 정의해 보세요.
+* IsDoorsOpen s와 DoorsClosed s를 동시에 받을 수 없다는 정리를 작성해 보세요.
+* movingImpliesDoorsClosed의 증명에서 각 phase가 어떤 명제로 단순화되는지 종이에 적어 보세요.
+
+.해답 보기
+[%collapsible]
+====
+[source,lean]
+----
+def IsDoorsOpen : ElevatorState → Prop
+  | { phase := .doorsOpen, .. } => True
+  | _ => False
+
+theorem doorsOpenAndClosedImpossible (s : ElevatorState)
+    (opened : IsDoorsOpen s) (closed : DoorsClosed s) : False := by
+  cases s with
+  | mk floor phase =>
+    cases phase <;> simp [IsDoorsOpen, DoorsClosed] at opened closed
+----
+====
+
+== 요약
+
+* ADT는 불가능한 상태값을 만들 수 없게 설계한다.
+* Prop은 상태와 전이가 지켜야 할 성질을 적는 타입이고, 그 타입의 값은 증명이다.
+* A → B는 A의 증거를 받아 B의 증거를 돌려주는 함수다.
+* 좋은 ADT 설계는 증명을 대체하지 않지만, 증명해야 할 경우를 작고 명확하게 만든다.
+* 이 책에서는 ADT로 상태의 모양을 제한하고, 이후 장에서 Prop과 증명으로 전이·시간 성질을 확인한다.
+
+다음 장에서는 이 안전한 타입들을 다루는 함수를 작은 파이프라인으로 합성하는 법을 배웁니다.
+// end::body[]
