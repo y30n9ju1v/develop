@@ -137,7 +137,7 @@ Tier IV 변환 → IR에 매핑·품질 기록 → 필요한 블록만 보정·�
 
 ## 아직 승인되지 않은 항목
 
-- 회사 실측 맵에서의 기준선 변환과 허용치 결정
+- 회사 실측 맵에서의 기준선 변환과 허용치 결정 — 출발값과 확정 절차는 [회귀 테스트 허용치 도출](../lanelet2-to-opendrive-tolerance-derivation/) 참고
 - 최신 IR 보정 결과를 포함한 OpenDRIVE 라운드트립
 - `superelevation` roll angle 직렬화와 검증
 - Junction 그룹핑 오류와 laneLink의 자동 승인 기준
@@ -152,4 +152,4 @@ Tier IV 변환 → IR에 매핑·품질 기록 → 필요한 블록만 보정·�
 
 ---
 
-*관련 글: [OpenDRIVE vs Lanelet2 비교](../opendrive-vs-lanelet2/), [Lanelet2 입문](../lanelet2-for-beginners/), [OpenDRIVE 입문](../opendrive-for-beginners/)*
+*관련 글: [회귀 테스트 허용치 도출](../lanelet2-to-opendrive-tolerance-derivation/), [OpenDRIVE vs Lanelet2 비교](../opendrive-vs-lanelet2/), [Lanelet2 입문](../lanelet2-for-beginners/), [OpenDRIVE 입문](../opendrive-for-beginners/)*

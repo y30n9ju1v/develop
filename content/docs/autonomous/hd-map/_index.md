@@ -12,3 +12,4 @@ HD 맵 포맷(Lanelet2, OpenDRIVE)과 자율주행 시뮬레이션 시나리오(
 6. **[OpenSCENARIO 2.0 입문](openscenario-2-for-beginners/)** — XML 대신 텍스트 DSL로 시나리오를 기술하는 OSC2의 문법과, 파라미터 공간을 통한 대규모 회귀 테스트 시나리오 생성 방법을 정리합니다.
 7. **[Lanelet2 → OpenDRIVE 변환기 설계하기](lanelet2-to-opendrive-ir-design/)** — 실차용 Lanelet2 맵을 시뮬레이션용 OpenDRIVE로 바꾸기 위한 중간 표현(IR), 기준 변환기, 결정적 검사와 시각 검토 파이프라인을 단계별로 정리합니다.
 8. **[Lanelet2 → OpenDRIVE 변환 스파이크 노트](lanelet2-to-opendrive-spike-notes/)** — 참조선 피팅, 클로소이드, Junction 생성과 시각 검토를 탐색한 실험 기록과 실패 사례를 보존합니다.
+9. **[회귀 테스트 허용치 도출](lanelet2-to-opendrive-tolerance-derivation/)** — 위치·곡률·jerk·Junction 회전반경·superelevation 허용치를 문헌·표준에서 출발해 실제 회귀 테스트에 대한 섭동 스윕으로 확정하는 절차를 정리합니다.
